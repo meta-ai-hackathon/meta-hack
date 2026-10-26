@@ -31,6 +31,7 @@ Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to 
 | `info/idea judge workflow.md` | Reusable template to score any new idea in minutes |
 | `info/stack and credits.md` | The Muse family, what each model does, credit budget plan |
 | `ideas/` | One file per idea considered, plus the running scorecard |
+| `skills/` | Agent-runnable skills — `skills/evaluate-idea/SKILL.md` scores any new idea end to end |
 
 ## Rules that shape everything
 
