@@ -32,6 +32,7 @@ Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to 
 | `info/stack and credits.md` | The Muse family, what each model does, credit budget plan |
 | `ideas/` | One file per idea considered, plus the running scorecard |
 | `skills/` | Agent-runnable skills — `skills/evaluate-idea/SKILL.md` scores any new idea end to end |
+| `architecture.md` | The build contract: pipeline stages, invariants, quality gates |
 
 ## Rules that shape everything
 
@@ -42,8 +43,8 @@ Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to 
 
 ## For agents
 
-- `AGENTS.md` has the conventions and validation commands
-- CI runs markdownlint and the link tests on every push
+- `AGENTS.md` has the conventions, quality gates, and validation commands
+- `main` is PR-gated: CI (markdownlint + integrity tests) must pass to merge. Direct pushes are rejected
 - New ideas go through `skills/evaluate-idea/SKILL.md` before any build talk
 - `ideas/evaluated.md` is append-only history, never rewrite past rows
 
