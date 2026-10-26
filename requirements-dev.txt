@@ -1,2 +1,3 @@
 # Dev/test dependencies (pinned to the verified version)
 pytest==9.1.1
+mypy==2.4.0

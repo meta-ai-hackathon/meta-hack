@@ -32,6 +32,7 @@ Run both before committing:
 ```text
 npx markdownlint-cli2 "**/*.md"
 python3 -m pytest tests/ -q
+python3 -m mypy scripts/ tests/
 ```
 
 ## Quality gates (non-negotiable)
