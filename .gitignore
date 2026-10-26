@@ -3,9 +3,10 @@ __pycache__/
 .pre-commit-cache/
 .DS_Store
 
-# Environment and secrets
+# Environment and secrets (template itself is tracked)
 .env
 .env.*
+!.env.example
 
 # Dependencies and build artifacts
 node_modules/
