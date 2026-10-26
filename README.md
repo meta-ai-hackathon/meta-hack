@@ -40,6 +40,13 @@ Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to 
 - Must fit a problem statement AND genuinely use Meta Model API / open-weight models — pass/fail gate before scoring
 - 3-minute demo video is the primary judging artifact
 
+## For agents
+
+- `AGENTS.md` has the conventions and validation commands
+- CI runs markdownlint and the link tests on every push
+- New ideas go through `skills/evaluate-idea/SKILL.md` before any build talk
+- `ideas/evaluated.md` is append-only history, never rewrite past rows
+
 ## Related
 
 Obsidian vault notes: `my knowledge base/meta hackathon/` (homepage, event guide, links — mirrored here).
