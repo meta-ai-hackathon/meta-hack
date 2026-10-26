@@ -1,0 +1,38 @@
+name: Scheduled link check
+
+on:
+  schedule:
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  link-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Run link checker
+        id: check
+        run: |
+          python3 scripts/check_links.py | tee link-check.log
+          test ${PIPESTATUS[0]} -eq 0
+        continue-on-error: true
+      - name: Open issue on failure
+        if: failure() || steps.check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Failing links from the scheduled check:"
+            echo '```'
+            grep -E '^FAILED:' link-check.log || echo 'none (see run log)'
+            echo '```'
+            echo "Full log: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > issue.md
+          gh issue create --title "Link check failed (run $GITHUB_RUN_NUMBER)" --body-file issue.md
