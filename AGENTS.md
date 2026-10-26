@@ -21,6 +21,12 @@ Guidance for any agent or human working in this repo. See the [README](README.md
 
 ## Validation
 
+One-time setup from a fresh clone:
+
+```text
+python3 -m pip install -r requirements-dev.txt
+```
+
 Run both before committing:
 
 ```text
