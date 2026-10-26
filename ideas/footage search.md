@@ -12,7 +12,7 @@ Businesses sit on thousands of hours of security footage and scrub manually. Upl
 
 ## Pipeline (the one-stack answer)
 
-```
+```text
 [Perception]  SAM 3.1 (self-hosted on Modal) → masks + tracks per object, cached once per clip
 [Labeling]    Muse Spark → one call per object crop → "white SUV, pallets"
 [Timeline]    ours → track events into a queryable store (appear/disappear/move/meet)

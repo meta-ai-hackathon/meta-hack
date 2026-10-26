@@ -12,6 +12,7 @@
     - Muse Code coding agent to build faster
 
 ## Schedule (all times ET)
+
 | When | What |
 | --- | --- |
 | **🟠Mon Oct 26, 12 PM** | **Kickoff** — overview, rules, prizes, judging, Meta speaker |

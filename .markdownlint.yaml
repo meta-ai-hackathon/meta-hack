@@ -1,0 +1,17 @@
+# markdownlint config — permissive enough for existing content
+MD013: false
+MD024:
+  siblings_only: true
+MD033: false
+MD041: false
+MD012: false
+MD060: false
+# links.md is a bare-URL reference sheet; headings/lists there are intentionally tight
+MD022: false
+MD032: false
+MD034: false
+# bold labels instead of headings is a deliberate docs style
+MD036: false
+# existing nested lists use 4-space indent
+MD007:
+  indent: 4
