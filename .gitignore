@@ -2,3 +2,16 @@ __pycache__/
 .pytest_cache/
 .pre-commit-cache/
 .DS_Store
+
+# Environment and secrets
+.env
+.env.*
+
+# Dependencies and build artifacts
+node_modules/
+dist/
+build/
+
+# IDE configs
+.idea/
+.vscode/
