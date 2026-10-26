@@ -34,6 +34,19 @@ npx markdownlint-cli2 "**/*.md"
 python3 -m pytest tests/ -q
 ```
 
+## Quality gates (non-negotiable)
+
+- Never bypass checks: no `--no-verify`, no skipped CI runs, no deleting or weakening tests to make a run green
+- A failing test means fix the code. Change the test only when it encodes outdated behavior, and explain why in the PR body
+- `main` is protected: all work lands via PR with CI green. Red CI = stop and fix before any new work
+- No new dependencies without a pinned version and a one-line rationale in the PR description. Never edit lockfiles by hand
+- Secrets live in `.env` only (copy `.env.example`, gitignored). Never commit keys, never log them. A task that needs a new secret documents it in `.env.example` in the same PR
+- Stay in scope: no opportunistic refactors, no touching `ideas/` history
+
+## When app code lands
+
+The first PR that adds application code must, in that same PR: set up the project (Next.js, TypeScript strict), wire `tsc --noEmit` + ESLint + the app test runner into `ci.yml`, and record its install/build commands here. App code that CI cannot validate does not get committed.
+
 ## Rules
 
 - Commit in small, logical units: one concern per commit (agent guidance, lint config, tests, CI, templates). Never one giant batch
