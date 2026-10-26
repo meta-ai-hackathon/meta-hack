@@ -24,8 +24,8 @@ Key mental models:
 
 | Source | Amount | Catch |
 |---|---|---|
-| Meta Model API | ==$150 per person== | Everyone claims individually (can't claim for teammates), card pre-auth required, ==deadline Nov 4, 9 PM ET==. Set a spend limit on the Billing page |
-| Baseten | $100 + 2M TPM | First 2,000 participants, use-case review. ==🔴 Docs default to `meta-models/muse-spark-open` — hackathon requires `meta-models/muse-spark-open-1026`== |
+| Meta Model API | **$150 per person** | Everyone claims individually (can't claim for teammates), card pre-auth required, **deadline Nov 4, 9 PM ET**. Set a spend limit on the Billing page |
+| Baseten | $100 + 2M TPM | First 2,000 participants, use-case review. **🔴 Docs default to `meta-models/muse-spark-open` — hackathon requires `meta-models/muse-spark-open-1026`** |
 | Modal | $100 | First 1,000 participants — serverless GPUs, Endpoints, sandboxes, fine-tuning |
 | Fireworks | $25 | Shortlisted teams only |
 
@@ -36,7 +36,7 @@ Baseten/Modal/Fireworks all do the same job: rent GPUs to run open-weight models
 1. **$150 is a reasoning budget, not a perception budget.** SAM 3.1 over raw video burns credits. Cache tracks once per clip; the LLM only reasons over compressed track data, never re-watches video
 2. **SAM 3.1 is open weight** → self-host on Modal GPUs. Perception becomes a flat ~$5–10 instead of per-call. Saves the $150 for Spark/Wonder
 3. **The fine-tune play** — LoRA a small open-weights model (on Modal) to do one job well. Checks "beyond a basic integration" and the $10K open-weight bonus at once
-4. **Contributor tier trap** — Muse Code's cheap tier ($0.72/1k steps) lets Meta train on your code. ==Fine for hackathon code, never for TASC repos==
+4. **Contributor tier trap** — Muse Code's cheap tier ($0.72/1k steps) lets Meta train on your code. **Fine for hackathon code, never for TASC repos**
 
 ## Muse Code quality check (researched Oct 26)
 

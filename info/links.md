@@ -1,28 +1,26 @@
 # Meta hackathon links
 
-#AI
-
-==Every URL for the hackathon in one place — verified live Oct 26.== Details in [[event guide]].
+**Every URL for the hackathon in one place — verified live Oct 26.** Details in [event guide](event%20guide.md).
 
 ## Cerebral Valley platform
 - Event landing — https://cerebralvalley.ai/e/meta-ai-developer-hackathon
-- ==Participant guide== (schedule, rules, prizes — needs CV login) — https://cerebralvalley.ai/e/meta-ai-developer-hackathon/details
+- **Participant guide** (schedule, rules, prizes — needs CV login) — https://cerebralvalley.ai/e/meta-ai-developer-hackathon/details
 - Application overview + waiver — https://cerebralvalley.ai/e/meta-ai-developer-hackathon/waiver
 - 🟠 **Login-walled, grab from the guide when signed in:** Discord invite, $150 credit claim form, submission portal, livestream — the CV details page blocks logged-out access so I couldn't extract these four
 
 ## Meta Model API — account
-- ==Billing== (spend limit lives here) — https://dev.meta.ai/billing?team_id=2181437619392922&project_id=2030324597684216
+- **Billing** (spend limit lives here) — https://dev.meta.ai/billing?team_id=2181437619392922&project_id=2030324597684216
 - API login — https://dev.meta.ai/api/auth/login
 - API status — https://dev.meta.ai/docs/api-reference/status
 - Help center / support — https://dev.meta.ai/help/ · https://dev.meta.ai/support/
 
 ## Meta Model API — docs
 - Docs hub — https://dev.meta.ai/docs/
-- ==Quickstart== — https://dev.meta.ai/docs/quickstart
+- **Quickstart** — https://dev.meta.ai/docs/quickstart
 - Models list — https://dev.meta.ai/docs/models
 - Pricing + rate limits — https://dev.meta.ai/docs/pricing-rate-limits
 - Authentication — https://dev.meta.ai/docs/authentication
-- ==Cookbook (all recipes)== — https://dev.meta.ai/docs/cookbook
+- **Cookbook (all recipes)** — https://dev.meta.ai/docs/cookbook
     - API fundamentals — https://dev.meta.ai/docs/cookbook/api-fundamentals
     - Agent patterns — https://dev.meta.ai/docs/cookbook/agent-patterns
     - Run locally (open weights) — https://dev.meta.ai/docs/cookbook/run-locally
@@ -57,4 +55,4 @@
 - Videos / on-demand sessions — https://dev.meta.ai/resources/videos/
 
 ## Related
-- [[event guide]] · [[meta hackathon homepage]]
+- [event guide](event%20guide.md) · [grading criteria](grading%20criteria.md)

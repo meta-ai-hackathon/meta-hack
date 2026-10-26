@@ -1,8 +1,6 @@
 # Meta Global AI Developer Hackathon
 
-#AI
-
-==One-stop wiki — $1M prize pool, run by Cerebral Valley, Meta models required.== Building period Oct 27 – Nov 4, 2026.
+**One-stop wiki — $1M prize pool, run by Cerebral Valley, Meta models required.** Building period Oct 27 – Nov 4, 2026.
 [Event page](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/details) · [Billing / credits](https://dev.meta.ai/billing?team_id=2181437619392922&project_id=2030324597684216)
 
 ## Problem statements — pick one
@@ -16,12 +14,12 @@
 ## Schedule (all times ET)
 | When | What |
 | --- | --- |
-| ==🟠Mon Oct 26, 12 PM== | ==Kickoff== — overview, rules, prizes, judging, Meta speaker |
+| **🟠Mon Oct 26, 12 PM** | **Kickoff** — overview, rules, prizes, judging, Meta speaker |
 | Tue Oct 27, 12–1 PM | Agents 101: build a multimodal AI agent — Suraj Subramanian |
 | Wed Oct 28, 12–1 PM | Agents 102: verifiable agents best practices — Yash Khare |
 | Fri Oct 30, 12–1 PM | Specialized intelligence on Fireworks (Muse Open models) — Sinan Ozdemir |
 | Weekdays 10–11 AM | Text office hours in Discord #office-hours (no livestream) |
-| ==🟠Wed Nov 4, 9 PM== | ==Submissions due + last day to claim API credits== |
+| **🟠Wed Nov 4, 9 PM** | **Submissions due + last day to claim API credits** |
 | Thu Nov 5 – Sun Nov 8 | Judging |
 | Mon Nov 9, 12 PM | Closing ceremony — top 10 announced (5 per track), live final judging, community vote opens |
 | Mon Nov 16 | Community vote winner announced |
@@ -31,11 +29,11 @@ Livestream link on the event page.
 ## Rules
 - Public repo (open source), max team of 4, solo allowed, startups allowed
 - One submission per team, entered by an appointed "Representative"
-- ==New work only: demo shows only what you built during the event — unclear contribution = immediate disqualification==
+- **New work only: demo shows only what you built during the event — unclear contribution = immediate disqualification**
 - 🔴 **Anti-projects (disqualified):** AI medical/mental-health advice, basic RAG apps, simple image analyzers, "AI for education" chatbots, AI job application screener, AI nutrition coach, personality analyzers, sports analyzers/coaches, anything political or war-related
 
 ## Credits & compute
-- 🟢 **$150 Meta Model API credits per person** — everyone claims individually (can't claim for teammates), via the credit form, ==deadline Wed Nov 4, 9 PM ET==
+- 🟢 **$150 Meta Model API credits per person** — everyone claims individually (can't claim for teammates), via the credit form, **deadline Wed Nov 4, 9 PM ET**
     - Credit card required on the account (temporary pre-auth charge, auto-released in a few days); set a spend limit on the Billing page to stay inside the $150
 - Baseten — $100 + 2M TPM rate limit, up to 2,000 participants, granted per individual after use-case review
     - 🔴 Docs default to `meta-models/muse-spark-open` — hackathon requires `meta-models/muse-spark-open-1026`
@@ -51,7 +49,7 @@ Livestream link on the event page.
 
 ## Judging — 3 stages
 1. Pass/fail: fits a problem statement + genuinely uses Meta Model API / open-weight models
-2. Scored 0–10: ==Impact 30% · Meta AI tooling 25% · Demo 25% · Technical depth 20%==
+2. Scored 0–10: **Impact 30% · Meta AI tooling 25% · Demo 25% · Technical depth 20%**
 3. Top 5 per track → live final round, same rubric
 
 ## Prizes — $1M total

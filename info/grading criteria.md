@@ -36,4 +36,4 @@ Project idea (clarity, feasibility, theme fit) and technical skill — weighted 
 | Best Agentic Use-Case | $5K | Strongest agent autonomy / multi-step workflows |
 | Best Creative Build | $5K | Most original use of Muse Image or Muse Wonder |
 
-==Strategic note: the open-weight bonus ($10K) and creative bonus ($5K) favor exactly the plays in `stack and credits.md` — self-hosting + fine-tuning + Muse Image/Wonder.==
+**Strategic note: the open-weight bonus ($10K) and creative bonus ($5K) favor exactly the plays in `stack and credits.md` — self-hosting + fine-tuning + Muse Image/Wonder.**

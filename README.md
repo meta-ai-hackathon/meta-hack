@@ -2,7 +2,7 @@
 
 Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to Nov 4, 2026. $1M prize pool, solo entry, indie track.
 
-==Status: exploring phase. No idea locked.==
+**Status: exploring phase. No idea locked.**
 
 ## Where we stand
 
@@ -16,7 +16,7 @@ Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to 
 |---|---|
 | Wed Oct 26, 12 PM ET | Kickoff |
 | Tue Oct 27 – Fri Oct 30 | Workshops (agents 101/102, Fireworks) |
-| ==Wed Nov 4, 9 PM ET== | ==Submission due + last day to claim API credits== |
+| **Wed Nov 4, 9 PM ET** | **Submission due + last day to claim API credits** |
 | Nov 5–8 | Judging |
 | Mon Nov 9, 12 PM | Closing ceremony, top 10 live final |
 

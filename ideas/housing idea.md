@@ -17,7 +17,7 @@ Proposed 3-min demo: enter a request → generate and explore a design → show 
 | Criterion | Weight | Score | Why |
 |---|---|---|---|
 | Impact | 30% | 7.5 | Housing is a real, huge market; buyers + small builders genuinely benefit. Strongest column |
-| Meta tooling | 25% | 4 | ==The core artifact — a *buildable* floor plan — is constrained geometry (walls, plumbing, code compliance). That's CAD math, not an LLM task==. Meta's stack only contributes decoration (renders, chat) |
+| Meta tooling | 25% | 4 | **The core artifact — a *buildable* floor plan — is constrained geometry (walls, plumbing, code compliance). That's CAD math, not an LLM task**. Meta's stack only contributes decoration (renders, chat) |
 | Technical depth | 20% | 5 | Real generative design = months. In 10 days: templates + pretty renders, or fake. Marketplace half is a CRUD app |
 | Demo | 25% | 7 live / 4 pre-baked | "Walk through your home" is great cinema — but they don't know yet what generates live vs is PowerPoint |
 | **Weighted** | | **≈6.1** | Below incumbent (8.3) |

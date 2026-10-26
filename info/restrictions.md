@@ -32,7 +32,7 @@ The list isn't random — every banned item falls in one of four buckets. Test a
 
 ## One-line test for any new idea
 
-==Does it advise a body, grade a human, need one API call, or touch war? No to all four = buildable.==
+**Does it advise a body, grade a human, need one API call, or touch war? No to all four = buildable.**
 
 ## Gray zones to watch (not banned, but easy to drift into)
 

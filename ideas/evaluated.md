@@ -1,10 +1,10 @@
 # Ideas evaluated — running scorecard
 
-Every idea considered, scored through `info/idea judge workflow.md`. ==Incumbent to beat: footage search ≈8.3.==
+Every idea considered, scored through `info/idea judge workflow.md`. **Incumbent to beat: footage search ≈8.3.**
 
 | Idea | Impact (30%) | Tooling (25%) | Demo (25%) | Depth (20%) | Weighted | Status |
 |---|---|---|---|---|---|---|
-| **Footage search** (civilian) | 9 | 7 | 9 | 8 | **8.3** | ==Frontrunner== |
+| **Footage search** (civilian) | 9 | 7 | 9 | 8 | **8.3** | **Frontrunner** |
 | OVERWATCH (military) | 8 | 9 | 8 | 9 | 8.4 | 🔴 Dead — anti-list bans war |
 | Sports analyst | 6 | 7 | 7 | 7 | 6.7 | 🔴 Dead — anti-list bans sports analyzers |
 | Boxing judge | 5 | 7 | 6 | 8 | 6.4 | 🔴 Dead — sports + demo risk |

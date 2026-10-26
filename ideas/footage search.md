@@ -1,6 +1,6 @@
 # Footage search — current frontrunner
 
-=="Google for your cameras."== Still unnamed — candidates: Recall, Rewind, Replay.
+**"Google for your cameras."** Still unnamed — candidates: Recall, Rewind, Replay.
 
 ## What it is
 
