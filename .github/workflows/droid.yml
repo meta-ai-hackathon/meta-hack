@@ -38,3 +38,4 @@ jobs:
         uses: Factory-AI/droid-action@main
         with:
           factory_api_key: ${{ secrets.FACTORY_API_KEY }}
+          droid_args: "--model glm-5.3-flash --reasoning-effort max"
