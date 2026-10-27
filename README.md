@@ -45,6 +45,7 @@ Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to 
 
 - `AGENTS.md` has the conventions, quality gates, and validation commands
 - `main` is PR-gated: CI (markdownlint + integrity tests) must pass to merge. Direct pushes are rejected
+- Droid auto-review (GLM 5.3 Flash, max reasoning) comments on every non-draft PR; `@droid <instruction>` in a PR comment triggers an agent run (currently against the default branch, not the PR head — tracked in hack-10)
 - New ideas go through `skills/evaluate-idea/SKILL.md` before any build talk
 - `ideas/evaluated.md` is append-only history, never rewrite past rows
 
