@@ -6,7 +6,7 @@ Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to 
 
 ## Where we stand
 
-- **Frontrunner:** footage search ("Google for your cameras") — weighted ≈8.3 on the rubric, civilian framing, demo risk near zero. See `ideas/footage search.md`
+- **Frontrunner:** footage search + the rescue vertical (merged) — "Google for your cameras" gains its mission and demo spine: the real Luna rescue in Yellowstone, with two new pillars landing with the build (reference-photo re-ID, next-search planning). Weighted ≈8.3 on the rubric, civilian framing. See `ideas/footage search.md` and `ideas/find my dog.md`
 - **Evaluation rules:** every new idea goes through `info/idea judge workflow.md` before any build talk
 - **Hard context:** the anti-projects list killed the military framing (OVERWATCH), sports analyst, and boxing judge. Read `info/restrictions.md` before proposing anything
 
