@@ -29,7 +29,7 @@ Weighted total = 0.30·I + 0.25·T + 0.25·D + 0.20·Depth.
 
 ## Step 4 — Compare and decide
 
-**Incumbent to beat: footage search, ≈8.3.** (Update this number if the incumbent changes.)
+**Incumbent to beat: footage search + find-my-dog rescue vertical (merged), ≈8.3.** (Update this number if the incumbent changes.)
 
 | Score | Verdict |
 |---|---|
