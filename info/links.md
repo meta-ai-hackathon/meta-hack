@@ -46,9 +46,16 @@
 
 ## Inference partners
 - 🔴 **Baseten model name trap:** docs default to `meta-models/muse-spark-open` — hackathon requires `meta-models/muse-spark-open-1026`
-- Baseten — https://www.baseten.co/ ($100 + 2M TPM, per individual, use-case reviewed)
-- Modal — https://modal.com/ ($100, first 1,000) — [Endpoints](https://modal.com/docs/guide/endpoints) · [serverless GPUs](https://modal.com/docs/guide/gpu) · [sandboxes](https://modal.com/docs/guide/sandboxes)
-- Fireworks — https://fireworks.ai/ ($25, shortlisted teams only)
+- Credits are not guaranteed — distributed at each partner's sole discretion
+- Baseten — https://www.baseten.co/ ($100 + 2M TPM, up to 2,000 participants, granted per individual, use-case reviewed)
+    - [Credit request form](https://docs.google.com/forms/d/e/1FAIpQLSfM7gcK8yMZEmAGq6DbTyiuv2c71IH7CKCy0fXGIfUED1qxVQ/viewform)
+    - Docs: [Quickstart](https://docs.baseten.co/quickstart) · [Chat Completions API](https://docs.baseten.co/reference/inference-api/chat-completions) · [Reasoning](https://docs.baseten.co/inference/model-apis/reasoning) (Muse Spark Open reasoning output) · [Vision](https://docs.baseten.co/inference/model-apis/vision) · [Audio](https://docs.baseten.co/inference/model-apis/audio)
+    - Help: Baseten channel in the hackathon Discord
+- Modal — https://modal.com/ ($100, first 1,000, for Meta's open-weight models)
+    - [Credit request form](https://docs.google.com/forms/d/e/1FAIpQLSe_GDPtLZsdA57xPhFcOCi_yLjPf8HRxMIQJ5V7ystoKSqWCQ/viewform)
+    - Docs: [Introduction](https://modal.com/docs/guide/intro) · [Endpoints](https://modal.com/docs/guide/endpoints) · [serverless GPUs](https://modal.com/docs/guide/gpu) · [sandboxes](https://modal.com/docs/guide/sandboxes) · [LLM training tools](https://modal.com/docs/guide/training-quickstart)
+- Fireworks — https://fireworks.ai/ ($25, shortlisted teams only, redemption details by email)
+    - [Credit request form](https://docs.google.com/forms/d/e/1FAIpQLSdPQTTES8_nhavzZkOrebVNYbM1FumWLdpeZx8ZSNe4QLXKPA/viewform)
 
 ## Meta event pages
 - Meta-side hackathon page — https://dev.meta.ai/events/global-hackathon
