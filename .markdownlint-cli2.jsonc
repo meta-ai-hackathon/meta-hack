@@ -1,0 +1,5 @@
+{
+  "ignores": [
+    ".factory/skills/pstack-*/**"
+  ]
+}
