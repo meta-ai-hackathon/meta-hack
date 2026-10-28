@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 548" width="560" height="548" role="img" aria-label="Layered dependency graph of the Benefits Navigator feature map: six layers, critical path highlighted">
+  <title>Benefits Navigator — layered dependency graph (BN-01 to BN-46)</title>
+  <rect width="560" height="548" fill="#ffffff"/>
+  <style>
+    .nm { font: 600 10px/1.1 -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .tg { font: 500 8.5px/1.1 -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; fill: #59636e; }
+    .lb { font: 600 9px/1 -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; letter-spacing: .08em; fill: #818b98; }
+    .ed { font: 500 8.5px -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; fill: #59636e; }
+    .pill { fill: #ffffff; stroke: #d1d9e0; stroke-width: 1; }
+    .hot { fill: #0969da; fill-opacity: .12; stroke: #0969da; stroke-width: 1; }
+    .band { fill: #f6f8fa; }
+    .rail { stroke: #0969da; fill: none; stroke-width: 1.2; }
+    .ah { fill: #0969da; }
+  </style>
+  <rect x="8" y="18" width="544" height="88" rx="8" class="band"/>
+  <text x="16" y="32" class="lb">L0 · START IN PARALLEL</text>
+  <rect x="12" y="36" width="130" height="30" rx="6" class="pill"/>
+  <text x="20" y="48" class="nm">App scaffold+CI</text><text x="20" y="59" class="tg">BN-01·06·07</text>
+  <rect x="148" y="36" width="130" height="30" rx="6" class="pill"/>
+  <text x="156" y="48" class="nm">Data model</text><text x="156" y="59" class="tg">BN-02</text>
+  <rect x="284" y="36" width="130" height="30" rx="6" class="pill"/>
+  <text x="292" y="48" class="nm">KB schema</text><text x="292" y="59" class="tg">BN-04</text>
+  <rect x="420" y="36" width="130" height="30" rx="6" class="pill"/>
+  <text x="428" y="48" class="nm">Customer discovery</text><text x="428" y="59" class="tg">BN-08</text>
+  <rect x="12" y="70" width="130" height="30" rx="6" class="pill"/>
+  <text x="20" y="82" class="nm">Baseten model</text><text x="20" y="93" class="tg">BN-31</text>
+  <rect x="8" y="118" width="544" height="96" rx="8" class="band"/>
+  <text x="16" y="132" class="lb">L1 · PARALLEL</text>
+  <rect x="12" y="136" width="130" height="30" rx="6" class="pill"/>
+  <text x="20" y="148" class="nm">PII vault</text><text x="20" y="159" class="tg">BN-03 ← 02</text>
+  <rect x="148" y="136" width="130" height="30" rx="6" class="pill"/>
+  <text x="156" y="148" class="nm">Honest contract</text><text x="156" y="159" class="tg">BN-05 ← 04</text>
+  <rect x="284" y="136" width="130" height="30" rx="6" class="pill"/>
+  <text x="292" y="148" class="nm">Intake + resume</text><text x="292" y="159" class="tg">BN-09·10·13 ← 02</text>
+  <rect x="420" y="136" width="130" height="30" rx="6" class="pill"/>
+  <text x="428" y="148" class="nm">Source cards</text><text x="428" y="159" class="tg">BN-27 ← 04</text>
+  <rect x="12" y="176" width="130" height="30" rx="6" class="hot"/>
+  <text x="20" y="188" class="nm">Pilot KB verify</text><text x="20" y="199" class="tg">BN-28 ← 08</text>
+  <rect x="8" y="226" width="544" height="70" rx="8" class="band"/>
+  <text x="16" y="240" class="lb">L2 · PARALLEL</text>
+  <rect x="12" y="244" width="174" height="30" rx="6" class="hot"/>
+  <text x="20" y="256" class="nm">AI conversational guide</text><text x="20" y="267" class="tg">BN-11 ← 04·09·31</text>
+  <rect x="192" y="244" width="174" height="30" rx="6" class="pill"/>
+  <text x="200" y="256" class="nm">Benefit ID + docs</text><text x="200" y="267" class="tg">BN-14·15·16 ← 28</text>
+  <rect x="372" y="244" width="174" height="30" rx="6" class="pill"/>
+  <text x="380" y="256" class="nm">Guardrails</text><text x="380" y="267" class="tg">BN-12 ← 11</text>
+  <rect x="8" y="308" width="544" height="70" rx="8" class="band"/>
+  <text x="16" y="322" class="lb">L3 · PARALLEL</text>
+  <rect x="12" y="326" width="130" height="30" rx="6" class="hot"/>
+  <text x="20" y="338" class="nm">Form prep</text><text x="20" y="349" class="tg">BN-18 ← 11·15</text>
+  <rect x="148" y="326" width="130" height="30" rx="6" class="pill"/>
+  <text x="156" y="338" class="nm">Doc checklist</text><text x="156" y="349" class="tg">BN-17 ← 15</text>
+  <rect x="284" y="326" width="130" height="30" rx="6" class="pill"/>
+  <text x="292" y="338" class="nm">Address guidance</text><text x="292" y="349" class="tg">BN-20 ← 27</text>
+  <rect x="420" y="326" width="130" height="30" rx="6" class="pill"/>
+  <text x="428" y="338" class="nm">Renewal tracker</text><text x="428" y="349" class="tg">BN-22 ← 15</text>
+  <rect x="8" y="390" width="544" height="70" rx="8" class="band"/>
+  <text x="16" y="404" class="lb">L4 · PARALLEL</text>
+  <rect x="12" y="408" width="130" height="30" rx="6" class="pill"/>
+  <text x="20" y="420" class="nm">Package review</text><text x="20" y="431" class="tg">BN-21 ← 18</text>
+  <rect x="148" y="408" width="130" height="30" rx="6" class="pill"/>
+  <text x="156" y="420" class="nm">Handoff + state</text><text x="156" y="431" class="tg">BN-23·24·25 ← 21</text>
+  <rect x="284" y="408" width="130" height="30" rx="6" class="pill"/>
+  <text x="292" y="420" class="nm">Follow-up</text><text x="292" y="431" class="tg">BN-26 ← 24</text>
+  <rect x="420" y="408" width="130" height="30" rx="6" class="pill"/>
+  <text x="428" y="420" class="nm">Rules + glossary</text><text x="428" y="431" class="tg">BN-29·30 ← 28</text>
+  <rect x="8" y="472" width="544" height="66" rx="8" class="band"/>
+  <text x="16" y="486" class="lb">L5 · DEMO CLOSE-OUT</text>
+  <rect x="12" y="490" width="266" height="30" rx="6" class="pill"/>
+  <text x="20" y="502" class="nm">Demo script + fixtures + evals</text><text x="20" y="513" class="tg">BN-36·37·38·39 ← 18·21·25</text>
+  <rect x="284" y="490" width="268" height="30" rx="6" class="pill"/>
+  <text x="292" y="502" class="nm">Runbooks + submission freeze</text><text x="292" y="513" class="tg">BN-40·41 ← 31·all</text>
+  <polyline points="485,66 485,112 5,112 5,191 12,191" class="rail"/>
+  <polygon points="5,187 13,191 5,195" class="ah"/>
+  <polyline points="5,191 5,259 12,259" class="rail"/>
+  <polygon points="5,255 13,259 5,263" class="ah"/>
+  <polyline points="5,259 5,341 12,341" class="rail"/>
+  <polygon points="5,337 13,341 5,345" class="ah"/>
+  <polyline points="5,341 5,423 12,423" class="rail"/>
+  <polygon points="5,419 13,423 5,427" class="ah"/>
+  <line x1="142" y1="423" x2="147" y2="423" class="rail"/>
+  <polygon points="141,419 149,423 141,427" class="ah"/>
+  <line x1="213" y1="438" x2="213" y2="490" class="rail"/>
+  <polygon points="209,483 217,483 213,491" class="ah"/>
+  <text x="250" y="108" class="ed">discovery picks the pilot →</text>
+</svg>
