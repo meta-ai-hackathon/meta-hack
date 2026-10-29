@@ -5,13 +5,15 @@ import { AppError, reportError, toErrorCode, userMessageFor } from "../telemetry
 /**
  * Map any thrown value to a safe HTTP response: the taxonomy code, the
  * canonical user-facing copy for that code, and nothing else — no internals,
- * no question ids, no values. Validation problems are 400, anything unknown
- * is a generic 500.
+ * no question ids, no values. Validation problems are 400, things that were
+ * looked for and not found (e.g. resuming an unknown session) are 404,
+ * anything unknown is a generic 500.
  */
 export function errorResponse(error: unknown): Response {
   reportError(error, { event: "intake.request_failed" });
   const code = toErrorCode(error);
-  const status = code === "validation_error" ? 400 : 500;
+  const status =
+    code === "validation_error" ? 400 : code === "not_found" ? 404 : 500;
   return Response.json(
     { error: { code, message: userMessageFor(code) } },
     { status },

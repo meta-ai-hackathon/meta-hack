@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
+import fc from "fast-check";
 import { closeDb } from "../db";
 import { runMigrations } from "../migrate";
 import { AppError } from "../telemetry";
@@ -9,7 +10,9 @@ import {
   ensureSession,
   loadAnswers,
   loadSession,
+  loadSessionState,
   readSessionCookie,
+  recordCaseworkerAssist,
   saveAnswer,
   sessionCookieHeader,
 } from "./store";
@@ -324,5 +327,64 @@ describe("answers map feeds the flow engine", () => {
     // The fail-open consequence is asserted by the flow engine suite; here we
     // prove the persisted shape it consumes (status unknown, value null).
     expect(answers.housing_status?.value).toBeNull();
+  });
+});
+
+describe("caseworker assist records (BN-10)", () => {
+  it("records an audit note and flips the assist flag", async () => {
+    const { sessionId } = await ensureSession(null);
+    await recordCaseworkerAssist(sessionId, "Reviewed housing questions together");
+    const state = await loadSessionState(sessionId);
+    expect(state).not.toBeNull();
+    expect(state?.caseworkerAssisted).toBe(true);
+    expect(state?.auditNotes).toHaveLength(1);
+    expect(state?.auditNotes[0].actorRole).toBe("caseworker");
+    expect(state?.auditNotes[0].note).toBe("Reviewed housing questions together");
+  });
+
+  it("orders multiple notes oldest first", async () => {
+    const { sessionId } = await ensureSession(null);
+    await recordCaseworkerAssist(sessionId, "First sitting");
+    await recordCaseworkerAssist(sessionId, "Second sitting");
+    const state = await loadSessionState(sessionId);
+    expect(state?.auditNotes.map((note) => note.note)).toEqual([
+      "First sitting",
+      "Second sitting",
+    ]);
+  });
+
+  it("rejects blank or overlong notes", async () => {
+    const { sessionId } = await ensureSession(null);
+    await expect(recordCaseworkerAssist(sessionId, "   ")).rejects.toMatchObject({
+      code: "validation_error",
+    });
+    await expect(
+      recordCaseworkerAssist(sessionId, "x".repeat(2001)),
+    ).rejects.toMatchObject({ code: "validation_error" });
+  });
+});
+
+describe("properties (fast-check)", () => {
+  it("stores exactly the trimmed note and flips the assist flag", async () => {
+    // The only transformation an assist note undergoes is trimming: for any
+    // note with content, the stored note is input.trim() and the session
+    // ends up flagged caseworker-assisted.
+    const attempts = fc.asyncProperty(
+      fc
+        .string({ minLength: 1, maxLength: 200 })
+        .filter((note) => note.trim().length > 0),
+      async (note) => {
+        const { sessionId } = await ensureSession(null);
+        await recordCaseworkerAssist(sessionId, note);
+        const state = await loadSessionState(sessionId);
+        return (
+          state !== null &&
+          state.caseworkerAssisted &&
+          state.auditNotes.length === 1 &&
+          state.auditNotes[0].note === note.trim()
+        );
+      },
+    );
+    await fc.assert(attempts, { numRuns: 50 });
   });
 });

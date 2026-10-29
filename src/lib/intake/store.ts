@@ -1,4 +1,9 @@
-import { isAnswerStatus, type AnswerStatus } from "../honesty";
+import {
+  isAnswerStatus,
+  isSessionStatus,
+  type AnswerStatus,
+  type SessionStatus,
+} from "../honesty";
 import { AppError, logInfo, userMessageFor } from "../telemetry";
 import { getDb } from "../db";
 import { vaultFlowValues, vaultPut } from "../vault";
@@ -82,6 +87,89 @@ export async function ensureSession(
   const [session] =
     await sql`INSERT INTO session (person_id) VALUES (${person.id}) RETURNING id`;
   return { sessionId: String(session.id), fresh: true };
+}
+
+/** One caseworker audit note as the session API returns it (BN-10). */
+export interface SessionAuditNoteView {
+  readonly actorRole: string;
+  readonly note: string;
+  readonly createdAt: string;
+}
+
+/** The session's lifecycle summary: BN-25 status, assist flag, audit notes. */
+export interface SessionStateView {
+  readonly status: SessionStatus;
+  readonly caseworkerAssisted: boolean;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly auditNotes: readonly SessionAuditNoteView[];
+}
+
+/**
+ * Load a session's lifecycle summary — status, caseworker-assisted flag,
+ * and the full audit-note history, oldest first. Returns null for an
+ * unknown session id. Read-only; used by the /api/session resume path so
+ * audit notes recorded at create/assist time survive resume intact.
+ */
+export async function loadSessionState(
+  sessionId: string,
+): Promise<SessionStateView | null> {
+  const sql = getDb();
+  const sessions = await sql`
+    SELECT status, caseworker_assisted, created_at, updated_at
+    FROM session
+    WHERE id = ${sessionId}
+  `;
+  if (sessions.length === 0) {
+    return null;
+  }
+  const stored = sessions[0];
+  const notes = await sql`
+    SELECT actor_role, note, created_at
+    FROM session_audit_note
+    WHERE session_id = ${sessionId}
+    ORDER BY created_at ASC, id ASC
+  `;
+  return {
+    status: isSessionStatus(stored.status) ? stored.status : "draft",
+    caseworkerAssisted: stored.caseworker_assisted === true,
+    createdAt: new Date(stored.created_at).toISOString(),
+    updatedAt: new Date(stored.updated_at).toISOString(),
+    auditNotes: notes.map((note) => ({
+      actorRole: String(note.actor_role),
+      note: String(note.note),
+      createdAt: new Date(note.created_at).toISOString(),
+    })),
+  };
+}
+
+/**
+ * Record that a caseworker assisted this session: appends the audit note
+ * (who/what/when, BN-10) and flips the session's caseworker-assisted flag.
+ * The note text is required and bounded; its contents are never logged.
+ */
+export async function recordCaseworkerAssist(
+  sessionId: string,
+  note: string,
+  actorRole = "caseworker",
+): Promise<void> {
+  const trimmed = note.trim();
+  if (trimmed === "" || trimmed.length > MAX_TEXT_LENGTH) {
+    throw validationError();
+  }
+  const sql = getDb();
+  await sql`
+    INSERT INTO session_audit_note (session_id, actor_role, note)
+    VALUES (${sessionId}, ${actorRole}, ${trimmed})
+  `;
+  await sql`
+    UPDATE session
+    SET caseworker_assisted = true, updated_at = now()
+    WHERE id = ${sessionId}
+  `;
+  // No note content or session id in the log — assist notes are free-form
+  // caseworker text and could carry identifying content.
+  logInfo("session_audit_note_recorded", { actorRole });
 }
 
 /**
