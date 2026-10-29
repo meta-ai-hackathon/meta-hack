@@ -5,6 +5,7 @@ import { closeDb } from "../db";
 import { runMigrations } from "../migrate";
 import { AppError } from "../telemetry";
 import type { AnswerMap } from "./flow";
+import { QUESTION_BY_ID } from "./spec";
 import {
   SESSION_COOKIE,
   ensureSession,
@@ -257,6 +258,29 @@ describe("saveAnswer validation", () => {
     );
   });
 
+  it("rejects inherited Object keys as question ids without dereferencing them", async () => {
+    // QUESTION_BY_ID is a plain object: an unguarded index lookup resolves
+    // 'constructor' & friends from Object.prototype (truthy!) instead of
+    // failing validation — a 500 or a junk row instead of the contracted 400.
+    const rowsBefore = await answerRows(sessionId);
+    for (const questionId of [
+      "constructor",
+      "toString",
+      "hasOwnProperty",
+      "valueOf",
+      "__proto__",
+      "isPrototypeOf",
+    ]) {
+      await expectValidationError(
+        saveAnswer(sessionId, questionId, "known", "self"),
+      );
+      await expectValidationError(
+        saveAnswer(sessionId, questionId, "unknown", null),
+      );
+    }
+    expect(await answerRows(sessionId)).toHaveLength(rowsBefore.length);
+  });
+
   it("rejects statuses outside the tri-state", async () => {
     await expectValidationError(
       saveAnswer(sessionId, "application_role", "maybe" as never, "self"),
@@ -386,5 +410,34 @@ describe("properties (fast-check)", () => {
       },
     );
     await fc.assert(attempts, { numRuns: 50 });
+  });
+
+  it("rejects every question id that is not an own spec id, storing nothing", async () => {
+    // Totality property: arbitrary junk ids — including every inherited
+    // Object.prototype key — get the contracted validation_error, and no
+    // answer row is ever written for them.
+    const attempts = fc.asyncProperty(
+      fc
+        .string({ minLength: 1, maxLength: 60 })
+        .filter((id) => !Object.hasOwn(QUESTION_BY_ID, id)),
+      fc.constantFrom("known", "unknown", "unverified"),
+      async (questionId, status) => {
+        const { sessionId } = await ensureSession(null);
+        const rowsBefore = await answerRows(sessionId);
+        let rejected = false;
+        try {
+          await saveAnswer(sessionId, questionId, status, "self");
+        } catch (caught) {
+          rejected =
+            caught instanceof AppError && caught.code === "validation_error";
+        }
+        if (!rejected) {
+          return false;
+        }
+        const rowsAfter = await answerRows(sessionId);
+        return rowsAfter.length === rowsBefore.length;
+      },
+    );
+    await fc.assert(attempts, { numRuns: 150 });
   });
 });

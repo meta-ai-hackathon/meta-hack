@@ -296,6 +296,44 @@ function vaultValueFor(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+/** The validated shape an answer submission must produce. */
+export interface ValidatedAnswer {
+  readonly question: Question;
+  /** Canonical storage value; null for unknown answers (no value anywhere). */
+  readonly storedValue: string | number | boolean | string[] | null;
+}
+
+/**
+ * Validate an answer submission against the question spec and return the
+ * spec question it targets plus its canonical storage value — WITHOUT
+ * touching the database. Used by saveAnswer and by the answer route, which
+ * must reject bad input BEFORE creating a session (a rejected first answer
+ * must never leave an orphan person/session row behind).
+ *
+ * The question lookup guards with Object.hasOwn: QUESTION_BY_ID is a plain
+ * object, so an unguarded index would resolve inherited Object.prototype
+ * keys like "constructor" (truthy!) instead of failing validation — a 500
+ * or a junk row instead of the contracted 400.
+ */
+export function validateAnswerInput(
+  questionId: string,
+  status: AnswerStatus,
+  value: unknown,
+): ValidatedAnswer {
+  if (!Object.hasOwn(QUESTION_BY_ID, questionId)) {
+    throw validationError();
+  }
+  const question = QUESTION_BY_ID[questionId];
+  if (!isAnswerStatus(status)) {
+    throw validationError();
+  }
+  return {
+    question,
+    storedValue:
+      status === "unknown" ? null : canonicalValue(question, value),
+  };
+}
+
 /**
  * Validate and persist one answer. known/unverified answers carry a
  * spec-valid value; unknown answers carry none. Re-answering the same
@@ -307,19 +345,11 @@ export async function saveAnswer(
   status: AnswerStatus,
   value: unknown,
 ): Promise<void> {
-  const question = QUESTION_BY_ID[questionId];
-  if (!question) {
-    throw validationError();
-  }
-  if (!isAnswerStatus(status)) {
-    throw validationError();
-  }
-
-  let storedValue: string | number | boolean | string[] | null = null;
-  if (status !== "unknown") {
-    // Throws a taxonomy validation_error for anything the spec disallows.
-    storedValue = canonicalValue(question, value);
-  }
+  const { question, storedValue } = validateAnswerInput(
+    questionId,
+    status,
+    value,
+  );
 
   const sql = getDb();
   if (question.pii) {
