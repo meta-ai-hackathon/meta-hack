@@ -20,6 +20,7 @@ import {
   loadAnswers,
   loadSession,
   saveAnswer,
+  UUID_PATTERN,
   validateAnswerInput,
   type AnswerProvenance,
 } from "./intake/store";
@@ -584,12 +585,14 @@ export async function persistTurn(
   sessionId: string,
   role: "user" | "assistant",
   redactedTranscript: string,
-): Promise<void> {
+): Promise<string> {
   const sql = getDb();
-  await sql`
+  const rows = await sql`
     INSERT INTO conversation_turn (session_id, role, redacted_transcript)
     VALUES (${sessionId}, ${role}, ${redactedTranscript})
+    RETURNING id
   `;
+  return String(rows[0].id);
 }
 
 /** The session's redacted turns, oldest first. */
@@ -614,6 +617,28 @@ export async function loadTurns(sessionId: string): Promise<ConversationTurnView
     });
   }
   return turns;
+}
+
+/** Load one stored REDACTED turn for a session, by id. */
+export async function loadTurnText(
+  sessionId: string,
+  turnId: string,
+  role: "user" | "assistant",
+): Promise<string | null> {
+  if (!UUID_PATTERN.test(turnId)) {
+    return null;
+  }
+  const sql = getDb();
+  const rows = await sql`
+    SELECT redacted_transcript, role
+    FROM conversation_turn
+    WHERE session_id = ${sessionId} AND id = ${turnId}
+  `;
+  const row = rows[0];
+  if (!row || !isTurnRole(row.role) || row.role !== role) {
+    return null;
+  }
+  return String(row.redacted_transcript);
 }
 
 /** The most recent redacted turns, oldest first (the reply prompt's history). */
@@ -748,8 +773,46 @@ export interface TurnOutcome {
   /** True when this turn created the person/session (set-cookie follows). */
   readonly fresh: boolean;
   readonly assistantReply: string;
+  /** The persisted assistant turn's id — the speak route's handle. */
+  readonly assistantTurnId: string;
   readonly redactedUserTranscript: string;
   readonly nextQuestionId: string | null;
+}
+
+/**
+ * Error payload the route reads to hand a fresh visitor their session
+ * cookie even when the reply failed: the session and its saved answers
+ * exist, so a retry must resume it instead of orphaning the rows
+ * (claude-review P2-3).
+ */
+export interface TurnSessionContext {
+  readonly sessionId: string;
+  readonly fresh: boolean;
+}
+
+export function turnSessionContext(
+  error: unknown,
+): TurnSessionContext | null {
+  if (error instanceof AppError) {
+    const cause = error.cause as { turnSession?: TurnSessionContext } | unknown;
+    if (
+      cause &&
+      typeof cause === "object" &&
+      !Array.isArray(cause) &&
+      "turnSession" in cause
+    ) {
+      const turnSession = (cause as { turnSession?: unknown }).turnSession;
+      if (
+        turnSession &&
+        typeof turnSession === "object" &&
+        typeof (turnSession as TurnSessionContext).sessionId === "string" &&
+        typeof (turnSession as TurnSessionContext).fresh === "boolean"
+      ) {
+        return turnSession as TurnSessionContext;
+      }
+    }
+  }
+  return null;
 }
 
 /** Report the specific private values that appear in a transcript. */
@@ -958,11 +1021,32 @@ export async function processUserTurn(
   // skip the reply call and answer deterministically — an honest "not
   // saved" plus the question again (hardening item 6 / BN-11).
   let reply: string;
-  if (unmappedChoiceAttempt && currentQuestion) {
-    reply = `${CHOICE_UNMAPPED_FALLBACK_PREFIX} ${currentQuestion.prompt}`;
-  } else {
-    const history = await recentTurns(sessionId, REPLY_HISTORY_TURNS);
-    reply = await generateReply(nextQuestion, history, redactedUserTranscript);
+  try {
+    if (unmappedChoiceAttempt && currentQuestion) {
+      reply = `${CHOICE_UNMAPPED_FALLBACK_PREFIX} ${currentQuestion.prompt}`;
+    } else {
+      const history = await recentTurns(sessionId, REPLY_HISTORY_TURNS);
+      reply = await generateReply(
+        nextQuestion,
+        history,
+        redactedUserTranscript,
+      );
+    }
+  } catch (error) {
+    if (fresh) {
+      // The session was created for THIS turn; its answers are saved but
+      // nothing conversational is persisted. Carry the session on the
+      // error so the route still issues the cookie — the visitor's data
+      // stays reachable and a retry resumes instead of orphaning the rows
+      // (claude-review P2-3).
+      logWarn("conversation_turn_reply_failed_fresh_session");
+      throw new AppError(
+        error instanceof AppError ? error.code : "model_unavailable",
+        error instanceof AppError ? error.message : userMessageFor("model_unavailable"),
+        { cause: { turnSession: { sessionId, fresh } } },
+      );
+    }
+    throw error;
   }
 
   // 7. Honesty gate per sentence, then the private-value echo gate — both
@@ -983,12 +1067,13 @@ export async function processUserTurn(
   // gate (hardening item 1). The user turn lands as the redacted words
   // only; the raw text never lands anywhere.
   await persistTurn(sessionId, "user", redactedUserTranscript);
-  await persistTurn(sessionId, "assistant", reply);
+  const assistantTurnId = await persistTurn(sessionId, "assistant", reply);
   logInfo("conversation_turn_completed");
   return {
     sessionId,
     fresh,
     assistantReply: reply,
+    assistantTurnId,
     redactedUserTranscript,
     nextQuestionId: nextQuestion?.id ?? null,
   };
@@ -1006,6 +1091,11 @@ export async function processUserTurn(
  * extraction/persistence path as typed input (provenance user_supplied).
  * Empty or oversized transcripts are validation errors, never fabricated
  * turns (VAL-VOICE-006).
+ *
+ * The STT call carries a per-turn RANDOM id, never the session cookie
+ * value: the cookie is this app's bearer credential, and it must not
+ * appear in a third party's URL logs (claude-review P1-3). Meta's
+ * sessionId is request grouping only — a random UUID serves it.
  */
 export async function transcribeTurnAudio(
   audio: Uint8Array,
@@ -1017,7 +1107,8 @@ export async function transcribeTurnAudio(
   if (existingSessionId) {
     await assertWithinTurnRate(existingSessionId);
   }
-  const result = await transcribeAudio(audio, existingSessionId);
+  const sttSessionId = crypto.randomUUID();
+  const result = await transcribeAudio(audio, sttSessionId);
   const transcript = result.transcript.trim();
   if (transcript === "" || transcript.length > MAX_TURN_TEXT_LENGTH) {
     throw validationError();

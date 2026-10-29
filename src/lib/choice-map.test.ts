@@ -69,6 +69,27 @@ describe("mapChoiceText — the live-observed failures", () => {
     expect(["food", "housing"]).toContain(ambiguous?.[0]);
   });
 
+  it("never maps a negated option (claude-review P2-4): ruling an option out is not choosing it", () => {
+    for (const [text, questionId] of [
+      ["not housing", "main_goal"],
+      ["no food", "main_goal"],
+      ["never a job", "income_sources"],
+      ["don't need housing", "main_goal"],
+    ] as const) {
+      const mapped = mapChoiceText(
+        QUESTION_BY_ID[questionId as keyof typeof QUESTION_BY_ID],
+        text,
+      );
+      expect(mapped, `"${text}" mapped to ${JSON.stringify(mapped)}`).toBeNull();
+    }
+    // Negation followed by a different option in the same breath reads as
+    // negated too (normalization erases the punctuation) — the turn falls
+    // to the honest "couldn't match" reply instead of guessing.
+    expect(
+      mapChoiceText(QUESTION_BY_ID.main_goal, "not housing, food"),
+    ).toBeNull();
+  });
+
   it("returns null for unrelated or empty text, and for questions without options", () => {
     expect(mapChoiceText(QUESTION_BY_ID.application_role, "")).toBeNull();
     expect(

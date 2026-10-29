@@ -2,6 +2,7 @@ import {
   conversationErrorResponse,
   processUserTurn,
   transcribeTurnAudio,
+  turnSessionContext,
   validateTurnText,
 } from "../../../../lib/conversation";
 import {
@@ -50,7 +51,7 @@ export async function POST(request: Request): Promise<Response> {
           )
         : validateTurnText(await parseJsonBody(request));
 
-      const { sessionId, fresh, ...outcome } = await processUserTurn(
+      const { sessionId, assistantTurnId, ...outcome } = await processUserTurn(
         userText,
         cookieValue,
       );
@@ -61,7 +62,7 @@ export async function POST(request: Request): Promise<Response> {
       logInfo("conversation_turn_received");
 
       const headers = new Headers({ "content-type": "application/json" });
-      if (fresh) {
+      if (outcome.fresh) {
         headers.set(
           "set-cookie",
           sessionCookieHeader(sessionId, isSecureRequest(request)),
@@ -70,12 +71,27 @@ export async function POST(request: Request): Promise<Response> {
       return new Response(
         JSON.stringify({
           ...outcome,
+          assistantTurnId,
           state,
         }),
         { headers },
       );
     } catch (error) {
-      return conversationErrorResponse(error);
+      // A fresh visitor whose reply failed already has a session with
+      // saved answers (claude-review P2-3): issue the cookie on the error
+      // response so a retry RESUMES it instead of orphaning the rows.
+      const sessionContext = turnSessionContext(error);
+      const response = conversationErrorResponse(error);
+      if (sessionContext) {
+        response.headers.set(
+          "set-cookie",
+          sessionCookieHeader(
+            sessionContext.sessionId,
+            isSecureRequest(request),
+          ),
+        );
+      }
+      return response;
     }
   });
 }

@@ -160,7 +160,30 @@ function containmentMatches(
       const pattern = new RegExp(
         `(?<![a-z0-9'])${escapeRegExp(phrase)}(?![a-z0-9'])`,
       );
-      if (texts.some((text) => pattern.test(text))) {
+      // A negation ruling the option OUT ("not housing", "no food",
+      // "never a job") must not count as choosing it (claude-review P2-4).
+      // Checked as a window before the match: negation + up to two
+      // intervening words. When blocked, this option simply does not match
+      // and the turn falls toward the honest "couldn't match" reply.
+      const isNegated = (text: string): boolean => {
+        const match = pattern.exec(text);
+        if (!match) {
+          return false;
+        }
+        const before = text
+          .slice(Math.max(0, (match.index ?? 0) - 18), match.index ?? 0)
+          .toLowerCase();
+        // Checked as a window before the match: negation + up to one
+        // intervening word ("never a job"). Normalization erases sentence
+        // punctuation, so a negation followed by a DIFFERENT option in the
+        // same breath ("not housing, food") also reads as negated — that
+        // under-matches toward the honest "couldn't match" reply, which is
+        // the safe direction (a wrong save is worse than a re-ask).
+        return /(?:^|\s)(?:not|no|never|dont|don't)\s+(?:\w+\s+)?$/.test(
+          before,
+        );
+      };
+      if (texts.some((text) => pattern.test(text) && !isNegated(text))) {
         matches.push({ optionValue: option.value, phraseLength: phrase.length });
         break; // longest phrase per option is enough
       }

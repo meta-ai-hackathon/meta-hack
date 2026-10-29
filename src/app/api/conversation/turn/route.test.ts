@@ -155,6 +155,7 @@ function turnRequest(text: string, cookie?: string): Request {
 
 interface TurnResponse {
   assistantReply: string;
+  assistantTurnId: string;
   redactedUserTranscript: string;
   nextQuestionId: string | null;
   state: {
@@ -989,6 +990,56 @@ describe("POST /api/conversation/turn — deferred session creation (hardening 2
     expect(await countOf("session")).toBe(sessionsBefore + 1);
     expect(await userTranscripts()).toEqual(["It's for me."]);
   });
+
+  it("hands a fresh visitor their session cookie even when the reply fails, so a retry resumes instead of orphaning (claude-review P2-3)", async () => {
+    // Extraction succeeds (answers saved), the reply call fails.
+    setModelTransport(async (_url, init) => {
+      const parsed = JSON.parse(String(init.body)) as {
+        messages: { content: string }[];
+      };
+      const isExtraction = parsed.messages[0]?.content.startsWith(
+        EXTRACTION_SYSTEM_PROMPT_PREFIX,
+      );
+      if (isExtraction) {
+        return new Response(
+          JSON.stringify(
+            chatCallBody(
+              JSON.stringify({
+                answers: [
+                  { question_id: "application_role", status: "known", value: "self" },
+                ],
+              }),
+            ),
+          ),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ error: { message: "down" } }), {
+        status: 503,
+      });
+    });
+
+    const failed = await POST(turnRequest("It's for me."));
+    expect(failed.status).toBe(503);
+    // The error response STILL carries the session cookie.
+    const cookie = (failed.headers.get("set-cookie") ?? "").split(";")[0].trim();
+    expect(cookie).toContain(`${SESSION_COOKIE}=`);
+
+    // The session is reachable: the retry with that cookie resumes it (no
+    // duplicate person/session rows, no duplicate answer work).
+    const peopleBefore = await countOf("person");
+    const sessionsBefore = await countOf("session");
+    installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+    ]);
+    const retried = await POST(turnRequest("Also I need food.", cookie));
+    expect(retried.status).toBe(200);
+    expect(await countOf("person")).toBe(peopleBefore);
+    expect(await countOf("session")).toBe(sessionsBefore);
+  });
 });
 
 describe("POST /api/conversation/turn — per-session turn-rate cap (hardening 3)", () => {
@@ -1209,6 +1260,33 @@ describe("POST /api/conversation/turn — voice mode (VAL-VOICE-001/004)", () =>
       SELECT value FROM answer WHERE question_id = 'phone_contact'
     `;
     expect(answerRows[0].value).toBeNull();
+  });
+
+  it("sends Meta a per-turn opaque STT id, never the session cookie value (claude-review P1-3)", async () => {
+    const { calls } = installVoiceScript(
+      [{ transcript: "It's for myself." }],
+      [
+        {
+          extraction: JSON.stringify({ answers: [] }),
+          reply: "Got it. What kind of help are you looking for right now?",
+        },
+      ],
+    );
+
+    const response = await POST(voiceRequest(SIXTEEN_K_MONO_WAV));
+    expect(response.status).toBe(200);
+    const cookie = (response.headers.get("set-cookie") ?? "").split(";")[0].trim();
+    const sessionValue = cookie.split("=")[1] ?? "";
+    const sttCalls = calls.filter((call) => call.kind === "stt");
+    expect(sttCalls).toHaveLength(1);
+    const sttUrl = sttCalls[0]?.url ?? "";
+    expect(sttUrl).toContain("sessionId=");
+    const sentId = new URL(sttUrl).searchParams.get("sessionId") ?? "";
+    // UUID-shaped, and never the bearer credential.
+    expect(sentId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(sentId).not.toBe(sessionValue);
   });
 });
 

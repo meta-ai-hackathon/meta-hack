@@ -46,6 +46,7 @@ interface HistoryResponse {
 
 interface TurnResponse {
   assistantReply: string;
+  assistantTurnId: string;
   redactedUserTranscript: string;
   nextQuestionId: string | null;
   state: IntakeClientState;
@@ -124,15 +125,16 @@ export function ConversationChat() {
     };
   }, []);
 
-  async function speakReply(text: string): Promise<void> {
-    // Spoken replies (VAL-VOICE-003): Gemini audio when the server has a
-    // key, browser speechSynthesis otherwise. The utterance is always the
-    // EXACT subtitle text shown in the transcript.
+  async function speakReply(turnId: string, subtitle: string): Promise<void> {
+    // Spoken replies (VAL-VOICE-003): Gemini audio for the STORED reply
+    // (the server speaks the turn by id — never client-supplied text)
+    // when the server has a key, browser speechSynthesis otherwise. The
+    // utterance is always the EXACT subtitle text shown in the transcript.
     try {
       const response = await fetch("/api/conversation/speak", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ turnId }),
       });
       if (response.ok) {
         const audio = new Audio(URL.createObjectURL(await response.blob()));
@@ -144,7 +146,7 @@ export function ConversationChat() {
       // Fall through to the built-in voice.
     }
     try {
-      queueSpeech(text);
+      queueSpeech(subtitle);
     } catch {
       // Speech is enhancement; the subtitle is the accessible path.
     }
@@ -185,7 +187,7 @@ export function ConversationChat() {
         : "All questions are answered.",
     );
     if (spoken) {
-      void speakReply(data.assistantReply);
+      void speakReply(data.assistantTurnId, data.assistantReply);
     }
   }
 

@@ -30,7 +30,7 @@ import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID, type Question } from "./spec"
 export const SESSION_COOKIE = "bn_session";
 export const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
-const UUID_PATTERN =
+export const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MAX_TEXT_LENGTH = 2000;
