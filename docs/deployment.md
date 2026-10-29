@@ -66,7 +66,7 @@ database wiring exists.
 | Var | Where | Notes |
 | --- | --- | --- |
 | `MODEL_API_KEY` | Vercel project env (Production, Preview, Development) | Meta Model API rail. Value from local `.env` only; documented in `.env.example`; never committed or logged. |
-| `DATABASE_URL` | Deferred | Wired when the data model milestone lands. Vercel Postgres provisioning is not automatable via the connector; add the Postgres store and set `DATABASE_URL` in Vercel env settings at that point. |
+| `DATABASE_URL` | Vercel project env (Production, Preview), set by the connected Vercel Postgres store | Wired 2026-10-29: the managed store is provisioned and connected, auto-setting `DATABASE_URL` and its companion Postgres vars. Env changes apply to new deployments only. The DSN is never committed or logged; apply migrations from a machine that has it (see the README's Production section). |
 
 ## Per-PR preview deployments
 
