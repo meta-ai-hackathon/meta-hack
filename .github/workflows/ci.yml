@@ -30,3 +30,18 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python3 -m pytest tests/ -q
       - run: python3 -m mypy scripts/ tests/
+
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
