@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  GEMINI_TTS_MODEL,
   GEMINI_TTS_URL,
   MAX_SPEAK_TEXT_LENGTH,
   TTS_PROMPT_PREFIX,

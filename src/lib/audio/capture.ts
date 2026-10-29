@@ -62,6 +62,19 @@ interface WindowWithAudio {
 }
 
 /**
+ * Whether this browser has the full capture stack (MediaRecorder + mic
+ * access + Web Audio). Checked lazily by the UI so a missing stack shows
+ * the typed path immediately.
+ */
+export function voiceCaptureSupported(): boolean {
+  return (
+    typeof MediaRecorder !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia
+  );
+}
+
+/**
  * Decode a recorded blob (webm/opus or mp4/AAC) and render it as 16 kHz
  * mono, then encode 16-bit PCM WAV. The OfflineAudioContext downmixes
  * stereo and resamples in one render — no hand-rolled resampler.
