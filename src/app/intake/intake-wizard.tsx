@@ -54,12 +54,33 @@ function displayValue(question: ClientQuestion, value: unknown): string {
   return String(value);
 }
 
+/** The "no requirement to finish in one sitting" affordance (BN-13). */
+function SaveForLater(props: { onSave: () => void; busy: boolean }) {
+  return (
+    <div className="flex flex-col gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-700">
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        Your answers save as you go on this device. Stop any time and pick up
+        later — nothing is submitted until you decide.
+      </p>
+      <button
+        type="button"
+        onClick={props.onSave}
+        disabled={props.busy}
+        className="self-start rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
+      >
+        {props.busy ? "Saving…" : "Save and finish later"}
+      </button>
+    </div>
+  );
+}
+
 export function IntakeWizard() {
   const [wizard, setWizard] = useState<Wizard>({ phase: "loading" });
   const [current, setCurrent] = useState(0);
   const [draftValue, setDraftValue] = useState<unknown>(undefined);
   const [bestGuess, setBestGuess] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [savingForLater, setSavingForLater] = useState(false);
   const [notice, setNotice] = useState("");
   const [questionError, setQuestionError] = useState<string | undefined>(
     undefined,
@@ -164,6 +185,39 @@ export function IntakeWizard() {
       setQuestionError(GENERIC_ERROR);
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Save and finish later (BN-13): make sure a session exists right now —
+   * even before the first answer — so returning to /intake on this device
+   * resumes exactly where the visitor left off. The session token lives in
+   * the httpOnly bn_session cookie; nothing is ever submitted by saving.
+   */
+  async function saveAndFinishLater(): Promise<void> {
+    if (wizard.phase !== "ready" || savingForLater) {
+      return;
+    }
+    setSavingForLater(true);
+    try {
+      const response = await fetch("/api/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        setNotice(data?.error?.message ?? GENERIC_ERROR);
+        return;
+      }
+      setWizard({ phase: "ready", state: data.state });
+      setNotice(
+        "Saved on this device. Come back any time — nothing is submitted until you decide.",
+      );
+    } catch {
+      setNotice(GENERIC_ERROR);
+    } finally {
+      setSavingForLater(false);
     }
   }
 
@@ -282,6 +336,7 @@ export function IntakeWizard() {
             </ul>
           </section>
         ) : null}
+        <SaveForLater onSave={() => void saveAndFinishLater()} busy={savingForLater} />
       </div>
     );
   }
@@ -330,6 +385,7 @@ export function IntakeWizard() {
           Back
         </button>
       ) : null}
+      <SaveForLater onSave={() => void saveAndFinishLater()} busy={savingForLater} />
     </div>
   );
 }
