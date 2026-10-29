@@ -7,20 +7,15 @@ interface StatusRegionProps {
 
 /**
  * Polite live region (BN-07): render it once and change `message`; screen
- * readers announce the update (VAL-A11Y-004). The region stays mounted even
- * when the message is empty, so the first update is still announced.
- * Wave 2 flows use this for every state change (saves, errors, steps).
+ * readers announce the update (VAL-A11Y-004). The message must actually
+ * change for an announcement to fire, so callers re-announcing the same
+ * notice should vary the text. The region stays mounted even when the
+ * message is empty, so the first update is still announced. Wave 2 flows
+ * use this for every state change (saves, errors, steps).
  */
 export function StatusRegion({ message, id, className }: StatusRegionProps) {
   return (
-    <p
-      id={id}
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-      data-status-region="true"
-      className={className}
-    >
+    <p id={id} role="status" aria-live="polite" aria-atomic="true" className={className}>
       {message}
     </p>
   );
