@@ -39,7 +39,7 @@
       "prompt": "In your own words, what would help the most?",
       "type": "text",
       "help": "A short sentence is fine. This is only to help us point you the right way.",
-      "pii": false,
+      "pii": true,
       "required": false,
       "skip_conditions": [
         { "question_id": "main_goal", "operator": "not_equals", "value": "other" }
@@ -114,7 +114,7 @@
       "prompt": "Which county or city area do you live in?",
       "type": "text",
       "help": "Your local office depends on this. Not sure? You can leave it blank.",
-      "pii": false,
+      "pii": true,
       "required": false,
       "skip_conditions": [],
       "provenance": "user-supplied"
@@ -258,7 +258,7 @@
         { "value": "staying_with_others", "label": "Staying with family or friends" },
         { "value": "rental_or_own", "label": "In a place I rent or own" }
       ],
-      "pii": false,
+      "pii": true,
       "required": true,
       "skip_conditions": [],
       "provenance": "user-supplied"
@@ -331,7 +331,7 @@
       "prompt": "Tell us what happened to your ID, if you'd like.",
       "type": "text",
       "help": "For example: lost, stolen, or never had one. This is optional. It helps us plan next steps with you.",
-      "pii": false,
+      "pii": true,
       "required": false,
       "skip_conditions": [
         { "question_id": "id_status", "operator": "equals", "value": "have_id" }
@@ -375,7 +375,7 @@
         { "value": "no", "label": "No" },
         { "value": "not_sure", "label": "Not sure" }
       ],
-      "pii": false,
+      "pii": true,
       "required": false,
       "skip_conditions": [],
       "provenance": "user-supplied"
@@ -429,7 +429,7 @@
         { "value": "day_center", "label": "A drop-in or day center" },
         { "value": "not_sure", "label": "Not sure yet" }
       ],
-      "pii": false,
+      "pii": true,
       "required": true,
       "skip_conditions": [],
       "provenance": "user-supplied"

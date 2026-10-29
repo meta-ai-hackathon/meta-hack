@@ -106,6 +106,13 @@
             "required": ["type"]
           },
           "then": { "not": { "required": ["options"] } }
+        },
+        {
+          "if": {
+            "properties": { "type": { "enum": ["text", "address"] } },
+            "required": ["type"]
+          },
+          "then": { "properties": { "pii": { "const": true } } }
         }
       ]
     },
