@@ -111,17 +111,36 @@ export async function recordedBlobToWav(blob: Blob): Promise<Blob> {
  * fallback path). Returns false — the caller then falls back to subtitles
  * only — when speechSynthesis is unavailable. The utterance speaks the
  * EXACT subtitle text (VAL-VOICE-003).
+ *
+ * When the browser exposes its voice list synchronously, a LOCAL
+ * (localService) voice is preferred so the fallback itself keeps reply
+ * text on-device; on browsers with async voice loading the default voice
+ * is used (claude-review round 2).
  */
 export function queueSpeech(
   text: string,
   speechSynthesis?: {
-    speak(utterance: { text: string }): void;
+    getVoices?(): { localService?: boolean; lang?: string }[];
+    speak(utterance: {
+      text: string;
+      voice?: unknown;
+    }): void;
   } | null,
 ): boolean {
   const synth = speechSynthesis ?? window.speechSynthesis;
   if (!synth || typeof window.SpeechSynthesisUtterance === "undefined") {
     return false;
   }
-  synth.speak(new window.SpeechSynthesisUtterance(text));
+  const utterance = new window.SpeechSynthesisUtterance(text);
+  try {
+    const voices = synth.getVoices?.() ?? [];
+    const local = voices.find((voice) => voice.localService);
+    if (local) {
+      utterance.voice = local as SpeechSynthesisVoice;
+    }
+  } catch {
+    // Voice selection is best-effort; the default voice still speaks.
+  }
+  synth.speak(utterance);
   return true;
 }
