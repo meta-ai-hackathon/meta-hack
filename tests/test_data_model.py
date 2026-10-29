@@ -28,6 +28,7 @@ CORE_TABLES = [
     "schema_migrations",
     "session",
     "session_audit_note",
+    "vault_entry",
 ]
 SESSION_STATUSES = [
     "draft",
@@ -238,6 +239,52 @@ class DataModelSqlTests(unittest.TestCase):
             )
             self.assertNotEqual(proc.returncode, 0, f"status {status!r} must be rejected")
             self.assertIn("23514", proc.stderr)
+
+    def test_006_vault_entry_is_structurally_separate(self) -> None:
+        """BN-03/HACK-31: the PII vault hangs off session only, one row per field."""
+        person = run_rows(TEST_DB, "INSERT INTO person DEFAULT VALUES RETURNING id")[0]
+        session = run_rows(
+            TEST_DB, f"INSERT INTO session (person_id) VALUES ('{person['id']}') RETURNING id"
+        )[0]
+        # FK graph: vault_entry references session; nothing references the vault.
+        outbound = run_rows(
+            TEST_DB,
+            "SELECT confrelid::regclass::text AS ref FROM pg_constraint "
+            "WHERE conrelid = 'vault_entry'::regclass AND contype = 'f'",
+        )
+        self.assertEqual([str(row["ref"]) for row in outbound], ["session"])
+        inbound = run_rows(
+            TEST_DB,
+            "SELECT count(*) AS n FROM pg_constraint "
+            "WHERE confrelid = 'vault_entry'::regclass AND contype = 'f'",
+        )
+        self.assertEqual(str(inbound[0]["n"]), "0")
+        # One row per (session, field): re-put is an update, not a duplicate.
+        run_sql(
+            TEST_DB,
+            f"INSERT INTO vault_entry (session_id, field, value) "
+            f"VALUES ('{session['id']}', 'date_of_birth', '1968-04-19')",
+        )
+        run_sql(
+            TEST_DB,
+            f"INSERT INTO vault_entry (session_id, field, value) "
+            f"VALUES ('{session['id']}', 'date_of_birth', '1968-04-20') "
+            f"ON CONFLICT (session_id, field) DO UPDATE SET value = EXCLUDED.value",
+        )
+        rows = run_rows(
+            TEST_DB,
+            f"SELECT field, value FROM vault_entry WHERE session_id = '{session['id']}'",
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["field"], "date_of_birth")
+        self.assertEqual(rows[0]["value"], "1968-04-20")
+        # person/answer carry no vault columns; the vault is not an answer column.
+        vaultish = run_rows(
+            TEST_DB,
+            "SELECT count(*) AS n FROM information_schema.columns "
+            "WHERE table_name IN ('person', 'answer') AND column_name LIKE '%vault%'",
+        )
+        self.assertEqual(str(vaultish[0]["n"]), "0")
 
 
 if __name__ == "__main__":
