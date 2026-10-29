@@ -1,15 +1,25 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   ANSWER_STATUS_LABELS,
   ANSWER_STATUSES,
+  APP_SETTABLE_SESSION_STATUSES,
   BANNED_CLAIM_PATTERNS,
   BannedClaimError,
+  SESSION_STATUSES,
+  SESSION_STATUS_LABELS,
+  USER_REPORTED_SESSION_STATUSES,
+  type AppSettableSessionStatus,
+  type SessionStatus,
+  type UserReportedSessionStatus,
   assertNoBannedClaims,
   answerStatusLabel,
   findBannedClaims,
   isAnswerStatus,
+  isAppSettableSessionStatus,
+  isSessionStatus,
+  isUserReportedSessionStatus,
 } from "./honesty";
 
 // Fixture strings containing banned promise language. The detector must flag
@@ -147,5 +157,77 @@ describe("isAnswerStatus", () => {
     expect(isAnswerStatus("maybe")).toBe(false);
     expect(isAnswerStatus("submitted")).toBe(false);
     expect(isAnswerStatus(null)).toBe(false);
+  });
+});
+
+describe("BN-25 session-state vocabulary", () => {
+  it("is exactly the five BN-25 states", () => {
+    expect([...SESSION_STATUSES].sort()).toEqual([
+      "draft",
+      "handed_off",
+      "prepared",
+      "user_reported_decided",
+      "user_reported_submitted",
+    ]);
+  });
+
+  it("app-settable and user-reported states exactly partition the vocabulary", () => {
+    expect(
+      [...APP_SETTABLE_SESSION_STATUSES, ...USER_REPORTED_SESSION_STATUSES].sort(),
+    ).toEqual([...SESSION_STATUSES].sort());
+    expect(
+      APP_SETTABLE_SESSION_STATUSES.some((status) =>
+        isUserReportedSessionStatus(status),
+      ),
+      "no app-settable state may carry user-reported semantics",
+    ).toBe(false);
+  });
+
+  it("session_status_check values in the migration equal the vocabulary", () => {
+    const sql = readFileSync(MIGRATION_PATH, "utf8");
+    expect([...SESSION_STATUSES].sort()).toEqual(
+      statusCheckValues(sql, "session_status_check").sort(),
+    );
+  });
+
+  it("guards classify app-settable and user-reported states", () => {
+    expect(isSessionStatus("submitted")).toBe(false);
+    expect(isAppSettableSessionStatus("prepared")).toBe(true);
+    expect(isAppSettableSessionStatus("user_reported_submitted")).toBe(false);
+    expect(isUserReportedSessionStatus("user_reported_decided")).toBe(true);
+    expect(isUserReportedSessionStatus("draft")).toBe(false);
+  });
+
+  it("labels every session state in plain language, non-promissory", () => {
+    expect(Object.keys(SESSION_STATUS_LABELS).sort()).toEqual(
+      [...SESSION_STATUSES].sort(),
+    );
+    for (const label of Object.values(SESSION_STATUS_LABELS)) {
+      expect(() => assertNoBannedClaims(label)).not.toThrow();
+    }
+  });
+
+  it("partition and vocabulary hold at the type level (VAL-HON-004)", () => {
+    type Unpartitioned = Exclude<
+      SessionStatus,
+      AppSettableSessionStatus | UserReportedSessionStatus
+    >;
+    expectTypeOf<Unpartitioned>().toEqualTypeOf<never>();
+    expectTypeOf<AppSettableSessionStatus>().not.toExtend<UserReportedSessionStatus>();
+    expectTypeOf<AppSettableSessionStatus>().toEqualTypeOf<
+      "draft" | "prepared" | "handed_off"
+    >();
+    expectTypeOf<UserReportedSessionStatus>().toEqualTypeOf<
+      "user_reported_submitted" | "user_reported_decided"
+    >();
+    expectTypeOf<"submitted">().not.toExtend<SessionStatus>();
+  });
+
+  it("assigning a submitted state to an app-settable status is a compile error", () => {
+    const prepared: AppSettableSessionStatus = "prepared";
+    // @ts-expect-error BN-25: no app-settable session state may be a submitted state
+    const appSetSubmitted: AppSettableSessionStatus = "submitted";
+    expect(prepared).toBe("prepared");
+    expect(isUserReportedSessionStatus(appSetSubmitted)).toBe(false);
   });
 });

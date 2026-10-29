@@ -117,3 +117,80 @@ export function isAnswerStatus(value: unknown): value is AnswerStatus {
     (ANSWER_STATUSES as readonly string[]).includes(value)
   );
 }
+
+// ---------------------------------------------------------------------------
+// BN-25 session-state vocabulary
+// ---------------------------------------------------------------------------
+
+/**
+ * The BN-25 session lifecycle: draft → prepared → handed off, then the user
+ * reports what happened outside the app. The app never sets a submitted state
+ * itself — submission semantics exist only as user_reported_* values, so
+ * "prepared" can never be conflated with "submitted".
+ */
+export const SESSION_STATUSES = [
+  "draft",
+  "prepared",
+  "handed_off",
+  "user_reported_submitted",
+  "user_reported_decided",
+] as const;
+
+export type SessionStatus = (typeof SESSION_STATUSES)[number];
+
+/** What the user reported happened outside the app, after handoff. */
+export const USER_REPORTED_SESSION_STATUSES = [
+  "user_reported_submitted",
+  "user_reported_decided",
+] as const;
+
+export type UserReportedSessionStatus =
+  (typeof USER_REPORTED_SESSION_STATUSES)[number];
+
+/**
+ * The states app code may set on a session. Derived with Exclude so any
+ * future user_reported_* addition is automatically out of bounds — by
+ * construction there is no app-settable state with submission semantics
+ * (BN-25: prepared ≠ submitted).
+ */
+export type AppSettableSessionStatus = Exclude<
+  SessionStatus,
+  UserReportedSessionStatus
+>;
+
+export const APP_SETTABLE_SESSION_STATUSES = [
+  "draft",
+  "prepared",
+  "handed_off",
+] as const satisfies readonly AppSettableSessionStatus[];
+
+/** Plain-language, pilot-agnostic labels for the session lifecycle. */
+export const SESSION_STATUS_LABELS: Readonly<Record<SessionStatus, string>> = {
+  draft: "In progress",
+  prepared: "Prepared and ready to hand off",
+  handed_off: "Handed off",
+  user_reported_submitted: "You told us it was submitted",
+  user_reported_decided: "You told us a decision was made",
+};
+
+export function isSessionStatus(value: unknown): value is SessionStatus {
+  return (
+    typeof value === "string" &&
+    (SESSION_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+export function isUserReportedSessionStatus(
+  value: unknown,
+): value is UserReportedSessionStatus {
+  return (
+    typeof value === "string" &&
+    (USER_REPORTED_SESSION_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+export function isAppSettableSessionStatus(
+  value: unknown,
+): value is AppSettableSessionStatus {
+  return isSessionStatus(value) && !isUserReportedSessionStatus(value);
+}
