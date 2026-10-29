@@ -1,0 +1,119 @@
+/**
+ * Honesty spine (BN-05 / HACK-30).
+ *
+ * The contract as code for how the app talks about benefits: no eligibility
+ * or approval promise language anywhere, every answer carries a tri-state
+ * status, and plain-language labels surface uncertainty instead of hiding it.
+ * Downstream features (intake, form prep, model prompts, the walkthrough CLI)
+ * import the vocabulary from here rather than re-declaring it.
+ */
+
+// ---------------------------------------------------------------------------
+// Banned-claims enforcement
+// ---------------------------------------------------------------------------
+
+/**
+ * Promise language the app must never produce. Eligibility and approval
+ * determinations belong to the official program, not to us, so assertive and
+ * negated determinations are banned alike ("must", "not"), as are guarantees
+ * and benefits-as-promised-outcome phrasing. Hedged uncertainty ("may be
+ * eligible") stays allowed — surfacing uncertainty is the point.
+ *
+ * Patterns are written so their own source text never self-matches (word
+ * boundaries and \s separators, no literal phrases), which lets the
+ * UI-string scan include this file.
+ */
+export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
+  // Eligibility determinations, positive or negative, present or future.
+  /\byou\s*(?:are|'re|will|'ll|shall|must)\s+(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|not)\s+)?(?:be\s+)?eligible\b/i,
+  // Qualification determinations.
+  /\byou\s*(?:(?:are|'re|will|'ll|shall|must|do|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|easily|obviously|undoubtedly|not)\s+)?qualify\b/i,
+  // Approval promises, positive or negative, present or future.
+  /\byou\s*(?:are|'re|will|'ll|shall|must)\s+(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|not)\s+|going\s+to\s+)?(?:be\s+)?approved\b/i,
+  // Guaranteed outcomes, in any phrasing.
+  /\bguaranteed\b/i,
+  /\bwe\s+(?:can\s+)?(?:guarantee|promise)\b/i,
+  // Benefits framed as a promised outcome.
+  /\byou\s*(?:will|'ll|shall)\s+(?:(?:definitely|certainly|absolutely)\s+)?(?:get|receive|obtain)\s+(?:the\s+|these\s+|those\s+|your\s+)?benefits\b/i,
+  // Marketing-style approval claims.
+  /\b(?:instant|automatic)\s+approval\b/i,
+];
+
+export interface BannedClaimMatch {
+  readonly patternSource: string;
+  readonly matchedText: string;
+  readonly index: number;
+}
+
+export class BannedClaimError extends Error {
+  readonly matches: readonly BannedClaimMatch[];
+
+  constructor(matches: readonly BannedClaimMatch[]) {
+    const first = matches[0];
+    super(
+      `Banned claim language (honest-answers contract BN-05): ${matches.length} match(es); ` +
+        `first from /${first.patternSource}/ at index ${first.index}: "${first.matchedText}". ` +
+        "The app never states or implies an eligibility or approval outcome.",
+    );
+    this.name = "BannedClaimError";
+    this.matches = matches;
+  }
+}
+
+/** Find banned promise language in a string (first match per pattern). */
+export function findBannedClaims(text: string): BannedClaimMatch[] {
+  const matches: BannedClaimMatch[] = [];
+  for (const pattern of BANNED_CLAIM_PATTERNS) {
+    const found = pattern.exec(text);
+    if (found) {
+      matches.push({
+        patternSource: pattern.source,
+        matchedText: found[0].slice(0, 80),
+        index: found.index,
+      });
+    }
+  }
+  return matches;
+}
+
+/** Throw a BannedClaimError when the text contains promise language. */
+export function assertNoBannedClaims(text: string): void {
+  const matches = findBannedClaims(text);
+  if (matches.length > 0) {
+    throw new BannedClaimError(matches);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tri-state answer statuses
+// ---------------------------------------------------------------------------
+
+/**
+ * Exactly the tri-state vocabulary declared in specs/question-spec (BN-05).
+ * The question spec, the answer table's CHECK constraint, and this type must
+ * stay literal-identical; the test suite compares all three.
+ */
+export const ANSWER_STATUSES = ["known", "unknown", "unverified"] as const;
+
+export type AnswerStatus = (typeof ANSWER_STATUSES)[number];
+
+/**
+ * Plain-language, pilot-agnostic labels for each status. Uncertainty is
+ * surfaced, never hidden, and no label promises an outcome.
+ */
+export const ANSWER_STATUS_LABELS: Readonly<Record<AnswerStatus, string>> = {
+  known: "You told us",
+  unknown: "You're not sure",
+  unverified: "Answered but not verified",
+};
+
+export function answerStatusLabel(status: AnswerStatus): string {
+  return ANSWER_STATUS_LABELS[status];
+}
+
+export function isAnswerStatus(value: unknown): value is AnswerStatus {
+  return (
+    typeof value === "string" &&
+    (ANSWER_STATUSES as readonly string[]).includes(value)
+  );
+}
