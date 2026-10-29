@@ -24,6 +24,7 @@ const testUrl = databaseFrom(databaseUrl, TEST_DB_NAME);
 
 const CORE_TABLES = [
   "answer",
+  "conversation_turn",
   "person",
   "schema_migrations",
   "session",
@@ -95,10 +96,15 @@ afterAll(async () => {
 
 describe("fresh migration application (VAL-DM-001)", () => {
   it("applies migrations to a fresh database", () => {
-    expect(firstRun).toEqual(["0001_core.sql", "0002_vault_entry.sql"]);
+    // 0003_conversation_turn.sql joins the append-only list (Mission v2 M1).
+    expect(firstRun).toEqual([
+      "0001_core.sql",
+      "0002_vault_entry.sql",
+      "0003_conversation_turn.sql",
+    ]);
   });
 
-  it("creates all six tables", async () => {
+  it("creates all seven tables", async () => {
     expect(await tableNames(testDb)).toEqual(CORE_TABLES);
   });
 
@@ -107,6 +113,7 @@ describe("fresh migration application (VAL-DM-001)", () => {
     expect(recorded.map((row) => String(row.filename))).toEqual([
       "0001_core.sql",
       "0002_vault_entry.sql",
+      "0003_conversation_turn.sql",
     ]);
     expect(await runMigrations(testDb)).toEqual([]);
   });

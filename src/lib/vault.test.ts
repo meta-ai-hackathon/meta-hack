@@ -59,6 +59,7 @@ const SPEC_ALL_FIELDS: readonly string[] = spec.questions.map(
 
 const CORE_TABLES = [
   "answer",
+  "conversation_turn",
   "person",
   "schema_migrations",
   "session",
@@ -82,7 +83,11 @@ beforeAll(async () => {
   // environment at the scratch database before any vault call.
   process.env.DATABASE_URL = testUrl;
   const applied = await runMigrations(testDb);
-  expect(applied).toEqual(["0001_core.sql", "0002_vault_entry.sql"]);
+  expect(applied).toEqual([
+    "0001_core.sql",
+    "0002_vault_entry.sql",
+    "0003_conversation_turn.sql",
+  ]);
 });
 
 afterAll(async () => {
