@@ -5,7 +5,7 @@
   "description": "Contract for a pilot-agnostic interview question set. The traversal engine consumes one such document.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["questions"],
+  "required": ["questions", "answer_statuses"],
   "properties": {
     "title": {
       "type": "string",
@@ -14,6 +14,16 @@
     "version": {
       "type": "string",
       "description": "Version of this question set."
+    },
+    "answer_statuses": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["known", "unknown", "unverified"]
+      },
+      "description": "The tri-state answer-status vocabulary every answer can carry (BN-05). Downstream code must match these literals exactly."
     },
     "questions": {
       "type": "array",

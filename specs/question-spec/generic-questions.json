@@ -1,6 +1,7 @@
 {
   "title": "Generic benefits-application questions",
   "version": "0.1.0",
+  "answer_statuses": ["known", "unknown", "unverified"],
   "questions": [
     {
       "id": "application_role",

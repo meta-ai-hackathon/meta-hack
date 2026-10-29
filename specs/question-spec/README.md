@@ -4,7 +4,7 @@ The question spec is the data contract for the Benefits Navigator interview: a s
 
 ## Spec format: field meanings
 
-Each question-spec document is a JSON object with a `questions` array. Each entry is one screen.
+Each question-spec document is a JSON object with a `questions` array and an `answer_statuses` array, the latter declaring the tri-state answer-status vocabulary (`known`, `unknown`, `unverified`, per BN-05) that every answer in the document can carry. Each entry in `questions` is one screen.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
