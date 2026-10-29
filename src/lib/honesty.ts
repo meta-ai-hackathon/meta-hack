@@ -30,7 +30,7 @@ export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
   /\byou\s*(?:(?:are|'re|will|'ll|shall|must|do|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|easily|obviously|undoubtedly|not)\s+)?qualify\b/i,
   // Approval promises, positive or negative, present or future.
   /\byou\s*(?:are|'re|will|'ll|shall|must)\s+(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|not)\s+|going\s+to\s+)?(?:be\s+)?approved\b/i,
-  // Guaranteed outcomes, in any phrasing.
+  // Guarantee claims, in any phrasing.
   /\bguaranteed\b/i,
   /\bwe\s+(?:can\s+)?(?:guarantee|promise)\b/i,
   // Benefits framed as a promised outcome.

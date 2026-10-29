@@ -14,7 +14,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Benefits Navigator",
-  description: "Guided navigation to the benefits you qualify for",
+  description:
+    "A guided companion for benefits applications. We help you prepare; you decide what gets submitted.",
 };
 
 export default function RootLayout({
