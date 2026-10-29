@@ -241,6 +241,108 @@ class TestMissingFieldsFail(KbSchemaTestCase):
             self.assertInvalid(entry, f"deleting {path}")
 
 
+class TestOptionalGroups(KbSchemaTestCase):
+    """Mission v2 M3: optional `steps` and `match_signals` fact groups.
+
+    Both carry the same per-group provenance as the required groups. A
+    match signal names a question in the generic spec (a cross-reference
+    the JSON Schema cannot express) and carries the program-side reason a
+    match card can show.
+    """
+
+    def entry_with_group(self, group: str, value: object) -> dict:
+        entry = copy.deepcopy(self.sample)
+        entry["facts"][group] = value
+        return entry
+
+    def signal_group(self) -> dict:
+        return {
+            "items": [
+                {
+                    "question_id": "housing_status",
+                    "values": ["shelter", "car"],
+                    "weight": 3,
+                    "reason": "The program's rules give priority to people without stable housing.",
+                }
+            ],
+            "source_id": "official_rules_source",
+            "retrieved_at": "2026-10-29",
+        }
+
+    def steps_group(self) -> dict:
+        return {
+            "items": ["Gather the required documents.", "Start the application."],
+            "source_id": "official_rules_source",
+            "retrieved_at": "2026-10-29",
+        }
+
+    def test_optional_groups_validate_with_provenance(self):
+        for group, value in [("steps", self.steps_group()), ("match_signals", self.signal_group())]:
+            self.assertValid(self.entry_with_group(group, value), f"entry with {group}")
+
+    def test_optional_groups_stay_optional(self):
+        self.assertValid(self.sample, "entry without the optional groups")
+
+    def test_signal_missing_reason_fails(self):
+        entry = self.entry_with_group("match_signals", self.signal_group())
+        del entry["facts"]["match_signals"]["items"][0]["reason"]
+        self.assertInvalid(entry, "signal without reason")
+
+    def test_signal_unknown_key_fails(self):
+        entry = self.entry_with_group("match_signals", self.signal_group())
+        entry["facts"]["match_signals"]["items"][0]["bonus"] = "nope"
+        self.assertInvalid(entry, "signal with unknown key")
+
+    def test_signal_malformed_question_id_fails(self):
+        entry = self.entry_with_group("match_signals", self.signal_group())
+        entry["facts"]["match_signals"]["items"][0]["question_id"] = "Not A Question!"
+        self.assertInvalid(entry, "signal with malformed question_id")
+
+    def test_signal_out_of_range_weight_fails(self):
+        for weight in [0, 10, 1.5]:
+            entry = self.entry_with_group("match_signals", self.signal_group())
+            entry["facts"]["match_signals"]["items"][0]["weight"] = weight
+            self.assertInvalid(entry, f"signal with weight {weight}")
+
+    def test_signal_empty_values_fails(self):
+        entry = self.entry_with_group("match_signals", self.signal_group())
+        entry["facts"]["match_signals"]["items"][0]["values"] = []
+        self.assertInvalid(entry, "signal with empty values")
+
+    def test_optional_group_source_ids_resolve(self):
+        # The schema cannot cross-reference source_id -> sources (the same
+        # limitation the required groups have, checked in the consuming
+        # module). Here: every shipped entry's optional groups resolve.
+        for path in sorted(ENTRIES_DIR.glob("*.json")):
+            entry = json.loads(path.read_text(encoding="utf-8"))
+            source_ids = {source["id"] for source in entry["sources"]}
+            for group in ["steps", "match_signals"]:
+                if group in entry["facts"]:
+                    self.assertIn(
+                        entry["facts"][group]["source_id"],
+                        source_ids,
+                        f"{path.name} facts.{group}",
+                    )
+
+    def test_signal_question_ids_resolve_in_the_spec(self):
+        # Cross-reference the schema cannot express: every shipped entry's
+        # match signal must name a question the generic spec actually asks,
+        # so scoring never ranks against a question that cannot be answered.
+        spec_path = REPO_ROOT / "specs" / "question-spec" / "generic-questions.json"
+        spec_ids = {q["id"] for q in json.loads(spec_path.read_text(encoding="utf-8"))["questions"]}
+        for path in sorted(ENTRIES_DIR.glob("*.json")):
+            entry = json.loads(path.read_text(encoding="utf-8"))
+            signals = entry["facts"].get("match_signals")
+            if not signals:
+                continue
+            for item in signals["items"]:
+                self.assertIn(
+                    item["question_id"],
+                    spec_ids,
+                    f"{path.name} signal targets a question the spec does not ask",
+                )
+
+
 class TestPilotAgnostic(KbSchemaTestCase):
     def kb_surface_files(self) -> list[Path]:
         files = [path for path in KB_DIR.rglob("*") if path.is_file()]
