@@ -3,6 +3,7 @@ import {
   GEMINI_TTS_MODEL,
   GEMINI_TTS_URL,
   MAX_SPEAK_TEXT_LENGTH,
+  TTS_PROMPT_PREFIX,
   isTtsConfigured,
   resetTtsTransport,
   setTtsTransport,
@@ -106,7 +107,9 @@ describe("speakText request shape", () => {
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: string } } };
       };
     };
-    expect(body.contents[0]?.parts[0]?.text).toBe("Thanks for telling me.");
+    expect(body.contents[0]?.parts[0]?.text).toBe(
+      `${TTS_PROMPT_PREFIX}Thanks for telling me.`,
+    );
     expect(body.generationConfig.responseModalities).toEqual(["AUDIO"]);
     expect(
       body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName,

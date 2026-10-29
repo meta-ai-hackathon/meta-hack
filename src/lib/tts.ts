@@ -24,6 +24,14 @@ export const GEMINI_TTS_URL =
 export const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
 /** A prebuilt Gemini voice; overridable per call. */
 export const DEFAULT_TTS_VOICE = "Kore";
+/**
+ * The TTS model reads the prompt as speech direction; without a directive
+ * frame it intermittently tries to answer in text (live-verified 400). The
+ * committed prefix keeps delivery verbatim: the spoken reply is always the
+ * EXACT subtitle text (VAL-VOICE-003).
+ */
+export const TTS_PROMPT_PREFIX =
+  "Read the following text out loud exactly as written: ";
 /** Assistant replies are short; this also bounds the unauthenticated route. */
 export const MAX_SPEAK_TEXT_LENGTH = 1000;
 export const TTS_TIMEOUT_MS = 15_000;
@@ -140,7 +148,7 @@ export async function speakText(
   }
   const key = ttsApiKey();
   const body = JSON.stringify({
-    contents: [{ parts: [{ text: trimmed }] }],
+    contents: [{ parts: [{ text: `${TTS_PROMPT_PREFIX}${trimmed}` }] }],
     generationConfig: {
       responseModalities: ["AUDIO"],
       speechConfig: {
