@@ -44,7 +44,6 @@ export const ANSWER_STATUS_LABELS = Object.freeze({
 
 /** Find banned promise language in a string (first match per pattern). */
 export function findBannedClaims(text) {
-  /** @type {BannedClaimHit[]} */
   const hits = [];
   for (const pattern of BANNED_CLAIM_PATTERNS) {
     const found = pattern.exec(text);
