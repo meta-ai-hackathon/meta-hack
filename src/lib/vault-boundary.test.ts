@@ -35,12 +35,14 @@ const EXEMPT_FILES = new Set([
   "lib/vault.ts",
   "lib/vault.test.ts",
   "lib/vault-boundary.test.ts",
-  // The intake answer store (BN-09) is the one authorized WRITE-path
-  // consumer: it routes pii:true answer values through vaultPut — the
-  // vault module's own validated API — and never reads the vault back
-  // (readVaultFields serves only CROSSING_ALLOWLIST, which is empty).
-  // This is the documented downstream contract in the vault's API notes:
-  // PII answers from intake go to vaultPut, never to the answer table.
+  // The intake answer store (BN-09/BN-13) is the one authorized vault
+  // consumer, and only through the vault module's validated API: it writes
+  // pii values with vaultPut, removes disavowed values with vaultDelete
+  // (BN-13 delete-on-disavow), and reads them back with vaultFlowValues —
+  // the server-side read that exists solely so the flow engine can evaluate
+  // skip conditions on pii answers. Those values never cross to a client:
+  // the serialization boundary (lib/intake/serialize.ts) strips every pii
+  // value before anything reaches a page, payload, or log.
   "lib/intake/store.ts",
 ]);
 

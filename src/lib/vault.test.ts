@@ -8,6 +8,7 @@ import {
   CROSSING_ALLOWLIST,
   readVaultFields,
   vaultCrossingDecision,
+  vaultDelete,
   vaultFlowValues,
   vaultPut,
 } from "./vault";
@@ -221,6 +222,49 @@ describe("vaultPut write path", () => {
       vaultPut(sessionId, "county", 42 as unknown as string),
     ).rejects.toBeInstanceOf(AppError);
     expect(await vaultRowCount(sessionId)).toBe(0);
+  });
+});
+
+describe("vaultDelete disavow path (BN-13)", () => {
+  it("removes a stored value and is idempotent on absent rows", async () => {
+    const sessionId = await createSession();
+    await vaultPut(sessionId, "county", "Franklin");
+    expect(await vaultRowCount(sessionId)).toBe(1);
+    await vaultDelete(sessionId, "county");
+    expect(await vaultRowCount(sessionId)).toBe(0);
+    // Deleting an absent row deletes nothing and throws nothing.
+    await vaultDelete(sessionId, "county");
+    expect(await vaultRowCount(sessionId)).toBe(0);
+  });
+
+  it("removes only the named field of the named session", async () => {
+    const sessionId = await createSession();
+    const otherSession = await createSession();
+    await vaultPut(sessionId, "county", "Franklin");
+    await vaultPut(sessionId, "phone_contact", "555-0100");
+    await vaultPut(otherSession, "county", "Elsewhere");
+    await vaultDelete(sessionId, "county");
+    const rows = await testDb`
+      SELECT session_id, field FROM vault_entry
+      WHERE session_id IN (${sessionId}, ${otherSession})
+    `;
+    const remaining = rows.map(
+      (row) => `${String(row.session_id) === otherSession ? "other" : "same"}:${String(row.field)}`,
+    );
+    expect(remaining.sort()).toEqual(["other:county", "same:phone_contact"]);
+  });
+
+  it("rejects every non-pii field and anything else — same allowlist as vaultPut", async () => {
+    const sessionId = await createSession();
+    for (const field of [...SPEC_NON_PII_FIELDS, "made_up_field"]) {
+      const rejection = vaultDelete(sessionId, field);
+      await expect(rejection).rejects.toBeInstanceOf(AppError);
+      await expect(rejection).rejects.toMatchObject({
+        code: "validation_error",
+      });
+      const error = (await rejectionOf(rejection)) as AppError;
+      expect(error.safeMessage).not.toContain(field);
+    }
   });
 });
 

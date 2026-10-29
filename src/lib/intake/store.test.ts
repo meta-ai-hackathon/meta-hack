@@ -1,15 +1,21 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
+import fc from "fast-check";
 import { closeDb } from "../db";
 import { runMigrations } from "../migrate";
 import { AppError } from "../telemetry";
 import type { AnswerMap } from "./flow";
+import { QUESTION_BY_ID, type Question } from "./spec";
+import { PII_QUESTION_IDS_IN_SPEC } from "./spec";
 import {
   SESSION_COOKIE,
   ensureSession,
+  isSecureRequest,
   loadAnswers,
   loadSession,
+  loadSessionState,
   readSessionCookie,
+  recordCaseworkerAssist,
   saveAnswer,
   sessionCookieHeader,
 } from "./store";
@@ -98,6 +104,80 @@ describe("session cookie helpers", () => {
     expect(readSessionCookie("other=x")).toBeNull();
     expect(readSessionCookie(null)).toBeNull();
   });
+
+  it("marks the cookie Secure only for https requests", () => {
+    // Deliberately absent for plain http: a Secure cookie would never be
+    // stored by the browser on localhost dev.
+    expect(sessionCookieHeader("abc-123")).not.toContain("Secure");
+    expect(sessionCookieHeader("abc-123", false)).not.toContain("Secure");
+    const secure = sessionCookieHeader("abc-123", true);
+    expect(secure).toContain("Secure");
+    expect(secure).toContain("HttpOnly");
+    expect(secure).toContain("SameSite=Lax");
+  });
+});
+
+describe("isSecureRequest", () => {
+  const requestAt = (url: string, headers: Record<string, string> = {}) =>
+    new Request(url, { headers });
+
+  it("is true for https request URLs", () => {
+    expect(isSecureRequest(requestAt("https://example.com/api/session"))).toBe(true);
+  });
+
+  it("is false for plain http without proxy headers", () => {
+    expect(isSecureRequest(requestAt("http://localhost:3100/api/session"))).toBe(false);
+  });
+
+  it("trusts an https first hop in x-forwarded-proto (TLS-terminating proxy)", () => {
+    expect(
+      isSecureRequest(
+        requestAt("http://localhost:3100/api/session", { "x-forwarded-proto": "https" }),
+      ),
+    ).toBe(true);
+    expect(
+      isSecureRequest(
+        requestAt("http://localhost:3100/api/session", {
+          "x-forwarded-proto": "https, http",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("follows the first proxy hop even when it is plain http", () => {
+    expect(
+      isSecureRequest(
+        requestAt("http://localhost:3100/api/session", {
+          "x-forwarded-proto": "http, https",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("never flips on junk header values or unparseable URLs", () => {
+    expect(
+      isSecureRequest(
+        requestAt("http://localhost:3100/api/session", {
+          "x-forwarded-proto": "gopher",
+        }),
+      ),
+    ).toBe(false);
+    // Scheme matching is case-insensitive, as proxies may send either.
+    expect(
+      isSecureRequest(
+        requestAt("http://localhost:3100/api/session", {
+          "x-forwarded-proto": "HTTPS",
+        }),
+      ),
+    ).toBe(true);
+    // Defensive: an unparseable request URL cannot occur on the platform,
+    // but the helper must fail closed, not throw.
+    const broken = {
+      headers: new Headers(),
+      url: "not a url",
+    } as unknown as Request;
+    expect(isSecureRequest(broken)).toBe(false);
+  });
 });
 
 describe("ensureSession", () => {
@@ -185,6 +265,33 @@ describe("saveAnswer routing (non-pii → answer table, pii → vault)", () => {
     expect(rows[0].status).toBe("unverified");
     expect(rows[0].value).toBe("family_member");
   });
+
+  it("deletes the vault value when a pii answer is disavowed to unknown", async () => {
+    // BN-13 hygiene: answering "I'm not sure" after a known pii answer must
+    // not leave the stale value in the vault (retained-data hygiene — the
+    // flow engine ignores it and serialization strips it, but the row would
+    // linger).
+    const { sessionId } = await ensureSession(null);
+    await saveAnswer(sessionId, "housing_status", "known", "shelter");
+    expect(await vaultRows(sessionId)).toHaveLength(1);
+    await saveAnswer(sessionId, "housing_status", "unknown", null);
+    expect(await vaultRows(sessionId)).toHaveLength(0);
+    const rows = await answerRows(sessionId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("unknown");
+    expect(rows[0].value).toBeNull();
+  });
+
+  it("re-answering known after disavow re-puts the vault value", async () => {
+    const { sessionId } = await ensureSession(null);
+    await saveAnswer(sessionId, "housing_status", "known", "shelter");
+    await saveAnswer(sessionId, "housing_status", "unknown", null);
+    await saveAnswer(sessionId, "housing_status", "unverified", "car");
+    const vault = await vaultRows(sessionId);
+    expect(vault).toHaveLength(1);
+    expect(vault[0].field).toBe("housing_status");
+    expect(vault[0].value).toBe("car");
+  });
 });
 
 describe("loadAnswers round-trip", () => {
@@ -252,6 +359,29 @@ describe("saveAnswer validation", () => {
     await expectValidationError(
       saveAnswer(sessionId, "not_a_question", "known", "x"),
     );
+  });
+
+  it("rejects inherited Object keys as question ids without dereferencing them", async () => {
+    // QUESTION_BY_ID is a plain object: an unguarded index lookup resolves
+    // 'constructor' & friends from Object.prototype (truthy!) instead of
+    // failing validation — a 500 or a junk row instead of the contracted 400.
+    const rowsBefore = await answerRows(sessionId);
+    for (const questionId of [
+      "constructor",
+      "toString",
+      "hasOwnProperty",
+      "valueOf",
+      "__proto__",
+      "isPrototypeOf",
+    ]) {
+      await expectValidationError(
+        saveAnswer(sessionId, questionId, "known", "self"),
+      );
+      await expectValidationError(
+        saveAnswer(sessionId, questionId, "unknown", null),
+      );
+    }
+    expect(await answerRows(sessionId)).toHaveLength(rowsBefore.length);
   });
 
   it("rejects statuses outside the tri-state", async () => {
@@ -326,3 +456,158 @@ describe("answers map feeds the flow engine", () => {
     expect(answers.housing_status?.value).toBeNull();
   });
 });
+
+describe("caseworker assist records (BN-10)", () => {
+  it("records an audit note and flips the assist flag", async () => {
+    const { sessionId } = await ensureSession(null);
+    await recordCaseworkerAssist(sessionId, "Reviewed housing questions together");
+    const state = await loadSessionState(sessionId);
+    expect(state).not.toBeNull();
+    expect(state?.caseworkerAssisted).toBe(true);
+    expect(state?.auditNotes).toHaveLength(1);
+    // Self-reported: no authentication exists, so the note never claims a
+    // verified caseworker identity.
+    expect(state?.auditNotes[0].actorRole).toBe("self_reported_caseworker");
+    expect(state?.auditNotes[0].note).toBe("Reviewed housing questions together");
+  });
+
+  it("orders multiple notes oldest first", async () => {
+    const { sessionId } = await ensureSession(null);
+    await recordCaseworkerAssist(sessionId, "First sitting");
+    await recordCaseworkerAssist(sessionId, "Second sitting");
+    const state = await loadSessionState(sessionId);
+    expect(state?.auditNotes.map((note) => note.note)).toEqual([
+      "First sitting",
+      "Second sitting",
+    ]);
+  });
+
+  it("rejects blank or overlong notes", async () => {
+    const { sessionId } = await ensureSession(null);
+    await expect(recordCaseworkerAssist(sessionId, "   ")).rejects.toMatchObject({
+      code: "validation_error",
+    });
+    await expect(
+      recordCaseworkerAssist(sessionId, "x".repeat(2001)),
+    ).rejects.toMatchObject({ code: "validation_error" });
+  });
+});
+
+describe("properties (fast-check)", () => {
+  it("stores exactly the trimmed note and flips the assist flag", async () => {
+    // The only transformation an assist note undergoes is trimming: for any
+    // note with content, the stored note is input.trim() and the session
+    // ends up flagged caseworker-assisted.
+    const attempts = fc.asyncProperty(
+      fc
+        .string({ minLength: 1, maxLength: 200 })
+        .filter((note) => note.trim().length > 0),
+      async (note) => {
+        const { sessionId } = await ensureSession(null);
+        await recordCaseworkerAssist(sessionId, note);
+        const state = await loadSessionState(sessionId);
+        return (
+          state !== null &&
+          state.caseworkerAssisted &&
+          state.auditNotes.length === 1 &&
+          state.auditNotes[0].note === note.trim()
+        );
+      },
+    );
+    await fc.assert(attempts, { numRuns: 50 });
+  });
+
+  it("rejects every question id that is not an own spec id, storing nothing", async () => {
+    // Totality property: arbitrary junk ids — including every inherited
+    // Object.prototype key — get the contracted validation_error, and no
+    // answer row is ever written for them.
+    const attempts = fc.asyncProperty(
+      fc
+        .string({ minLength: 1, maxLength: 60 })
+        .filter((id) => !Object.hasOwn(QUESTION_BY_ID, id)),
+      fc.constantFrom("known", "unknown", "unverified"),
+      async (questionId, status) => {
+        const { sessionId } = await ensureSession(null);
+        const rowsBefore = await answerRows(sessionId);
+        let rejected = false;
+        try {
+          await saveAnswer(sessionId, questionId, status, "self");
+        } catch (caught) {
+          rejected =
+            caught instanceof AppError && caught.code === "validation_error";
+        }
+        if (!rejected) {
+          return false;
+        }
+        const rowsAfter = await answerRows(sessionId);
+        return rowsAfter.length === rowsBefore.length;
+      },
+    );
+    await fc.assert(attempts, { numRuns: 150 });
+  });
+
+  it("always carries the pair, HttpOnly, and SameSite=Lax — Secure exactly when asked", () => {
+    const attempts = fc.property(fc.uuid(), fc.boolean(), (sessionId, secure) => {
+      const header = sessionCookieHeader(sessionId, secure);
+      return (
+        header.includes(`${SESSION_COOKIE}=${sessionId}`) &&
+        header.includes("HttpOnly") &&
+        header.includes("SameSite=Lax") &&
+        header.includes("Secure") === secure
+      );
+    });
+    fc.assert(attempts, { numRuns: 100 });
+  });
+
+  it("disavowing any pii answer leaves no vault value behind", async () => {
+    // Delete-on-disavow property: for EVERY pii:true question in the spec
+    // and any spec-valid value, answering known/unverified then "I'm not
+    // sure" empties the session's vault and leaves a value-less unknown
+    // answer row.
+    const piiMove = fc
+      .constantFrom(...PII_QUESTION_IDS_IN_SPEC)
+      .chain((field) => {
+        const question = QUESTION_BY_ID[field];
+        return fc.record({
+          field: fc.constant(field),
+          status: fc.constantFrom("known", "unverified"),
+          value: piiValueArbitrary(question),
+        });
+      });
+    const attempts = fc.asyncProperty(piiMove, async (move) => {
+      const { sessionId } = await ensureSession(null);
+      await saveAnswer(sessionId, move.field, move.status, move.value);
+      expect(await vaultRows(sessionId), `before disavow: ${move.field}`).toHaveLength(1);
+      await saveAnswer(sessionId, move.field, "unknown", null);
+      expect(await vaultRows(sessionId), `after disavow: ${move.field}`).toHaveLength(0);
+      const rows = await answerRows(sessionId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe("unknown");
+      expect(rows[0].value).toBeNull();
+    });
+    await fc.assert(attempts, { numRuns: 40 });
+  });
+});
+
+/** A spec-valid value for a question, by type (used for pii questions). */
+function piiValueArbitrary(question: Question): fc.Arbitrary<unknown> {
+  const optionValues = question.options?.map((option) => option.value);
+  switch (question.type) {
+    case "single_select":
+      return fc.constantFrom(...(optionValues ?? ["x"]));
+    case "multi_select":
+      return fc.constant(["x"]);
+    case "boolean":
+      return fc.boolean();
+    case "date":
+      return fc.constant("1990-01-31");
+    case "number":
+      return fc.integer({ min: 0, max: 9000 });
+    case "text":
+    case "address":
+      return fc
+        .string({ minLength: 1, maxLength: 40 })
+        .filter((value) => value.trim().length > 0)
+        .map((value) => value.trim());
+  }
+}

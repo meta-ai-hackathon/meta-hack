@@ -1,7 +1,12 @@
-import { isAnswerStatus, type AnswerStatus } from "../honesty";
+import {
+  isAnswerStatus,
+  isSessionStatus,
+  type AnswerStatus,
+  type SessionStatus,
+} from "../honesty";
 import { AppError, logInfo, userMessageFor } from "../telemetry";
 import { getDb } from "../db";
-import { vaultFlowValues, vaultPut } from "../vault";
+import { vaultDelete, vaultFlowValues, vaultPut } from "../vault";
 import type { AnswerMap, StoredAnswer } from "./flow";
 import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID, type Question } from "./spec";
 
@@ -26,11 +31,38 @@ const UUID_PATTERN =
 
 const MAX_TEXT_LENGTH = 2000;
 
-export function sessionCookieHeader(sessionId: string): string {
+export function sessionCookieHeader(sessionId: string, secure = false): string {
   return (
     `${SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; SameSite=Lax; ` +
-    `Max-Age=${SESSION_COOKIE_MAX_AGE}`
+    `Max-Age=${SESSION_COOKIE_MAX_AGE}` +
+    (secure ? "; Secure" : "")
   );
+}
+
+/**
+ * True when the request arrived over https — either directly (the request
+ * URL) or behind a TLS-terminating proxy (x-forwarded-proto's first hop,
+ * which is the hop the browser actually used). Deliberately false for plain
+ * http so localhost dev keeps working: a Secure cookie would never be
+ * stored by the browser over http at all.
+ */
+export function isSecureRequest(request: Request): boolean {
+  const forwarded = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    .trim()
+    .toLowerCase();
+  if (forwarded === "https") {
+    return true;
+  }
+  if (forwarded === "http") {
+    return false;
+  }
+  try {
+    return new URL(request.url).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 export function readSessionCookie(cookieHeader: string | null): string | null {
@@ -82,6 +114,106 @@ export async function ensureSession(
   const [session] =
     await sql`INSERT INTO session (person_id) VALUES (${person.id}) RETURNING id`;
   return { sessionId: String(session.id), fresh: true };
+}
+
+/** One caseworker audit note as the session API returns it (BN-10). */
+export interface SessionAuditNoteView {
+  readonly actorRole: string;
+  readonly note: string;
+  readonly createdAt: string;
+}
+
+/** The session's lifecycle summary: BN-25 status, assist flag, audit notes. */
+export interface SessionStateView {
+  readonly status: SessionStatus;
+  readonly caseworkerAssisted: boolean;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly auditNotes: readonly SessionAuditNoteView[];
+}
+
+/**
+ * Load a session's lifecycle summary — status, caseworker-assisted flag,
+ * and the full audit-note history, oldest first. Returns null for an
+ * unknown session id. Read-only; used by the /api/session resume path so
+ * audit notes recorded at create/assist time survive resume intact.
+ */
+export async function loadSessionState(
+  sessionId: string,
+): Promise<SessionStateView | null> {
+  const sql = getDb();
+  const sessions = await sql`
+    SELECT status, caseworker_assisted, created_at, updated_at
+    FROM session
+    WHERE id = ${sessionId}
+  `;
+  if (sessions.length === 0) {
+    return null;
+  }
+  const stored = sessions[0];
+  const notes = await sql`
+    SELECT actor_role, note, created_at
+    FROM session_audit_note
+    WHERE session_id = ${sessionId}
+    ORDER BY created_at ASC, id ASC
+  `;
+  return {
+    status: isSessionStatus(stored.status) ? stored.status : "draft",
+    caseworkerAssisted: stored.caseworker_assisted === true,
+    createdAt: new Date(stored.created_at).toISOString(),
+    updatedAt: new Date(stored.updated_at).toISOString(),
+    auditNotes: notes.map((note) => ({
+      actorRole: String(note.actor_role),
+      note: String(note.note),
+      createdAt: new Date(note.created_at).toISOString(),
+    })),
+  };
+}
+
+/**
+ * Validate an assist note and return it trimmed — WITHOUT touching the
+ * database, so callers (the /api/session route) can reject bad notes before
+ * creating a session. The bound matches every other free-text field
+ * (MAX_TEXT_LENGTH).
+ */
+export function validateAssistNote(note: string): string {
+  const trimmed = note.trim();
+  if (trimmed === "" || trimmed.length > MAX_TEXT_LENGTH) {
+    throw validationError();
+  }
+  return trimmed;
+}
+
+/**
+ * Record that a caseworker assisted this session: appends the audit note
+ * (who/what/when, BN-10) and flips the session's caseworker-assisted flag.
+ * The note text is required and bounded (validateAssistNote); its contents
+ * are never logged.
+ *
+ * The actor is always recorded as SELF-REPORTED: this app has no
+ * authentication, so anyone could claim assistance happened, and the audit
+ * trail must not present an unverified claim as a verified caseworker's
+ * record (the same honesty spine as the tri-state answers). A future
+ * mission that adds caseworker identity can upgrade the attribution.
+ */
+export async function recordCaseworkerAssist(
+  sessionId: string,
+  note: string,
+): Promise<void> {
+  const trimmed = validateAssistNote(note);
+  const sql = getDb();
+  await sql`
+    INSERT INTO session_audit_note (session_id, actor_role, note)
+    VALUES (${sessionId}, 'self_reported_caseworker', ${trimmed})
+  `;
+  await sql`
+    UPDATE session
+    SET caseworker_assisted = true, updated_at = now()
+    WHERE id = ${sessionId}
+  `;
+  // No note content or session id in the log — assist notes are free-form
+  // caseworker text and could carry identifying content.
+  logInfo("session_audit_note_recorded", { actorRole: "self_reported_caseworker" });
 }
 
 /**
@@ -208,6 +340,44 @@ function vaultValueFor(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+/** The validated shape an answer submission must produce. */
+interface ValidatedAnswer {
+  readonly question: Question;
+  /** Canonical storage value; null for unknown answers (no value anywhere). */
+  readonly storedValue: string | number | boolean | string[] | null;
+}
+
+/**
+ * Validate an answer submission against the question spec and return the
+ * spec question it targets plus its canonical storage value — WITHOUT
+ * touching the database. Used by saveAnswer and by the answer route, which
+ * must reject bad input BEFORE creating a session (a rejected first answer
+ * must never leave an orphan person/session row behind).
+ *
+ * The question lookup guards with Object.hasOwn: QUESTION_BY_ID is a plain
+ * object, so an unguarded index would resolve inherited Object.prototype
+ * keys like "constructor" (truthy!) instead of failing validation — a 500
+ * or a junk row instead of the contracted 400.
+ */
+export function validateAnswerInput(
+  questionId: string,
+  status: AnswerStatus,
+  value: unknown,
+): ValidatedAnswer {
+  if (!Object.hasOwn(QUESTION_BY_ID, questionId)) {
+    throw validationError();
+  }
+  const question = QUESTION_BY_ID[questionId];
+  if (!isAnswerStatus(status)) {
+    throw validationError();
+  }
+  return {
+    question,
+    storedValue:
+      status === "unknown" ? null : canonicalValue(question, value),
+  };
+}
+
 /**
  * Validate and persist one answer. known/unverified answers carry a
  * spec-valid value; unknown answers carry none. Re-answering the same
@@ -219,24 +389,20 @@ export async function saveAnswer(
   status: AnswerStatus,
   value: unknown,
 ): Promise<void> {
-  const question = QUESTION_BY_ID[questionId];
-  if (!question) {
-    throw validationError();
-  }
-  if (!isAnswerStatus(status)) {
-    throw validationError();
-  }
-
-  let storedValue: string | number | boolean | string[] | null = null;
-  if (status !== "unknown") {
-    // Throws a taxonomy validation_error for anything the spec disallows.
-    storedValue = canonicalValue(question, value);
-  }
+  const { question, storedValue } = validateAnswerInput(
+    questionId,
+    status,
+    value,
+  );
 
   const sql = getDb();
   if (question.pii) {
     if (status !== "unknown") {
       await vaultPut(sessionId, question.id, vaultValueFor(storedValue));
+    } else {
+      // Delete-on-disavow (BN-13): "I'm not sure" over an earlier answer
+      // must not leave the stale value in the vault.
+      await vaultDelete(sessionId, question.id);
     }
     // The answer row keeps its value NULL for pii questions: status and
     // provenance live here, the value lives only in the vault.

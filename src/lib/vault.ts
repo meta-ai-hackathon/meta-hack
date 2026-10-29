@@ -8,10 +8,12 @@ import { AppError, logInfo, PII_QUESTION_IDS } from "./telemetry";
 // Module contract (enforced by src/lib/vault-boundary.test.ts):
 // - This is the ONLY module under src/ allowed to touch the vault_entry
 //   table (migrations/0002_vault_entry.sql creates it).
-// - Writes go through vaultPut; the only read path is readVaultFields.
-// - readVaultFields is the boundary future prompt builders must consume:
-//   it serves ONLY fields on CROSSING_ALLOWLIST and throws a taxonomy
-//   error for everything else, loudly.
+// - Accessors, all validated against VAULT_FIELDS: writes go through
+//   vaultPut; the delete-on-disavow path (BN-13) is vaultDelete; the
+//   server-side flow read is vaultFlowValues; the crossing boundary future
+//   prompt builders must consume is readVaultFields.
+// - readVaultFields serves ONLY fields on CROSSING_ALLOWLIST and throws a
+//   taxonomy error for everything else, loudly.
 //
 // Logging discipline: vault events are logged with no identifying fields —
 // pii field ids are themselves identifying content (VAL-TEL-002), and
@@ -93,6 +95,32 @@ export async function vaultPut(
     DO UPDATE SET value = EXCLUDED.value
   `;
   logInfo("vault_put");
+}
+
+/**
+ * Remove one field's stored value for one session — the delete-on-disavow
+ * path (BN-13): when a person answers "I'm not sure" over an earlier
+ * answer, the disavowed value must not linger in the vault. Accepts ONLY
+ * fields the question spec marks pii:true, like every other vault accessor.
+ * Idempotent: deleting an absent row deletes nothing.
+ */
+export async function vaultDelete(
+  sessionId: string,
+  field: string,
+): Promise<void> {
+  if (!VAULT_FIELDS.includes(field)) {
+    throw new AppError(
+      "validation_error",
+      "That field may not be deleted from the PII vault.",
+      { cause: { field } },
+    );
+  }
+  const sql = getDb();
+  await sql`
+    DELETE FROM vault_entry
+    WHERE session_id = ${sessionId} AND field = ${field}
+  `;
+  logInfo("vault_delete");
 }
 
 /**
