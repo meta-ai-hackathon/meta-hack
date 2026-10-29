@@ -10,8 +10,9 @@ Guidance for any agent or human working in this repo. See the [README](README.md
 - `ideas/` — one file per idea plus the running scorecard
 - `skills/` — agent-runnable skills (`skills/evaluate-idea/SKILL.md` scores any idea)
 - `demo/` — demo video script and filming materials (`demo/demo-script-v0.md` is the 3-minute storyline draft)
-- `tests/` — pytest checks over repo markdown
+- `tests/` — pytest checks over repo markdown plus SQL-level data model checks (VAL-DM) against the Docker Postgres
 - `scripts/` — standalone checks (link checker)
+- `migrations/` — plain-SQL schema migrations, numbered and append-only, applied by `src/lib/migrate.ts` (`pnpm db:migrate`)
 - `.github/` — CI workflows, issue/PR templates, dependabot, codeowners
 
 ## Markdown conventions
