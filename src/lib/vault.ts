@@ -8,10 +8,12 @@ import { AppError, logInfo, PII_QUESTION_IDS } from "./telemetry";
 // Module contract (enforced by src/lib/vault-boundary.test.ts):
 // - This is the ONLY module under src/ allowed to touch the vault_entry
 //   table (migrations/0002_vault_entry.sql creates it).
-// - Writes go through vaultPut; the only read path is readVaultFields.
-// - readVaultFields is the boundary future prompt builders must consume:
-//   it serves ONLY fields on CROSSING_ALLOWLIST and throws a taxonomy
-//   error for everything else, loudly.
+// - Accessors, all validated against VAULT_FIELDS: writes go through
+//   vaultPut; the delete-on-disavow path (BN-13) is vaultDelete; the
+//   server-side flow read is vaultFlowValues; the crossing boundary future
+//   prompt builders must consume is readVaultFields.
+// - readVaultFields serves ONLY fields on CROSSING_ALLOWLIST and throws a
+//   taxonomy error for everything else, loudly.
 //
 // Logging discipline: vault events are logged with no identifying fields —
 // pii field ids are themselves identifying content (VAL-TEL-002), and

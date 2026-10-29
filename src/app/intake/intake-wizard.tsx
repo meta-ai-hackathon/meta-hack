@@ -195,7 +195,9 @@ export function IntakeWizard() {
    * the httpOnly bn_session cookie; nothing is ever submitted by saving.
    */
   async function saveAndFinishLater(): Promise<void> {
-    if (wizard.phase !== "ready" || savingForLater) {
+    // Guard against racing an in-flight answer POST: whichever response
+    // landed last would overwrite the wizard with an older DB snapshot.
+    if (wizard.phase !== "ready" || savingForLater || busy) {
       return;
     }
     setSavingForLater(true);
@@ -336,7 +338,10 @@ export function IntakeWizard() {
             </ul>
           </section>
         ) : null}
-        <SaveForLater onSave={() => void saveAndFinishLater()} busy={savingForLater} />
+        <SaveForLater
+          onSave={() => void saveAndFinishLater()}
+          busy={savingForLater || busy}
+        />
       </div>
     );
   }
@@ -373,7 +378,7 @@ export function IntakeWizard() {
         onNotSure={() => void submitAnswer("unknown")}
         onSubmit={handleContinue}
         onSkip={() => goTo(current + 1, state)}
-        busy={busy}
+        busy={busy || savingForLater}
         error={questionError}
       />
       {current > 0 ? (
@@ -385,7 +390,10 @@ export function IntakeWizard() {
           Back
         </button>
       ) : null}
-      <SaveForLater onSave={() => void saveAndFinishLater()} busy={savingForLater} />
+      <SaveForLater
+        onSave={() => void saveAndFinishLater()}
+        busy={savingForLater || busy}
+      />
     </div>
   );
 }

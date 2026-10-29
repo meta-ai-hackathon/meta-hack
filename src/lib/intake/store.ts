@@ -171,23 +171,40 @@ export async function loadSessionState(
 }
 
 /**
- * Record that a caseworker assisted this session: appends the audit note
- * (who/what/when, BN-10) and flips the session's caseworker-assisted flag.
- * The note text is required and bounded; its contents are never logged.
+ * Validate an assist note and return it trimmed — WITHOUT touching the
+ * database, so callers (the /api/session route) can reject bad notes before
+ * creating a session. The bound matches every other free-text field
+ * (MAX_TEXT_LENGTH).
  */
-export async function recordCaseworkerAssist(
-  sessionId: string,
-  note: string,
-  actorRole = "caseworker",
-): Promise<void> {
+export function validateAssistNote(note: string): string {
   const trimmed = note.trim();
   if (trimmed === "" || trimmed.length > MAX_TEXT_LENGTH) {
     throw validationError();
   }
+  return trimmed;
+}
+
+/**
+ * Record that a caseworker assisted this session: appends the audit note
+ * (who/what/when, BN-10) and flips the session's caseworker-assisted flag.
+ * The note text is required and bounded (validateAssistNote); its contents
+ * are never logged.
+ *
+ * The actor is always recorded as SELF-REPORTED: this app has no
+ * authentication, so anyone could claim assistance happened, and the audit
+ * trail must not present an unverified claim as a verified caseworker's
+ * record (the same honesty spine as the tri-state answers). A future
+ * mission that adds caseworker identity can upgrade the attribution.
+ */
+export async function recordCaseworkerAssist(
+  sessionId: string,
+  note: string,
+): Promise<void> {
+  const trimmed = validateAssistNote(note);
   const sql = getDb();
   await sql`
     INSERT INTO session_audit_note (session_id, actor_role, note)
-    VALUES (${sessionId}, ${actorRole}, ${trimmed})
+    VALUES (${sessionId}, 'self_reported_caseworker', ${trimmed})
   `;
   await sql`
     UPDATE session
@@ -196,7 +213,7 @@ export async function recordCaseworkerAssist(
   `;
   // No note content or session id in the log — assist notes are free-form
   // caseworker text and could carry identifying content.
-  logInfo("session_audit_note_recorded", { actorRole });
+  logInfo("session_audit_note_recorded", { actorRole: "self_reported_caseworker" });
 }
 
 /**
@@ -324,7 +341,7 @@ function vaultValueFor(value: unknown): string {
 }
 
 /** The validated shape an answer submission must produce. */
-export interface ValidatedAnswer {
+interface ValidatedAnswer {
   readonly question: Question;
   /** Canonical storage value; null for unknown answers (no value anywhere). */
   readonly storedValue: string | number | boolean | string[] | null;

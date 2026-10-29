@@ -7,8 +7,9 @@ the implementation makes.
 ## The session token is an httpOnly cookie
 
 **Choice:** the token lives ONLY in the `bn_session` cookie — `HttpOnly`,
-`SameSite=Lax`, `Max-Age=30` days — set by the first response that creates or
-resumes a session (`src/lib/intake/store.ts`, `sessionCookieHeader`).
+`SameSite=Lax`, `Max-Age=30` days — set by the response that creates the
+session (`src/lib/intake/store.ts`, `sessionCookieHeader`; a resume returns
+200 with no new cookie — the browser already holds the token).
 
 **Why httpOnly cookie over a URL/return token:**
 
@@ -57,7 +58,12 @@ answer creates no orphan rows.
 - **Caseworker audit notes:** `session_audit_note` rows are never touched by
   resume; the `/api/session` GET returns them intact, and resuming a
   caseworker-assisted session reports `caseworkerAssisted: true` with the
-  full note history.
+  full note history. Attribution is deliberately **self-reported**: this app
+  has no authentication, so an assist note is recorded as
+  `self_reported_caseworker` — the audit trail never presents an unverified
+  claim as a verified caseworker's record (same honesty spine as the
+  tri-state answers). A future mission that adds caseworker identity can
+  upgrade the attribution.
 - **In-memory state:** none. No module keeps session state in module scope;
   every request reads Postgres. A dev-server restart mid-session is
   invisible to a resuming browser (proven by the VAL-RESUME-002 check).

@@ -28,3 +28,20 @@ export async function parseJsonBody(request: Request): Promise<unknown> {
     throw new AppError("validation_error", userMessageFor("validation_error"));
   }
 }
+
+/**
+ * Parse an OPTIONAL JSON request body: an absent or empty body means {}
+ * (e.g. POST /api/session with no payload), malformed JSON is the taxonomy
+ * validation_error, same as parseJsonBody.
+ */
+export async function optionalJsonBody(request: Request): Promise<unknown> {
+  const text = await request.text();
+  if (text.trim() === "") {
+    return {};
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new AppError("validation_error", userMessageFor("validation_error"));
+  }
+}

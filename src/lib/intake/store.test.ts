@@ -465,7 +465,9 @@ describe("caseworker assist records (BN-10)", () => {
     expect(state).not.toBeNull();
     expect(state?.caseworkerAssisted).toBe(true);
     expect(state?.auditNotes).toHaveLength(1);
-    expect(state?.auditNotes[0].actorRole).toBe("caseworker");
+    // Self-reported: no authentication exists, so the note never claims a
+    // verified caseworker identity.
+    expect(state?.auditNotes[0].actorRole).toBe("self_reported_caseworker");
     expect(state?.auditNotes[0].note).toBe("Reviewed housing questions together");
   });
 

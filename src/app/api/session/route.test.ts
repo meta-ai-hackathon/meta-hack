@@ -196,6 +196,20 @@ describe("POST /api/session (create)", () => {
     expect(await countsOf("session")).toBe(sessionsBefore);
   });
 
+  it("rejects an over-length assist note before creating anything", async () => {
+    // Same invariant as the missing-note case: validation happens BEFORE the
+    // database, so the bound lives in the route's pre-DB checks — not only
+    // in recordCaseworkerAssist, which runs after ensureSession.
+    const peopleBefore = await countsOf("person");
+    const sessionsBefore = await countsOf("session");
+    const response = await POST(
+      postRequest({ caseworkerAssisted: true, note: "x".repeat(2001) }),
+    );
+    expect(response.status).toBe(400);
+    expect(await countsOf("person")).toBe(peopleBefore);
+    expect(await countsOf("session")).toBe(sessionsBefore);
+  });
+
   it("records an audit note when created as caseworker-assisted", async () => {
     const response = await POST(
       postRequest({ caseworkerAssisted: true, note: "Walked through intake together" }),
@@ -204,7 +218,12 @@ describe("POST /api/session (create)", () => {
     const body = (await response.json()) as SessionBody;
     expect(body.session.caseworkerAssisted).toBe(true);
     expect(body.session.auditNotes).toHaveLength(1);
-    expect(body.session.auditNotes[0].actorRole).toBe("caseworker");
+    // The app has no authentication: anyone can claim assistance happened,
+    // so the note is attributed to a SELF-REPORTED caseworker — honest
+    // provenance for the audit trail (the product's tri-state principle).
+    expect(body.session.auditNotes[0].actorRole).toBe(
+      "self_reported_caseworker",
+    );
     expect(body.session.auditNotes[0].note).toBe(
       "Walked through intake together",
     );

@@ -5,7 +5,7 @@ import {
   runWithRequestId,
   userMessageFor,
 } from "../../../lib/telemetry";
-import { errorResponse } from "../../../lib/intake/api";
+import { errorResponse, optionalJsonBody } from "../../../lib/intake/api";
 import {
   ensureSession,
   isSecureRequest,
@@ -15,6 +15,7 @@ import {
   readSessionCookie,
   recordCaseworkerAssist,
   sessionCookieHeader,
+  validateAssistNote,
 } from "../../../lib/intake/store";
 import {
   assertNoPiiValues,
@@ -49,19 +50,6 @@ function validationError(): AppError {
   return new AppError("validation_error", userMessageFor("validation_error"));
 }
 
-/** Parse an optional JSON body; an absent or empty body means {}. */
-async function optionalJsonBody(request: Request): Promise<unknown> {
-  const text = await request.text();
-  if (text.trim() === "") {
-    return {};
-  }
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    throw validationError();
-  }
-}
-
 export async function POST(request: Request): Promise<Response> {
   const requestId = requestIdFromHeaders(request.headers);
   return runWithRequestId(requestId, async () => {
@@ -84,8 +72,13 @@ export async function POST(request: Request): Promise<Response> {
       if (note !== undefined && typeof note !== "string") {
         return errorResponse(validationError());
       }
-      if (assistRequested === true && (note === undefined || note.trim() === "")) {
-        return errorResponse(validationError());
+      if (assistRequested === true) {
+        if (note === undefined) {
+          return errorResponse(validationError());
+        }
+        // Full note validation (non-empty, length bound) pre-DB — the same
+        // invariant the answer route follows.
+        validateAssistNote(note);
       }
 
       const cookieValue = readSessionCookie(request.headers.get("cookie"));
