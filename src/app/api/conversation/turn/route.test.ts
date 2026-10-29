@@ -764,6 +764,40 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     expect(rows[0].provenance).toBe("user_supplied");
   });
 
+  it("saves a mapped choice answer as user_supplied even when the extractor calls it an inference (live parity break)", async () => {
+    // Live-verified Oct 29: the spoken "It's for myself" was extracted with
+    // inferred: true → ai_drafted/unverified, while typing the same words
+    // saved known/user_supplied. A mapped choice answer is the person's own
+    // statement; the parity must hold either way.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            {
+              question_id: "application_role",
+              status: "known",
+              value: "for myself",
+              verbatim: "It's for myself",
+              inferred: true,
+            },
+          ],
+        }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+    ]);
+
+    const response = await POST(turnRequest("It's for myself."));
+    expect(response.status).toBe(200);
+    const rows = await testDb`
+      SELECT value, status, provenance FROM answer
+      WHERE question_id = 'application_role'
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].value).toBe("self");
+    expect(rows[0].status).toBe("known");
+    expect(rows[0].provenance).toBe("user_supplied");
+  });
+
   it("saves the raw turn text when the extractor returned nothing at all", async () => {
     // The live-observed failure: extraction yields NO answer for a spoken
     // phrasing; the canonicalization layer maps the raw words instead.

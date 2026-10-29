@@ -843,28 +843,46 @@ export async function processUserTurn(
     }
   };
   for (const item of extracted) {
-    const planned = answerToSave(item);
+    let planned = answerToSave(item);
     if (!planned) {
       continue;
     }
     try {
       const question = QUESTION_BY_ID[planned.questionId];
-      let value: unknown = planned.value;
       // Choice canonicalization (hardening item 6): accept exact options as
       // they are; map realistic free-text phrasings onto spec options
       // through the value's own words, the verbatim span, then the raw turn
-      // text. When nothing maps, remember the attempt — the reply must say
-      // honestly that nothing was saved.
-      if (question.options && question.options.length > 0 && planned.status === "known") {
-        const mapped = mapChoiceAnswer(question, value, item.verbatim, userText);
+      // text. A mapped choice answer is the person's OWN statement — the
+      // extractor may call it an inference (live-verified parity break:
+      // "It's for myself" saved ai_drafted/unverified spoken but
+      // known/user_supplied typed) — landing on a spec option through a
+      // deterministic layer saves known/user_supplied, always. When nothing
+      // maps, remember the attempt: the reply must say honestly that
+      // nothing was saved.
+      if (
+        question.options &&
+        question.options.length > 0 &&
+        planned.status !== "unknown"
+      ) {
+        const mapped = mapChoiceAnswer(
+          question,
+          planned.value,
+          item.verbatim,
+          userText,
+        );
         if (mapped) {
-          value = question.type === "multi_select" ? mapped : mapped[0];
+          planned = {
+            questionId: planned.questionId,
+            status: "known",
+            value: question.type === "multi_select" ? mapped : mapped[0],
+            provenance: "user_supplied",
+          };
         } else {
           unmappedChoiceAttempt = true;
           continue;
         }
       }
-      await savePlanned({ ...planned, value }, item.verbatim);
+      await savePlanned(planned, item.verbatim);
     } catch (error) {
       // A malformed model value is a taxonomy validation_error: skip that
       // answer, log without content, keep the turn going. Anything else
