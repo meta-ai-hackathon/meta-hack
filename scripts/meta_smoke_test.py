@@ -4,8 +4,9 @@
 Stdlib only. Two live steps against https://api.meta.ai/v1:
   1. GET  /models -> HTTP 200 with muse-spark-1.3 in the catalog
   2. POST /chat/completions on muse-spark-1.3 with max_tokens >= 512
-     (reasoning tokens consume the completion budget) -> HTTP 200,
-     non-null content, finish_reason "stop"
+     (reasoning tokens consume the completion budget; the default 1024
+     leaves headroom so a reasoning burst cannot starve the content)
+     -> HTTP 200, non-null content, finish_reason "stop"
 
 Writes evidence JSON (timestamp, model, latency, usage incl. reasoning_tokens,
 content preview) to docs/meta-api-evidence.json, or prints it with --stdout.
@@ -30,7 +31,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE_URL = "https://api.meta.ai/v1"
 TARGET_MODEL = "muse-spark-1.3"
 MIN_MAX_TOKENS = 512  # reasoning tokens consume the completion budget
-DEFAULT_MAX_TOKENS = 512
+# 1024 (not the 512 floor): reasoning-token bursts can consume the entire
+# budget at the floor, leaving finish_reason "length" with null content —
+# observed live on Oct 29. The headroom keeps the content reachable.
+DEFAULT_MAX_TOKENS = 1024
 DEFAULT_OUTPUT_REL = os.path.join("docs", "meta-api-evidence.json")
 CONTENT_PREVIEW_CHARS = 240
 HTTP_TIMEOUT_SECONDS = 90
