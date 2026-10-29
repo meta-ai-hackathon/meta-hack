@@ -15,7 +15,7 @@ and reusable components so every later flow inherits it.
 | Labeled field | `src/components/field.tsx` | Label/control association via `for`/`id`, help text wired through `aria-describedby`, errors announced with `role="alert"` plus `aria-invalid`/`aria-errormessage` on the control. |
 | Status region | `src/components/status-region.tsx` | `role="status"` with `aria-live="polite"` and `aria-atomic="true"`; stays mounted so the first update is announced. |
 | Motion | `src/app/globals.css` | `prefers-reduced-motion` collapses animations and transitions. |
-| Contrast | theme tokens in `src/app/globals.css` | `#171717` on `#ffffff` and `#ededed` on `#0a0a0a` both clear WCAG 2.1 AA with wide margin (about 15:1). |
+| Contrast | theme tokens in `src/app/globals.css` | `#171717` on `#ffffff` and `#ededed` on `#0a0a0a` both clear WCAG 2.1 AA with wide margin (about 17:1). |
 
 The home page (`src/components/a11y-demo.tsx`) demonstrates the field and
 status region until real flows replace the demo.
@@ -42,7 +42,9 @@ Vitest (static SSR assertions, no extra a11y dependency):
 coverage that overlaps these static checks, so the behavioral checks below
 run manually instead.
 
-agent-browser (behavioral evidence on `http://localhost:3100`):
+agent-browser (behavioral evidence on `http://localhost:3100`; start the dev
+server with `pnpm dev --port 3100` — this mission's dev port. Plain
+`pnpm dev` defaults to 3000):
 
 1. Keyboard tab-through: screenshot the focused skip link, then the next stops.
 2. Heading outline extraction per page (DOM query over `h1`-`h6`).
