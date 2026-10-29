@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
@@ -71,6 +73,30 @@ function deleteAtPath(raw: Record<string, unknown>, path: (string | number)[]): 
     delete (node as Record<string, unknown>)[last as string];
   }
 }
+
+// Parsed from the repo's schema at test time — the vocabularies are compared
+// against this module's constants so the two cannot drift apart.
+const SCHEMA_PATH = fileURLToPath(new URL("../../kb/schema.json", import.meta.url));
+
+describe("schema mirror", () => {
+  it("status enum in kb/schema.json equals KB_ENTRY_STATUSES", () => {
+    const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8")) as {
+      properties: { status: { enum: string[] } };
+    };
+    expect([...schema.properties.status.enum].sort()).toEqual(
+      [...KB_ENTRY_STATUSES].sort(),
+    );
+  });
+
+  it("fact groups in kb/schema.json equal KB_FACT_GROUPS", () => {
+    const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8")) as {
+      definitions: { facts: { required: string[] } };
+    };
+    expect([...schema.definitions.facts.required].sort()).toEqual(
+      [...KB_FACT_GROUPS].sort(),
+    );
+  });
+});
 
 describe("shipped sample entry", () => {
   it("validates cleanly against the schema rules", () => {
@@ -198,6 +224,27 @@ describe("validation failures", () => {
     (raw.sources as Record<string, unknown>[])[0].url = "http://example.org/insecure";
     expect(() => parseKbEntry(raw)).toThrow(KbValidationError);
   });
+
+  it("rejects keys the schema does not allow", () => {
+    const entryLevel = rawClone();
+    entryLevel.bonus_field = "not in the schema";
+    expect(() => parseKbEntry(entryLevel)).toThrow(/bonus_field/);
+    const groupLevel = rawClone();
+    (groupLevel.facts as Record<string, unknown>).extra_group = {
+      items: ["x"],
+      source_id: "official_rules_source",
+      retrieved_at: "2026-10-29",
+    };
+    expect(() => parseKbEntry(groupLevel)).toThrow(/extra_group/);
+  });
+
+  it("rejects a malformed superseded_by", () => {
+    const raw = rawClone();
+    raw.status = "withdrawn";
+    raw.status_reason = "program ended";
+    raw.superseded_by = "Not A Snake_Id!";
+    expect(() => parseKbEntry(raw)).toThrow(/superseded_by/);
+  });
 });
 
 describe("citation API: stale and withdrawn entries are never cited silently", () => {
@@ -247,10 +294,13 @@ describe("citation API: stale and withdrawn entries are never cited silently", (
 
 describe("properties (fast-check)", () => {
   it("never throws anything but KbValidationError on arbitrary input", () => {
+    // Totality: parsing either yields an entry or fails with the typed error
+    // (fc could in principle hit a valid shape — that is fine). A leak of any
+    // other error type is the bug this property forbids.
     const attempts = fc.property(fc.anything(), (value) => {
       try {
         parseKbEntry(value);
-        return false;
+        return true;
       } catch (error) {
         return error instanceof KbValidationError;
       }
@@ -291,6 +341,20 @@ describe("properties (fast-check)", () => {
         const dd = String(day).padStart(2, "0");
         return `${year}-${mm}-${dd}`;
       });
+    // Independent oracle: a month-length table, not the Date arithmetic the
+    // production check uses.
+    const isLeap = (year: number) =>
+      (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    const daysInMonth = (month: number, year: number): number => {
+      const lengths = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+      if (month < 1 || month > 12) {
+        return 0;
+      }
+      if (month === 2 && isLeap(year)) {
+        return 29;
+      }
+      return lengths[month - 1];
+    };
     const attempts = fc.property(dateArbitrary, (date) => {
       const raw = rawClone();
       (raw.facts as Record<string, unknown>).rules = {
@@ -298,20 +362,12 @@ describe("properties (fast-check)", () => {
         source_id: "official_rules_source",
         retrieved_at: date,
       };
-      const realDate = (() => {
-        const [y, m, d] = date.split("-").map(Number);
-        const parsed = new Date(Date.UTC(y, m - 1, d));
-        return (
-          m >= 1 &&
-          m <= 12 &&
-          d >= 1 &&
-          d <= 31 &&
-          parsed.getUTCFullYear() === y &&
-          parsed.getUTCMonth() === m - 1 &&
-          parsed.getUTCDate() === d
-        );
-      })();
-      return realDate ? validateKbEntry(raw).length === 0 : validateKbEntry(raw).length > 0;
+      const [year, month, day] = date.split("-").map(Number);
+      const realDate =
+        day >= 1 && day <= daysInMonth(month, year) && month >= 1 && month <= 12;
+      return realDate
+        ? validateKbEntry(raw).length === 0
+        : validateKbEntry(raw).length > 0;
     });
     fc.assert(attempts, { numRuns: 300 });
   });

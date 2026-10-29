@@ -115,21 +115,56 @@ const HTTPS_URL_RE = /^https:\/\//;
 const ENTRY_ID_RE = /^[a-z][a-z0-9_]*$/;
 const SOURCE_ID_RE = /^[a-z][a-z0-9_-]*$/;
 
+/** Exactly the keys kb/schema.json allows on an entry (additionalProperties: false). */
+const ENTRY_KEYS: ReadonlySet<string> = new Set([
+  "id",
+  "title",
+  "version",
+  "status",
+  "status_reason",
+  "superseded_by",
+  "sources",
+  "facts",
+]);
+
+const SOURCE_KEYS: ReadonlySet<string> = new Set([
+  "id",
+  "title",
+  "url",
+  "retrieved_at",
+  "supports",
+]);
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function checkUnknownKeys(
+  value: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+  label: string,
+  problems: string[],
+): void {
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      problems.push(`${label}.${key} is not allowed by the schema`);
+    }
+  }
 }
 
 /**
  * Real-calendar-date check on top of the YYYY-MM-DD shape the JSON Schema
  * can only express as a pattern (2026-02-30 matches the shape, not the
- * calendar).
+ * calendar). setUTCFullYear avoids the Date.UTC quirk that maps years
+ * 0-99 onto 1900-1999, so every four-digit year validates like the schema.
  */
 export function isIsoCalendarDate(value: string): boolean {
   if (!ISO_DATE_RE.test(value)) {
     return false;
   }
   const [year, month, day] = value.split("-").map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
+  const parsed = new Date(0);
+  parsed.setUTCFullYear(year, month - 1, day);
   return (
     parsed.getUTCFullYear() === year &&
     parsed.getUTCMonth() === month - 1 &&
@@ -180,6 +215,7 @@ export function validateKbEntry(raw: unknown): readonly string[] {
   if (!isPlainObject(raw)) {
     return ["entry must be a JSON object"];
   }
+  checkUnknownKeys(raw, ENTRY_KEYS, "entry", problems);
 
   if (typeof raw.id !== "string" || !ENTRY_ID_RE.test(raw.id)) {
     problems.push("id must be a snake_case identifier");
@@ -202,6 +238,12 @@ export function validateKbEntry(raw: unknown): readonly string[] {
     problems.push("status must be one of: active, stale, withdrawn");
   }
   if (
+    raw.status_reason !== undefined &&
+    (typeof raw.status_reason !== "string" || raw.status_reason.length === 0)
+  ) {
+    problems.push("status_reason must be a non-empty string when present");
+  }
+  if (
     isNonActiveKbStatus(status) &&
     (typeof raw.status_reason !== "string" || raw.status_reason.length === 0)
   ) {
@@ -209,6 +251,12 @@ export function validateKbEntry(raw: unknown): readonly string[] {
       "status_reason is required when status is stale or withdrawn " +
         "(non-active entries may be cited only with their reason surfaced)",
     );
+  }
+  if (
+    raw.superseded_by !== undefined &&
+    (typeof raw.superseded_by !== "string" || !ENTRY_ID_RE.test(raw.superseded_by))
+  ) {
+    problems.push("superseded_by must be a snake_case entry id when present");
   }
 
   const sourceIds = new Set<string>();
@@ -221,6 +269,7 @@ export function validateKbEntry(raw: unknown): readonly string[] {
         problems.push(`${label} must be an object`);
         return;
       }
+      checkUnknownKeys(source, SOURCE_KEYS, label, problems);
       if (typeof source.id !== "string" || !SOURCE_ID_RE.test(source.id)) {
         problems.push(`${label}.id must be a snake_case source id`);
       } else {
@@ -254,6 +303,11 @@ export function validateKbEntry(raw: unknown): readonly string[] {
     );
     return problems;
   }
+  for (const key of Object.keys(facts)) {
+    if (!(KB_FACT_GROUPS as readonly string[]).includes(key)) {
+      problems.push(`facts.${key} is not one of the four fact groups`);
+    }
+  }
   for (const name of KB_FACT_GROUPS) {
     const group = validateGroupProvenance(facts[name], name, problems, sourceIds);
     if (!group || !Array.isArray(group.items)) {
@@ -266,7 +320,8 @@ export function validateKbEntry(raw: unknown): readonly string[] {
           typeof item.label !== "string" ||
           item.label.length === 0 ||
           typeof item.url !== "string" ||
-          !HTTPS_URL_RE.test(item.url)
+          !HTTPS_URL_RE.test(item.url) ||
+          Object.keys(item).some((key) => key !== "label" && key !== "url")
         ) {
           problems.push(
             "facts.official_links.items entries need a label and an official https:// url",
@@ -281,7 +336,8 @@ export function validateKbEntry(raw: unknown): readonly string[] {
           typeof item.label !== "string" ||
           item.label.length === 0 ||
           typeof item.due !== "string" ||
-          item.due.length === 0
+          item.due.length === 0 ||
+          Object.keys(item).some((key) => key !== "label" && key !== "due")
         ) {
           problems.push(
             "facts.deadlines.items entries need a label and a due statement",

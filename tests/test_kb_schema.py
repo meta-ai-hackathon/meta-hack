@@ -184,6 +184,19 @@ class TestStatusStates(KbSchemaTestCase):
     def test_unknown_status_fails(self):
         self.assertInvalid(self.variant(status="maybe"), "status outside the vocabulary")
 
+    def test_unknown_key_fails(self):
+        entry = copy.deepcopy(self.sample)
+        entry["bonus_field"] = "not in the schema"
+        self.assertInvalid(entry, "entry with unknown key")
+
+    def test_malformed_superseded_by_fails(self):
+        entry = self.variant(
+            status="withdrawn",
+            status_reason="program ended",
+            superseded_by="Not A Snake_Id!",
+        )
+        self.assertInvalid(entry, "withdrawn with malformed superseded_by")
+
 
 class TestMissingFieldsFail(KbSchemaTestCase):
     def test_missing_version_fails(self):
