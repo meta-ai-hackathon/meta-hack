@@ -1,6 +1,6 @@
 # Demo script v0 — one journey, three minutes
 
-This is the v0, pilot-agnostic draft of the one-journey demo script (HACK-71): one synthetic person, one benefit, one end-to-end trip from first question to handoff, in under three minutes. BN-36 (HACK-63) rehearses and finalizes the script once the pilot program and location land; nothing here names a real program yet — narration uses `{{PILOT_PROGRAM}}` placeholders. The persona is synthetic and labeled as such (BN-37), and every quote shown is a consented quote from customer discovery (BN-39). The storyline deliberately leads with the guided workflow agent — intake, checklist, prep, review, handoff — and never frames the product as "AI answers benefits questions."
+This is the v0, pilot-agnostic draft of the one-journey demo script (HACK-71): one synthetic person, one benefit, one end-to-end trip from first question to handoff, in three minutes. BN-36 (HACK-63) rehearses and finalizes the script once the pilot program and location land; nothing here names a real program yet — narration uses `{{PILOT_PROGRAM}}` placeholders. The persona is synthetic and labeled as such (BN-37), and every quote shown is a consented quote from customer discovery (BN-39). The storyline deliberately leads with the guided workflow agent — intake, checklist, prep, review, handoff — and never frames the product as "AI answers benefits questions."
 
 ## Beats
 
