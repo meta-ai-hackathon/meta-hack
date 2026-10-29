@@ -61,6 +61,10 @@ def load_env_file(path: str) -> dict[str, str]:
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
             value = value[1:-1]
+        elif " #" in value:
+            # Unquoted value: an inline comment would corrupt the credential
+            # (e.g. the Bearer token), so truncate at the first " #".
+            value = value.split(" #", 1)[0].rstrip()
         if key:
             env[key] = value
     return env
@@ -223,6 +227,18 @@ def assert_completion_step(step: dict[str, Any]) -> None:
 # --- network steps ------------------------------------------------------------
 
 
+def parse_response(status: int, raw: bytes) -> Any:
+    """Parse an HTTP body as JSON, failing with a clean, safe error."""
+    try:
+        return json.loads(raw.decode("utf-8")) if raw else {}
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        # Error pages can be HTML (proxies/gateways); preview the body only.
+        snippet = raw[:120].decode("utf-8", errors="replace")
+        raise SmokeTestError(
+            f"non-JSON response (HTTP {status}): {snippet!r}"
+        ) from exc
+
+
 def _request_json(
     url: str,
     key: str,
@@ -245,9 +261,15 @@ def _request_json(
             raw = response.read()
     except urllib.error.HTTPError as exc:
         status = exc.code
-        raw = exc.read()
-    payload = json.loads(raw.decode("utf-8")) if raw else {}
-    return status, payload
+        try:
+            raw = exc.read()
+        except OSError:
+            raw = b""
+    except OSError as exc:
+        # Connection failures and mid-read timeouts surface here (URLError
+        # is an OSError subclass); str(exc) carries no header material.
+        raise SmokeTestError(f"network error calling {url}: {exc}") from exc
+    return status, parse_response(status, raw)
 
 
 def run_models_step(key: str, base_url: str) -> dict[str, Any]:
@@ -303,11 +325,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         evidence = run_smoke(key=key, base_url=args.base_url, max_tokens=args.max_tokens)
     except SmokeTestError as exc:
         print(f"smoke test FAIL: {exc}", file=sys.stderr)
-        return 1
-    except urllib.error.URLError as exc:
-        # Network-level failure; reason carries no key material (headers are
-        # never included in error strings).
-        print(f"smoke test FAIL: network error: {exc.reason}", file=sys.stderr)
         return 1
     text = render_evidence(evidence)
     assert_no_key_material(text, key)

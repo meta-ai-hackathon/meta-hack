@@ -105,6 +105,20 @@ class LoadEnvTests(unittest.TestCase):
     def test_missing_file_returns_empty(self):
         self.assertEqual(smoke.load_env_file("/nonexistent/.env"), {})
 
+    def test_inline_comment_stripped_from_unquoted_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".env"
+            path.write_text(
+                "MODEL_API_KEY=abc123 # my key comment\n"
+                "URL=https://example.com/path\n"
+                'QUOTED="kept # intact"\n',
+                encoding="utf-8",
+            )
+            env = smoke.load_env_file(str(path))
+        self.assertEqual(env["MODEL_API_KEY"], "abc123")
+        self.assertEqual(env["URL"], "https://example.com/path")
+        self.assertEqual(env["QUOTED"], "kept # intact")
+
     def test_resolve_key_absent_or_blank(self):
         self.assertIsNone(smoke.resolve_key({"OTHER": "x"}))
         self.assertIsNone(smoke.resolve_key({"MODEL_API_KEY": "   "}))
@@ -185,6 +199,22 @@ class StepAssertionTests(unittest.TestCase):
         smoke.assert_completion_step(
             {"http_status": 200, "content_present": True, "finish_reason": "stop"}
         )
+
+
+class ResponseParsingTests(unittest.TestCase):
+    def test_html_error_page_raises_clean_error(self):
+        with self.assertRaises(smoke.SmokeTestError):
+            smoke.parse_response(502, b"<html>Bad Gateway</html>")
+
+    def test_malformed_json_raises_clean_error(self):
+        with self.assertRaises(smoke.SmokeTestError):
+            smoke.parse_response(200, b"{not json")
+
+    def test_empty_body_yields_empty_payload(self):
+        self.assertEqual(smoke.parse_response(200, b""), {})
+
+    def test_json_body_parses(self):
+        self.assertEqual(smoke.parse_response(200, b'{"ok": true}'), {"ok": True})
 
 
 class EvidenceTests(unittest.TestCase):
