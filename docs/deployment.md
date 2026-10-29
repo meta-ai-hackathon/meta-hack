@@ -72,7 +72,8 @@ database wiring exists.
 
 Previews are automatic for every pull request now that the GitHub App is installed and
 the repo is linked: Vercel builds a preview deployment for each PR and posts its URL as
-a PR comment (`gitComments.onPullRequest: true`). Verified on PR #34 — the preview at
-`meta-hack-omega.vercel.app` serves `/api/health` with HTTP 200. (The project's
+a PR comment (`gitComments.onPullRequest: true`). Verified on PR #34 — its preview
+deployment (`meta-hack-r8jr6ft85-yifus-projects-5c1c92b8.vercel.app`, commit 2954917)
+serves `/api/health` with HTTP 200. (The project's
 `gitProviderOptions.createDeployments` reads `disabled`; as observed on PR #34, that
 setting does not gate Vercel preview builds.)
