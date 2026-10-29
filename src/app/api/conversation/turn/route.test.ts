@@ -727,3 +727,281 @@ describe("conversation resume over HTTP (VAL-CONV-007 persistence legs)", () => 
     expect(secondData).toEqual(firstData);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Mission v2 M2 hardening (orchestrator note, post-M1 droid review): atomic
+// turn persistence, deferred session creation, the per-session turn-rate
+// cap, and honest choice-question handling.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/conversation/turn — choice canonicalization (hardening 6)", () => {
+  it("saves a free-text phrasing onto its spec option (VAL-VOICE parity with spoken phrasing)", async () => {
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            {
+              question_id: "application_role",
+              status: "known",
+              value: "for myself",
+              verbatim: "It's for myself",
+            },
+          ],
+        }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+    ]);
+
+    const response = await POST(turnRequest("It's for myself."));
+    expect(response.status).toBe(200);
+    const rows = await testDb`
+      SELECT value, status, provenance FROM answer
+      WHERE question_id = 'application_role'
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].value).toBe("self");
+    expect(rows[0].status).toBe("known");
+    expect(rows[0].provenance).toBe("user_supplied");
+  });
+
+  it("saves the raw turn text when the extractor returned nothing at all", async () => {
+    // The live-observed failure: extraction yields NO answer for a spoken
+    // phrasing; the canonicalization layer maps the raw words instead.
+    installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+    ]);
+
+    const response = await POST(turnRequest("It's for myself."));
+    expect(response.status).toBe(200);
+    const rows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'application_role'
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].value).toBe("self");
+  });
+
+  it("answers honestly when nothing maps: no implied save, no reply model call, nothing persisted", async () => {
+    const calls = installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            {
+              question_id: "application_role",
+              status: "known",
+              value: "martian vampire count",
+            },
+          ],
+        }),
+        reply: "Perfect, all saved!",
+      },
+    ]);
+
+    const response = await POST(turnRequest("Zorp blorble quintessence."));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    // The reply honestly says nothing was saved, and re-asks the question.
+    expect(data.assistantReply).toContain("haven't saved anything yet");
+    expect(data.assistantReply).toContain(
+      QUESTION_BY_ID.application_role.prompt,
+    );
+    expect(findBannedClaims(data.assistantReply)).toEqual([]);
+    expect(data.nextQuestionId).toBe("application_role");
+    // No answer row, and the scripted "Perfect, all saved!" reply never ran
+    // (only the extraction call happened).
+    const answerRows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'application_role'
+    `;
+    expect(answerRows).toHaveLength(0);
+    expect(calls.every((call) => call.kind === "extraction")).toBe(true);
+    // Both turns persist atomically after the honest reply.
+    expect(await userTranscripts()).toHaveLength(1);
+    expect(await assistantTranscripts()).toEqual([data.assistantReply]);
+  });
+});
+
+describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () => {
+  it("persists the user turn only after the reply succeeds; a reply failure leaves no duplicate transcript on retry", async () => {
+    installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: "Let's begin. Who is this application for?",
+      },
+    ]);
+    const first = await POST(turnRequest("Hello there."));
+    expect(first.status).toBe(200);
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0].trim();
+
+    // Turn 2: extraction succeeds (an answer is saved), the reply call dies.
+    setModelTransport(async (_url, init) => {
+      const parsed = JSON.parse(String(init.body)) as {
+        messages: { content: string }[];
+      };
+      const isExtraction = parsed.messages[0]?.content.startsWith(
+        EXTRACTION_SYSTEM_PROMPT_PREFIX,
+      );
+      if (isExtraction) {
+        return new Response(
+          JSON.stringify(
+            chatCallBody(
+              JSON.stringify({
+                answers: [
+                  { question_id: "main_goal", status: "known", value: "food" },
+                ],
+              }),
+            ),
+          ),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ error: { message: "down" } }), {
+        status: 503,
+      });
+    });
+
+    const failed = await POST(turnRequest("I need help with food.", cookie));
+    expect(failed.status).toBe(503);
+    // NO user turn persisted for the failed reply — a retry cannot duplicate
+    // the transcript.
+    expect(await userTranscripts()).toEqual(["Hello there."]);
+    expect(await assistantTranscripts()).toEqual([
+      "Let's begin. Who is this application for?",
+    ]);
+
+    // The retry completes cleanly: exactly one copy of the transcript.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "main_goal", status: "known", value: "food" },
+          ],
+        }),
+        reply: "Got it — food. What is your zip code?",
+      },
+    ]);
+    const retried = await POST(turnRequest("I need help with food.", cookie));
+    expect(retried.status).toBe(200);
+    expect(await userTranscripts()).toEqual([
+      "Hello there.",
+      "I need help with food.",
+    ]);
+    expect(await assistantTranscripts()).toEqual([
+      "Let's begin. Who is this application for?",
+      "Got it — food. What is your zip code?",
+    ]);
+  });
+
+  it("passes the redacted turn explicitly as the final reply message, never raw", async () => {
+    const calls = installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            {
+              question_id: "phone_contact",
+              status: "known",
+              value: "555-0143",
+              verbatim: "555-0143",
+            },
+          ],
+        }),
+        reply: "Thanks. What is your email address?",
+      },
+    ]);
+    const response = await POST(turnRequest("Call me at 555-0143."));
+    expect(response.status).toBe(200);
+    const replyCall = calls.find((call) => call.kind === "reply");
+    expect(replyCall).toBeDefined();
+    const replyMessages = replyCall?.body.messages ?? [];
+    // The final message is THIS turn's REDACTED words (deferred persistence
+    // means history alone cannot carry it), never the raw value.
+    const finalMessage = replyMessages[replyMessages.length - 1];
+    expect(finalMessage?.role).toBe("user");
+    expect(finalMessage?.content).not.toContain("555-0143");
+    expect(finalMessage?.content).toContain("[redacted answer to");
+  });
+});
+
+describe("POST /api/conversation/turn — deferred session creation (hardening 2)", () => {
+  it("creates no person/session rows when the model fails", async () => {
+    setModelTransport(failingChat(503));
+    const peopleBefore = await countOf("person");
+    const sessionsBefore = await countOf("session");
+
+    const response = await POST(turnRequest("Hello?"));
+    expect(response.status).toBe(503);
+    expect(await countOf("person")).toBe(peopleBefore);
+    expect(await countOf("session")).toBe(sessionsBefore);
+    expect(await userTranscripts()).toHaveLength(0);
+  });
+
+  it("creates the session only after extraction succeeds, then persists everything", async () => {
+    const peopleBefore = await countOf("person");
+    const sessionsBefore = await countOf("session");
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+          ],
+        }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+    ]);
+    const response = await POST(turnRequest("It's for me."));
+    expect(response.status).toBe(200);
+    expect(await countOf("person")).toBe(peopleBefore + 1);
+    expect(await countOf("session")).toBe(sessionsBefore + 1);
+    expect(await userTranscripts()).toEqual(["It's for me."]);
+  });
+});
+
+describe("POST /api/conversation/turn — per-session turn-rate cap (hardening 3)", () => {
+  it("rejects a turn past the per-session cap with rate_limited before any model call", async () => {
+    installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: "Let's begin. Who is this application for?",
+      },
+    ]);
+    const first = await POST(turnRequest("Hello there."));
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0].trim();
+    const sessionId = cookie.split("=")[1] ?? "";
+
+    // Fill the window to the cap with user turns (the first POST's turn is
+    // one of them).
+    const { MAX_TURNS_PER_WINDOW } = await import("../../../../lib/conversation");
+    await testDb`
+      INSERT INTO conversation_turn (session_id, role, redacted_transcript)
+      SELECT ${sessionId}, 'user', 'filler turn ' || i
+      FROM generate_series(1, ${MAX_TURNS_PER_WINDOW}) AS i
+    `;
+
+    // The capped turn never reaches the model: spend-bounding is the point.
+    let modelCalled = false;
+    setModelTransport(async () => {
+      modelCalled = true;
+      return new Response(JSON.stringify({ error: { message: "x" } }), {
+        status: 500,
+      });
+    });
+    const response = await POST(turnRequest("One more question please.", cookie));
+    expect(response.status).toBe(429);
+    const data = (await response.json()) as ErrorResponse;
+    expect(data.error.code).toBe("rate_limited");
+    expect(data.error.wizardFallbackUrl).toBe(WIZARD_FALLBACK_URL);
+    expect(modelCalled).toBe(false);
+  });
+
+  it("lets a fresh session turn through (the cap is per session)", async () => {
+    installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: "Let's begin. Who is this application for?",
+      },
+    ]);
+    const response = await POST(turnRequest("Hello there."));
+    expect(response.status).toBe(200);
+  });
+});
