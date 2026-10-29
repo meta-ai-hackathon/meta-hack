@@ -106,7 +106,9 @@ describe("shipped sample entry", () => {
   it("parses with version, sources, and per-group provenance", () => {
     const entry = parseKbEntry(RAW_SAMPLE);
     expect(entry.id).toBe("pilot_program_sample");
-    expect(entry.version).toBe(1);
+    // Bumped to 2 when the optional steps/match_signals groups landed
+    // (mission v2 M3) — the versioning rule bumps on any fact change.
+    expect(entry.version).toBe(2);
     expect(entry.status).toBe("active");
     expect(entry.sources.length).toBeGreaterThanOrEqual(1);
     for (const source of entry.sources) {
@@ -128,8 +130,14 @@ describe("shipped sample entry", () => {
     expect(text).not.toContain("{{PILOT_PROGRAM}}{{");
   });
 
-  it("is the single shipped entry and loads through the dataset", () => {
-    expect(KB_ENTRIES.length).toBe(1);
+  it("ships the three sample entries and loads them through the dataset", () => {
+    // Mission v2 M3: matching needs more than one entry to rank (the KB
+    // stayed single-entry through milestone M1 knowledge-pii).
+    expect(KB_ENTRIES.map((entry) => entry.id)).toEqual([
+      "pilot_program_sample",
+      "pilot_program_sample_b",
+      "pilot_program_sample_c",
+    ]);
     expect(KB_ENTRIES[0]).toEqual(parseKbEntry(RAW_SAMPLE));
   });
 });
@@ -325,7 +333,11 @@ describe("optional fact groups: steps and match_signals (mission v2 M3)", () => 
   });
 
   it("omits the optional groups from the parsed entry when absent", () => {
-    const entry = parseKbEntry(RAW_SAMPLE);
+    const bare = rawClone();
+    const bareFacts = bare.facts as Record<string, unknown>;
+    delete bareFacts.steps;
+    delete bareFacts.match_signals;
+    const entry = parseKbEntry(bare);
     expect(entry.facts.steps).toBeUndefined();
     expect(entry.facts.match_signals).toBeUndefined();
   });

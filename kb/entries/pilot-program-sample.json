@@ -1,7 +1,7 @@
 {
   "id": "pilot_program_sample",
   "title": "{{PILOT_PROGRAM}} (sample knowledge-base entry)",
-  "version": 1,
+  "version": 2,
   "status": "active",
   "sources": [
     {
@@ -9,7 +9,7 @@
       "title": "{{PILOT_PROGRAM}} official rules page",
       "url": "https://example.org/{{PILOT_PROGRAM}}/rules",
       "retrieved_at": "2026-10-29",
-      "supports": "Program rules, required documents, and deadlines stated in this entry."
+      "supports": "Program rules, required documents, steps, and deadlines stated in this entry."
     },
     {
       "id": "official_application_portal",
@@ -52,6 +52,43 @@
         {
           "label": "{{PILOT_PROGRAM}} application window",
           "due": "Published by the official source - placeholder until a pilot program is chosen"
+        },
+        {
+          "label": "Renewal: the program re-verifies your facts on a schedule the official rules set",
+          "due": "Published by the official source - placeholder until a pilot program is chosen"
+        }
+      ],
+      "source_id": "official_rules_source",
+      "retrieved_at": "2026-10-29"
+    },
+    "steps": {
+      "items": [
+        "Gather the documents the official rules list as required.",
+        "Start the application through the official application portal.",
+        "Attend any appointment the program schedules with you."
+      ],
+      "source_id": "official_rules_source",
+      "retrieved_at": "2026-10-29"
+    },
+    "match_signals": {
+      "items": [
+        {
+          "question_id": "housing_status",
+          "values": ["shelter", "car", "outdoors", "nowhere"],
+          "weight": 3,
+          "reason": "The program's rules give priority to people without a stable place to sleep."
+        },
+        {
+          "question_id": "id_status",
+          "values": ["need_id", "id_in_progress"],
+          "weight": 2,
+          "reason": "The program's rules cover people who are obtaining or replacing an identity document."
+        },
+        {
+          "question_id": "income_sources",
+          "values": ["none"],
+          "weight": 2,
+          "reason": "The program's income rules consider households with no money coming in right now."
         }
       ],
       "source_id": "official_rules_source",

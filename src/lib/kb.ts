@@ -8,6 +8,8 @@
  * status and non-active entries require explicit acknowledgment to cite.
  */
 
+import sampleBEntryJson from "../../kb/entries/pilot-program-sample-b.json";
+import sampleCEntryJson from "../../kb/entries/pilot-program-sample-c.json";
 import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
 
 // ---------------------------------------------------------------------------
@@ -629,10 +631,13 @@ export function citeFactGroup(
 // ---------------------------------------------------------------------------
 
 /**
- * The shipped knowledge base: one pilot-agnostic sample entry until the
- * pilot decision lands. Every entry is validated at module load, so invalid
+ * The shipped knowledge base: three pilot-agnostic sample entries (mission
+ * v2 M3 — matching needs more than one entry to rank) until the pilot
+ * decision lands. Every entry is validated at module load, so invalid
  * KB data fails fast instead of leaking unverified facts.
  */
 export const KB_ENTRIES: readonly KbEntry[] = [
   parseKbEntry(sampleEntryJson as unknown),
+  parseKbEntry(sampleBEntryJson as unknown),
+  parseKbEntry(sampleCEntryJson as unknown),
 ];

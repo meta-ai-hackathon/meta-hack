@@ -135,9 +135,33 @@ class TestSchemaAndSample(KbSchemaTestCase):
         self.assertIsInstance(self.sample["version"], int)
         self.assertGreaterEqual(self.sample["version"], 1)
 
-    def test_sample_is_the_single_shipped_entry(self):
+    def test_shipped_entries_are_exactly_the_three_samples(self):
+        # Mission v2 M3 updated this rule: benefit matching needs more than
+        # one shipped entry to rank, so the KB ships three pilot-agnostic
+        # samples (the base sample plus matching fixtures B and C). All
+        # must validate; see also TestOptionalGroups.
         shipped = sorted(path.name for path in ENTRIES_DIR.glob("*.json"))
-        self.assertEqual(shipped, [SAMPLE_PATH.name])
+        self.assertEqual(
+            shipped,
+            [
+                "pilot-program-sample-b.json",
+                "pilot-program-sample-c.json",
+                "pilot-program-sample.json",
+            ],
+        )
+        for name in shipped:
+            entry = json.loads((ENTRIES_DIR / name).read_text(encoding="utf-8"))
+            errors = self.schema_errors(entry)
+            self.assertEqual(errors, [], f"{name}: {errors}")
+
+    def test_every_shipped_entry_stays_pilot_agnostic(self):
+        for path in sorted(ENTRIES_DIR.glob("*.json")):
+            text = path.read_text(encoding="utf-8")
+            self.assertIn(
+                "{{PILOT_PROGRAM}}",
+                text,
+                f"{path.name} must stay a placeholder template",
+            )
 
     def test_version_sources_and_group_provenance_present(self):
         self.assertIn("version", self.sample)

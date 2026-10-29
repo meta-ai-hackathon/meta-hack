@@ -1,0 +1,97 @@
+{
+  "id": "pilot_program_sample_b",
+  "title": "{{PILOT_PROGRAM}} sample entry B (matching fixture)",
+  "version": 1,
+  "status": "active",
+  "sources": [
+    {
+      "id": "official_rules_source_b",
+      "title": "{{PILOT_PROGRAM}} sample entry B official rules page",
+      "url": "https://example.org/{{PILOT_PROGRAM}}/sample-b/rules",
+      "retrieved_at": "2026-10-29",
+      "supports": "Program rules, required documents, steps, and deadlines stated in this entry."
+    },
+    {
+      "id": "official_application_portal_b",
+      "title": "{{PILOT_PROGRAM}} sample entry B official application portal",
+      "url": "https://example.org/{{PILOT_PROGRAM}}/sample-b/apply",
+      "retrieved_at": "2026-10-29",
+      "supports": "The official application link listed in the official_links fact group."
+    }
+  ],
+  "facts": {
+    "rules": {
+      "items": [
+        "Eligibility for sample entry B is decided solely by the program's official rules, never by this app.",
+        "Sample entry B can change its rules at any time; every fact must be re-verified against the source and retrieval date listed for its group.",
+        "Applicants must satisfy the household and income rules stated in the official rules source for this entry."
+      ],
+      "source_id": "official_rules_source_b",
+      "retrieved_at": "2026-10-29"
+    },
+    "required_documents": {
+      "items": [
+        "Proof of household size accepted by sample entry B (placeholder - the official source lists the accepted documents).",
+        "Income proof accepted by sample entry B (placeholder - the official source lists the accepted documents)."
+      ],
+      "source_id": "official_rules_source_b",
+      "retrieved_at": "2026-10-29"
+    },
+    "official_links": {
+      "items": [
+        {
+          "label": "Sample entry B application portal",
+          "url": "https://example.org/{{PILOT_PROGRAM}}/sample-b/apply"
+        }
+      ],
+      "source_id": "official_application_portal_b",
+      "retrieved_at": "2026-10-29"
+    },
+    "deadlines": {
+      "items": [
+        {
+          "label": "Sample entry B application window",
+          "due": "Published by the official source - placeholder until a pilot program is chosen"
+        },
+        {
+          "label": "Renewal: sample entry B re-verifies your facts on a schedule the official rules set",
+          "due": "Published by the official source - placeholder until a pilot program is chosen"
+        }
+      ],
+      "source_id": "official_rules_source_b",
+      "retrieved_at": "2026-10-29"
+    },
+    "steps": {
+      "items": [
+        "Count the people the official rules include in your household.",
+        "Start the application through the official application portal.",
+        "Send any follow-up documents the program requests."
+      ],
+      "source_id": "official_rules_source_b",
+      "retrieved_at": "2026-10-29"
+    },
+    "match_signals": {
+      "items": [
+        {
+          "question_id": "main_goal",
+          "values": ["food"],
+          "weight": 3,
+          "reason": "The program's rules cover help with food for the household."
+        },
+        {
+          "question_id": "income_sources",
+          "values": ["none", "child_support", "family_friends"],
+          "weight": 2,
+          "reason": "The program's income rules consider households living on little or no income of their own."
+        },
+        {
+          "question_id": "household_size",
+          "weight": 1,
+          "reason": "The program's rules consider how many people the household counts."
+        }
+      ],
+      "source_id": "official_rules_source_b",
+      "retrieved_at": "2026-10-29"
+    }
+  }
+}
