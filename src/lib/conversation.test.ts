@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "./honesty";
 import {
   QUESTION_BY_ID,
+  QUESTIONS,
 } from "./intake/spec";
 import type { KbEntry } from "./kb";
 import {
@@ -123,6 +124,58 @@ describe("turn text validation", () => {
 });
 
 describe("grounded prompt builders", () => {
+  it("offers plain-language option labels in the reply prompt, never raw values", () => {
+    // Copy hygiene (voice-mode validation suggestion, 2026-10-29): the
+    // assistant must say "Pick Me, A family member, or Someone else I
+    // help" — never "Pick self, family_member, or someone_else". One
+    // assertion pass per multi-choice question in the spec. The check
+    // scopes to the prompt's options line — the copy the assistant echoes —
+    // so ordinary prompt words ("an email", "ID numbers") are not
+    // false-positived by choice values that collide with English ("email",
+    // "ID" for Idaho).
+    const misses: string[] = [];
+    for (const question of QUESTIONS) {
+      if (!question.options || question.options.length === 0) {
+        continue;
+      }
+      const prompt = buildSystemPrompt(question);
+      const optionsLine = prompt
+        .split("\n")
+        .find((line) => line.startsWith("Acceptable answers to offer"));
+      if (!optionsLine) {
+        misses.push(`${question.id}: the prompt lost its options line`);
+        continue;
+      }
+      for (const option of question.options) {
+        const labelPattern = new RegExp(
+          `\\b${option.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+")}\\b`,
+          "i",
+        );
+        if (!labelPattern.test(optionsLine)) {
+          misses.push(`${question.id}: plain-language label "${option.label}" missing`);
+        }
+        // A raw value that is not a word of any label must not appear in
+        // the options line, even as a standalone word.
+        const valueInSomeLabel = question.options.some((other) =>
+          new RegExp(`\\b${option.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(
+            other.label,
+          ),
+        );
+        if (valueInSomeLabel) {
+          continue;
+        }
+        if (
+          new RegExp(`\\b${option.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(
+            optionsLine,
+          )
+        ) {
+          misses.push(`${question.id}: raw choice value "${option.value}" leaked`);
+        }
+      }
+    }
+    expect(misses).toEqual([]);
+  });
+
   it("grounds the reply prompt on the next spec question, the refusal phrase, and the injection guardrail", () => {
     const question = QUESTION_BY_ID["application_role"];
     const prompt = buildSystemPrompt(question);

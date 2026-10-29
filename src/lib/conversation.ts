@@ -214,9 +214,15 @@ export function buildSystemPrompt(
       lines.push(`Context for that question: "${nextQuestion.help}"`);
     }
     if (nextQuestion.options && nextQuestion.options.length > 0) {
+      // Copy hygiene (voice-mode validation suggestion, 2026-10-29): the
+      // assistant phrases its question from the spec's PLAIN-LANGUAGE
+      // option labels — raw choice values ("self, family_member") are
+      // storage vocabulary and must never become spoken or on-screen copy.
+      // The extraction call maps label phrasings back onto option values
+      // deterministically (choice-map).
       lines.push(
-        `Acceptable answers to offer: ${nextQuestion.options
-          .map((option) => option.value)
+        `Acceptable answers to offer (use these plain-language labels, never internal option values): ${nextQuestion.options
+          .map((option) => option.label)
           .join(", ")}.`,
       );
     }
