@@ -8,6 +8,7 @@ import {
   CROSSING_ALLOWLIST,
   readVaultFields,
   vaultCrossingDecision,
+  vaultFlowValues,
   vaultPut,
 } from "./vault";
 
@@ -234,6 +235,27 @@ describe("boundary readVaultFields (VAL-PII-002)", () => {
         code: "validation_error",
       });
     }
+  });
+
+  it("vaultFlowValues serves stored pii values for the server-side flow engine", async () => {
+    const sessionId = await createSession();
+    await vaultPut(sessionId, "housing_status", "shelter");
+    await vaultPut(sessionId, "county", "Franklin");
+    const values = await vaultFlowValues(sessionId, [
+      "housing_status",
+      "county",
+      "date_of_birth",
+    ]);
+    expect(values.housing_status).toBe("shelter");
+    expect(values.county).toBe("Franklin");
+    expect(values.date_of_birth).toBeUndefined();
+  });
+
+  it("vaultFlowValues rejects non-vault fields loudly", async () => {
+    const sessionId = await createSession();
+    const request = vaultFlowValues(sessionId, ["application_role"]);
+    await expect(request).rejects.toBeInstanceOf(AppError);
+    await expect(request).rejects.toMatchObject({ code: "validation_error" });
   });
 
   it("rejects a mixed request loudly, naming rejected fields only in cause", async () => {

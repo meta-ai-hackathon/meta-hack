@@ -96,6 +96,47 @@ export async function vaultPut(
 }
 
 /**
+ * Server-side read path for the intake FLOW ENGINE (BN-09): the traversal
+ * contract needs pii answer values to evaluate skip conditions (e.g. the
+ * housing_status chain), and those values live only here. Returns the
+ * requested vault fields' stored values for one session.
+ *
+ * This is NOT a crossing path: results go to the server-side flow engine
+ * only, and the serialization boundary (lib/intake/serialize.ts) strips
+ * every pii value before anything reaches a client, log, or prompt. Only
+ * fields the spec marks pii:true may be requested; anything else throws a
+ * taxonomy error.
+ */
+export async function vaultFlowValues(
+  sessionId: string,
+  fields: readonly string[],
+): Promise<Record<string, string>> {
+  for (const field of fields) {
+    if (!VAULT_FIELDS.includes(field)) {
+      throw new AppError(
+        "validation_error",
+        "That field may not be read from the PII vault.",
+        { cause: { field } },
+      );
+    }
+  }
+  if (fields.length === 0) {
+    return {};
+  }
+  const sql = getDb();
+  const rows = await sql`
+    SELECT field, value FROM vault_entry
+    WHERE session_id = ${sessionId} AND field IN ${sql([...fields])}
+  `;
+  logInfo("vault_flow_read", { fieldCount: rows.length });
+  const entries: Record<string, string> = {};
+  for (const row of rows) {
+    entries[String(row.field)] = String(row.value);
+  }
+  return entries;
+}
+
+/**
  * The vault read path, consumed by future prompt builders. Accepts ONLY
  * explicitly allowlisted fields (CROSSING_ALLOWLIST) and rejects every
  * other request — including any pii:true field — loudly with a taxonomy
