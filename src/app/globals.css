@@ -24,3 +24,24 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* BN-07: visible keyboard focus everywhere. Never remove the default outline
+   without a replacement; this token-driven ring shows on :focus-visible
+   (light and dark) with a small offset so the ring is not clipped. */
+:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
+
+/* BN-07: respect reduced-motion preferences for any animation or transition
+   added later (scroll-to-content from the skip link included). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
