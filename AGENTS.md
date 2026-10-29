@@ -70,5 +70,6 @@ The first PR that adds application code must, in that same PR: set up the projec
 - Commit in small, logical units: one concern per commit (agent guidance, lint config, tests, CI, templates). Never one giant batch
 - `ideas/evaluated.md` is append-only history. Never rewrite past rows or scores
 - `info/restrictions.md` ban list governs any new idea content
+- Use `skills/property-based-testing/SKILL.md` for any commit that touches production code or fixes a bug
 - New ideas go through `skills/evaluate-idea/SKILL.md` before any build talk
 - Never commit secrets. This is a public repo
