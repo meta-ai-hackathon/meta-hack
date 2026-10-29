@@ -6,7 +6,7 @@ import {
 } from "../honesty";
 import { AppError, logInfo, userMessageFor } from "../telemetry";
 import { getDb } from "../db";
-import { vaultFlowValues, vaultPut } from "../vault";
+import { vaultDelete, vaultFlowValues, vaultPut } from "../vault";
 import type { AnswerMap, StoredAnswer } from "./flow";
 import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID, type Question } from "./spec";
 
@@ -355,6 +355,10 @@ export async function saveAnswer(
   if (question.pii) {
     if (status !== "unknown") {
       await vaultPut(sessionId, question.id, vaultValueFor(storedValue));
+    } else {
+      // Delete-on-disavow (BN-13): "I'm not sure" over an earlier answer
+      // must not leave the stale value in the vault.
+      await vaultDelete(sessionId, question.id);
     }
     // The answer row keeps its value NULL for pii questions: status and
     // provenance live here, the value lives only in the vault.

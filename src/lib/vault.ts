@@ -96,6 +96,32 @@ export async function vaultPut(
 }
 
 /**
+ * Remove one field's stored value for one session — the delete-on-disavow
+ * path (BN-13): when a person answers "I'm not sure" over an earlier
+ * answer, the disavowed value must not linger in the vault. Accepts ONLY
+ * fields the question spec marks pii:true, like every other vault accessor.
+ * Idempotent: deleting an absent row deletes nothing.
+ */
+export async function vaultDelete(
+  sessionId: string,
+  field: string,
+): Promise<void> {
+  if (!VAULT_FIELDS.includes(field)) {
+    throw new AppError(
+      "validation_error",
+      "That field may not be deleted from the PII vault.",
+      { cause: { field } },
+    );
+  }
+  const sql = getDb();
+  await sql`
+    DELETE FROM vault_entry
+    WHERE session_id = ${sessionId} AND field = ${field}
+  `;
+  logInfo("vault_delete");
+}
+
+/**
  * Server-side read path for the intake FLOW ENGINE (BN-09): the traversal
  * contract needs pii answer values to evaluate skip conditions (e.g. the
  * housing_status chain), and those values live only here. Returns the

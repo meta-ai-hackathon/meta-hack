@@ -5,7 +5,8 @@ import { closeDb } from "../db";
 import { runMigrations } from "../migrate";
 import { AppError } from "../telemetry";
 import type { AnswerMap } from "./flow";
-import { QUESTION_BY_ID } from "./spec";
+import { QUESTION_BY_ID, type Question } from "./spec";
+import { PII_QUESTION_IDS_IN_SPEC } from "./spec";
 import {
   SESSION_COOKIE,
   ensureSession,
@@ -188,6 +189,33 @@ describe("saveAnswer routing (non-pii → answer table, pii → vault)", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe("unverified");
     expect(rows[0].value).toBe("family_member");
+  });
+
+  it("deletes the vault value when a pii answer is disavowed to unknown", async () => {
+    // BN-13 hygiene: answering "I'm not sure" after a known pii answer must
+    // not leave the stale value in the vault (retained-data hygiene — the
+    // flow engine ignores it and serialization strips it, but the row would
+    // linger).
+    const { sessionId } = await ensureSession(null);
+    await saveAnswer(sessionId, "housing_status", "known", "shelter");
+    expect(await vaultRows(sessionId)).toHaveLength(1);
+    await saveAnswer(sessionId, "housing_status", "unknown", null);
+    expect(await vaultRows(sessionId)).toHaveLength(0);
+    const rows = await answerRows(sessionId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("unknown");
+    expect(rows[0].value).toBeNull();
+  });
+
+  it("re-answering known after disavow re-puts the vault value", async () => {
+    const { sessionId } = await ensureSession(null);
+    await saveAnswer(sessionId, "housing_status", "known", "shelter");
+    await saveAnswer(sessionId, "housing_status", "unknown", null);
+    await saveAnswer(sessionId, "housing_status", "unverified", "car");
+    const vault = await vaultRows(sessionId);
+    expect(vault).toHaveLength(1);
+    expect(vault[0].field).toBe("housing_status");
+    expect(vault[0].value).toBe("car");
   });
 });
 
@@ -440,4 +468,56 @@ describe("properties (fast-check)", () => {
     );
     await fc.assert(attempts, { numRuns: 150 });
   });
+
+  it("disavowing any pii answer leaves no vault value behind", async () => {
+    // Delete-on-disavow property: for EVERY pii:true question in the spec
+    // and any spec-valid value, answering known/unverified then "I'm not
+    // sure" empties the session's vault and leaves a value-less unknown
+    // answer row.
+    const piiMove = fc
+      .constantFrom(...PII_QUESTION_IDS_IN_SPEC)
+      .chain((field) => {
+        const question = QUESTION_BY_ID[field];
+        return fc.record({
+          field: fc.constant(field),
+          status: fc.constantFrom("known", "unverified"),
+          value: piiValueArbitrary(question),
+        });
+      });
+    const attempts = fc.asyncProperty(piiMove, async (move) => {
+      const { sessionId } = await ensureSession(null);
+      await saveAnswer(sessionId, move.field, move.status, move.value);
+      expect(await vaultRows(sessionId), `before disavow: ${move.field}`).toHaveLength(1);
+      await saveAnswer(sessionId, move.field, "unknown", null);
+      expect(await vaultRows(sessionId), `after disavow: ${move.field}`).toHaveLength(0);
+      const rows = await answerRows(sessionId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe("unknown");
+      expect(rows[0].value).toBeNull();
+    });
+    await fc.assert(attempts, { numRuns: 40 });
+  });
 });
+
+/** A spec-valid value for a question, by type (used for pii questions). */
+function piiValueArbitrary(question: Question): fc.Arbitrary<unknown> {
+  const optionValues = question.options?.map((option) => option.value);
+  switch (question.type) {
+    case "single_select":
+      return fc.constantFrom(...(optionValues ?? ["x"]));
+    case "multi_select":
+      return fc.constant(["x"]);
+    case "boolean":
+      return fc.boolean();
+    case "date":
+      return fc.constant("1990-01-31");
+    case "number":
+      return fc.integer({ min: 0, max: 9000 });
+    case "text":
+    case "address":
+      return fc
+        .string({ minLength: 1, maxLength: 40 })
+        .filter((value) => value.trim().length > 0)
+        .map((value) => value.trim());
+  }
+}
