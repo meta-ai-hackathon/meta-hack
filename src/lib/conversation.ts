@@ -474,9 +474,11 @@ function containsIgnoreCase(haystack: string, needle: string): boolean {
  * ("yes", "no", "true", "car") would over-redact ordinary sentences, so as
  * bare canonical values they are skipped — the verbatim span covers them
  * within the turn they came from, and the fail-closed sweep below catches
- * anything that would otherwise survive.
+ * anything that would otherwise survive. Exported for the match module's
+ * pii detector, which applies the same specificity rule to its
+ * private-value check.
  */
-function isSpecificValue(raw: string): boolean {
+export function isSpecificValue(raw: string): boolean {
   return raw.length >= 6 || /[\d@._\-/\s]/.test(raw);
 }
 
