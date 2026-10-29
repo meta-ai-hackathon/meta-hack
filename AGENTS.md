@@ -57,6 +57,7 @@ The `app` job in `.github/workflows/ci.yml` runs typecheck, lint, test, and buil
 - Never bypass checks: no `--no-verify`, no skipped CI runs, no deleting or weakening tests to make a run green
 - A failing test means fix the code. Change the test only when it encodes outdated behavior, and explain why in the PR body
 - `main` is protected: all work lands via PR with CI green. Red CI = stop and fix before any new work
+- The Claude review bot comments on every push and its `claude-review` check fails on a P1. Read the comment for your head commit and fix every P1 in the same PR before merging. Never add the `claude-review-override` label yourself; only a person adds it, after reading the finding. A comment that says the push was not reviewed is not an all clear
 - No new dependencies without a pinned version and a one-line rationale in the PR description. Never edit lockfiles by hand
 - Secrets live in `.env` only (copy `.env.example`, gitignored). Never commit keys, never log them. A task that needs a new secret documents it in `.env.example` in the same PR
 - Stay in scope: no opportunistic refactors, no touching `ideas/` history
