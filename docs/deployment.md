@@ -18,8 +18,10 @@ went out with PR #34, the first merge to the linked repo.
 | Region | `iad1` |
 | Dashboard | `https://vercel.com/yifus-projects-5c1c92b8/meta-hack` |
 
-Production URL: recorded here once the first deployment exists
-(expected pattern `https://meta-hack-<hash>-yifus-projects-5c1c92b8.vercel.app`).
+Production URL: `https://meta-hack-omega.vercel.app` (aliases
+`https://meta-hack-yifus-projects-5c1c92b8.vercel.app` and
+`https://meta-hack-git-main-yifus-projects-5c1c92b8.vercel.app`). First production
+deployment went live 2026-10-29 from `main` @ 9070d58 (PR #34).
 
 ## Unblock steps (user-only; all complete as of 2026-10-29)
 
@@ -70,7 +72,8 @@ database wiring exists.
 
 Previews are automatic for every pull request now that the GitHub App is installed and
 the repo is linked: Vercel builds a preview deployment for each PR and posts its URL as
-a PR comment (`gitComments.onPullRequest: true`). Verified on PR #34 — the preview at
-`meta-hack-omega.vercel.app` serves `/api/health` with HTTP 200. (The project's
+a PR comment (`gitComments.onPullRequest: true`). Verified on PR #34 — its preview
+deployment (`meta-hack-r8jr6ft85-yifus-projects-5c1c92b8.vercel.app`, commit 2954917)
+serves `/api/health` with HTTP 200. (The project's
 `gitProviderOptions.createDeployments` reads `disabled`; as observed on PR #34, that
 setting does not gate Vercel preview builds.)
