@@ -32,6 +32,7 @@ Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to 
 | `info/stack and credits.md` | The Muse family, what each model does, credit budget plan |
 | `ideas/` | One file per idea considered, plus the running scorecard |
 | `skills/` | Agent-runnable skills — `skills/evaluate-idea/SKILL.md` scores any new idea end to end |
+| `demo/` | Demo video script and filming materials — `demo/demo-script-v0.md` is the 3-minute storyline draft |
 | `architecture.md` | The build contract: pipeline stages, invariants, quality gates |
 
 ## Rules that shape everything

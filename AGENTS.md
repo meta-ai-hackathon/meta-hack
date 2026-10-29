@@ -9,6 +9,7 @@ Guidance for any agent or human working in this repo. See the [README](README.md
 - `info/` — hackathon reference material copied from the vault (event guide, links, grading, restrictions, workflow, stack)
 - `ideas/` — one file per idea plus the running scorecard
 - `skills/` — agent-runnable skills (`skills/evaluate-idea/SKILL.md` scores any idea)
+- `demo/` — demo video script and filming materials (`demo/demo-script-v0.md` is the 3-minute storyline draft)
 - `tests/` — pytest checks over repo markdown
 - `scripts/` — standalone checks (link checker)
 - `.github/` — CI workflows, issue/PR templates, dependabot, codeowners
