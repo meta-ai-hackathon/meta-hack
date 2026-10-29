@@ -4,3 +4,7 @@ mypy==2.4.0
 # Draft-07 validation of kb/ entries (VAL-KB-001..003)
 jsonschema==4.26.0
 types-jsonschema==4.26.0.20261006
+# Claude PR review bot runtime (anthropic SDK), so its tests and types run in CI
+-r requirements-review.txt
+# Property-based tests for the review bot (skills/property-based-testing/SKILL.md)
+hypothesis==6.170.13
