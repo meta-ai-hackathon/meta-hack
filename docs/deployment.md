@@ -3,7 +3,8 @@
 The app deploys to Vercel as a Next.js project. The Vercel project exists and is linked
 to this repository (`productionBranch: main`), so every push to `main` deploys production
 and every pull request gets a preview deployment. The user-only steps below are kept for
-reference; all of them are complete as of 2026-10-29.
+reference; all of them are complete as of 2026-10-29. The first production deployment
+went out with PR #34, the first merge to the linked repo.
 
 ## Project facts
 
@@ -67,8 +68,9 @@ database wiring exists.
 
 ## Per-PR preview deployments
 
-Once step 1 and step 2 are done, previews are automatic for every pull request: Vercel
-posts a preview URL comment on each PR (the project already has
-`gitComments.onPullRequest: true` and `gitProviderOptions.createDeployments` enabled on
-linking). Until the GitHub App is installed there is no git integration, so no preview
-URLs can be generated for PRs.
+Previews are automatic for every pull request now that the GitHub App is installed and
+the repo is linked: Vercel builds a preview deployment for each PR and posts its URL as
+a PR comment (`gitComments.onPullRequest: true`). Verified on PR #34 — the preview at
+`meta-hack-omega.vercel.app` serves `/api/health` with HTTP 200. (The project's
+`gitProviderOptions.createDeployments` reads `disabled`; as observed on PR #34, that
+setting does not gate Vercel preview builds.)
