@@ -88,10 +88,11 @@ The production deployment (https://meta-hack-omega.vercel.app) runs on Vercel
 with a managed Vercel Postgres store. Its DSN lives only in the Vercel project
 env (`DATABASE_URL`, set through the Vercel dashboard), and env changes apply
 to new deployments only. Apply schema migrations to it from a machine that has
-the DSN — the same idempotent runner, pointed at production:
+the DSN — the same idempotent runner, pointed at production. Load the DSN from
+a file rather than pasting it inline, so it never lands in shell history:
 
 ```bash
-DATABASE_URL="<production DSN>" pnpm db:migrate
+DATABASE_URL="$(cat /path/to/prod-dsn.txt)" pnpm db:migrate
 ```
 
 Keep the DSN out of the repo: never commit, log, or paste it anywhere.
