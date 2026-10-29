@@ -76,7 +76,7 @@ describe("mapChoiceText — the live-observed failures", () => {
     ).toBeNull();
     const textQuestion = QUESTIONS.find((question) => !question.options);
     expect(textQuestion).toBeDefined();
-    expect(mapChoiceText(textQuestion, "anything at all")).toBeNull();
+    expect(mapChoiceText(textQuestion as NonNullable<typeof textQuestion>, "anything at all")).toBeNull();
   });
 });
 
