@@ -1,0 +1,61 @@
+{
+  "id": "pilot_program_sample",
+  "title": "{{PILOT_PROGRAM}} (sample knowledge-base entry)",
+  "version": 1,
+  "status": "active",
+  "sources": [
+    {
+      "id": "official_rules_source",
+      "title": "{{PILOT_PROGRAM}} official rules page",
+      "url": "https://example.org/{{PILOT_PROGRAM}}/rules",
+      "retrieved_at": "2026-10-29",
+      "supports": "Program rules, required documents, and deadlines stated in this entry."
+    },
+    {
+      "id": "official_application_portal",
+      "title": "{{PILOT_PROGRAM}} official application portal",
+      "url": "https://example.org/{{PILOT_PROGRAM}}/apply",
+      "retrieved_at": "2026-10-29",
+      "supports": "The official application link listed in the official_links fact group."
+    }
+  ],
+  "facts": {
+    "rules": {
+      "items": [
+        "Eligibility for {{PILOT_PROGRAM}} is decided solely by the program's official rules, never by this app.",
+        "{{PILOT_PROGRAM}} can change its rules at any time; every fact must be re-verified against the source and retrieval date listed for its group.",
+        "Applicants must satisfy the residency and income rules stated in the official rules source for this entry."
+      ],
+      "source_id": "official_rules_source",
+      "retrieved_at": "2026-10-29"
+    },
+    "required_documents": {
+      "items": [
+        "Identity document accepted by {{PILOT_PROGRAM}} (placeholder - the official source lists the accepted documents).",
+        "Residency document accepted by {{PILOT_PROGRAM}} (placeholder - the official source lists the accepted documents)."
+      ],
+      "source_id": "official_rules_source",
+      "retrieved_at": "2026-10-29"
+    },
+    "official_links": {
+      "items": [
+        {
+          "label": "{{PILOT_PROGRAM}} application portal",
+          "url": "https://example.org/{{PILOT_PROGRAM}}/apply"
+        }
+      ],
+      "source_id": "official_application_portal",
+      "retrieved_at": "2026-10-29"
+    },
+    "deadlines": {
+      "items": [
+        {
+          "label": "{{PILOT_PROGRAM}} application window",
+          "due": "Published by the official source - placeholder until a pilot program is chosen"
+        }
+      ],
+      "source_id": "official_rules_source",
+      "retrieved_at": "2026-10-29"
+    }
+  }
+}

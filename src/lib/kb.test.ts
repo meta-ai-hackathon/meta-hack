@@ -1,0 +1,318 @@
+import fc from "fast-check";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
+import {
+  KB_ENTRIES,
+  KB_ENTRY_STATUSES,
+  KB_FACT_GROUPS,
+  KbValidationError,
+  SilentCitationError,
+  citeFactGroup,
+  parseKbEntry,
+  validateKbEntry,
+  type KbCitation,
+  type KbEntry,
+  type KbEntryStatus,
+} from "./kb";
+
+// The shipped sample entry, in its raw (snake_case JSON) form, for mutation
+// tests. structuredClone keeps every test's copy independent.
+const RAW_SAMPLE = structuredClone(sampleEntryJson) as unknown;
+
+function rawClone(): Record<string, unknown> {
+  return structuredClone(sampleEntryJson) as Record<string, unknown>;
+}
+
+function rawWithStatus(status: string): Record<string, unknown> {
+  const raw = rawClone();
+  raw.status = status;
+  if (status !== "active") {
+    raw.status_reason = "Test fixture: entry marked " + status;
+  }
+  return raw;
+}
+
+function parsedWithStatus(status: KbEntryStatus): KbEntry {
+  return parseKbEntry(rawWithStatus(status));
+}
+
+// Every required field path in the raw entry shape (top level, source items,
+// and each fact group). No required field may be omittable — exercised
+// exhaustively in a property below.
+const REQUIRED_PATHS: (string | number)[][] = [
+  ["id"],
+  ["title"],
+  ["version"],
+  ["status"],
+  ["sources"],
+  ["facts"],
+  ["sources", 0, "id"],
+  ["sources", 0, "title"],
+  ["sources", 0, "url"],
+  ["sources", 0, "retrieved_at"],
+  ["sources", 0, "supports"],
+];
+
+for (const group of KB_FACT_GROUPS) {
+  REQUIRED_PATHS.push(["facts", group, "items"]);
+  REQUIRED_PATHS.push(["facts", group, "source_id"]);
+  REQUIRED_PATHS.push(["facts", group, "retrieved_at"]);
+}
+
+function deleteAtPath(raw: Record<string, unknown>, path: (string | number)[]): void {
+  let node: unknown = raw;
+  for (const key of path.slice(0, -1)) {
+    node = (node as Record<string, unknown>)[key as string];
+  }
+  const last = path[path.length - 1] as string | number;
+  if (Array.isArray(node) && typeof last === "number") {
+    node.splice(last, 1);
+  } else {
+    delete (node as Record<string, unknown>)[last as string];
+  }
+}
+
+describe("shipped sample entry", () => {
+  it("validates cleanly against the schema rules", () => {
+    expect(validateKbEntry(RAW_SAMPLE)).toEqual([]);
+  });
+
+  it("parses with version, sources, and per-group provenance", () => {
+    const entry = parseKbEntry(RAW_SAMPLE);
+    expect(entry.id).toBe("pilot_program_sample");
+    expect(entry.version).toBe(1);
+    expect(entry.status).toBe("active");
+    expect(entry.sources.length).toBeGreaterThanOrEqual(1);
+    for (const source of entry.sources) {
+      expect(source.url.startsWith("https://")).toBe(true);
+      expect(source.retrievedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(source.supports.length).toBeGreaterThan(0);
+    }
+    for (const group of KB_FACT_GROUPS) {
+      const facts = entry.facts[group];
+      expect(facts.items.length).toBeGreaterThanOrEqual(1);
+      expect(facts.sourceId.length).toBeGreaterThan(0);
+      expect(facts.retrievedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+
+  it("uses pilot-agnostic placeholders, not program data", () => {
+    const text = JSON.stringify(sampleEntryJson);
+    expect(text).toContain("{{PILOT_PROGRAM}}");
+    expect(text).not.toContain("{{PILOT_PROGRAM}}{{");
+  });
+
+  it("is the single shipped entry and loads through the dataset", () => {
+    expect(KB_ENTRIES.length).toBe(1);
+    expect(KB_ENTRIES[0]).toEqual(parseKbEntry(RAW_SAMPLE));
+  });
+});
+
+describe("status states", () => {
+  it("validates entries in every status state", () => {
+    for (const status of KB_ENTRY_STATUSES) {
+      const raw = rawWithStatus(status);
+      expect(validateKbEntry(raw), status).toEqual([]);
+      expect(parseKbEntry(raw).status, status).toBe(status);
+    }
+  });
+
+  it("requires status_reason for stale and withdrawn entries", () => {
+    for (const status of ["stale", "withdrawn"] as const) {
+      const raw = rawClone();
+      raw.status = status;
+      const problems = validateKbEntry(raw);
+      expect(problems.some((p) => p.includes("status_reason")), status).toBe(true);
+      expect(() => parseKbEntry(raw), status).toThrow(KbValidationError);
+    }
+  });
+});
+
+describe("validation failures", () => {
+  it("rejects an entry missing any required field (exhaustive)", () => {
+    for (const path of REQUIRED_PATHS) {
+      const raw = rawClone();
+      deleteAtPath(raw, path);
+      const problems = validateKbEntry(raw);
+      expect(problems.length, `deleting ${path.join(".")} must fail`).toBeGreaterThanOrEqual(1);
+      expect(() => parseKbEntry(raw), `deleting ${path.join(".")}`).toThrow(KbValidationError);
+    }
+  });
+
+  it("rejects a missing version with a named problem", () => {
+    const raw = rawClone();
+    delete raw.version;
+    expect(() => parseKbEntry(raw)).toThrow(/version/);
+  });
+
+  it("rejects a missing or empty source list", () => {
+    const noSources = rawClone();
+    delete noSources.sources;
+    expect(() => parseKbEntry(noSources)).toThrow(KbValidationError);
+    const emptySources = rawClone();
+    emptySources.sources = [];
+    expect(() => parseKbEntry(emptySources)).toThrow(KbValidationError);
+  });
+
+  it("rejects sources missing the official url or retrieval date", () => {
+    const noUrl = rawClone();
+    delete (noUrl.sources as Record<string, unknown>[])[0].url;
+    expect(() => parseKbEntry(noUrl)).toThrow(/url/);
+    const noDate = rawClone();
+    delete (noDate.sources as Record<string, unknown>[])[0].retrieved_at;
+    expect(() => parseKbEntry(noDate)).toThrow(/retrieved_at/);
+  });
+
+  it("rejects fact groups missing their retrieval date or source link", () => {
+    for (const group of KB_FACT_GROUPS) {
+      const noDate = rawClone();
+      const factsNoDate = noDate.facts as Record<string, Record<string, unknown>>;
+      delete factsNoDate[group].retrieved_at;
+      expect(
+        () => parseKbEntry(noDate),
+        `${group} without retrieved_at`,
+      ).toThrow(/retrieved_at/);
+
+      const noSource = rawClone();
+      const factsNoSource = noSource.facts as Record<string, Record<string, unknown>>;
+      delete factsNoSource[group].source_id;
+      expect(
+        () => parseKbEntry(noSource),
+        `${group} without source_id`,
+      ).toThrow(/source_id/);
+    }
+  });
+
+  it("rejects fact groups whose source_id points nowhere", () => {
+    const raw = rawClone();
+    (raw.facts as Record<string, unknown>).rules = {
+      items: ["a rule"],
+      source_id: "not_a_listed_source",
+      retrieved_at: "2026-10-29",
+    };
+    expect(() => parseKbEntry(raw)).toThrow(KbValidationError);
+  });
+
+  it("rejects non-https source urls", () => {
+    const raw = rawClone();
+    (raw.sources as Record<string, unknown>[])[0].url = "http://example.org/insecure";
+    expect(() => parseKbEntry(raw)).toThrow(KbValidationError);
+  });
+});
+
+describe("citation API: stale and withdrawn entries are never cited silently", () => {
+  it("surfaces status on every active citation", () => {
+    const entry = parseKbEntry(RAW_SAMPLE);
+    for (const group of KB_FACT_GROUPS) {
+      const citation = citeFactGroup(entry, group);
+      expect(citation.status).toBe("active");
+      expect(citation.entryId).toBe(entry.id);
+      expect(citation.entryVersion).toBe(entry.version);
+      expect(citation.retrievedAt).toBe(entry.facts[group].retrievedAt);
+      expect(citation.sourceUrl.startsWith("https://")).toBe(true);
+    }
+  });
+
+  it("throws SilentCitationError for a stale entry without acknowledgment", () => {
+    const entry = parsedWithStatus("stale");
+    expect(() => citeFactGroup(entry, "rules")).toThrow(SilentCitationError);
+  });
+
+  it("throws SilentCitationError for a withdrawn entry without acknowledgment", () => {
+    const entry = parsedWithStatus("withdrawn");
+    expect(() => citeFactGroup(entry, "deadlines")).toThrow(SilentCitationError);
+  });
+
+  it("carries status and reason even when a stale citation is acknowledged", () => {
+    const entry = parsedWithStatus("stale");
+    const citation = citeFactGroup(entry, "rules", { acknowledgeNonActive: true });
+    expect(citation.status).toBe("stale");
+    expect(citation.statusReason).toBe(entry.statusReason);
+  });
+
+  it("carries status and reason for acknowledged withdrawn citations", () => {
+    const entry = parsedWithStatus("withdrawn");
+    const citation = citeFactGroup(entry, "official_links", {
+      acknowledgeNonActive: true,
+    });
+    expect(citation.status).toBe("withdrawn");
+    expect(citation.statusReason).toBe(entry.statusReason);
+  });
+
+  it("exposes status as a required, typed citation field", () => {
+    expectTypeOf<KbCitation["status"]>().toEqualTypeOf<KbEntryStatus>();
+    expectTypeOf<KbCitation["retrievedAt"]>().toEqualTypeOf<string>();
+  });
+});
+
+describe("properties (fast-check)", () => {
+  it("never throws anything but KbValidationError on arbitrary input", () => {
+    const attempts = fc.property(fc.anything(), (value) => {
+      try {
+        parseKbEntry(value);
+        return false;
+      } catch (error) {
+        return error instanceof KbValidationError;
+      }
+    });
+    fc.assert(attempts, { numRuns: 300 });
+  });
+
+  it("propagates any non-active status reason into acknowledged citations", () => {
+    const reasonArbitrary = fc
+      .string({ minLength: 1, maxLength: 120 })
+      .filter((reason) => reason.trim().length > 0);
+    const attempts = fc.property(
+      fc.constantFrom("stale", "withdrawn"),
+      reasonArbitrary,
+      fc.constantFrom(...KB_FACT_GROUPS),
+      (status, reason, group) => {
+        const raw = rawClone();
+        raw.status = status;
+        raw.status_reason = reason;
+        const citation = citeFactGroup(parseKbEntry(raw), group, {
+          acknowledgeNonActive: true,
+        });
+        return citation.status === status && citation.statusReason === reason;
+      },
+    );
+    fc.assert(attempts, { numRuns: 100 });
+  });
+
+  it("accepts exactly the real calendar dates as retrieval dates", () => {
+    const dateArbitrary = fc
+      .record({
+        year: fc.integer({ min: 1900, max: 2100 }),
+        month: fc.integer({ min: 0, max: 13 }),
+        day: fc.integer({ min: 0, max: 32 }),
+      })
+      .map(({ year, month, day }) => {
+        const mm = String(month).padStart(2, "0");
+        const dd = String(day).padStart(2, "0");
+        return `${year}-${mm}-${dd}`;
+      });
+    const attempts = fc.property(dateArbitrary, (date) => {
+      const raw = rawClone();
+      (raw.facts as Record<string, unknown>).rules = {
+        items: ["a rule"],
+        source_id: "official_rules_source",
+        retrieved_at: date,
+      };
+      const realDate = (() => {
+        const [y, m, d] = date.split("-").map(Number);
+        const parsed = new Date(Date.UTC(y, m - 1, d));
+        return (
+          m >= 1 &&
+          m <= 12 &&
+          d >= 1 &&
+          d <= 31 &&
+          parsed.getUTCFullYear() === y &&
+          parsed.getUTCMonth() === m - 1 &&
+          parsed.getUTCDate() === d
+        );
+      })();
+      return realDate ? validateKbEntry(raw).length === 0 : validateKbEntry(raw).length > 0;
+    });
+    fc.assert(attempts, { numRuns: 300 });
+  });
+});
