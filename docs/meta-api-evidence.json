@@ -1,0 +1,32 @@
+{
+  "base_url": "https://api.meta.ai/v1",
+  "model": "muse-spark-1.3",
+  "steps": {
+    "chat_completion": {
+      "content_present": true,
+      "content_preview": "OK",
+      "finish_reason": "stop",
+      "http_status": 200,
+      "latency_ms": 1670.5,
+      "max_tokens": 512,
+      "usage": {
+        "completion_tokens": 296,
+        "completion_tokens_details": {
+          "reasoning_tokens": 286
+        },
+        "prompt_tokens": 13,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 309
+      }
+    },
+    "models_list": {
+      "catalog_size": 9,
+      "http_status": 200,
+      "latency_ms": 810.9,
+      "target_model_present": true
+    }
+  },
+  "timestamp": "2026-10-29T05:44:25+00:00"
+}
