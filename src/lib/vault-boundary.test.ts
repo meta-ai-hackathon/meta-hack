@@ -42,7 +42,10 @@ const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
 /** True when a module specifier resolves to the vault module. */
 function isVaultSpecifier(specifier: string): boolean {
   return (
-    /^(\.{1,2}\/)+vault$/.test(specifier) ||
+    // Relative specifiers at any depth, with or without the lib/ segment:
+    // "./vault" from src/lib, "../lib/vault" from src/app/*, "../../lib/vault"
+    // from deeper nests.
+    /^(?:\.{1,2}\/)+(?:lib\/)?vault$/.test(specifier) ||
     specifier === "@/lib/vault" ||
     specifier === "#lib/vault" ||
     specifier === "lib/vault"
@@ -89,7 +92,7 @@ function writeViolationFixture(): void {
     path.join(FIXTURE_DIR, "violator.ts"),
     [
       "// Simulated boundary violation: a module reaching for a vault accessor.",
-      'import { vaultPut } from "../../vault";',
+      'import { vaultPut } from "../vault";',
       "export const violate = vaultPut;",
       "",
     ].join("\n"),
@@ -101,6 +104,31 @@ afterEach(() => {
 });
 
 describe("import boundary (VAL-PII-001)", () => {
+  it("recognizes every specifier form that resolves to the vault module", () => {
+    const resolving = [
+      "./vault",
+      "../vault",
+      "./lib/vault",
+      "../lib/vault",
+      "../../lib/vault",
+      "@/lib/vault",
+      "lib/vault",
+    ];
+    for (const specifier of resolving) {
+      expect(isVaultSpecifier(specifier)).toBe(true);
+    }
+    const notResolving = [
+      "./vault-boundary",
+      "../lib/vault.test",
+      "./vaultr",
+      "react",
+      "",
+    ];
+    for (const specifier of notResolving) {
+      expect(isVaultSpecifier(specifier)).toBe(false);
+    }
+  });
+
   it("finds no vault imports outside vault.ts and the vault's own tests", () => {
     const { scanned, violations } = scanForVaultImports(SRC_ROOT);
     // Non-vacuous: the scan must have covered the vault module and its own
