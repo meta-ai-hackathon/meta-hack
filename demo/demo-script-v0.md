@@ -15,7 +15,7 @@ This is the v0, pilot-agnostic draft of the one-journey demo script (HACK-71): o
 | 7. Form prep | 1:55–2:15 | One prep question, then the prepared package | One question at a time builds a prepared package | BN-18 | [form-prep](../skills/verify-app/feature-map/form-prep.md) |
 | 8. Review | 2:15–2:35 | Package review: answered vs still-needed, provenance labels | Everything checkable before handoff — provenance labeled, still-needed honest | BN-21 | [package-review](../skills/verify-app/feature-map/package-review.md) |
 | 9. Honest ending | 2:35–2:55 | Handoff view: one next action, deep links, prepared ≠ submitted banner | One clear next action with deep links — and prepared is not submitted, said out loud | BN-23, BN-24, BN-25 | [handoff](../skills/verify-app/feature-map/handoff.md) |
-| 10. Close: eval honesty | 2:55–3:00 | Evaluation record snapshot; fallback line | What the assistant got wrong and refused stays in the record; the demo survives a model outage | BN-38, BN-40 | [ai-guide](../skills/verify-app/feature-map/ai-guide.md) |
+| 10. Close: eval honesty | 2:55–3:00 | Evaluation record snapshot; fallback line | What the assistant got wrong and refused stays in the record; the demo survives a model outage | BN-38, BN-40 | — |
 
 Total runtime: 3:00.
 
