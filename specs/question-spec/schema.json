@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/meta-ai-hackathon/meta-hack/main/specs/question-spec/schema.json",
+  "title": "Benefits Navigator question spec",
+  "description": "Contract for a pilot-agnostic interview question set. The traversal engine consumes one such document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["questions"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Human-readable name for this question set."
+    },
+    "version": {
+      "type": "string",
+      "description": "Version of this question set."
+    },
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/question" }
+    }
+  },
+  "definitions": {
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "prompt", "type", "help", "pii", "required", "provenance"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Snake_case identifier, unique across the questions array."
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The question as shown on screen, one short sentence in plain language."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["text", "number", "boolean", "single_select", "multi_select", "date", "address"]
+        },
+        "help": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Plain-language help text shown under the question."
+        },
+        "terms": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "description": "Glossary term IDs shown as links on this screen."
+        },
+        "pii": {
+          "type": "boolean",
+          "description": "True when the field is personally identifiable and must never leave the server (BN-03)."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether the flow can advance without an answer. Unknown and unverified answers still satisfy required."
+        },
+        "skip_conditions": {
+          "type": "array",
+          "description": "Skip when any one condition matches (OR across entries).",
+          "items": { "$ref": "#/definitions/skip_condition" }
+        },
+        "provenance": {
+          "type": "string",
+          "const": "user-supplied",
+          "description": "Where the answer comes from. Constant in this skeleton."
+        }
+      }
+    },
+    "skip_condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question_id", "operator", "value"],
+      "properties": {
+        "question_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "The id of an earlier question whose answer this condition reads."
+        },
+        "operator": {
+          "type": "string",
+          "enum": ["equals", "not_equals", "in", "not_in", "gt"],
+          "description": "equals/not_equals compare exactly; in/not_in take a comma-separated list; gt is numeric."
+        },
+        "value": {
+          "type": ["string", "number", "boolean"],
+          "description": "The value to compare against. A comma-separated list for in/not_in."
+        }
+      }
+    }
+  }
+}
