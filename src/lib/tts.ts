@@ -34,7 +34,12 @@ export const TTS_PROMPT_PREFIX =
   "Read the following text out loud exactly as written: ";
 /** Assistant replies are short; this also bounds the unauthenticated route. */
 export const MAX_SPEAK_TEXT_LENGTH = 1000;
-export const TTS_TIMEOUT_MS = 15_000;
+/**
+ * Live-verified: a cold first call can hang; the subtitle renders
+ * immediately either way, so aborting a hung attempt at 10 s and retrying
+ * (warm calls land in ~3 s) keeps the spoken-reply worst case acceptable.
+ */
+export const TTS_TIMEOUT_MS = 10_000;
 export const TTS_MAX_ATTEMPTS = 2;
 const RETRY_BACKOFF_MS = 150;
 
