@@ -82,6 +82,20 @@ The detectors are unit-tested with fixtures in
 `scripts/walkthrough-detectors.test.mjs`, so the checks provably bite.
 Teammates can run it against any preview URL without a browser.
 
+### Production
+
+The production deployment (https://meta-hack-omega.vercel.app) runs on Vercel
+with a managed Vercel Postgres store. Its DSN lives only in the Vercel project
+env (`DATABASE_URL`, set through the Vercel dashboard), and env changes apply
+to new deployments only. Apply schema migrations to it from a machine that has
+the DSN — the same idempotent runner, pointed at production:
+
+```bash
+DATABASE_URL="<production DSN>" pnpm db:migrate
+```
+
+Keep the DSN out of the repo: never commit, log, or paste it anywhere.
+
 ## Rules that shape everything
 
 - **New work only** — demo shows only what was built during the event. Unclear contribution = disqualification
