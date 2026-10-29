@@ -1,8 +1,9 @@
 # Deployment (Vercel)
 
-The app deploys to Vercel as a Next.js project. The Vercel project exists; the first
-production deployment is pending the user-only unblock steps below (they need a browser
-login or a credential that never leaves your machine, so automation cannot perform them).
+The app deploys to Vercel as a Next.js project. The Vercel project exists and is linked
+to this repository (`productionBranch: main`), so every push to `main` deploys production
+and every pull request gets a preview deployment. The user-only steps below are kept for
+reference; all of them are complete as of 2026-10-29.
 
 ## Project facts
 
@@ -19,7 +20,7 @@ login or a credential that never leaves your machine, so automation cannot perfo
 Production URL: recorded here once the first deployment exists
 (expected pattern `https://meta-hack-<hash>-yifus-projects-5c1c92b8.vercel.app`).
 
-## Unblock steps (user-only)
+## Unblock steps (user-only; all complete as of 2026-10-29)
 
 1. **Install the Vercel GitHub App on the `meta-ai-hackathon` org.** Go to
    `https://github.com/apps/vercel/installations/new` (org-admin browser session), pick
