@@ -11,8 +11,8 @@ import type { AnswerMap, StoredAnswer } from "./flow";
 import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID, type Question } from "./spec";
 
 // Intake session + answer store (BN-09 / HACK-37). Persists tri-state
-// answers with provenance=user_supplied and routes pii:true values through
-// the vault boundary:
+// answers with a provenance (default user_supplied) and routes pii:true
+// values through the vault boundary:
 //
 // - Every answer writes a row in the `answer` table carrying its tri-state
 //   status + provenance. For pii:true questions that row's `value` stays
@@ -22,6 +22,10 @@ import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID, type Question } from "./spec"
 // - Unknown answers store no value anywhere.
 // - The flow position is NOT stored here: it is recomputed from stored
 //   answers by the flow engine (first unanswered visible question).
+// - Provenance defaults to user_supplied (the wizard path). The conversational
+//   intake passes ai_drafted for a genuine AI inference it saves with status
+//   unverified (VAL-CONV-003); no caller may set a provenance outside the
+//   answer table's CHECK constraint.
 
 export const SESSION_COOKIE = "bn_session";
 export const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
@@ -30,6 +34,22 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MAX_TEXT_LENGTH = 2000;
+
+/** Where an answer's value came from — mirrors the answer table CHECK. */
+export const ANSWER_PROVENANCES = [
+  "user_supplied",
+  "ai_drafted",
+  "source_verified",
+] as const;
+
+export type AnswerProvenance = (typeof ANSWER_PROVENANCES)[number];
+
+export function isAnswerProvenance(value: unknown): value is AnswerProvenance {
+  return (
+    typeof value === "string" &&
+    (ANSWER_PROVENANCES as readonly string[]).includes(value)
+  );
+}
 
 export function sessionCookieHeader(sessionId: string, secure = false): string {
   return (
@@ -381,19 +401,30 @@ export function validateAnswerInput(
 /**
  * Validate and persist one answer. known/unverified answers carry a
  * spec-valid value; unknown answers carry none. Re-answering the same
- * question updates the row (never duplicates).
+ * question updates the row (never duplicates). Provenance defaults to
+ * user_supplied; the conversation passes ai_drafted only for a genuine AI
+ * inference saved with status unverified.
  */
 export async function saveAnswer(
   sessionId: string,
   questionId: string,
   status: AnswerStatus,
   value: unknown,
+  provenance: AnswerProvenance = "user_supplied",
 ): Promise<void> {
   const { question, storedValue } = validateAnswerInput(
     questionId,
     status,
     value,
   );
+  if (!isAnswerProvenance(provenance)) {
+    throw validationError();
+  }
+  // A drafted answer is by definition not user-verified: provenance
+  // ai_drafted pairs only with status unverified.
+  if (provenance === "ai_drafted" && status !== "unverified") {
+    throw validationError();
+  }
 
   const sql = getDb();
   if (question.pii) {
@@ -408,7 +439,7 @@ export async function saveAnswer(
     // provenance live here, the value lives only in the vault.
     await sql`
       INSERT INTO answer (session_id, question_id, value, status, provenance)
-      VALUES (${sessionId}, ${question.id}, NULL, ${status}, 'user_supplied')
+      VALUES (${sessionId}, ${question.id}, NULL, ${status}, ${provenance})
       ON CONFLICT (session_id, question_id)
       DO UPDATE SET
         value = NULL,
@@ -420,7 +451,7 @@ export async function saveAnswer(
     const valueJson = storedValue === null ? null : sql.json(storedValue);
     await sql`
       INSERT INTO answer (session_id, question_id, value, status, provenance)
-      VALUES (${sessionId}, ${question.id}, ${valueJson}, ${status}, 'user_supplied')
+      VALUES (${sessionId}, ${question.id}, ${valueJson}, ${status}, ${provenance})
       ON CONFLICT (session_id, question_id)
       DO UPDATE SET
         value = EXCLUDED.value,

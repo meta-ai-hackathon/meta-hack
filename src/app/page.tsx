@@ -46,12 +46,20 @@ export default function Home() {
           Answer a few plain-language questions, one at a time. Your answers
           save as you go — nothing is submitted until you decide.
         </p>
-        <Link
-          href="/intake"
-          className="rounded-md bg-zinc-900 px-5 py-2.5 text-base font-semibold text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-        >
-          Start your application
-        </Link>
+        <div className="flex flex-col items-center gap-3">
+          <Link
+            href="/intake/conversation"
+            className="rounded-md bg-zinc-900 px-5 py-2.5 text-base font-semibold text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            Start a conversation
+          </Link>
+          <Link
+            href="/intake"
+            className="text-base text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          >
+            Prefer step-by-step questions? Use the form instead
+          </Link>
+        </div>
       </section>
       <section
         aria-labelledby="a11y-demo-heading"
