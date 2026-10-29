@@ -11,7 +11,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def repo_files():
     result = []
     for base, dirs, names in os.walk(REPO_ROOT):
-        dirs[:] = [d for d in dirs if d not in (".git", "__pycache__", ".pytest_cache")]
+        dirs[:] = [d for d in dirs if d not in (".git", "__pycache__", ".pytest_cache", "node_modules")]
         for name in names:
             if name.endswith(".md"):
                 result.append(os.path.join(base, name))
