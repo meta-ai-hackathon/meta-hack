@@ -1,0 +1,507 @@
+{
+  "title": "Generic benefits-application questions",
+  "version": "0.1.0",
+  "questions": [
+    {
+      "id": "application_role",
+      "prompt": "Who is this application for?",
+      "type": "single_select",
+      "help": "Pick the choice that fits you best. You can change it later.",
+      "options": [
+        { "value": "self", "label": "Me" },
+        { "value": "family_member", "label": "A family member" },
+        { "value": "someone_else", "label": "Someone else I help" }
+      ],
+      "pii": false,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "main_goal",
+      "prompt": "What kind of help are you looking for right now?",
+      "type": "single_select",
+      "help": "Pick the one you need most. You can add more later.",
+      "options": [
+        { "value": "food", "label": "Food" },
+        { "value": "housing", "label": "Housing" },
+        { "value": "healthcare", "label": "Health care" },
+        { "value": "cash_assistance", "label": "Cash help" },
+        { "value": "other", "label": "Something else" }
+      ],
+      "pii": false,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "goal_detail",
+      "prompt": "In your own words, what would help the most?",
+      "type": "text",
+      "help": "A short sentence is fine. This is only to help us point you the right way.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "main_goal", "operator": "not_equals", "value": "other" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "state",
+      "prompt": "Which state do you live in?",
+      "type": "single_select",
+      "help": "Rules change by state. Pick the state where you sleep most nights.",
+      "terms": [],
+      "options": [
+        { "value": "AL", "label": "Alabama" },
+        { "value": "AK", "label": "Alaska" },
+        { "value": "AZ", "label": "Arizona" },
+        { "value": "AR", "label": "Arkansas" },
+        { "value": "CA", "label": "California" },
+        { "value": "CO", "label": "Colorado" },
+        { "value": "CT", "label": "Connecticut" },
+        { "value": "DE", "label": "Delaware" },
+        { "value": "FL", "label": "Florida" },
+        { "value": "GA", "label": "Georgia" },
+        { "value": "HI", "label": "Hawaii" },
+        { "value": "ID", "label": "Idaho" },
+        { "value": "IL", "label": "Illinois" },
+        { "value": "IN", "label": "Indiana" },
+        { "value": "IA", "label": "Iowa" },
+        { "value": "KS", "label": "Kansas" },
+        { "value": "KY", "label": "Kentucky" },
+        { "value": "LA", "label": "Louisiana" },
+        { "value": "ME", "label": "Maine" },
+        { "value": "MD", "label": "Maryland" },
+        { "value": "MA", "label": "Massachusetts" },
+        { "value": "MI", "label": "Michigan" },
+        { "value": "MN", "label": "Minnesota" },
+        { "value": "MS", "label": "Mississippi" },
+        { "value": "MO", "label": "Missouri" },
+        { "value": "MT", "label": "Montana" },
+        { "value": "NE", "label": "Nebraska" },
+        { "value": "NV", "label": "Nevada" },
+        { "value": "NH", "label": "New Hampshire" },
+        { "value": "NJ", "label": "New Jersey" },
+        { "value": "NM", "label": "New Mexico" },
+        { "value": "NY", "label": "New York" },
+        { "value": "NC", "label": "North Carolina" },
+        { "value": "ND", "label": "North Dakota" },
+        { "value": "OH", "label": "Ohio" },
+        { "value": "OK", "label": "Oklahoma" },
+        { "value": "OR", "label": "Oregon" },
+        { "value": "PA", "label": "Pennsylvania" },
+        { "value": "RI", "label": "Rhode Island" },
+        { "value": "SC", "label": "South Carolina" },
+        { "value": "SD", "label": "South Dakota" },
+        { "value": "TN", "label": "Tennessee" },
+        { "value": "TX", "label": "Texas" },
+        { "value": "UT", "label": "Utah" },
+        { "value": "VT", "label": "Vermont" },
+        { "value": "VA", "label": "Virginia" },
+        { "value": "WA", "label": "Washington" },
+        { "value": "WV", "label": "West Virginia" },
+        { "value": "WI", "label": "Wisconsin" },
+        { "value": "WY", "label": "Wyoming" }
+      ],
+      "pii": false,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "county",
+      "prompt": "Which county or city area do you live in?",
+      "type": "text",
+      "help": "Your local office depends on this. Not sure? You can leave it blank.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "household_size",
+      "prompt": "How many people do you buy and share food with?",
+      "type": "number",
+      "help": "Count yourself and everyone you live with, even kids. Enter a number.",
+      "pii": false,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "household_children",
+      "prompt": "How many of those people are under 18?",
+      "type": "number",
+      "help": "Enter a number. Enter 0 if there are no children.",
+      "pii": false,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "household_seniors",
+      "prompt": "How many people in your household are 60 or older?",
+      "type": "number",
+      "help": "Enter a number. Enter 0 if none.",
+      "pii": false,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "income_sources",
+      "prompt": "Where does money come from for your household?",
+      "type": "multi_select",
+      "help": "Pick every source that fits. Pick 'none' if there is no money coming in.",
+      "terms": [],
+      "options": [
+        { "value": "job", "label": "A job" },
+        { "value": "self_employed", "label": "Self-employed or odd jobs" },
+        { "value": "benefits", "label": "Benefits like disability or retirement checks" },
+        { "value": "family_friends", "label": "Money from family or friends" },
+        { "value": "child_support", "label": "Child support" },
+        { "value": "other", "label": "Something else" },
+        { "value": "none", "label": "No money coming in right now" }
+      ],
+      "pii": false,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "job_income_amount",
+      "prompt": "About how much money comes in from jobs each time you get paid?",
+      "type": "number",
+      "help": "Your best guess is fine. You can say 'not sure' if you don't know.",
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_sources", "operator": "not_in", "value": "job,self_employed" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "job_income_frequency",
+      "prompt": "How often does that job money come in?",
+      "type": "single_select",
+      "help": "Pick how often the paychecks arrive.",
+      "options": [
+        { "value": "weekly", "label": "Every week" },
+        { "value": "biweekly", "label": "Every two weeks" },
+        { "value": "twice_monthly", "label": "Twice a month" },
+        { "value": "monthly", "label": "Once a month" },
+        { "value": "varies", "label": "It changes" }
+      ],
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_sources", "operator": "not_in", "value": "job,self_employed" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "benefits_income_amount",
+      "prompt": "About how much comes in from benefits each month?",
+      "type": "number",
+      "help": "This means things like disability or retirement checks. A guess is fine.",
+      "terms": [],
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_sources", "operator": "not_in", "value": "benefits" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "benefits_income_frequency",
+      "prompt": "How often does that benefits money come in?",
+      "type": "single_select",
+      "help": "Pick how often the checks arrive.",
+      "options": [
+        { "value": "weekly", "label": "Every week" },
+        { "value": "biweekly", "label": "Every two weeks" },
+        { "value": "twice_monthly", "label": "Twice a month" },
+        { "value": "monthly", "label": "Once a month" },
+        { "value": "varies", "label": "It changes" }
+      ],
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_sources", "operator": "not_in", "value": "benefits" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "other_income_amount",
+      "prompt": "About how much other money comes in each month?",
+      "type": "number",
+      "help": "Money from family or friends, child support, or anything else. A guess is fine.",
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_sources", "operator": "not_in", "value": "family_friends,child_support,other" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "housing_status",
+      "prompt": "Where did you sleep last night?",
+      "type": "single_select",
+      "help": "Answer honestly. This helps us find the right help, and it does not count against you.",
+      "terms": [],
+      "options": [
+        { "value": "shelter", "label": "In a shelter" },
+        { "value": "car", "label": "In a car or vehicle" },
+        { "value": "outdoors", "label": "Outdoors or in a place not meant for sleeping" },
+        { "value": "nowhere", "label": "I had nowhere to sleep" },
+        { "value": "staying_with_others", "label": "Staying with family or friends" },
+        { "value": "rental_or_own", "label": "In a place I rent or own" }
+      ],
+      "pii": true,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "housing_cost",
+      "prompt": "How much do you pay for housing each month?",
+      "type": "number",
+      "help": "Rent or mortgage, if you pay one. Enter 0 if you don't pay for housing.",
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "housing_status", "operator": "in", "value": "shelter,car,outdoors,nowhere" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "utilities_cost",
+      "prompt": "How much do you pay for utilities each month?",
+      "type": "number",
+      "help": "Lights, heat, water, or cooking gas. Enter 0 if you don't pay any.",
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "housing_status", "operator": "in", "value": "shelter,car,outdoors,nowhere" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "childcare_cost",
+      "prompt": "How much do you pay for child care each month?",
+      "type": "number",
+      "help": "Day care, a babysitter, or after-school care. Enter 0 if you don't pay for child care.",
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "household_children", "operator": "equals", "value": 0 }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "medical_cost",
+      "prompt": "How much do you pay for medical costs each month?",
+      "type": "number",
+      "help": "Medicine, copays, rides to the doctor. Enter 0 if none. A guess is fine.",
+      "pii": false,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "id_status",
+      "prompt": "Do you have a photo ID right now?",
+      "type": "single_select",
+      "help": "Any government photo ID counts. It is okay if you lost it or never had one. We can still help.",
+      "terms": [],
+      "options": [
+        { "value": "have_id", "label": "Yes, I have one" },
+        { "value": "need_id", "label": "No, I need to get one" },
+        { "value": "id_in_progress", "label": "I am working on replacing it" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": false,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "id_issue_detail",
+      "prompt": "Tell us what happened to your ID, if you'd like.",
+      "type": "text",
+      "help": "For example: lost, stolen, or never had one. This is optional. It helps us plan next steps with you.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "id_status", "operator": "equals", "value": "have_id" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "date_of_birth",
+      "prompt": "What is your date of birth?",
+      "type": "date",
+      "help": "A guess is okay if you are not sure of the exact day.",
+      "pii": true,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "citizenship_status",
+      "prompt": "How would you describe your citizenship or immigration status?",
+      "type": "single_select",
+      "help": "This question is private and stays on our secure server. Many kinds of help do not depend on this answer, and some programs help family members with different statuses. Pick 'not sure' if you'd rather not say or don't know.",
+      "terms": [],
+      "options": [
+        { "value": "us_citizen", "label": "U.S. citizen" },
+        { "value": "permanent_resident", "label": "Green card holder" },
+        { "value": "other_status", "label": "Another status" },
+        { "value": "not_sure", "label": "Not sure / prefer not to say" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "disability_status",
+      "prompt": "Does anyone in your household have a disability or a health condition that limits daily life?",
+      "type": "single_select",
+      "help": "This can open extra kinds of help. Pick 'not sure' if you don't know.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "student_status",
+      "prompt": "Are you in school or training right now?",
+      "type": "single_select",
+      "help": "College, job training, GED classes — any of these count.",
+      "options": [
+        { "value": "not_student", "label": "No" },
+        { "value": "full_time_student", "label": "Yes, full time" },
+        { "value": "part_time_student", "label": "Yes, part time" }
+      ],
+      "pii": false,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "veteran_status",
+      "prompt": "Have you ever served in the military?",
+      "type": "boolean",
+      "help": "Any branch, any length of service. Veterans may qualify for extra help.",
+      "pii": false,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "received_benefits_before",
+      "prompt": "Have you gotten help from a benefits office before?",
+      "type": "boolean",
+      "help": "Now or in the past, in any state. This does not affect whether you can get help now.",
+      "pii": false,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "mailing_situation",
+      "prompt": "Where can you get mail?",
+      "type": "single_select",
+      "help": "Pick the safest option that works for you. Many people get mail without a home address.",
+      "terms": [],
+      "options": [
+        { "value": "shelter", "label": "A shelter or program where I stay" },
+        { "value": "family_or_friend", "label": "A family or friend's address" },
+        { "value": "po_box", "label": "A P.O. box" },
+        { "value": "general_delivery", "label": "Post office general delivery" },
+        { "value": "day_center", "label": "A drop-in or day center" },
+        { "value": "not_sure", "label": "Not sure yet" }
+      ],
+      "pii": true,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "shelter_mail_consent",
+      "prompt": "Has the shelter agreed to hold mail for you?",
+      "type": "boolean",
+      "help": "Some shelters only hold mail if you ask them first. Say yes only if you are sure they agreed.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "mailing_situation", "operator": "not_equals", "value": "shelter" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "contact_preference",
+      "prompt": "How do you want us to reach you?",
+      "type": "single_select",
+      "help": "Pick what works best for you. This does not have to be a phone.",
+      "options": [
+        { "value": "call", "label": "Phone call" },
+        { "value": "text", "label": "Text message" },
+        { "value": "email", "label": "Email" },
+        { "value": "in_person", "label": "In person" }
+      ],
+      "pii": false,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "phone_contact",
+      "prompt": "What is a phone number where messages can reach you?",
+      "type": "text",
+      "help": "A friend's number or a shelter number is fine if it works. This stays on our secure server.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "contact_preference", "operator": "not_in", "value": "call,text" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "email_contact",
+      "prompt": "What is your email address?",
+      "type": "text",
+      "help": "A free email account works if you don't have one. This stays on our secure server.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "contact_preference", "operator": "not_equals", "value": "email" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "best_time_to_reach",
+      "prompt": "When is the best time to reach you?",
+      "type": "single_select",
+      "help": "Pick the time you are most likely to be free.",
+      "options": [
+        { "value": "morning", "label": "Morning" },
+        { "value": "afternoon", "label": "Afternoon" },
+        { "value": "evening", "label": "Evening" }
+      ],
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "contact_preference", "operator": "equals", "value": "in_person" }
+      ],
+      "provenance": "user-supplied"
+    }
+  ]
+}
