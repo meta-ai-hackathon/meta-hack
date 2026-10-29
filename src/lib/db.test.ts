@@ -28,6 +28,7 @@ const CORE_TABLES = [
   "schema_migrations",
   "session",
   "session_audit_note",
+  "vault_entry",
 ] as const;
 
 const SESSION_STATUSES = [
@@ -94,10 +95,10 @@ afterAll(async () => {
 
 describe("fresh migration application (VAL-DM-001)", () => {
   it("applies migrations to a fresh database", () => {
-    expect(firstRun).toEqual(["0001_core.sql"]);
+    expect(firstRun).toEqual(["0001_core.sql", "0002_vault_entry.sql"]);
   });
 
-  it("creates all five tables", async () => {
+  it("creates all six tables", async () => {
     expect(await tableNames(testDb)).toEqual(CORE_TABLES);
   });
 
@@ -105,6 +106,7 @@ describe("fresh migration application (VAL-DM-001)", () => {
     const recorded = await testDb`SELECT filename FROM schema_migrations`;
     expect(recorded.map((row) => String(row.filename))).toEqual([
       "0001_core.sql",
+      "0002_vault_entry.sql",
     ]);
     expect(await runMigrations(testDb)).toEqual([]);
   });
