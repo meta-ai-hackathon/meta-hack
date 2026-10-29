@@ -55,7 +55,9 @@ def _fake_completion_payload(content="OK", finish="stop", usage=None):
 class ParseArgsTests(unittest.TestCase):
     def test_defaults_are_budget_safe(self):
         args = smoke.parse_args([])
-        self.assertGreaterEqual(args.max_tokens, 512)
+        # 1024 floor: a reasoning-token burst must not consume the whole
+        # completion budget (observed finish_reason "length" at 512).
+        self.assertGreaterEqual(args.max_tokens, 1024)
         self.assertEqual(args.max_tokens, smoke.DEFAULT_MAX_TOKENS)
         self.assertEqual(
             args.output,
