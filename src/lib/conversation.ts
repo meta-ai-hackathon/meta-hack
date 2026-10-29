@@ -743,8 +743,16 @@ export async function processUserTurn(
           verbatim: item.verbatim,
         });
       }
-    } catch {
-      logWarn("conversation_extraction_answer_skipped");
+    } catch (error) {
+      // A malformed model value is a taxonomy validation_error: skip that
+      // answer, log without content, keep the turn going. Anything else
+      // (notably a database failure) must propagate — the turn must fail
+      // honestly rather than look saved when it was not.
+      if (error instanceof AppError && error.code === "validation_error") {
+        logWarn("conversation_extraction_answer_skipped");
+      } else {
+        throw error;
+      }
     }
   }
 
