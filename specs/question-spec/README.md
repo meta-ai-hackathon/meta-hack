@@ -15,6 +15,7 @@ Each question-spec document is a JSON object with a `questions` array. Each entr
 | `terms` | array of strings | Optional glossary term IDs (plain-language glossary, BN-30) shown as links on the same screen. |
 | `pii` | boolean | Marks the field as personally identifiable. `pii: true` fields never leave the server: they live only in the encrypted session store and are never placed in an LLM prompt (PII boundary, BN-03). |
 | `required` | boolean | Whether the flow can advance without an answer. Non-required questions can be left blank. |
+| `options` | array of `{value, label}` | Allowed choices for `single_select` and `multi_select` questions. Required for those types and forbidden for all others. `value` is snake_case and is what skip conditions reference; `label` is the plain-language text shown on screen. |
 | `skip_conditions` | array | Conditions under which the engine skips this question. Each entry is `{question_id, operator, value}`. Empty array means always asked. |
 | `provenance` | string | Where the answer comes from. Constant `user-supplied` in this skeleton; later specs may add engine-supplied sources. |
 

@@ -59,6 +59,28 @@
           "type": "boolean",
           "description": "Whether the flow can advance without an answer. Unknown and unverified answers still satisfy required."
         },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "label"],
+            "properties": {
+              "value": {
+                "type": "string",
+                "pattern": "^([a-z][a-z0-9_]*|[A-Z]{2})$",
+                "description": "Snake_case choice value stored as the answer and referenced by skip conditions. Two-letter uppercase codes (e.g. state abbreviations) are also allowed."
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Plain-language choice text shown on screen."
+              }
+            }
+          },
+          "description": "Allowed choices for single_select and multi_select questions. Required for those types, forbidden for all others."
+        },
         "skip_conditions": {
           "type": "array",
           "description": "Skip when any one condition matches (OR across entries).",
@@ -69,7 +91,23 @@
           "const": "user-supplied",
           "description": "Where the answer comes from. Constant in this skeleton."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "enum": ["single_select", "multi_select"] } },
+            "required": ["type"]
+          },
+          "then": { "required": ["options"] }
+        },
+        {
+          "if": {
+            "properties": { "type": { "enum": ["text", "number", "boolean", "date", "address"] } },
+            "required": ["type"]
+          },
+          "then": { "not": { "required": ["options"] } }
+        }
+      ]
     },
     "skip_condition": {
       "type": "object",
