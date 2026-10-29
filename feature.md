@@ -159,18 +159,18 @@ Only docassemble passes. Everything else is a pattern reference — we take idea
 
 **Chosen option: COPY-SEMANTICS into our Next.js app** (not running docassemble). Integration outline:
 
-1. Model the Medicaid journey as a question spec (id, prompt, field type, `help`, `terms`, skip conditions) — the YAML interview, as JSON.
+1. Model the benefits application journey as a question spec (id, prompt, field type, `help`, `terms`, skip conditions) — the YAML interview, as JSON.
 2. Back each user session with a server-side `answers` JSONB + status flags (`in_progress`, `prepared`, `submitted: never`), resumable by session ID.
 3. Build the one-question-per-screen flow driven by the spec; the Baseten LLM chooses phrasing/next-step framing but the state machine stays deterministic.
 4. Add a review screen listing completed vs still-needed items and required documents, modeled on docassemble `review` tables.
 5. Keep all PII in our server-side answers store; prompts to Baseten contain only non-PII context.
-6. If demoing output, generate a filled Medicaid PDF with `pdf-lib` against a fillable source PDF.
+6. If demoing output, generate a filled application PDF with `pdf-lib` against a fillable source PDF.
 
 Risks: we re-implement edge cases docassemble already solved (back/branching/review editing); learning-curve savings now become engineering debt later if we outgrow the spec; no LIFT-CODE from docassemble (Python/Flask, incompatible with our Next.js stack). Verified separately: docassemble's native `multi_user` mode disables session encryption, so caseworker-assisted access should go through our own backend instead. Baseten's OpenAI-compatible endpoint status and the pilot state's PDF fillability are unverified — check before promising PDF output in the demo.
 
 ## Open decisions
 
-1. First benefit and location — BN-08 customer discovery decides (Medicaid discussed, unverified)
+1. First benefit and location — BN-08 customer discovery decides (the pilot program discussed, unverified)
 2. Web vs SMS/voice — BN-42 (web default)
 3. How much of an application can legally and reliably be automated — BN-43 (no auto-submission in P0)
 4. Primary user: applicant, caseworker, or both — BN-10

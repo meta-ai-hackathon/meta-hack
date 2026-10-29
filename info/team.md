@@ -6,7 +6,7 @@ As of 2026-10-27. All info is public-domain professional information (LinkedIn p
 |---|---|---|---|---|---|
 | namu | Umang Sharma | Rift (prev. Soar) | Cornell University, B.S. Information Science (2026–2030) | Princeton, NJ | LinkedIn /in/umangssharma, umangsharma.xyz/os, GitHub Umang3211 |
 | lighthunter | Kurt von Laven | Self-Employed | Stanford University | Seattle, WA | LinkedIn /in/kurtvonlaven, GitHub Kurt-von-Laven |
-| Wasure | Caleb Carr | TenFold Systems LLC | Johnson C. Smith University, Banking & Finance | Charlotte, NC | LinkedIn /in/youngcalebcarr |
+| Wasure | Caleb Carr | TenFold Systems LLC | Johnson C. Smith University, Banking & Finance | Southeast US | LinkedIn /in/youngcalebcarr |
 
 ## Notes
 
