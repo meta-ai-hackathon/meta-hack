@@ -4,6 +4,12 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
 import { StatusRegion } from "../../../components/status-region";
+import {
+  pickRecorderMimeType,
+  queueSpeech,
+  recordedBlobToWav,
+  voiceCaptureSupported,
+} from "../../../lib/audio/capture";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
 
 // The wizard fallback path — kept in step with the server's
@@ -11,12 +17,17 @@ import type { IntakeClientState } from "../../../lib/intake/serialize";
 // conversation engine is server-only and must not enter the client bundle.
 const WIZARD_FALLBACK_URL = "/intake";
 
-// The conversational intake chat (Mission v2 M1). Typed input only in this
-// milestone; voice joins later. The transcript shows the REDACTED form of
-// every user turn — the server replaces private values with "you told us"
-// markers before they are stored or returned, so this screen keeps them
-// private by construction. A model failure renders the honest error plus the
-// wizard fallback link (VAL-CONV-007/008).
+// The conversational intake chat (Mission v2 M1 text, M2 voice). Talk or
+// type — both flow through the same route and the same redaction. The
+// transcript shows the REDACTED form of every user turn — the server
+// replaces private values with "you told us" markers before they are stored
+// or returned, so this screen keeps them private by construction (the mic
+// hears it, the screen keeps it private). Assistant replies are subtitled
+// in the transcript and spoken: Gemini audio when the server has a key,
+// browser speechSynthesis otherwise. A model failure renders the honest
+// error plus the wizard fallback link (VAL-CONV-007/008); a denied or
+// missing microphone shows the typed path — never a dead end
+// (VAL-VOICE-005).
 
 interface ConversationTurn {
   readonly id: string;
@@ -51,6 +62,8 @@ export function ConversationChat() {
   const [state, setState] = useState<IntakeClientState | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [micBlocked, setMicBlocked] = useState(false);
   const [error, setError] = useState<{
     code: string;
     message: string;
@@ -59,6 +72,8 @@ export function ConversationChat() {
   const [notice, setNotice] = useState("");
   const [loaded, setLoaded] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +109,86 @@ export function ConversationChat() {
     transcriptEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [turns]);
 
+  // Capability probe: when the browser (or a headless context) has no mic
+  // stack, surface the typed path immediately instead of on first click.
+  // Deferred a microtask past hydration, and cleaned up on unmount.
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setMicBlocked(!voiceCaptureSupported());
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function speakReply(text: string): Promise<void> {
+    // Spoken replies (VAL-VOICE-003): Gemini audio when the server has a
+    // key, browser speechSynthesis otherwise. The utterance is always the
+    // EXACT subtitle text shown in the transcript.
+    try {
+      const response = await fetch("/api/conversation/speak", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (response.ok) {
+        const audio = new Audio(URL.createObjectURL(await response.blob()));
+        audio.onended = () => URL.revokeObjectURL(audio.src);
+        await audio.play();
+        return;
+      }
+    } catch {
+      // Fall through to the built-in voice.
+    }
+    try {
+      queueSpeech(text);
+    } catch {
+      // Speech is enhancement; the subtitle is the accessible path.
+    }
+  }
+
+  async function handleTurnResponse(
+    response: Response,
+    spoken: boolean,
+  ): Promise<void> {
+    if (!response.ok) {
+      const data = (await response.json()) as ConversationErrorResponse;
+      setError({
+        code: data.error?.code ?? "internal",
+        message:
+          data.error?.message ??
+          "Something went wrong on our side. Please try again.",
+        wizardFallbackUrl:
+          data.error?.wizardFallbackUrl ?? WIZARD_FALLBACK_URL,
+      });
+      setNotice("The assistant could not reply just now.");
+      return;
+    }
+    const data = (await response.json()) as TurnResponse;
+    setTurns((previous) => [
+      ...previous,
+      {
+        id: nextLocalTurnId(),
+        role: "user",
+        transcript: data.redactedUserTranscript,
+      },
+      { id: nextLocalTurnId(), role: "assistant", transcript: data.assistantReply },
+    ]);
+    setState(data.state);
+    setDraft("");
+    setNotice(
+      data.nextQuestionId
+        ? "The assistant asked the next question."
+        : "All questions are answered.",
+    );
+    if (spoken) {
+      void speakReply(data.assistantReply);
+    }
+  }
+
   async function submitTurn(): Promise<void> {
     const text = draft.trim();
     if (text === "" || busy) {
@@ -108,31 +203,7 @@ export function ConversationChat() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ text }),
       });
-      if (!response.ok) {
-        const data = (await response.json()) as ConversationErrorResponse;
-        setError({
-          code: data.error?.code ?? "internal",
-          message:
-            data.error?.message ??
-            "Something went wrong on our side. Please try again.",
-          wizardFallbackUrl: data.error?.wizardFallbackUrl ?? WIZARD_FALLBACK_URL,
-        });
-        setNotice("The assistant could not reply just now.");
-        return;
-      }
-      const data = (await response.json()) as TurnResponse;
-      setTurns((previous) => [
-        ...previous,
-        { id: nextLocalTurnId(), role: "user", transcript: data.redactedUserTranscript },
-        { id: nextLocalTurnId(), role: "assistant", transcript: data.assistantReply },
-      ]);
-      setState(data.state);
-      setDraft("");
-      setNotice(
-        data.nextQuestionId
-          ? "The assistant asked the next question."
-          : "All questions are answered.",
-      );
+      await handleTurnResponse(response, false);
     } catch {
       setError({
         code: "internal",
@@ -143,6 +214,91 @@ export function ConversationChat() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submitVoiceTurn(recorded: Blob): Promise<void> {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice("Processing your recording…");
+    try {
+      const wav = await recordedBlobToWav(recorded);
+      const form = new FormData();
+      form.append("audio", wav, "turn.wav");
+      const response = await fetch("/api/conversation/turn", {
+        method: "POST",
+        body: form,
+      });
+      await handleTurnResponse(response, true);
+    } catch {
+      setNotice(
+        "We couldn't process that recording. Please try again, or type your answer below.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startRecording(): Promise<void> {
+    setError(null);
+    setNotice("");
+    if (!voiceCaptureSupported()) {
+      setMicBlocked(true);
+      setNotice(
+        "Voice input isn't available in this browser. You can type your answers below — they work exactly the same way.",
+      );
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickRecorderMimeType((type) =>
+        MediaRecorder.isTypeSupported(type),
+      );
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined,
+      );
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const recorded = new Blob(chunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        chunksRef.current = [];
+        void submitVoiceTurn(recorded);
+      };
+      recorder.onerror = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setRecording(false);
+        setNotice(
+          "Recording failed. You can type your answer below instead.",
+        );
+      };
+      recorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+      setNotice("Listening… press Stop and send when you're done.");
+    } catch {
+      // Permission denied or device unavailable: the typed path is the
+      // answer — visible guidance, never a dead end (VAL-VOICE-005).
+      setMicBlocked(true);
+      setNotice(
+        "Your microphone isn't available. You can type your answers below — they work exactly the same way.",
+      );
+    }
+  }
+
+  function stopRecording(): void {
+    recorderRef.current?.stop();
+    recorderRef.current = null;
+    setRecording(false);
   }
 
   const answeredQuestions = state
@@ -222,8 +378,42 @@ export function ConversationChat() {
         }}
       >
         <label htmlFor="conversation-input" className="font-medium">
-          Type your answer
+          {micBlocked ? "Type your answer" : "Speak or type your answer"}
         </label>
+        <div className="flex items-stretch gap-2">
+          <button
+            type="button"
+            data-voice-toggle
+            aria-pressed={recording}
+            onClick={() => {
+              if (recording) {
+                stopRecording();
+              } else {
+                void startRecording();
+              }
+            }}
+            disabled={busy}
+            className="flex shrink-0 items-center gap-2 rounded-md border border-zinc-300 px-4 py-2.5 text-base font-semibold hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
+          >
+            <span aria-hidden="true">{recording ? "■" : "●"}</span>
+            {recording ? "Stop and send" : "Record an answer"}
+          </button>
+          <span className="self-center text-sm text-zinc-600 dark:text-zinc-400">
+            {recording
+              ? "Recording — speak now."
+              : "Hold a short conversation with the assistant using your voice."}
+          </span>
+        </div>
+        {micBlocked ? (
+          <p
+            data-mic-blocked-guidance
+            className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+          >
+            The microphone isn&apos;t available right now. The text box below
+            works exactly the same way — typed answers save, redact, and
+            continue the conversation identically.
+          </p>
+        ) : null}
         <textarea
           id="conversation-input"
           name="conversation-input"
