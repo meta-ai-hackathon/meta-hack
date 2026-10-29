@@ -69,6 +69,19 @@ configured, otherwise through the browser's built-in `speechSynthesis`. The
 step-by-step wizard stays reachable as the fallback from the chat and from
 every error state.
 
+### Benefit match
+
+After a few answers, the conversation page shows the ranked match
+(`/api/match`, read-only over the session's stored answers): programs that
+**may be worth pursuing**, never a determination. Every reason and every
+requirement on a card (documents, steps, deadlines, renewals) links to its
+official source with a retrieval date and the knowledge-base entry version.
+Unknown or unverified answers surface as an explicit "to resolve" list —
+nothing is inferred from them — and stale or withdrawn knowledge-base
+entries are never presented. A plain-language explanation of the top match
+is generated from that entry's facts alone and passes the banned-claim and
+grounding checks before it renders.
+
 ### Walkthrough CLI
 
 `pnpm walkthrough` drives a full user journey over HTTP against a running app —

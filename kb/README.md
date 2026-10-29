@@ -19,7 +19,8 @@ Chosen over `src/data/kb/` on purpose:
 | Path | What it is |
 |---|---|
 | `kb/schema.json` | JSON Schema (draft-07) every entry must satisfy |
-| `kb/entries/*.json` | One file per program entry — currently only the pilot-agnostic sample |
+| `kb/entries/*.json` | One file per program entry — three pilot-agnostic samples (the base sample plus matching fixtures B and C, so benefit matching has something to rank) |
+| `kb/glossary.json` | Plain-language glossary terms (BN-30), each with an official source and retrieval date |
 | `kb/README.md` | This document |
 
 ## Entry format
@@ -33,13 +34,25 @@ Chosen over `src/data/kb/` on purpose:
 | `status_reason` | stale / withdrawn | Why the entry is not current |
 | `superseded_by` | optional | Entry id that replaces this one |
 | `sources` | yes | One or more official sources: `id`, `title`, `url` (https only), `retrieved_at` (ISO date), `supports` (what it backs) |
-| `facts` | yes | The four fact groups, each source-linked |
+| `facts` | yes | Four required fact groups (`rules`, `required_documents`, `official_links`, `deadlines`) plus two optional ones (`steps`, `match_signals`), each source-linked |
 
 Fact groups — `rules`, `required_documents`, `official_links`, `deadlines` —
 each carry `items`, a `source_id` naming one of the entry's sources, and a
 `retrieved_at` date. Two groups may cite different sources. `rules` and
 `required_documents` hold statement strings; `official_links` holds
 `label` + `url`; `deadlines` holds `label` + `due`.
+
+Two optional groups (mission v2 M3) follow the same provenance rules:
+
+- `steps` — application steps as statement strings; feeds the match card's
+  requirements checklist (BN-15).
+- `match_signals` — what the entry's official rules consider about a
+  person, expressed over the generic question spec: items carry
+  `question_id` (must resolve in `specs/question-spec`), an optional
+  `values` list of option values, an optional `weight` (integer 1-9,
+  default 1), and the program-side `reason` a match card shows. Benefit
+  matching (`src/lib/match.ts`) scores these deterministically; unknown or
+  unverified answers never match a signal.
 
 ## Status rules
 
