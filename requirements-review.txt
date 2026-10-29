@@ -1,0 +1,4 @@
+# Claude PR review bot (scripts/claude_review.py). The review workflow
+# installs only this file; requirements-dev.txt pulls it in so pytest and
+# mypy see the SDK. Pinned to the verified version.
+anthropic==2.3.0
