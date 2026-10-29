@@ -69,9 +69,13 @@ export const EXPLANATION_SYSTEM_PROMPT_PREFIX =
 
 /**
  * Completion budget for the explanation call. Reasoning tokens consume the
- * budget (library/model.md) — the same 2048 cap the conversation uses.
+ * budget (library/model.md): the grounded-explanation prompt's constraints
+ * drive reasoning bursts that exhausted a 2048 budget into null content
+ * with finish_reason "length" (live-verified on this exact prompt), so the
+ * floor here is 4096. One explanation call per match request; usage is
+ * logged per call (cost discipline).
  */
-export const MATCH_EXPLANATION_MAX_TOKENS = 2048;
+export const MATCH_EXPLANATION_MAX_TOKENS = 4096;
 
 export interface MatchSourceCitation {
   readonly entryId: string;

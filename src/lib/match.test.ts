@@ -13,6 +13,7 @@ import { resetModelTransport, setModelTransport } from "./model";
 import {
   EXPLANATION_FRAMING,
   MATCH_FRAMING,
+  MATCH_EXPLANATION_MAX_TOKENS,
   assertNoPiiValuesInMatch,
   buildMatchResponse,
   buildToResolve,
@@ -249,6 +250,13 @@ describe("match cards (VAL-MATCH-002)", () => {
 
   it("frames every card with the honest may-be-worth-pursuing copy", () => {
     expect(MATCH_FRAMING).toBe("This may be worth pursuing.");
+  });
+
+  it("pins the explanation completion budget at or above 4096 tokens", () => {
+    // Live-verified on this exact prompt: reasoning tokens are part of the
+    // completion budget, and the grounded-explanation constraints burned a
+    // 2048 budget into null content with finish_reason "length".
+    expect(MATCH_EXPLANATION_MAX_TOKENS).toBeGreaterThanOrEqual(4096);
   });
 });
 
