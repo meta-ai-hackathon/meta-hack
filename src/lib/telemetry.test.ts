@@ -251,20 +251,25 @@ describe("PII redaction (VAL-TEL-002)", () => {
     restoreSink = captured.restore;
 
     const ids = specPiiIds();
+    const camel = (id: string): string =>
+      id.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
     const unique = (id: string, placement: string): string =>
       `PII-VALUE-${id}-${placement}`;
 
     // Seed a record that carries every pii:true question's value in several
-    // shapes: flat, nested, inside arrays, under prefixed keys, and deep.
+    // shapes: flat, nested, inside arrays, under prefixed keys, camelCased,
+    // and deep.
     const flat: Record<string, string> = {};
     const nested: Record<string, string> = {};
     const prefixed: Record<string, string> = {};
+    const camelCased: Record<string, string> = {};
     const deep: Record<string, Record<string, string>> = { answers: {} };
     const inArray: Record<string, string>[] = [];
     for (const id of ids) {
       flat[id] = unique(id, "flat");
       nested[id] = unique(id, "nested");
       prefixed[`answer_${id}`] = unique(id, "prefixed");
+      camelCased[camel(id)] = unique(id, "camel");
       deep.answers[id] = unique(id, "deep");
       inArray.push({ [id]: unique(id, "array") });
     }
@@ -272,6 +277,7 @@ describe("PII redaction (VAL-TEL-002)", () => {
       ...flat,
       answersSection: nested,
       prefixedKeys: prefixed,
+      camelKeys: camelCased,
       deepNesting: deep,
       answerList: inArray,
       // Controls: non-PII fields must survive redaction untouched.
@@ -285,7 +291,14 @@ describe("PII redaction (VAL-TEL-002)", () => {
     const output = captured.lines.join("\n");
     // Every seeded value, in every placement, must be absent.
     for (const id of ids) {
-      for (const placement of ["flat", "nested", "prefixed", "deep", "array"]) {
+      for (const placement of [
+        "flat",
+        "nested",
+        "prefixed",
+        "camel",
+        "deep",
+        "array",
+      ]) {
         expect(output).not.toContain(unique(id, placement));
       }
       // And the question ids themselves must not appear as identifying
@@ -337,6 +350,69 @@ describe("PII redaction (VAL-TEL-002)", () => {
       "phone",
       "email",
     ]);
+  });
+
+  it("matches camelCase spellings and identity aliases", () => {
+    const seeded: Record<string, unknown> = {
+      emailAddress: "jane@example.com",
+      dateOfBirth: "1980-01-01",
+      phoneContact: "555-0100",
+      goalDetail: "free text detail",
+      social_security_number: "123-45-6789",
+      birth_date: "1980-01-01",
+      national_id: "ID-123456",
+      government_id: "GOV-999",
+      e_mail: "jane@example.com",
+      telephone: "555-0100",
+      answer_social_security_number: "123-45-6789",
+    };
+
+    const cleaned = redactFields<Record<string, unknown>>(seeded);
+    for (const key of Object.keys(seeded)) {
+      expect(Object.keys(cleaned)).not.toContain(key);
+    }
+    const output = JSON.stringify(cleaned);
+    expect(output).not.toContain("jane@example.com");
+    expect(output).not.toContain("1980-01-01");
+    expect(output).not.toContain("555-0100");
+    expect(output).not.toContain("123-45-6789");
+  });
+
+  it("walks shared references intact but breaks genuine cycles", () => {
+    const shared = { attemptCount: 2 };
+    const cleaned = redactFields<Record<string, unknown>>({
+      a: shared,
+      b: shared,
+    });
+    // A DAG reference is walked twice, not mislabeled "[cyclic]".
+    expect(cleaned).toEqual({
+      a: { attemptCount: 2 },
+      b: { attemptCount: 2 },
+    });
+  });
+
+  it("preserves Dates and walks Map/Set payloads", () => {
+    const cleaned = redactFields<Record<string, unknown>>({
+      startedAt: new Date("2026-01-01T00:00:00Z"),
+      piiMap: new Map<string, unknown>([["name", "Jane Q. Applicant"]]),
+      okMap: new Map<string, unknown>([["attemptCount", 2]]),
+      piiSet: new Set<unknown>([{ email: "jane@example.com" }, 1]),
+    });
+    expect(cleaned.startedAt).toBe("2026-01-01T00:00:00.000Z");
+    expect(cleaned.piiMap).toEqual({});
+    expect(cleaned.okMap).toEqual({ attemptCount: 2 });
+    expect(JSON.stringify(cleaned)).not.toContain("jane@example.com");
+    expect(JSON.stringify(cleaned)).not.toContain("Jane");
+  });
+
+  it("ignores caller-supplied redactedFieldCount", () => {
+    const captured = captureLines();
+    restoreSink = captured.restore;
+
+    logInfo("test.forged_count", { redactedFieldCount: 42 });
+
+    const parsed = parseLines(captured.lines)[0];
+    expect(parsed.redactedFieldCount).toBeUndefined();
   });
 
   it("keeps non-PII fields so logs stay useful", () => {
@@ -449,6 +525,26 @@ describe("closed error taxonomy (VAL-TEL-003)", () => {
     expect(output).not.toContain("hunter2-internal-stack");
     const parsed = parseLines(captured.lines)[0];
     expect(parsed.error_message).toBe(userMessageFor("model_unavailable"));
+  });
+
+  it("logs a custom AppError message as code only, never the custom copy", () => {
+    const captured = captureLines();
+    restoreSink = captured.restore;
+
+    // A developer habit the redactor must survive: concatenating context
+    // into a "safe" message. The log carries the code, not the copy.
+    const err = new AppError(
+      "validation_error",
+      `Could not save answer for jane@example.com`,
+    );
+    reportError(err, { event: "intake.answer_submit" });
+
+    const output = captured.lines.join("\n");
+    expect(output).toContain('"error_code":"validation_error"');
+    expect(output).not.toContain("jane@example.com");
+    expect(output).not.toContain("Could not save answer");
+    const parsed = parseLines(captured.lines)[0];
+    expect(parsed.error_message).toBeUndefined();
   });
 
   it("every code maps to a plain-language, non-promissory safe message", () => {

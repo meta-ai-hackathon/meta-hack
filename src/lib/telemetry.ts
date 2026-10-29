@@ -79,33 +79,51 @@ export const IDENTITY_KEYS = [
   "email",
 ] as const;
 
+/**
+ * Common spellings of the identity keys under other names; matched like
+ * question ids (exact or affix). Fail-closed: a realistic field name that
+ * carries one of these values gets stripped.
+ */
+const IDENTITY_ALIASES = [
+  "social_security_number",
+  "birth_date",
+  "national_id",
+  "government_id",
+  "e_mail",
+  "telephone",
+] as const;
+
 /** Structural keys of the line itself; caller fields can never override them. */
 const RESERVED_LINE_KEYS: readonly string[] = [
   "requestId",
   "event",
   "timestamp",
   "level",
+  "redactedFieldCount",
 ];
 
 function normalizeKey(key: string): string {
   return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2") // camelCase → snake_case
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 }
 
 /**
- * True when a field name matches a pii:true question id or an identity key.
- * Matching fails closed: multi-word ids match exactly or as an affix
- * (`answer_date_of_birth`), identity keys match as whole word segments
- * (`email_address`, `phone_number`), case- and separator-insensitively.
+ * True when a field name matches a pii:true question id, an identity key, or
+ * a known identity alias. Matching fails closed: multi-word ids match exactly
+ * or as an affix (`answer_date_of_birth`), identity keys match as whole word
+ * segments (`email_address`, `phone_number`), and camelCase is split first
+ * (`dateOfBirth`, `emailAddress`), case- and separator-insensitively.
  */
 export function isPiiFieldName(key: string): boolean {
   const normalized = normalizeKey(key);
   if (normalized === "") {
     return false;
   }
-  for (const id of PII_QUESTION_IDS) {
+  const ids: readonly string[] = [...PII_QUESTION_IDS, ...IDENTITY_ALIASES];
+  for (const id of ids) {
     if (
       normalized === id ||
       normalized.startsWith(`${id}_`) ||
@@ -126,39 +144,59 @@ export function isPiiFieldName(key: string): boolean {
 
 function redactValue(
   value: unknown,
-  seen: WeakSet<object>,
+  ancestors: Set<object>,
   count: { redacted: number },
 ): unknown {
   if (value === null || typeof value !== "object") {
     return value;
   }
-  if (seen.has(value)) {
-    // Cycles would otherwise break JSON.stringify downstream.
+  if (ancestors.has(value)) {
+    // Genuine cycles would otherwise break JSON.stringify downstream.
     return "[cyclic]";
   }
-  seen.add(value);
-  if (Array.isArray(value)) {
-    return value.map((item) => redactValue(item, seen, count));
-  }
-  const cleaned: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value as LogFields)) {
-    if (isPiiFieldName(key)) {
-      count.redacted += 1;
-      continue;
+  ancestors.add(value);
+  try {
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime())
+        ? "[invalid_date]"
+        : value.toISOString();
     }
-    cleaned[key] = redactValue(child, seen, count);
+    // Walk the payload of hosted collections instead of letting
+    // Object.entries flatten them to "{}" (which would both lose data and
+    // skip redaction inside them).
+    if (value instanceof Map) {
+      return redactValue(Object.fromEntries(value), ancestors, count);
+    }
+    if (value instanceof Set) {
+      return redactValue(Array.from(value), ancestors, count);
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => redactValue(item, ancestors, count));
+    }
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as LogFields)) {
+      if (isPiiFieldName(key)) {
+        count.redacted += 1;
+        continue;
+      }
+      cleaned[key] = redactValue(child, ancestors, count);
+    }
+    return cleaned;
+  } finally {
+    // Ancestor-stack semantics: a shared (non-cyclic) reference appearing
+    // under two keys is walked twice, not mislabeled as a cycle.
+    ancestors.delete(value);
   }
-  return cleaned;
 }
 
 /**
- * Deep-strips every field whose name matches a pii:true question id or an
- * identity key, recursively through nested objects and arrays. Values are
- * never logged — the field is removed entirely.
+ * Deep-strips every field whose name matches a pii:true question id, an
+ * identity key, or a known alias, recursively through nested objects,
+ * arrays, Maps, and Sets. Values are never logged — the field is removed
+ * entirely.
  */
 export function redactFields<T>(value: T): T {
-  const result = redactValue(value, new WeakSet<object>(), { redacted: 0 });
-  return result as T;
+  return redactValue(value, new Set<object>(), { redacted: 0 }) as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +248,7 @@ function emit(
   fields?: LogFields,
 ): void {
   const requestId = currentRequestId() ?? createRequestId();
-  const seen = new WeakSet<object>();
+  const ancestors = new Set<object>();
   const count = { redacted: 0 };
   const cleaned: LogFields = {};
   if (fields) {
@@ -222,7 +260,7 @@ function emit(
         count.redacted += 1;
         continue;
       }
-      cleaned[key] = redactValue(value, seen, count);
+      cleaned[key] = redactValue(value, ancestors, count);
     }
   }
   const line: LogLine = {
@@ -341,8 +379,10 @@ export function userMessageFor(code: ErrorCode): string {
 
 /**
  * Log any thrown value safely: the taxonomy code always, the safe message
- * only for AppError, and nothing else — no message, stack, or cause from
- * unknown errors can reach the serialized line.
+ * only when it is the code's canonical copy from ERROR_USER_MESSAGES (a
+ * custom message could have user content concatenated into it), and nothing
+ * else — no message, stack, or cause from unknown errors can reach the
+ * serialized line.
  */
 export function reportError(
   error: unknown,
@@ -350,7 +390,7 @@ export function reportError(
 ): void {
   const code = toErrorCode(error);
   const fields: LogFields = { ...options?.fields, error_code: code };
-  if (error instanceof AppError) {
+  if (error instanceof AppError && error.safeMessage === userMessageFor(code)) {
     fields.error_message = error.safeMessage;
   }
   emit("error", options?.event ?? "error", fields);
