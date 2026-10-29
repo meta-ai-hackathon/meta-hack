@@ -10,6 +10,7 @@ import { PII_QUESTION_IDS_IN_SPEC } from "./spec";
 import {
   SESSION_COOKIE,
   ensureSession,
+  isSecureRequest,
   loadAnswers,
   loadSession,
   loadSessionState,
@@ -102,6 +103,80 @@ describe("session cookie helpers", () => {
     expect(readSessionCookie(`${SESSION_COOKIE}=abc-123; other=x`)).toBe("abc-123");
     expect(readSessionCookie("other=x")).toBeNull();
     expect(readSessionCookie(null)).toBeNull();
+  });
+
+  it("marks the cookie Secure only for https requests", () => {
+    // Deliberately absent for plain http: a Secure cookie would never be
+    // stored by the browser on localhost dev.
+    expect(sessionCookieHeader("abc-123")).not.toContain("Secure");
+    expect(sessionCookieHeader("abc-123", false)).not.toContain("Secure");
+    const secure = sessionCookieHeader("abc-123", true);
+    expect(secure).toContain("Secure");
+    expect(secure).toContain("HttpOnly");
+    expect(secure).toContain("SameSite=Lax");
+  });
+});
+
+describe("isSecureRequest", () => {
+  const requestAt = (url: string, headers: Record<string, string> = {}) =>
+    new Request(url, { headers });
+
+  it("is true for https request URLs", () => {
+    expect(isSecureRequest(requestAt("https://example.com/api/session"))).toBe(true);
+  });
+
+  it("is false for plain http without proxy headers", () => {
+    expect(isSecureRequest(requestAt("http://localhost:3100/api/session"))).toBe(false);
+  });
+
+  it("trusts an https first hop in x-forwarded-proto (TLS-terminating proxy)", () => {
+    expect(
+      isSecureRequest(
+        requestAt("http://localhost:3100/api/session", { "x-forwarded-proto": "https" }),
+      ),
+    ).toBe(true);
+    expect(
+      isSecureRequest(
+        requestAt("http://localhost:3100/api/session", {
+          "x-forwarded-proto": "https, http",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("follows the first proxy hop even when it is plain http", () => {
+    expect(
+      isSecureRequest(
+        requestAt("http://localhost:3100/api/session", {
+          "x-forwarded-proto": "http, https",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("never flips on junk header values or unparseable URLs", () => {
+    expect(
+      isSecureRequest(
+        requestAt("http://localhost:3100/api/session", {
+          "x-forwarded-proto": "gopher",
+        }),
+      ),
+    ).toBe(false);
+    // Scheme matching is case-insensitive, as proxies may send either.
+    expect(
+      isSecureRequest(
+        requestAt("http://localhost:3100/api/session", {
+          "x-forwarded-proto": "HTTPS",
+        }),
+      ),
+    ).toBe(true);
+    // Defensive: an unparseable request URL cannot occur on the platform,
+    // but the helper must fail closed, not throw.
+    const broken = {
+      headers: new Headers(),
+      url: "not a url",
+    } as unknown as Request;
+    expect(isSecureRequest(broken)).toBe(false);
   });
 });
 
@@ -467,6 +542,19 @@ describe("properties (fast-check)", () => {
       },
     );
     await fc.assert(attempts, { numRuns: 150 });
+  });
+
+  it("always carries the pair, HttpOnly, and SameSite=Lax — Secure exactly when asked", () => {
+    const attempts = fc.property(fc.uuid(), fc.boolean(), (sessionId, secure) => {
+      const header = sessionCookieHeader(sessionId, secure);
+      return (
+        header.includes(`${SESSION_COOKIE}=${sessionId}`) &&
+        header.includes("HttpOnly") &&
+        header.includes("SameSite=Lax") &&
+        header.includes("Secure") === secure
+      );
+    });
+    fc.assert(attempts, { numRuns: 100 });
   });
 
   it("disavowing any pii answer leaves no vault value behind", async () => {

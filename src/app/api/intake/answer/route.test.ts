@@ -121,6 +121,57 @@ describe("POST /api/intake/answer", () => {
     expect(await countsOf("person")).toBe(peopleBefore);
   });
 
+  it("marks the session cookie Secure when the request arrived over https", async () => {
+    // Behind TLS termination the proxy header is what the app sees; a plain
+    // http request keeps the Secure flag off so localhost dev still works.
+    const httpsUrl = await POST(
+      new Request("https://localhost:3100/api/intake/answer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          questionId: "application_role",
+          status: "known",
+          value: "self",
+        }),
+      }),
+    );
+    expect(httpsUrl.status).toBe(200);
+    expect(httpsUrl.headers.get("set-cookie") ?? "").toContain("Secure");
+
+    const proxied = await POST(
+      new Request("http://localhost:3100/api/intake/answer", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-proto": "https",
+        },
+        body: JSON.stringify({
+          questionId: "main_goal",
+          status: "known",
+          value: "housing",
+        }),
+      }),
+    );
+    expect(proxied.status).toBe(200);
+    expect(proxied.headers.get("set-cookie") ?? "").toContain("Secure");
+  });
+
+  it("keeps the Secure flag off for plain http", async () => {
+    const plain = await POST(
+      new Request("http://localhost:3100/api/intake/answer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          questionId: "household_size",
+          status: "known",
+          value: 4,
+        }),
+      }),
+    );
+    expect(plain.status).toBe(200);
+    expect(plain.headers.get("set-cookie") ?? "").not.toContain("Secure");
+  });
+
   it("answers into an existing session without creating rows", async () => {
     const first = await POST(
       answerRequest({ questionId: "application_role", status: "known", value: "self" }),

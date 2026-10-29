@@ -31,11 +31,38 @@ const UUID_PATTERN =
 
 const MAX_TEXT_LENGTH = 2000;
 
-export function sessionCookieHeader(sessionId: string): string {
+export function sessionCookieHeader(sessionId: string, secure = false): string {
   return (
     `${SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; SameSite=Lax; ` +
-    `Max-Age=${SESSION_COOKIE_MAX_AGE}`
+    `Max-Age=${SESSION_COOKIE_MAX_AGE}` +
+    (secure ? "; Secure" : "")
   );
+}
+
+/**
+ * True when the request arrived over https — either directly (the request
+ * URL) or behind a TLS-terminating proxy (x-forwarded-proto's first hop,
+ * which is the hop the browser actually used). Deliberately false for plain
+ * http so localhost dev keeps working: a Secure cookie would never be
+ * stored by the browser over http at all.
+ */
+export function isSecureRequest(request: Request): boolean {
+  const forwarded = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    .trim()
+    .toLowerCase();
+  if (forwarded === "https") {
+    return true;
+  }
+  if (forwarded === "http") {
+    return false;
+  }
+  try {
+    return new URL(request.url).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 export function readSessionCookie(cookieHeader: string | null): string | null {

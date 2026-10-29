@@ -146,6 +146,42 @@ describe("POST /api/session (create)", () => {
     expect(response.status).toBe(201);
   });
 
+  it("marks the session cookie Secure when the request arrived over https", async () => {
+    const direct = await POST(
+      new Request("https://localhost:3100/api/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    expect(direct.status).toBe(201);
+    expect(direct.headers.get("set-cookie") ?? "").toContain("Secure");
+
+    const proxied = await POST(
+      new Request("http://localhost:3100/api/session", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-proto": "https",
+        },
+        body: "{}",
+      }),
+    );
+    expect(proxied.status).toBe(201);
+    expect(proxied.headers.get("set-cookie") ?? "").toContain("Secure");
+
+    // Plain http (localhost dev) keeps the flag off on purpose.
+    const plain = await POST(
+      new Request("http://localhost:3100/api/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    expect(plain.status).toBe(201);
+    expect(plain.headers.get("set-cookie") ?? "").not.toContain("Secure");
+  });
+
   it("rejects a caseworker-assisted creation without a note", async () => {
     const sessionsBefore = await countsOf("session");
     for (const body of [{ caseworkerAssisted: true }, { caseworkerAssisted: true, note: "   " }]) {

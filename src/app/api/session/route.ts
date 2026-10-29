@@ -8,6 +8,7 @@ import {
 import { errorResponse } from "../../../lib/intake/api";
 import {
   ensureSession,
+  isSecureRequest,
   loadAnswers,
   loadSession,
   loadSessionState,
@@ -103,7 +104,10 @@ export async function POST(request: Request): Promise<Response> {
       });
       const headers = new Headers({ "content-type": "application/json" });
       if (fresh) {
-        headers.set("set-cookie", sessionCookieHeader(sessionId));
+        headers.set(
+          "set-cookie",
+          sessionCookieHeader(sessionId, isSecureRequest(request)),
+        );
       }
       return new Response(JSON.stringify({ session, state }), {
         status: fresh ? 201 : 200,

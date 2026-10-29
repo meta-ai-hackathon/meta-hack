@@ -9,6 +9,7 @@ import {
 import { errorResponse, parseJsonBody } from "../../../../lib/intake/api";
 import {
   ensureSession,
+  isSecureRequest,
   loadAnswers,
   readSessionCookie,
   saveAnswer,
@@ -62,7 +63,10 @@ export async function POST(request: Request): Promise<Response> {
       logInfo("intake_answer_received");
       const headers = new Headers({ "content-type": "application/json" });
       if (fresh) {
-        headers.set("set-cookie", sessionCookieHeader(sessionId));
+        headers.set(
+          "set-cookie",
+          sessionCookieHeader(sessionId, isSecureRequest(request)),
+        );
       }
       return new Response(JSON.stringify(state), { headers });
     } catch (error) {
