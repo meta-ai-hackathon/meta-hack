@@ -54,6 +54,21 @@ pnpm db:migrate                    # apply migrations to DATABASE_URL
 pnpm dev --port 3100               # http://localhost:3100
 ```
 
+### Conversational intake
+
+`/intake/conversation` is the primary path through the intake: talk or type,
+one question at a time. Both input modes hit the same route
+(`/api/conversation/turn`), share the same extraction and persistence, and
+redact private values before anything is stored or shown — the mic hears it,
+the screen keeps it private. Spoken turns are captured in-browser
+(`MediaRecorder`), decoded and downsampled to 16 kHz mono PCM WAV in-browser,
+and transcribed server-side by Meta's `muse-voice-transcribe-1.0`. Assistant
+replies are subtitled in the transcript and spoken: through Gemini TTS
+(`gemini-2.5-flash-preview-tts`, set `GEMINI_API_KEY` in `.env`) when
+configured, otherwise through the browser's built-in `speechSynthesis`. The
+step-by-step wizard stays reachable as the fallback from the chat and from
+every error state.
+
 ### Walkthrough CLI
 
 `pnpm walkthrough` drives a full user journey over HTTP against a running app —

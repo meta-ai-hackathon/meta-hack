@@ -7,6 +7,8 @@ import {
 import type { KbEntry } from "./kb";
 import {
   BANNED_CLAIM_FALLBACK_REPLY,
+  CHOICE_UNMAPPED_FALLBACK_PREFIX,
+  CHAT_CALL_MAX_TOKENS,
   COMMITTED_REFUSAL,
   EXTRACTION_SYSTEM_PROMPT_PREFIX,
   MAX_TURN_TEXT_LENGTH,
@@ -20,6 +22,7 @@ import {
   buildExtractionPrompt,
   buildSystemPrompt,
   findBannedClaimsEverySentence,
+  findPiiEchoes,
   parseExtraction,
   redactPiiValues,
   validateTurnText,
@@ -72,6 +75,8 @@ describe("committed refusal and fallback copy", () => {
       COMMITTED_REFUSAL,
       BANNED_CLAIM_FALLBACK_REPLY,
       PII_ECHO_FALLBACK_REPLY,
+      CHOICE_UNMAPPED_FALLBACK_PREFIX,
+      `${CHOICE_UNMAPPED_FALLBACK_PREFIX} Who is this application for?`,
     ]) {
       expect(findBannedClaims(text)).toEqual([]);
       expect(() => assertNoBannedClaimsEverySentence(text)).not.toThrow();
@@ -80,6 +85,12 @@ describe("committed refusal and fallback copy", () => {
 
   it("keeps the wizard fallback URL pointing at the intake wizard", () => {
     expect(WIZARD_FALLBACK_URL).toBe("/intake");
+  });
+
+  it("pins the conversation completion budget at or above 2048 tokens", () => {
+    // Live-verified reasoning bursts of 817–1888 tokens starve a 1024
+    // budget into null content (library/model.md).
+    expect(CHAT_CALL_MAX_TOKENS).toBeGreaterThanOrEqual(2048);
   });
 });
 
@@ -140,6 +151,14 @@ describe("grounded prompt builders", () => {
     expect(prompt).toContain("household_size");
     expect(prompt).toContain('"question_id"');
     expect(prompt).toContain("<<<DATA>>>");
+  });
+
+  it("instructs the extractor to map free-text phrasings onto exact option values", () => {
+    // Hardening item 6: choice answers must canonicalize in the model call
+    // too — "It's for myself" should arrive as value "self", not nothing.
+    const prompt = buildExtractionPrompt("application_role").toLowerCase();
+    expect(prompt).toContain("option value");
+    expect(prompt).toContain("exactly");
   });
 
   it("never embeds user message text in either system prompt (injection guardrail)", () => {
@@ -460,6 +479,46 @@ describe("per-sentence banned-claim gate (VAL-CONV-002)", () => {
     );
   });
 });
+
+describe("pii-echo detector (VAL-VOICE-004)", () => {
+  it("flags every specific private value present and ignores absent ones", () => {
+    const values = ["555-0143", "person@example.com", "1980-02-03"];
+    expect(findPiiEchoes("call me at 555-0143 today", values)).toEqual([
+      "555-0143",
+    ]);
+    expect(findPiiEchoes("EMAIL PERSON@EXAMPLE.COM please", values)).toEqual([
+      "person@example.com",
+    ]);
+    expect(findPiiEchoes("nothing private here", values)).toEqual([]);
+    expect(findPiiEchoes("all of them 555-0143 person@example.com 1980-02-03", values)).toEqual(values);
+  });
+
+  it("PROPERTY: any injected private value is detected wherever it appears; absent values are never reported", () => {
+    fc.assert(
+      fc.property(textArb, valueArb, fc.constantFrom(...SAFE_TEXT_CHARS), (text, value, joiner) => {
+        const specific = value.length >= 6 || /[\d@._\-/\s]/.test(value);
+        if (!specific) {
+          // Generic values are filtered by the caller (isSpecificValue);
+          // the detector itself only reports what it is asked to check.
+          expect(findPiiEchoes(text, [value])).toEqual(
+            containsIgnoreCase(text, value) ? [value] : [],
+          );
+          return;
+        }
+        const withValue = `${text}${joiner}${value}${joiner}${text}`;
+        expect(findPiiEchoes(withValue, [value])).toEqual([value]);
+        const without = text.split(escapeForSplit(value)).join("x");
+        if (!containsIgnoreCase(without, value)) {
+          expect(findPiiEchoes(without, [value])).toEqual([]);
+        }
+      }),
+    );
+  });
+});
+
+function escapeForSplit(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures

@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { mapChoiceAnswer, mapChoiceText } from "./choice-map";
 import {
   findBannedClaims,
   type BannedClaimMatch,
@@ -15,13 +16,16 @@ import {
   type Question,
 } from "./intake/spec";
 import {
+  ensureSession,
   loadAnswers,
+  loadSession,
   saveAnswer,
+  UUID_PATTERN,
   validateAnswerInput,
   type AnswerProvenance,
 } from "./intake/store";
 import { KB_ENTRIES, type KbEntry } from "./kb";
-import { chatCompletion, type ChatMessage } from "./model";
+import { chatCompletion, transcribeAudio, type ChatMessage } from "./model";
 import { PILOT_CONFIG } from "./pilot";
 import {
   AppError,
@@ -86,7 +90,7 @@ const REPLY_HISTORY_TURNS = 8;
  * finish_reason "length". 2048 is the per-call cap (cost discipline: usage
  * is logged per call; actual usage stays far below the cap).
  */
-const CHAT_CALL_MAX_TOKENS = 2048;
+export const CHAT_CALL_MAX_TOKENS = 2048;
 
 /** Honest replacement when a model reply carries promise language. */
 export const BANNED_CLAIM_FALLBACK_REPLY =
@@ -95,6 +99,23 @@ export const BANNED_CLAIM_FALLBACK_REPLY =
 /** Honest replacement when a model reply would repeat a private value. */
 export const PII_ECHO_FALLBACK_REPLY =
   "Thanks for sharing that. Could you tell me a bit more in your own words?";
+
+/**
+ * Honest replacement when a choice answer cannot be mapped onto any spec
+ * option (hardening item 6 / BN-11): the turn must say nothing was saved
+ * instead of implying a save. The current question's prompt follows it.
+ */
+export const CHOICE_UNMAPPED_FALLBACK_PREFIX =
+  "I couldn't match that answer to one of the options, so I haven't saved anything yet.";
+
+/**
+ * Lightweight per-session turn-rate cap (hardening item 3): the turn
+ * endpoint is unauthenticated model spend, and voice adds a second
+ * expensive path per turn. A person speaking push-to-talk cannot plausibly
+ * exceed one turn per five seconds sustained; this bounds automated spend.
+ */
+export const MAX_TURNS_PER_WINDOW = 12;
+export const TURN_RATE_WINDOW_SECONDS = 60;
 
 // ---------------------------------------------------------------------------
 // Turn text validation
@@ -261,6 +282,16 @@ export function buildExtractionPrompt(
       ? `The question the person was just asked: "${current.prompt}"`
       : "The person has not been asked a specific question yet.",
   );
+  if (current?.options && current.options.length > 0) {
+    lines.push(
+      `That question's acceptable answers (value: label): ${current.options
+        .map((option) => `(${option.value}: ${option.label})`)
+        .join(", ")}. When the person's words clearly mean one of them — ` +
+        "even phrased differently, like \"it's for myself\" for (self: Me) — " +
+        "set value to that option value EXACTLY. If their words do not " +
+        "clearly mean one of the acceptable answers, extract nothing for it.",
+    );
+  }
   lines.push(`Schema: ${JSON.stringify(EXTRACTION_SCHEMA)}`);
   lines.push(
     "Rules: status is 'known' when the person stated the answer and 'unknown' " +
@@ -554,12 +585,14 @@ export async function persistTurn(
   sessionId: string,
   role: "user" | "assistant",
   redactedTranscript: string,
-): Promise<void> {
+): Promise<string> {
   const sql = getDb();
-  await sql`
+  const rows = await sql`
     INSERT INTO conversation_turn (session_id, role, redacted_transcript)
     VALUES (${sessionId}, ${role}, ${redactedTranscript})
+    RETURNING id
   `;
+  return String(rows[0].id);
 }
 
 /** The session's redacted turns, oldest first. */
@@ -584,6 +617,28 @@ export async function loadTurns(sessionId: string): Promise<ConversationTurnView
     });
   }
   return turns;
+}
+
+/** Load one stored REDACTED turn for a session, by id. */
+export async function loadTurnText(
+  sessionId: string,
+  turnId: string,
+  role: "user" | "assistant",
+): Promise<string | null> {
+  if (!UUID_PATTERN.test(turnId)) {
+    return null;
+  }
+  const sql = getDb();
+  const rows = await sql`
+    SELECT redacted_transcript, role
+    FROM conversation_turn
+    WHERE session_id = ${sessionId} AND id = ${turnId}
+  `;
+  const row = rows[0];
+  if (!row || !isTurnRole(row.role) || row.role !== role) {
+    return null;
+  }
+  return String(row.redacted_transcript);
 }
 
 /** The most recent redacted turns, oldest first (the reply prompt's history). */
@@ -612,6 +667,29 @@ export async function recentTurns(
     });
   }
   return turns.reverse();
+}
+
+/**
+ * Reject a session that is turning faster than a person reasonably could
+ * (hardening item 3). Counted from persisted user turns, so the cap holds
+ * across serverless instances and voice and typed turns share one budget.
+ * Throws AppError("rate_limited") → HTTP 429 with the wizard fallback.
+ */
+export async function assertWithinTurnRate(sessionId: string): Promise<void> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT count(*) AS n
+    FROM conversation_turn
+    WHERE session_id = ${sessionId}
+      AND role = 'user'
+      AND created_at > now() - make_interval(secs => ${TURN_RATE_WINDOW_SECONDS})
+  `;
+  if (Number(rows[0]?.n ?? 0) >= MAX_TURNS_PER_WINDOW) {
+    logWarn("conversation_turn_rate_capped", {
+      windowSeconds: TURN_RATE_WINDOW_SECONDS,
+    });
+    throw new AppError("rate_limited", userMessageFor("rate_limited"));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -644,6 +722,7 @@ async function extractAnswers(
 async function generateReply(
   nextQuestion: Question | null,
   history: readonly ConversationTurnView[],
+  currentUserTurn: string,
 ): Promise<string> {
   const messages: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt(nextQuestion) },
@@ -651,6 +730,11 @@ async function generateReply(
       role: turn.role,
       content: turn.transcript,
     })),
+    // The CURRENT turn rides as the final message: turn persistence is
+    // deferred until the reply succeeds (hardening item 1), so history
+    // alone cannot carry it — and passing it explicitly keeps exactly one
+    // copy of it in the prompt.
+    { role: "user", content: currentUserTurn },
   ];
   const result = await chatCompletion(messages, {
     maxTokens: CHAT_CALL_MAX_TOKENS,
@@ -685,64 +769,188 @@ function sessionPiiValues(answers: AnswerMap): string[] {
 }
 
 export interface TurnOutcome {
+  readonly sessionId: string;
+  /** True when this turn created the person/session (set-cookie follows). */
+  readonly fresh: boolean;
   readonly assistantReply: string;
+  /** The persisted assistant turn's id — the speak route's handle. */
+  readonly assistantTurnId: string;
   readonly redactedUserTranscript: string;
   readonly nextQuestionId: string | null;
 }
 
 /**
- * Process one typed user turn end to end: extract structured answers, save
- * them through the store (vault routing + provenance), redact the user's
- * words BEFORE anything is stored or sent onward, ask the server-chosen next
- * question through the model, gate the reply sentence by sentence, and
- * persist both turns.
+ * Error payload the route reads to hand a fresh visitor their session
+ * cookie even when the reply failed: the session and its saved answers
+ * exist, so a retry must resume it instead of orphaning the rows
+ * (claude-review P2-3).
+ */
+export interface TurnSessionContext {
+  readonly sessionId: string;
+  readonly fresh: boolean;
+}
+
+export function turnSessionContext(
+  error: unknown,
+): TurnSessionContext | null {
+  if (error instanceof AppError) {
+    const cause = error.cause as { turnSession?: TurnSessionContext } | unknown;
+    if (
+      cause &&
+      typeof cause === "object" &&
+      !Array.isArray(cause) &&
+      "turnSession" in cause
+    ) {
+      const turnSession = (cause as { turnSession?: unknown }).turnSession;
+      if (
+        turnSession &&
+        typeof turnSession === "object" &&
+        typeof (turnSession as TurnSessionContext).sessionId === "string" &&
+        typeof (turnSession as TurnSessionContext).fresh === "boolean"
+      ) {
+        return turnSession as TurnSessionContext;
+      }
+    }
+  }
+  return null;
+}
+
+/** Report the specific private values that appear in a transcript. */
+export function findPiiEchoes(
+  text: string,
+  values: readonly string[],
+): string[] {
+  return values.filter(
+    (value) => value.trim() !== "" && containsIgnoreCase(text, value),
+  );
+}
+
+/**
+ * Process one user turn end to end (typed text, or the transcript of a
+ * spoken turn — both flow through this same extraction/persistence path).
  *
- * A model failure before extraction persists nothing and propagates its
- * taxonomy error (model_unavailable / rate_limited) — the route degrades to
- * the visible error + wizard fallback. An assistant reply that violates the
- * honesty or privacy gates is replaced with honest fallback copy and is
- * never returned to a client or written to conversation_turn.
+ * Ordering invariants (Mission v2 M2 hardening):
+ * - Session creation is DEFERRED until extraction succeeds (item 2): a
+ *   model failure leaves no orphan person/session row.
+ * - Turn persistence is ATOMIC (item 1): the user turn is persisted only
+ *   AFTER the assistant reply succeeds and passes both honesty gates, so a
+ *   reply-call failure can never make a retry duplicate the transcript.
+ * - The user's words are redacted BEFORE storage/client/prompt; private
+ *   values from pii:true spec questions never appear in a response body or
+ *   in conversation_turn (structural sweep + fail-closed whole-turn
+ *   fallback — not just extraction verbatim spans, item 5).
+ * - Choice answers run through the canonicalization layer (item 6): free
+ *   text maps onto spec options; when nothing maps the reply honestly says
+ *   nothing was saved.
+ *
+ * A model failure before the reply propagates its taxonomy error
+ * (model_unavailable / rate_limited) — the route degrades to the visible
+ * error + wizard fallback. An assistant reply that violates the honesty or
+ * privacy gates is replaced with honest fallback copy and is never returned
+ * to a client or written to conversation_turn.
  */
 export async function processUserTurn(
-  sessionId: string,
   userText: string,
+  cookieValue: string | null,
 ): Promise<TurnOutcome> {
-  const answersBefore = await loadAnswers(sessionId);
+  // 0. Resolve an existing session WITHOUT creating one (read-only), and
+  // cap the per-session turn rate before any model spend.
+  const existingSessionId = cookieValue
+    ? await loadSession(cookieValue)
+    : null;
+  if (existingSessionId) {
+    await assertWithinTurnRate(existingSessionId);
+  }
+  const answersBefore = existingSessionId
+    ? await loadAnswers(existingSessionId)
+    : {};
   const currentQuestion = nextUnansweredQuestion(answersBefore);
 
   // 1. Structured extraction — the ONLY call that sees the raw words, and
-  // the step that makes redaction possible.
+  // the step that makes redaction possible. Runs BEFORE any session exists
+  // for a fresh visitor.
   const extracted = await extractAnswers(userText, currentQuestion?.id ?? null);
 
-  // 2. Validate and save each answer; collect this turn's private values as
+  // 2. First write of the turn: NOW create the session if needed.
+  const { sessionId, fresh } = existingSessionId
+    ? { sessionId: existingSessionId, fresh: false }
+    : await ensureSession(null);
+
+  // 3. Validate and save each answer; collect this turn's private values as
   // redaction sources. One malformed extracted answer is skipped, logged
   // without content, and never fails the turn.
   const sourceByQuestion = new Map<string, RedactionSource>();
+  let unmappedChoiceAttempt = false;
+  let savedAnswerCount = 0;
+  const savePlanned = async (
+    planned: PlannedAnswer,
+    verbatim: string | undefined,
+  ): Promise<void> => {
+    const { question, storedValue } = validateAnswerInput(
+      planned.questionId,
+      planned.status,
+      planned.value,
+    );
+    await saveAnswer(
+      sessionId,
+      planned.questionId,
+      planned.status,
+      planned.value,
+      planned.provenance,
+    );
+    if (question.pii && storedValue !== null) {
+      sourceByQuestion.set(question.id, {
+        question,
+        raw: canonicalString(storedValue),
+        verbatim,
+      });
+    }
+  };
   for (const item of extracted) {
-    const planned = answerToSave(item);
+    let planned = answerToSave(item);
     if (!planned) {
       continue;
     }
     try {
-      const { question, storedValue } = validateAnswerInput(
-        planned.questionId,
-        planned.status,
-        planned.value,
-      );
-      await saveAnswer(
-        sessionId,
-        planned.questionId,
-        planned.status,
-        planned.value,
-        planned.provenance,
-      );
-      if (question.pii && storedValue !== null) {
-        sourceByQuestion.set(question.id, {
+      const question = QUESTION_BY_ID[planned.questionId];
+      // Choice canonicalization (hardening item 6): accept exact options as
+      // they are; map realistic free-text phrasings onto spec options
+      // through the value's own words, the verbatim span, then the raw turn
+      // text. A mapped choice answer is the person's OWN statement — the
+      // extractor may call it an inference (live-verified parity break:
+      // "It's for myself" saved ai_drafted/unverified spoken but
+      // known/user_supplied typed) — landing on a spec option through a
+      // deterministic layer saves known/user_supplied, always. When nothing
+      // maps, remember the attempt: the reply must say honestly that
+      // nothing was saved.
+      if (
+        question.options &&
+        question.options.length > 0 &&
+        planned.status !== "unknown"
+      ) {
+        // The raw-turn-text cascade applies ONLY to the question this turn
+        // was answering (claude-review P2-2): an unmapped value for some
+        // other question must not rescue itself from unrelated words.
+        const mapped = mapChoiceAnswer(
           question,
-          raw: canonicalString(storedValue),
-          verbatim: item.verbatim,
-        });
+          planned.value,
+          item.verbatim,
+          planned.questionId === currentQuestion?.id ? userText : undefined,
+        );
+        if (mapped) {
+          planned = {
+            questionId: planned.questionId,
+            status: "known",
+            value: question.type === "multi_select" ? mapped : mapped[0],
+            provenance: "user_supplied",
+          };
+        } else {
+          unmappedChoiceAttempt = true;
+          continue;
+        }
       }
+      await savePlanned(planned, item.verbatim);
+      savedAnswerCount += 1;
     } catch (error) {
       // A malformed model value is a taxonomy validation_error: skip that
       // answer, log without content, keep the turn going. Anything else
@@ -756,9 +964,34 @@ export async function processUserTurn(
     }
   }
 
-  // 3. Redact BEFORE storage/client/prompt. Session-wide private values join
-  // this turn's, so a repeated private value is redacted even if this
-  // turn's extraction missed it.
+  // 3b. The live-observed failure mode: the extractor returns NOTHING for a
+  // spoken free-text phrasing. When the current question is a choice
+  // question and no extracted item targeted it, map the raw words directly.
+  if (
+    currentQuestion &&
+    currentQuestion.options &&
+    currentQuestion.options.length > 0 &&
+    !extracted.some((item) => item.questionId === currentQuestion.id)
+  ) {
+    const mapped = mapChoiceText(currentQuestion, userText);
+    if (mapped) {
+      await savePlanned(
+        {
+          questionId: currentQuestion.id,
+          status: "known",
+          value: currentQuestion.type === "multi_select" ? mapped : mapped[0],
+          provenance: "user_supplied",
+        },
+        undefined,
+      );
+      savedAnswerCount += 1;
+    }
+  }
+
+  // 4. Redact BEFORE storage/client/prompt. Session-wide private values
+  // join this turn's, so a repeated private value is redacted even if this
+  // turn's extraction missed it. The structural sweep and the fail-closed
+  // whole-turn fallback live inside redactPiiValues (item 5).
   const answersAfter = await loadAnswers(sessionId);
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     if (sourceByQuestion.has(questionId)) {
@@ -778,16 +1011,46 @@ export async function processUserTurn(
     [...sourceByQuestion.values()],
   );
 
-  // 4. Persist the user turn — the redacted words only; the raw text never lands.
-  await persistTurn(sessionId, "user", redactedUserTranscript);
-
   // 5. Deterministic flow: the server picks the next question; the model
   // only phrases it.
   const nextQuestion = nextUnansweredQuestion(answersAfter);
 
-  // 6. Generate the reply from the redacted history.
-  const history = await recentTurns(sessionId, REPLY_HISTORY_TURNS);
-  let reply = await generateReply(nextQuestion, history);
+  // 6. The reply. When a choice answer was attempted and NOTHING was saved
+  // this turn, skip the reply call and answer deterministically — an honest
+  // "not saved" plus the question again (hardening item 6 / BN-11). If some
+  // other answer did save, that copy would be false; the grounded model
+  // reply reports the true state instead (claude-review P2-3).
+  let reply: string;
+  try {
+    if (unmappedChoiceAttempt && currentQuestion && savedAnswerCount === 0) {
+      reply = `${CHOICE_UNMAPPED_FALLBACK_PREFIX} ${currentQuestion.prompt}`;
+    } else {
+      if (unmappedChoiceAttempt) {
+        logWarn("conversation_choice_partially_unmapped");
+      }
+      const history = await recentTurns(sessionId, REPLY_HISTORY_TURNS);
+      reply = await generateReply(
+        nextQuestion,
+        history,
+        redactedUserTranscript,
+      );
+    }
+  } catch (error) {
+    if (fresh) {
+      // The session was created for THIS turn; its answers are saved but
+      // nothing conversational is persisted. Carry the session on the
+      // error so the route still issues the cookie — the visitor's data
+      // stays reachable and a retry resumes instead of orphaning the rows
+      // (claude-review P2-3).
+      logWarn("conversation_turn_reply_failed_fresh_session");
+      throw new AppError(
+        error instanceof AppError ? error.code : "model_unavailable",
+        error instanceof AppError ? error.message : userMessageFor("model_unavailable"),
+        { cause: { turnSession: { sessionId, fresh } } },
+      );
+    }
+    throw error;
+  }
 
   // 7. Honesty gate per sentence, then the private-value echo gate — both
   // BEFORE render and persist; a violating reply is replaced, never shown.
@@ -798,19 +1061,62 @@ export async function processUserTurn(
     reply = BANNED_CLAIM_FALLBACK_REPLY;
   }
   const echoValues = sessionPiiValues(answersAfter).filter(isSpecificValue);
-  if (echoValues.some((value) => containsIgnoreCase(reply, value))) {
+  if (findPiiEchoes(reply, echoValues).length > 0) {
     logWarn("conversation_reply_pii_echo_blocked");
     reply = PII_ECHO_FALLBACK_REPLY;
   }
 
-  // 8. Persist the assistant turn and report the outcome.
-  await persistTurn(sessionId, "assistant", reply);
+  // 8. Persist BOTH turns — only after the reply succeeded and passed every
+  // gate (hardening item 1). The user turn lands as the redacted words
+  // only; the raw text never lands anywhere.
+  await persistTurn(sessionId, "user", redactedUserTranscript);
+  const assistantTurnId = await persistTurn(sessionId, "assistant", reply);
   logInfo("conversation_turn_completed");
   return {
+    sessionId,
+    fresh,
     assistantReply: reply,
+    assistantTurnId,
     redactedUserTranscript,
     nextQuestionId: nextQuestion?.id ?? null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Voice turn intake (Mission v2 M2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The voice half of a turn: validate the uploaded WAV against the
+ * live-verified contract (format/size/duration — rejected BEFORE any model
+ * call), pre-check the session's turn rate (voice spends STT + chat calls),
+ * transcribe, and hand back turn text that flows through the SAME
+ * extraction/persistence path as typed input (provenance user_supplied).
+ * Empty or oversized transcripts are validation errors, never fabricated
+ * turns (VAL-VOICE-006).
+ *
+ * The STT call carries a per-turn RANDOM id, never the session cookie
+ * value: the cookie is this app's bearer credential, and it must not
+ * appear in a third party's URL logs (claude-review P1-3). Meta's
+ * sessionId is request grouping only — a random UUID serves it.
+ */
+export async function transcribeTurnAudio(
+  audio: Uint8Array,
+  cookieValue: string | null,
+): Promise<string> {
+  const existingSessionId = cookieValue
+    ? await loadSession(cookieValue)
+    : null;
+  if (existingSessionId) {
+    await assertWithinTurnRate(existingSessionId);
+  }
+  const sttSessionId = crypto.randomUUID();
+  const result = await transcribeAudio(audio, sttSessionId);
+  const transcript = result.transcript.trim();
+  if (transcript === "" || transcript.length > MAX_TURN_TEXT_LENGTH) {
+    throw validationError();
+  }
+  return transcript;
 }
 
 // ---------------------------------------------------------------------------

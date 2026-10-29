@@ -1,3 +1,4 @@
+import { parseWavHeader, wavDurationMs } from "./audio/wav";
 import { AppError, logInfo, logWarn, userMessageFor } from "./telemetry";
 
 // Model client (Mission v2 M1): the app's first server-side Meta model
@@ -17,6 +18,12 @@ import { AppError, logInfo, logWarn, userMessageFor } from "./telemetry";
 //   honestly instead of fabricating output.
 // - Per-call usage logging (prompt/completion/reasoning tokens, latency) via
 //   telemetry — content and key material never.
+//
+// Mission v2 M2 adds the speech-to-text client (muse-voice-transcribe-1.0)
+// with the live-verified request contract: multipart with exactly two parts
+// (a `request` JSON part and an `audio` part), RIFF/WAVE mono 16-bit PCM at
+// 16 or 24 kHz ONLY — everything else is rejected here, before any model
+// call, with a taxonomy validation_error.
 
 export const CHAT_URL = "https://api.meta.ai/v1/chat/completions";
 export const CHAT_MODEL = "muse-spark-1.3";
@@ -59,7 +66,8 @@ export interface ChatCallResult {
 export interface ModelRequestInit {
   readonly method: "POST";
   readonly headers: Record<string, string>;
-  readonly body: string;
+  /** JSON string for chat calls; FormData (two parts) for STT. */
+  readonly body: string | FormData;
   readonly signal: AbortSignal;
 }
 
@@ -250,6 +258,173 @@ export async function chatCompletion(
     attempts: CHAT_MAX_ATTEMPTS,
     outcome: exhaustedAs,
     latencyMs: Date.now() - started,
+  });
+  throw new AppError(exhaustedAs, userMessageFor(exhaustedAs));
+}
+
+// ---------------------------------------------------------------------------
+// Speech-to-text (Mission v2 M2)
+// ---------------------------------------------------------------------------
+
+export const STT_URL = "https://api.meta.ai/v1/asr/transcribe";
+export const STT_MODEL = "muse-voice-transcribe-1.0";
+export const STT_TIMEOUT_MS = 20_000;
+export const STT_MAX_ATTEMPTS = 3;
+
+/** Live-verified request-body cap (413 above it). */
+export const MAX_AUDIO_BODY_BYTES = 32 * 1024 * 1024;
+/** Live-verified audio-length cap (400 above it). */
+export const MAX_AUDIO_DURATION_MS = 10 * 60 * 1000;
+/** Live-verified: only these sample rates are accepted. */
+export const ALLOWED_WAV_SAMPLE_RATES: readonly number[] = [16000, 24000];
+
+export interface SttResult {
+  /** The ASR session id echoed back, when one was sent. */
+  readonly sessionId: string | null;
+  readonly transcript: string;
+  readonly audioDurationMs: number;
+  readonly latencyMs: number;
+}
+
+function validationErrorWith(cause: Record<string, unknown>): AppError {
+  return new AppError(
+    "validation_error",
+    userMessageFor("validation_error"),
+    { cause },
+  );
+}
+
+/**
+ * Enforce the live-verified audio contract BEFORE any model call: a
+ * RIFF/WAVE file, integer PCM, mono, 16-bit, 16 or 24 kHz, within the size
+ * and duration caps. Anything else is a taxonomy validation_error — a wrong
+ * upload is a 400, never a wasted model call.
+ */
+export function assertAcceptedAudioFormat(audio: Uint8Array): void {
+  if (audio.byteLength > MAX_AUDIO_BODY_BYTES) {
+    throw validationErrorWith({ reason: "audio_too_large", bytes: audio.byteLength });
+  }
+  if (audio.byteLength < 44) {
+    throw validationErrorWith({ reason: "audio_not_wav" });
+  }
+  const info = parseWavHeader(audio);
+  if (!info) {
+    throw validationErrorWith({ reason: "audio_not_wav" });
+  }
+  if (info.pcmFormat !== 1) {
+    throw validationErrorWith({ reason: "audio_not_pcm", pcmFormat: info.pcmFormat });
+  }
+  if (info.channels !== 1) {
+    throw validationErrorWith({ reason: "audio_not_mono", channels: info.channels });
+  }
+  if (info.bitsPerSample !== 16) {
+    throw validationErrorWith({ reason: "audio_not_16bit", bitsPerSample: info.bitsPerSample });
+  }
+  if (!ALLOWED_WAV_SAMPLE_RATES.includes(info.sampleRate)) {
+    throw validationErrorWith({ reason: "audio_sample_rate", sampleRate: info.sampleRate });
+  }
+  if (wavDurationMs(info) > MAX_AUDIO_DURATION_MS) {
+    throw validationErrorWith({
+      reason: "audio_too_long",
+      durationMs: Math.round(wavDurationMs(info)),
+    });
+  }
+}
+
+/**
+ * Transcribe one spoken turn (PUSH_TO_TALK): validate the WAV, then POST
+ * multipart with exactly two parts — the `request` JSON part and the
+ * `audio` part — to /v1/asr/transcribe. Retries and taxonomy mapping mirror
+ * chatCompletion; per-call usage (latency, audio duration) is logged, the
+ * transcript and key material never are.
+ */
+export async function transcribeAudio(
+  audio: Uint8Array,
+  sessionId: string | null,
+): Promise<SttResult> {
+  // Enforcement runs before the key check so a bad upload never burns
+  // anything — and before ANY network attempt.
+  assertAcceptedAudioFormat(audio);
+  const key = modelApiKey();
+
+  const requestJson = JSON.stringify({
+    model: STT_MODEL,
+    mode: "PUSH_TO_TALK",
+    audioEncoding: "WAV",
+    languageBias: ["English"],
+  });
+  const form = new FormData();
+  form.append(
+    "request",
+    new Blob([requestJson], { type: "application/json" }),
+    "request.json",
+  );
+  form.append(
+    "audio",
+    new Blob([new Uint8Array(audio)], { type: "audio/wav" }),
+    "audio.wav",
+  );
+  const url = sessionId
+    ? `${STT_URL}?sessionId=${encodeURIComponent(sessionId)}`
+    : STT_URL;
+
+  const started = Date.now();
+  let exhaustedAs: "rate_limited" | "model_unavailable" = "model_unavailable";
+  for (let attempt = 1; attempt <= STT_MAX_ATTEMPTS; attempt += 1) {
+    const attemptStarted = Date.now();
+    try {
+      const response = await activeTransport()(url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${key}` },
+        body: form,
+        signal: AbortSignal.timeout(STT_TIMEOUT_MS),
+      });
+      if (response.status === 429) {
+        exhaustedAs = "rate_limited";
+      } else if (!response.ok) {
+        exhaustedAs = "model_unavailable";
+      } else {
+        const parsed = (await response.json()) as Record<string, unknown>;
+        const transcript =
+          typeof parsed.transcript === "string" ? parsed.transcript : null;
+        if (transcript !== null) {
+          const audioDurationMs =
+            typeof parsed.audioDurationMs === "number" &&
+            Number.isFinite(parsed.audioDurationMs)
+              ? parsed.audioDurationMs
+              : 0;
+          const latencyMs = Date.now() - attemptStarted;
+          logInfo("model_stt_call", {
+            model: STT_MODEL,
+            attempt,
+            latencyMs,
+            audioDurationMs,
+            audioBytes: audio.byteLength,
+          });
+          return {
+            sessionId:
+              typeof parsed.sessionId === "string" ? parsed.sessionId : null,
+            transcript,
+            audioDurationMs,
+            latencyMs,
+          };
+        }
+        exhaustedAs = "model_unavailable";
+      }
+    } catch {
+      exhaustedAs = "model_unavailable";
+    }
+    if (attempt < STT_MAX_ATTEMPTS) {
+      await sleep(RETRY_BACKOFF_MS * attempt);
+    }
+  }
+
+  logWarn("model_stt_failed", {
+    model: STT_MODEL,
+    attempts: STT_MAX_ATTEMPTS,
+    outcome: exhaustedAs,
+    latencyMs: Date.now() - started,
+    audioBytes: audio.byteLength,
   });
   throw new AppError(exhaustedAs, userMessageFor(exhaustedAs));
 }
