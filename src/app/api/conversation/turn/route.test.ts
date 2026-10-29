@@ -855,6 +855,101 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     expect(await userTranscripts()).toHaveLength(1);
     expect(await assistantTranscripts()).toEqual([data.assistantReply]);
   });
+
+  it("never rescues an unmapped NON-current question from the raw turn text (claude-review P2-2)", async () => {
+    // Turn 2 answers main_goal, but the extractor also emits garbage for the
+    // already-answered application_role. The raw text "I need food." must
+    // not be cascaded onto application_role — that would overwrite a known
+    // answer with words meant for a different question.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+          ],
+        }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+      {
+        extraction: JSON.stringify({
+          answers: [
+            {
+              question_id: "application_role",
+              status: "known",
+              value: "construction work",
+            },
+            { question_id: "main_goal", status: "known", value: "food" },
+          ],
+        }),
+        reply: "Got it — food. What is your zip code?",
+      },
+    ]);
+    const first = await POST(turnRequest("Hi, applying for myself."));
+    const cookie = (first.headers.get("set-cookie") ?? "")
+      .split(";")[0]
+      .trim();
+    const second = await POST(turnRequest("I need food.", cookie));
+    expect(second.status).toBe(200);
+    const data = (await second.json()) as TurnResponse;
+    // The grounded model reply ran (the current answer saved), not the
+    // deterministic fallback.
+    expect(data.assistantReply).toBe("Got it — food. What is your zip code?");
+    const rows = await testDb`
+      SELECT question_id, value FROM answer ORDER BY question_id
+    `;
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row.question_id === "application_role")?.value).toBe(
+      "self",
+    );
+    expect(rows.find((row) => row.question_id === "main_goal")?.value).toBe(
+      "food",
+    );
+  });
+
+  it("uses the deterministic unmapped copy only when NOTHING saved this turn (claude-review P2-3)", async () => {
+    // The current question's answer fails to map, but another answer in the
+    // same turn saves. The "haven't saved anything yet" copy would be false;
+    // the grounded model reply reports the true state instead.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+          ],
+        }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+            {
+              question_id: "main_goal",
+              status: "known",
+              value: "martian vampire count",
+            },
+          ],
+        }),
+        reply: "One answer saved. What kind of help are you looking for?",
+      },
+    ]);
+    const first = await POST(turnRequest("Hi, applying for myself."));
+    const cookie = (first.headers.get("set-cookie") ?? "")
+      .split(";")[0]
+      .trim();
+    const second = await POST(turnRequest("Zorp blorble quintessence.", cookie));
+    expect(second.status).toBe(200);
+    const data = (await second.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(
+      "One answer saved. What kind of help are you looking for?",
+    );
+    // The unmapped question stays unanswered, so the server still asks it.
+    expect(data.nextQuestionId).toBe("main_goal");
+    const mainGoal = await testDb`
+      SELECT value FROM answer WHERE question_id = 'main_goal'
+    `;
+    expect(mainGoal).toHaveLength(0);
+  });
 });
 
 describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () => {

@@ -881,6 +881,7 @@ export async function processUserTurn(
   // without content, and never fails the turn.
   const sourceByQuestion = new Map<string, RedactionSource>();
   let unmappedChoiceAttempt = false;
+  let savedAnswerCount = 0;
   const savePlanned = async (
     planned: PlannedAnswer,
     verbatim: string | undefined,
@@ -927,11 +928,14 @@ export async function processUserTurn(
         question.options.length > 0 &&
         planned.status !== "unknown"
       ) {
+        // The raw-turn-text cascade applies ONLY to the question this turn
+        // was answering (claude-review P2-2): an unmapped value for some
+        // other question must not rescue itself from unrelated words.
         const mapped = mapChoiceAnswer(
           question,
           planned.value,
           item.verbatim,
-          userText,
+          planned.questionId === currentQuestion?.id ? userText : undefined,
         );
         if (mapped) {
           planned = {
@@ -946,6 +950,7 @@ export async function processUserTurn(
         }
       }
       await savePlanned(planned, item.verbatim);
+      savedAnswerCount += 1;
     } catch (error) {
       // A malformed model value is a taxonomy validation_error: skip that
       // answer, log without content, keep the turn going. Anything else
@@ -970,23 +975,16 @@ export async function processUserTurn(
   ) {
     const mapped = mapChoiceText(currentQuestion, userText);
     if (mapped) {
-      try {
-        await savePlanned(
-          {
-            questionId: currentQuestion.id,
-            status: "known",
-            value: currentQuestion.type === "multi_select" ? mapped : mapped[0],
-            provenance: "user_supplied",
-          },
-          undefined,
-        );
-      } catch (error) {
-        if (error instanceof AppError && error.code === "validation_error") {
-          logWarn("conversation_extraction_answer_skipped");
-        } else {
-          throw error;
-        }
-      }
+      await savePlanned(
+        {
+          questionId: currentQuestion.id,
+          status: "known",
+          value: currentQuestion.type === "multi_select" ? mapped : mapped[0],
+          provenance: "user_supplied",
+        },
+        undefined,
+      );
+      savedAnswerCount += 1;
     }
   }
 
@@ -1017,14 +1015,19 @@ export async function processUserTurn(
   // only phrases it.
   const nextQuestion = nextUnansweredQuestion(answersAfter);
 
-  // 6. The reply. When a choice answer was attempted but nothing mapped,
-  // skip the reply call and answer deterministically — an honest "not
-  // saved" plus the question again (hardening item 6 / BN-11).
+  // 6. The reply. When a choice answer was attempted and NOTHING was saved
+  // this turn, skip the reply call and answer deterministically — an honest
+  // "not saved" plus the question again (hardening item 6 / BN-11). If some
+  // other answer did save, that copy would be false; the grounded model
+  // reply reports the true state instead (claude-review P2-3).
   let reply: string;
   try {
-    if (unmappedChoiceAttempt && currentQuestion) {
+    if (unmappedChoiceAttempt && currentQuestion && savedAnswerCount === 0) {
       reply = `${CHOICE_UNMAPPED_FALLBACK_PREFIX} ${currentQuestion.prompt}`;
     } else {
+      if (unmappedChoiceAttempt) {
+        logWarn("conversation_choice_partially_unmapped");
+      }
       const history = await recentTurns(sessionId, REPLY_HISTORY_TURNS);
       reply = await generateReply(
         nextQuestion,

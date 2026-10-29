@@ -185,6 +185,51 @@ describe("POST /api/conversation/speak — turn-id contract", () => {
     expect(called).toBe(false);
   });
 
+  it("serves a repeated turn id from the cache without a second provider call (claude-review P3)", async () => {
+    const { sessionId, turnIds } = await seedTurns();
+    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    let calls = 0;
+    setTtsTransport((async () => {
+      calls += 1;
+      const pcm = new Int16Array(240);
+      const bytes = new Uint8Array(pcm.buffer.slice(0));
+      let binary = "";
+      for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+      }
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: "audio/L16;rate=24000",
+                      data: btoa(binary),
+                    },
+                  },
+                ],
+                role: "model",
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as TtsTransport);
+
+    const first = await POST(speakRequest(turnIds[1], cookieFor(sessionId)));
+    const second = await POST(speakRequest(turnIds[1], cookieFor(sessionId)));
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(calls).toBe(1);
+    const firstBytes = Buffer.from(await first.arrayBuffer());
+    const secondBytes = Buffer.from(await second.arrayBuffer());
+    expect(firstBytes.length).toBeGreaterThan(0);
+    expect(secondBytes.equals(firstBytes)).toBe(true);
+  });
+
   it("degrades with model_unavailable when no key is configured", async () => {
     const { sessionId, turnIds } = await seedTurns();
     let called = false;

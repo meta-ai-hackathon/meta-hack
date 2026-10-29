@@ -13,6 +13,36 @@ import {
 } from "../../../../lib/telemetry";
 import { MAX_SPEAK_TEXT_LENGTH, speakText } from "../../../../lib/tts";
 
+// Per-turn audio cache (claude-review P3): a reply is deterministic for its
+// turn id, so replaying the same id re-serves the same bytes instead of
+// spending a second paid TTS call. Bounded and time-limited; a miss simply
+// regenerates.
+const SPEAK_CACHE_LIMIT = 50;
+const SPEAK_CACHE_TTL_MS = 5 * 60 * 1000;
+const speakCache = new Map<string, { audio: Uint8Array; cachedAt: number }>();
+
+function cachedAudioFor(turnId: string): Uint8Array | null {
+  const hit = speakCache.get(turnId);
+  if (!hit) {
+    return null;
+  }
+  if (Date.now() - hit.cachedAt > SPEAK_CACHE_TTL_MS) {
+    speakCache.delete(turnId);
+    return null;
+  }
+  return hit.audio;
+}
+
+function rememberAudio(turnId: string, audio: Uint8Array): void {
+  if (speakCache.size >= SPEAK_CACHE_LIMIT) {
+    const oldest = speakCache.keys().next().value;
+    if (oldest !== undefined) {
+      speakCache.delete(oldest);
+    }
+  }
+  speakCache.set(turnId, { audio, cachedAt: Date.now() });
+}
+
 // POST /api/conversation/speak (Mission v2 M2): spoken assistant replies.
 // The browser asks this route for audio of a reply it just displayed as a
 // subtitle; the Gemini key stays server-side.
@@ -61,7 +91,18 @@ export async function POST(request: Request): Promise<Response> {
         );
       }
 
+      const cached = cachedAudioFor(turnId);
+      if (cached) {
+        return new Response(new Uint8Array(cached), {
+          headers: {
+            "content-type": "audio/wav",
+            "cache-control": "no-store",
+          },
+        });
+      }
+
       const result = await speakText(replyText);
+      rememberAudio(turnId, result.audio);
       return new Response(new Uint8Array(result.audio), {
         headers: {
           "content-type": "audio/wav",
