@@ -1005,3 +1005,243 @@ describe("POST /api/conversation/turn — per-session turn-rate cap (hardening 3
     expect(response.status).toBe(200);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Voice mode (Mission v2 M2): multipart audio → STT → the SAME
+// extraction/persistence path as typed input (VAL-VOICE-001..006).
+// ---------------------------------------------------------------------------
+
+const {
+  STT_URL,
+} = await import("../../../../lib/model");
+const { encodeWavPcm16Mono } = await import("../../../../lib/audio/wav");
+
+function voiceRequest(wav: Uint8Array, cookie?: string): Request {
+  const form = new FormData();
+  form.append(
+    "audio",
+    new Blob([new Uint8Array(wav)], { type: "audio/wav" }),
+    "turn.wav",
+  );
+  return new Request("http://localhost:3100/api/conversation/turn", {
+    method: "POST",
+    headers: { ...(cookie ? { cookie } : {}) },
+    body: form,
+  });
+}
+
+interface AnyRecordedCall {
+  readonly kind: "stt" | "extraction" | "reply";
+  readonly url: string;
+  readonly body?: unknown;
+}
+
+/**
+ * Script every model surface for one voice turn: the STT call (by URL) plus
+ * the two chat calls, in order per queue.
+ */
+function installVoiceScript(
+  stt: { status?: number; transcript?: string; audioDurationMs?: number }[],
+  chat: readonly ChatCallScript[],
+): { calls: AnyRecordedCall[] } {
+  const calls: AnyRecordedCall[] = [];
+  const extractionQueue = chat.map((step) => step.extraction);
+  const replyQueue = chat.map((step) => step.reply);
+  const sttQueue = [...stt];
+  setModelTransport(async (url, init) => {
+    if (url.startsWith(STT_URL)) {
+      calls.push({ kind: "stt", url });
+      const step = sttQueue.shift();
+      if (!step) {
+        return new Response(JSON.stringify({ error: { message: "exhausted" } }), {
+          status: 500,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          sessionId: "meta-asr-session",
+          transcript: step.transcript ?? "",
+          audioDurationMs: step.audioDurationMs ?? 1000,
+          turns: [],
+        }),
+        { status: step.status ?? 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    const parsed = JSON.parse(String(init.body)) as {
+      messages: { content: string }[];
+    };
+    const isExtraction = parsed.messages[0]?.content.startsWith(
+      EXTRACTION_SYSTEM_PROMPT_PREFIX,
+    );
+    calls.push({ kind: isExtraction ? "extraction" : "reply", url, body: parsed });
+    const queue = isExtraction ? extractionQueue : replyQueue;
+    const content = queue.shift();
+    if (content === undefined) {
+      return new Response(JSON.stringify({ error: { message: "exhausted" } }), {
+        status: 500,
+      });
+    }
+    return new Response(JSON.stringify(chatCallBody(content)), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  return { calls };
+}
+
+const SIXTEEN_K_MONO_WAV = new Uint8Array(
+  encodeWavPcm16Mono(new Float32Array(16000), 16000),
+);
+
+describe("POST /api/conversation/turn — voice mode (VAL-VOICE-001/004)", () => {
+  it("drives a spoken WAV through the same extraction/persistence path as typed input", async () => {
+    installVoiceScript(
+      [{ transcript: "It's for myself." }],
+      [
+        {
+          extraction: JSON.stringify({
+            answers: [
+              {
+                question_id: "application_role",
+                status: "known",
+                value: "self",
+                verbatim: "It's for myself",
+              },
+            ],
+          }),
+          reply: "Got it. What kind of help are you looking for right now?",
+        },
+      ],
+    );
+
+    const response = await POST(voiceRequest(SIXTEEN_K_MONO_WAV));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.redactedUserTranscript).toBe("It's for myself.");
+    expect(data.nextQuestionId).toBe("main_goal");
+    expect(data.state.answers.application_role).toEqual({
+      status: "known",
+      value: "self",
+    });
+    // Parity: identical persistence to the typed turn.
+    expect(await userTranscripts()).toEqual(["It's for myself."]);
+    const rows = await testDb`
+      SELECT value, status, provenance FROM answer
+      WHERE question_id = 'application_role'
+    `;
+    expect(rows[0]).toMatchObject({
+      value: "self",
+      status: "known",
+      provenance: "user_supplied",
+    });
+  });
+
+  it("redacts a spoken pii value everywhere: response body, storage, and the reply prompt", async () => {
+    const { calls } = installVoiceScript(
+      [{ transcript: "You can call me at 555-0143." }],
+      [
+        {
+          extraction: JSON.stringify({
+            answers: [
+              {
+                question_id: "phone_contact",
+                status: "known",
+                value: "555-0143",
+                verbatim: "555-0143",
+              },
+            ],
+          }),
+          reply: "Thanks for sharing that. What is your email address?",
+        },
+      ],
+    );
+
+    const response = await POST(voiceRequest(SIXTEEN_K_MONO_WAV));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    const bodyText = JSON.stringify(data);
+    expect(bodyText).not.toContain("555-0143");
+    expect(data.redactedUserTranscript).toContain("[redacted answer to");
+    for (const transcript of await userTranscripts()) {
+      expect(transcript).not.toContain("555-0143");
+    }
+    const replyCall = calls.find((call) => call.kind === "reply");
+    expect(JSON.stringify(replyCall?.body)).not.toContain("555-0143");
+    const vaultRows = await testDb`
+      SELECT value FROM vault_entry WHERE field = 'phone_contact'
+    `;
+    expect(String(vaultRows[0].value)).toBe("555-0143");
+    const answerRows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'phone_contact'
+    `;
+    expect(answerRows[0].value).toBeNull();
+  });
+});
+
+describe("POST /api/conversation/turn — voice failure modes (VAL-VOICE-006)", () => {
+  it("rejects a wrong-format upload with validation_error before any model call", async () => {
+    const { calls } = installVoiceScript(
+      [{ transcript: "never reached" }],
+      [],
+    );
+    const webmBytes = new TextEncoder().encode(
+      "\x1a\x45\xdf\xa3 this is webm/opus, not a WAV",
+    );
+    const response = await POST(voiceRequest(webmBytes));
+    expect(response.status).toBe(400);
+    const data = (await response.json()) as ErrorResponse;
+    expect(data.error.code).toBe("validation_error");
+    expect(calls).toHaveLength(0);
+    expect(await countOf("person")).toBe(0);
+    expect(await countOf("session")).toBe(0);
+  });
+
+  it("rejects an oversized upload before any model call", async () => {
+    const { calls } = installVoiceScript([], []);
+    const oversized = new Uint8Array(32 * 1024 * 1024 + 1);
+    const response = await POST(voiceRequest(oversized));
+    expect(response.status).toBe(400);
+    expect((await response.json() as ErrorResponse).error.code).toBe("validation_error");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("maps STT failure to model_unavailable with the wizard link and persists nothing", async () => {
+    installVoiceScript([{ status: 503 }], []);
+    const response = await POST(voiceRequest(SIXTEEN_K_MONO_WAV));
+    expect(response.status).toBe(503);
+    const data = (await response.json()) as ErrorResponse;
+    expect(data.error.code).toBe("model_unavailable");
+    expect(data.error.wizardFallbackUrl).toBe(WIZARD_FALLBACK_URL);
+    expect(await userTranscripts()).toHaveLength(0);
+    expect(await countOf("session")).toBe(0);
+  });
+
+  it("maps exhausted STT rate limits to rate_limited", async () => {
+    installVoiceScript([{ status: 429 }, { status: 429 }, { status: 429 }], []);
+    const response = await POST(voiceRequest(SIXTEEN_K_MONO_WAV));
+    expect(response.status).toBe(429);
+    expect((await response.json() as ErrorResponse).error.code).toBe("rate_limited");
+  });
+
+  it("rejects an empty transcript instead of fabricating a turn", async () => {
+    installVoiceScript([{ transcript: "  " }], []);
+    const response = await POST(voiceRequest(SIXTEEN_K_MONO_WAV));
+    expect(response.status).toBe(400);
+    expect((await response.json() as ErrorResponse).error.code).toBe("validation_error");
+    expect(await userTranscripts()).toHaveLength(0);
+  });
+
+  it("rejects a multipart body without an audio part", async () => {
+    installVoiceScript([], []);
+    const form = new FormData();
+    form.append("not_audio", "nope");
+    const response = await POST(
+      new Request("http://localhost:3100/api/conversation/turn", {
+        method: "POST",
+        body: form,
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect((await response.json() as ErrorResponse).error.code).toBe("validation_error");
+  });
+});
