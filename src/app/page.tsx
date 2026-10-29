@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { A11yDemo } from "../components/a11y-demo";
 import { AnswerStatusBadge } from "../components/answer-status-badge";
 import { ANSWER_STATUSES, type AnswerStatus } from "../lib/honesty";
@@ -33,6 +34,24 @@ export default function Home() {
             </li>
           ))}
         </ul>
+      </section>
+      <section
+        aria-labelledby="start-heading"
+        className="flex flex-col items-center gap-3"
+      >
+        <h2 id="start-heading" className="text-lg font-semibold">
+          Ready when you are
+        </h2>
+        <p className="max-w-md text-sm text-zinc-600 dark:text-zinc-400">
+          Answer a few plain-language questions, one at a time. Your answers
+          save as you go — nothing is submitted until you decide.
+        </p>
+        <Link
+          href="/intake"
+          className="rounded-md bg-zinc-900 px-5 py-2.5 text-base font-semibold text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+        >
+          Start your application
+        </Link>
       </section>
       <section
         aria-labelledby="a11y-demo-heading"

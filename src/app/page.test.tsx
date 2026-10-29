@@ -47,4 +47,9 @@ describe("Home page", () => {
     expect(html).toContain('id="a11y-demo-field"');
     expect(html).toContain('aria-describedby="a11y-demo-field-help"');
   });
+
+  it("links to the intake flow so it is reachable by navigation", () => {
+    const html = renderToStaticMarkup(<Home />);
+    expect(html).toContain('href="/intake"');
+  });
 });

@@ -35,6 +35,13 @@ const EXEMPT_FILES = new Set([
   "lib/vault.ts",
   "lib/vault.test.ts",
   "lib/vault-boundary.test.ts",
+  // The intake answer store (BN-09) is the one authorized WRITE-path
+  // consumer: it routes pii:true answer values through vaultPut — the
+  // vault module's own validated API — and never reads the vault back
+  // (readVaultFields serves only CROSSING_ALLOWLIST, which is empty).
+  // This is the documented downstream contract in the vault's API notes:
+  // PII answers from intake go to vaultPut, never to the answer table.
+  "lib/intake/store.ts",
 ]);
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
