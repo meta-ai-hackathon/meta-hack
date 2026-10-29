@@ -18,8 +18,10 @@ went out with PR #34, the first merge to the linked repo.
 | Region | `iad1` |
 | Dashboard | `https://vercel.com/yifus-projects-5c1c92b8/meta-hack` |
 
-Production URL: recorded here once the first deployment exists
-(expected pattern `https://meta-hack-<hash>-yifus-projects-5c1c92b8.vercel.app`).
+Production URL: `https://meta-hack-omega.vercel.app` (aliases
+`https://meta-hack-yifus-projects-5c1c92b8.vercel.app` and
+`https://meta-hack-git-main-yifus-projects-5c1c92b8.vercel.app`). First production
+deployment went live 2026-10-29 from `main` @ 9070d58 (PR #34).
 
 ## Unblock steps (user-only; all complete as of 2026-10-29)
 
