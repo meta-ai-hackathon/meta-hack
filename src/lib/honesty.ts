@@ -25,16 +25,18 @@
  */
 export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
   // Eligibility determinations, positive or negative, present or future.
-  /\byou\s*(?:are|'re|will|'ll|shall|must)\s+(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|not)\s+)?(?:be\s+)?eligible\b/i,
+  // Modal "should" assertions count as determinations; may/might hedges stay
+  // allowed — surfacing uncertainty is the point.
+  /\byou\s*(?:(?:are|'re|will|'ll|shall|must|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|not)\s+)?(?:going\s+to\s+)?(?:be\s+)?eligible\b/i,
   // Qualification determinations.
-  /\byou\s*(?:(?:are|'re|will|'ll|shall|must|do|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|easily|obviously|undoubtedly|not)\s+)?qualify\b/i,
+  /\byou\s*(?:(?:are|'re|will|'ll|shall|must|do|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|not)\s+)?(?:going\s+to\s+)?qualify\b/i,
   // Approval promises, positive or negative, present or future.
-  /\byou\s*(?:are|'re|will|'ll|shall|must)\s+(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|not)\s+|going\s+to\s+)?(?:be\s+)?approved\b/i,
+  /\byou\s*(?:(?:are|'re|will|'ll|shall|must|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|not)\s+)?(?:going\s+to\s+)?(?:be\s+)?approved\b/i,
   // Guarantee claims, in any phrasing.
   /\bguaranteed\b/i,
   /\bwe\s+(?:can\s+)?(?:guarantee|promise)\b/i,
   // Benefits framed as a promised outcome.
-  /\byou\s*(?:will|'ll|shall)\s+(?:(?:definitely|certainly|absolutely)\s+)?(?:get|receive|obtain)\s+(?:the\s+|these\s+|those\s+|your\s+)?benefits\b/i,
+  /\byou\s*(?:(?:will|'ll|shall|should|are)\s+)?(?:(?:definitely|certainly|absolutely)\s+)?(?:going\s+to\s+)?(?:get|receive|obtain)\s+(?:the\s+|these\s+|those\s+|your\s+)?benefits\b/i,
   // Marketing-style approval claims.
   /\b(?:instant|automatic)\s+approval\b/i,
 ];

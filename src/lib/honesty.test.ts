@@ -39,6 +39,11 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "contraction approval promise", text: "You'll be approved in no time." },
   { label: "going-to approval promise", text: "You are going to be approved, don't worry." },
   { label: "denial approval claim", text: "You will not be approved." },
+  { label: "going-to denial approval claim", text: "You are not going to be approved." },
+  { label: "going-to eligibility claim", text: "You are going to be eligible for this program." },
+  { label: "going-to qualification claim", text: "You are going to qualify." },
+  { label: "should eligibility claim", text: "You should be eligible." },
+  { label: "easily approval promise", text: "You will easily be approved." },
   { label: "guaranteed outcome", text: "Approval is guaranteed." },
   { label: "guaranteed approval", text: "This is a guaranteed approval service." },
   { label: "we guarantee", text: "We guarantee results." },
@@ -83,9 +88,10 @@ function statusCheckValues(sql: string, constraintName: string): string[] {
 
 describe("banned-claims detector", () => {
   it("flags every banned-claim fixture", () => {
-    for (const fixture of BANNED_FIXTURES) {
-      expect(findBannedClaims(fixture.text), fixture.label).not.toHaveLength(0);
-    }
+    const misses = BANNED_FIXTURES.filter(
+      (fixture) => findBannedClaims(fixture.text).length === 0,
+    ).map((fixture) => fixture.label);
+    expect(misses, "fixtures not flagged by any pattern").toEqual([]);
   });
 
   it("has no dead patterns: every pattern matches at least one fixture", () => {
