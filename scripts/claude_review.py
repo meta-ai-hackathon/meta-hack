@@ -817,7 +817,7 @@ P2, should fix soon: real bugs and risks that do not block a merge.
 P3: nits."""
 
 SYSTEM_PROMPT = """\
-You review pull requests for the {repo} repository. It builds a benefits application companion (Tenet, in src/ as Benefits Navigator) that will handle real people's Medicaid and SNAP information. Coding agents open and merge many of these pull requests on their own, so your review is often the only check between their code and main.
+You review pull requests for the {repo} repository. It builds a benefits application companion (Tenet, in src/ as Benefits Navigator) that will handle real people's public-benefits information. Coding agents open and merge many of these pull requests on their own, so your review is often the only check between their code and main.
 
 Find the problems in this change that matter, rank each one with the rubric below, and answer with the JSON object the response format requires.
 
