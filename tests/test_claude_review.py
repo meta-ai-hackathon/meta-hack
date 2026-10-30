@@ -2292,6 +2292,45 @@ class ApprovalSequenceProperties(unittest.TestCase):
 
     @PBT
     @given(
+        st.integers(min_value=0, max_value=2),
+        st.booleans(),
+        st.booleans(),
+        SEED_REVIEWS,
+        st.lists(st.sampled_from(["bug", review.OVERRIDE_LABEL]), unique=True).map(tuple),
+        st.booleans(),
+    )
+    def test_a_re_check_withdraws_exactly_a_verdict_that_is_not_an_all_clear(
+        self,
+        p1: int,
+        model_ran: bool,
+        skipped_one: bool,
+        seed: list[review.PullReview],
+        labels: tuple[str, ...],
+        draft: bool,
+    ) -> None:
+        """A label, edit or reopen event on a commit with a stored verdict
+        never approves, withdraws every approval by the bot exactly when that
+        verdict is not an all clear (a P1, nothing sent to the model, or a
+        changed file left out), and does the same whether the run read the
+        PR or had to use the event's copy of it."""
+        skipped = (review.SkippedFile("public/logo.png", "binary file"),) if skipped_one else ()
+        inputs = comment_inputs(head_sha=HEAD, fingerprint=FINGERPRINT, findings=(P1_FINDING,) * p1, skipped=skipped, model_ran=model_ran)
+        body = review.render_review_comment(inputs if model_ran else replace(inputs, usage=()))
+        pr = make_pr(labels=labels, draft=draft)
+        outcomes = []
+        for fail in ((), ("get_pull",)):
+            github = FakeGitHub(pr, FILES, bot_sticky(body), fail=fail, reviews=seed)
+            run, _summary = event_run(github, event_payload(pr, action="labeled"))
+            self.assertIn("re-checks that verdict without calling the model", run.output)
+            self.assertNotIn("APPROVE", [call[0] for call in github.review_calls])
+            outcomes.append((run.code, github.review_calls, github.reviews))
+        self.assertEqual(outcomes[0], outcomes[1])
+        mine = list(dict.fromkeys(r.id for r in seed if r.author == review.BOT_LOGIN and r.state == review.APPROVED))
+        clear = p1 == 0 and model_ran and not skipped
+        self.assertEqual([call[1] for call in outcomes[0][1]], [] if clear else mine)
+
+    @PBT
+    @given(
         st.lists(st.builds(finding, severity=SEVERITY), max_size=3),
         st.sampled_from(sorted(PUSH_CHANGES)),
         SEED_REVIEWS,
@@ -2482,19 +2521,29 @@ class ApprovalTests(unittest.TestCase):
         self.assertEqual(moved.review_calls, [("DISMISS", 1, review.WITHDRAWN_UNCONFIRMED)])
         self.assertIn("since the PR's base branch changed during the review", run.output)
 
-    def test_the_event_copy_fallback_withdraws_the_approval(self) -> None:
+    def test_the_event_copy_fallback_withdraws_for_a_push_and_keeps_a_re_check(self) -> None:
         github = FakeGitHub(make_pr(), FILES, bot_sticky(stored_review(OLD_HEAD)), fail=("get_pull",), reviews=[bot_review(1, OLD_HEAD)])
         run, _summary = event_run(github, event_payload(make_pr()))
         self.assertEqual(run.code, 0)
         self.assertEqual(github.review_calls, [("DISMISS", 1, review.WITHDRAWN_UNREVIEWED)])
-        # A stored all clear of the event's head is re-checked as usual, but
-        # the event's copy can be behind the PR, so the run withdraws.
+        # A stored all clear of the event's head is re-checked as usual and
+        # its approval stays: a re-check could never bring it back, and a
+        # push or a retarget the event's copy missed starts its own run.
         stored = FakeGitHub(make_pr(), FILES, bot_sticky(stored_review(HEAD)), fail=("get_pull",), reviews=[bot_review(1, HEAD)])
         run, _summary = event_run(stored, event_payload(make_pr(), action="labeled"))
         self.assertEqual(run.code, 0)
         self.assertIn("re-checks that verdict without calling the model", run.output)
-        self.assertEqual(stored.review_calls, [("DISMISS", 1, review.WITHDRAWN_UNCONFIRMED)])
-        self.assertIn("since this run could not read the PR from GitHub", run.output)
+        self.assertEqual((stored.review_calls, approved_commits(stored)), ([], [HEAD]))
+        # So one failed read on a label event no longer costs a clean commit
+        # its approval until the next push: the next event finds it in place.
+        stored.fail = set()
+        stored.set_pr(make_pr(labels=("bug",)))
+        Run(stored, None)
+        self.assertEqual((stored.review_calls, approved_commits(stored)), ([], [HEAD]))
+        # A stored P1 still withdraws from the event's copy.
+        p1 = FakeGitHub(make_pr(), FILES, bot_sticky(stored_review(HEAD, (P1_FINDING,))), fail=("get_pull",), reviews=[bot_review(1, HEAD)])
+        run, _summary = event_run(p1, event_payload(make_pr(), action="labeled"))
+        self.assertEqual((run.code, p1.review_calls), (1, [("DISMISS", 1, review.WITHDRAWN_FOR_P1)]))
         # Without a usable copy the run reads and writes nothing more, reviews included.
         bare = FakeGitHub(make_pr(), FILES, fail=("get_pull",), reviews=[bot_review(1, OLD_HEAD)])
         event_run(bare, None)

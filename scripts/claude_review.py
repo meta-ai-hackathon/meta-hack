@@ -53,19 +53,20 @@ exactly that commit if the verdict has no P1, every changed file reached the
 model, the comment shows the verdict, and the PR's base branch did not
 change during the review. A re-check of a stored verdict never approves,
 since anyone who can edit comments on the PR can edit that verdict. It
-leaves an approval the review gave in place, and it withdraws like a review
-when the stored verdict is not an all clear or this run could not read the
-PR from GitHub. Every other outcome on an open PR (a P1, even with the
-override label; a push or a retarget that was not reviewed, or not fully,
-for any reason) dismisses every approval the bot has on the PR. A fresh
-review also dismisses them before the model runs (all but those of a head
-commit whose finished review against the same base branch the comment
-still shows), so a run that is cancelled or times out mid-review leaves
-none standing. Manual runs and dry runs never submit or dismiss reviews, and
-closed PRs and stale events keep the bot's reviews as they are. The
-approval step only logs on failure (including GitHub refusing approvals
-until an org owner allows Actions to approve) and starts no call near the
-job's time limit, so it never changes the check or the comment.
+withdraws like a review when the stored verdict is not an all clear, and
+otherwise leaves an approval the review gave in place, even when the run
+had to use the event's copy of the PR. Every other outcome on an open PR
+(a P1, even with the override label; a push or a retarget that was not
+reviewed, or not fully, for any reason) dismisses every approval the bot
+has on the PR. A fresh review also dismisses them before the model runs
+(all but those of a head commit whose finished review against the same
+base branch the comment still shows), so a run that is cancelled or times
+out mid-review leaves none standing. Manual runs and dry runs never submit
+or dismiss reviews, and closed PRs and stale events keep the bot's reviews
+as they are. The approval step only logs on failure (including GitHub
+refusing approvals until an org owner allows Actions to approve) and
+starts no call near the job's time limit, so it never changes the check or
+the comment.
 
 Local dry run (reads real PR data, never writes to GitHub, never calls the
 model, needs no Anthropic key; uses GH_TOKEN or the gh CLI login):
@@ -2457,24 +2458,24 @@ class Reviewer:
             return None
         return stickies[0], state
 
-    def replay(self, pr: PullRequest, sticky: IssueComment, state: StickyState, *, unread: bool) -> int:
+    def replay(self, pr: PullRequest, sticky: IssueComment, state: StickyState) -> int:
         """Re-check a finished review's verdict against the current labels
         without calling the model, and keep the comment's verdict line in
-        step with whether the override label counts. With unread, pr is the
-        event's copy."""
+        step with whether the override label counts. pr may be the event's
+        copy, when GitHub could not return the PR."""
         assert state.counts is not None  # finished_review checked it
         p1, p2, p3 = state.counts
         # The label decides nothing without a P1, so who added it is read only then.
         override = self.override_for(pr) if p1 else None
         code = 1 if p1 and not (override is not None and override.counts) else 0
-        # The event's copy can be behind the PR, so it proves nothing about the head.
-        problem = "this run could not read the PR from GitHub" if unread else None
-        step = confirmed(approval_for(p1 > 0, state.model_ran, state.complete), problem)
+        step = approval_for(p1 > 0, state.model_ran, state.complete)
         # Anyone who can edit comments on the PR can edit the stored verdict,
         # so a re-check never approves: only a fresh review does. It still
-        # withdraws when the stored verdict is not an all clear or the run
-        # cannot confirm it, and otherwise leaves an approval the review gave
-        # in place.
+        # withdraws when the stored verdict is not an all clear, and otherwise
+        # leaves an approval the review gave in place. That holds when the
+        # run had to use the event's copy of the PR, too: a re-check could
+        # never bring back an approval it withdrew, and every push or
+        # retarget starts its own run, whose review or failure withdraws.
         self.approval = None if step.approve else step
         self.notice(
             f"{short_sha(pr.head_sha)} already has a finished review by this reviewer ({p1} P1, {p2} P2, "
@@ -2669,7 +2670,7 @@ class Reviewer:
         finished = self.finished_review(pr)
         if finished is not None:
             sticky, state = finished
-            return self.replay(pr, sticky, state, unread=unread is not None)
+            return self.replay(pr, sticky, state)
         if pr.draft and not self.dispatch:
             return self.not_reviewed(pr, "the PR is a draft", (), create=False, hint=DRAFT_HINT)
 
