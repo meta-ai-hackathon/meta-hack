@@ -2180,8 +2180,10 @@ class ApprovalSequenceProperties(unittest.TestCase):
         """Once a PR event run has gone through, the bot has no active
         approval at all unless its comment holds a complete clean review of
         the head (no P1, every changed file sent to the model, the current
-        base branch), and a PR event run that ends on one leaves exactly one
-        on the head. While a PR event run's model works the bot has no
+        base branch), a PR event run whose own review ends on one leaves
+        exactly one on the head, and a run that did not ask the model (a
+        re-check of a stored verdict, which anyone who can edit comments can
+        edit) never approves. While a PR event run's model works the bot has no
         approval, so a job cancelled mid-review leaves none behind, and a run
         whose comment writes fail never leaves one. A twin PR whose approvals
         GitHub refuses (the org setting is off) ends every step with the same
@@ -2200,7 +2202,7 @@ class ApprovalSequenceProperties(unittest.TestCase):
             history += recorded_label_events(pr, event)
             pr = after_event(pr, event, push, change)
             manual = event == "manual run"
-            codes = []
+            codes, asked = [], []
             for github in (allowed, refused, unlabeled):
                 github.set_pr(pr if github is not unlabeled else replace(pr, labels=()))
                 github.events = list(history) if github is not unlabeled else []
@@ -2211,6 +2213,7 @@ class ApprovalSequenceProperties(unittest.TestCase):
                 model = WatchedModel(github, MODEL_ANSWERS[answer]())
                 run = Run(github, model, env=DISPATCH_ENV if manual else LIVE_ENV)
                 codes.append(run.code)
+                asked.append(bool(model.requests))
                 if manual:  # never reads, approves or dismisses
                     self.assertEqual((github.reviews, len(github.review_calls)), (reviews, calls))
                     self.assertNotIn("reviews", github.reads[reads:])
@@ -2218,6 +2221,8 @@ class ApprovalSequenceProperties(unittest.TestCase):
                     self.assertEqual([seen for seen in model.approvals_seen if seen], [])
                 attempts = [call for call in github.review_calls[calls:] if call[0] == "APPROVE"]
                 self.assertLessEqual(len(attempts), 1)  # never a retry
+                if not model.requests:  # only a run's own review can approve
+                    self.assertEqual(attempts, [])
                 notices = [line for line in run.output.splitlines() if review.APPROVAL_SETTING in line]
                 self.assertEqual(len(notices), len(attempts) if github is refused else 0)
                 self.assertTrue(all(line.startswith("::notice::") for line in notices))
@@ -2240,8 +2245,9 @@ class ApprovalSequenceProperties(unittest.TestCase):
                 self.assertEqual([r for r in github.reviews if r.author != review.BOT_LOGIN], people)
                 if synced and not clean:
                     self.assertEqual(approved_commits(github), [])
-            if clean and not manual:
+            if clean and not manual and asked[0]:
                 self.assertEqual(approved_commits(allowed).count(pr.head_sha), 1)
+            self.assertLessEqual(approved_commits(allowed).count(pr.head_sha), 1)
             self.assertEqual([r.id for r in refused.reviews], [r.id for r in seed])  # GitHub never took one
 
     @PBT
@@ -2278,11 +2284,14 @@ class ApprovalTests(unittest.TestCase):
         self.assertEqual(github.review_calls, [("APPROVE", HEAD, review.APPROVAL_BODY)])
         self.assertEqual(approved_commits(github), [HEAD])
         self.assertIn(f"approved {HEAD[:7]}, since it has no P1", run.output)
-        # A later event re-checks the stored verdict and finds the approval, so nothing is posted twice.
+        # A later event re-checks the stored verdict, which never approves, so
+        # the review's approval stands and nothing is posted twice.
         github.set_pr(make_pr(labels=("bug",)))
+        reads = len(github.reads)
         again = Run(github, None)
         self.assertEqual((again.code, len(github.review_calls)), (0, 1))
-        self.assertIn(f"the bot already approves {HEAD[:7]}", again.output)
+        self.assertEqual(approved_commits(github), [HEAD])
+        self.assertNotIn("reviews", github.reads[reads:])
 
     def test_an_active_approval_of_the_same_commit_is_never_duplicated(self) -> None:
         # A new reviewer reviews a commit again that the bot already approves.
@@ -2451,14 +2460,27 @@ class ApprovalTests(unittest.TestCase):
         event_run(bare, None)
         self.assertEqual((bare.review_calls, bare.reads), ([], ["get_pull"]))
 
-    def test_a_re_check_of_a_stored_verdict_approves_or_withdraws_like_the_review(self) -> None:
+    def test_a_re_check_never_approves_but_withdraws_like_the_review(self) -> None:
+        # Anyone who can edit comments can edit the stored verdict, so a clean
+        # one never brings an approval. It leaves the review's approval in place.
         clean = FakeGitHub(make_pr(labels=("bug",)), FILES, bot_sticky(stored_review(HEAD)))
         self.assertEqual(Run(clean, None).code, 0)
-        self.assertEqual(clean.review_calls, [("APPROVE", HEAD, review.APPROVAL_BODY)])
-        # A draft's finished review is re-checked like any other, so the approval follows it.
-        draft = FakeGitHub(make_pr(draft=True), FILES, bot_sticky(stored_review(HEAD)))
+        self.assertEqual((clean.review_calls, approved_commits(clean)), ([], []))
+        kept = FakeGitHub(make_pr(labels=("bug",)), FILES, bot_sticky(stored_review(HEAD)), reviews=[bot_review(1, HEAD)])
+        Run(kept, None)
+        self.assertEqual((kept.review_calls, approved_commits(kept)), ([], [HEAD]))
+        # A stored P1 that someone edited to read as clean gets no approval either.
+        p1_body = stored_review(HEAD, (P1_FINDING,))
+        tampered = p1_body.replace('"p1": 1', '"p1": 0', 1)
+        self.assertNotEqual(tampered, p1_body)
+        edited = FakeGitHub(make_pr(), FILES, bot_sticky(tampered))
+        run = Run(edited, None)
+        self.assertIn("re-checks that verdict without calling the model", run.output)
+        self.assertEqual(edited.review_calls, [])
+        # A draft's finished review is re-checked like any other.
+        draft = FakeGitHub(make_pr(draft=True), FILES, bot_sticky(stored_review(HEAD)), reviews=[bot_review(1, HEAD)])
         Run(draft, None)
-        self.assertEqual(approved_commits(draft), [HEAD])
+        self.assertEqual((draft.review_calls, approved_commits(draft)), ([], [HEAD]))
         # A stored P1 withdraws, with or without the override label.
         for labels in ((), (review.OVERRIDE_LABEL,)):
             p1 = FakeGitHub(make_pr(labels=labels), FILES, bot_sticky(stored_review(HEAD, (P1_FINDING,))), reviews=[bot_review(1, HEAD)])
@@ -2481,10 +2503,11 @@ class ApprovalTests(unittest.TestCase):
         self.assertIn("re-checks that verdict without calling the model", run.output)
         self.assertEqual(retargeted.review_calls, [("DISMISS", 1, review.WITHDRAWN_UNCONFIRMED)])
         self.assertIn("since the stored review was made against another base branch", run.output)
-        # Back on the base it was reviewed against, the same verdict approves again.
+        # Back on the base it was reviewed against, the stored verdict still
+        # brings no approval; the next push's review does.
         retargeted.set_pr(make_pr())
         Run(retargeted, None)
-        self.assertEqual(approved_commits(retargeted), [HEAD])
+        self.assertEqual((retargeted.review_calls[1:], approved_commits(retargeted)), ([], []))
 
     def test_manual_runs_and_dry_runs_never_touch_reviews(self) -> None:
         mine = [bot_review(1, OLD_HEAD)]

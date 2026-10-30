@@ -45,14 +45,16 @@ fails the check. When GitHub cannot return the PR, a PR event run uses the
 event's own copy of it ($GITHUB_EVENT_PATH), so the comment and the check
 still follow the event's head commit. 2 is a usage error.
 
-Approvals: when a live PR-event run settles its verdict for the head commit
-(a fresh review, or a re-check of a stored verdict by this same reviewer),
-the bot makes sure it has an active APPROVED review on exactly that commit
-if the verdict has no P1, every changed file reached the model, the run read
-the PR from GitHub, the comment shows the verdict, and a stored verdict was
-made against the PR's current base branch. Every other outcome on an open PR
-(a P1, even with the override label; a push that was not reviewed, or not
-fully, for any reason) dismisses every approval the bot has on the PR. A
+Approvals: when a live PR-event run's fresh review settles the verdict for
+the head commit, the bot makes sure it has an active APPROVED review on
+exactly that commit if the verdict has no P1, every changed file reached the
+model, the run read the PR from GitHub, and the comment shows the verdict. A
+re-check of a stored verdict never approves, since anyone who can edit
+comments on the PR can edit that verdict. It leaves an approval the review
+gave in place, and it withdraws like a review when the stored verdict is no
+all clear or was made against another base branch. Every other outcome on an
+open PR (a P1, even with the override label; a push that was not reviewed,
+or not fully, for any reason) dismisses every approval the bot has on the PR. A
 fresh review also dismisses them before the model runs (all but those of a
 head commit whose finished review the comment still shows), so a run that
 is cancelled or times out mid-review leaves none standing. Manual runs and
@@ -2451,7 +2453,12 @@ class Reviewer:
         elif state.base != base_digest(pr.base_ref):
             # The PR's diff changes with its base, so the stored verdict is for another diff.
             problem = "the stored review was made against another base branch"
-        self.approval = confirmed(approval_for(p1 > 0, state.model_ran, state.complete), problem)
+        step = confirmed(approval_for(p1 > 0, state.model_ran, state.complete), problem)
+        # Anyone who can edit comments on the PR can edit the stored verdict,
+        # so a re-check never approves: only a fresh review does. It still
+        # withdraws whenever the stored verdict is no all clear, and leaves an
+        # approval the review gave in place.
+        self.approval = None if step.approve else step
         self.notice(
             f"{short_sha(pr.head_sha)} already has a finished review by this reviewer ({p1} P1, {p2} P2, "
             f"{p3} P3), so this run re-checks that verdict without calling the model"
