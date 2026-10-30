@@ -516,6 +516,14 @@ export async function explainEntry(entry: KbEntry): Promise<MatchExplanation> {
     const result = await chatCompletion([...buildExplanationMessages(entry)], {
       maxTokens: MATCH_EXPLANATION_MAX_TOKENS,
     });
+    if (result.finishReason === "length") {
+      // A budget-truncated reply ships an incomplete final sentence as a
+      // "model" explanation (droid-review P2 on PR #45) — non-empty
+      // content is not the same as a complete reply. Degrade to the
+      // deterministic entry-fact copy, like every other gate failure.
+      logWarn("match_explanation_length_truncated_blocked");
+      return { text: composeFallbackExplanation(entry), source: "facts" };
+    }
     const text = result.content.trim();
     try {
       assertNoBannedClaimsEverySentence(text);
@@ -587,11 +595,35 @@ export interface MatchBuildOptions {
   readonly entries?: readonly KbEntry[];
   /** The explanation builder (defaults to the gated model explainer). */
   readonly explainer?: MatchExplainer;
+  /**
+   * Explanation cache keyed by entry id + version. Defaults to a
+   * module-level cache so repeated turns never repeat the model call;
+   * tests inject a fresh Map per scenario.
+   */
+  readonly explanationCache?: Map<string, MatchExplanation>;
+}
+
+/**
+ * At most ONE gated explanation is generated per entry id + version per
+ * server process, and the cache key never involves rank: an entry that was
+ * top-ranked last turn carries its explanation wherever it ranks now.
+ * (claude-review P2-2 on PR #45: the ranking derives from pii answers, so
+ * re-firing the call every turn would leak that derived signal to the
+ * model on every request and block every fetch for 10-20s.)
+ */
+const moduleExplanationCache = new Map<string, MatchExplanation>();
+
+function explanationCacheKey(entry: KbEntry): string {
+  return `${entry.id}:v${entry.version}`;
 }
 
 /**
  * The full match payload: ranked active cards plus the to-resolve list.
- * Only the top match spends a model call; the rest carry the deterministic
+ * Entries are grouped by score — a score-0 entry is NEVER presented as a
+ * "may be worth pursuing" card (claude-review P2-1 on PR #45); when no
+ * signal matched anything, the payload is empty and the client shows its
+ * honest empty state. Only the top-scoring match spends a model call, and
+ * only once per entry id + version; the rest carry the deterministic
  * entry-fact explanation (cost discipline).
  */
 export async function buildMatchResponse(
@@ -600,13 +632,23 @@ export async function buildMatchResponse(
 ): Promise<MatchResponse> {
   const entries = options.entries ?? KB_ENTRIES;
   const explainer = options.explainer ?? explainEntry;
+  const cache = options.explanationCache ?? moduleExplanationCache;
   const ranked = rankEntries(answers, entries);
   const matches: MatchCard[] = [];
-  for (const [index, rankedEntry] of ranked.entries()) {
-    const explanation =
-      index === 0
-        ? await explainer(rankedEntry.entry)
-        : { text: composeFallbackExplanation(rankedEntry.entry), source: "facts" as const };
+  const signalMatched = ranked.filter((rankedEntry) => rankedEntry.score > 0);
+  for (const [index, rankedEntry] of signalMatched.entries()) {
+    const key = explanationCacheKey(rankedEntry.entry);
+    let explanation = cache.get(key);
+    if (explanation === undefined && index === 0) {
+      explanation = await explainer(rankedEntry.entry);
+      cache.set(key, explanation);
+    }
+    if (explanation === undefined) {
+      explanation = {
+        text: composeFallbackExplanation(rankedEntry.entry),
+        source: "facts",
+      };
+    }
     matches.push(buildCard(rankedEntry, explanation));
   }
   logInfo("match_response_built", { cardCount: matches.length });
@@ -619,29 +661,57 @@ export async function buildMatchResponse(
 
 /**
  * Throw loudly if a match response about to leave the server carries any
- * stored value of a pii:true question. The message stays generic; no value
- * or question id is echoed back. Mirrors the intake serializer's check.
+ * stored value of a pii:true question in a USER-DERIVED field. The message
+ * stays generic; no value or question id is echoed back.
+ *
+ * Precision (claude-review P2-3 on PR #45): only the response fields that
+ * render user-derived content are scanned — the plain-language answer
+ * labels on reasons and the to-resolve labels. Static copy (entry facts,
+ * links, glossary definitions, framing) is never scanned: a free-text pii
+ * answer that happens to equal a common KB word ("application") must not
+ * fail-closed the user's whole match list. Multi-select values are checked
+ * element by element — a JSON-stringified array can never substring-match,
+ * so the old whole-array check was a no-op there.
  */
 export function assertNoPiiValuesInMatch(
   response: MatchResponse,
   answers: AnswerMap,
 ): void {
-  const serialized = JSON.stringify(response).toLowerCase();
+  const userDerivedSurfaces: string[] = [];
+  for (const card of response.matches) {
+    for (const reason of card.reasons) {
+      if (reason.answerLabel !== undefined) {
+        userDerivedSurfaces.push(reason.answerLabel.toLowerCase());
+      }
+    }
+  }
+  for (const item of response.toResolve) {
+    userDerivedSurfaces.push(
+      item.prompt.toLowerCase(),
+      item.statusLabel.toLowerCase(),
+    );
+  }
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     const stored = answers[questionId];
     if (!stored || stored.value === null || stored.value === undefined) {
       continue;
     }
-    const raw = (
-      typeof stored.value === "string" ? stored.value : JSON.stringify(stored.value)
-    ).trim();
-    // Generic one-word answers ("yes") would over-match ordinary copy; the
-    // same specificity rule the conversation redactor uses applies here.
-    if (raw !== "" && isSpecificValue(raw) && serialized.includes(raw.toLowerCase())) {
-      throw new AppError(
-        "internal",
-        "A match response attempted to include a private answer value.",
-      );
+    const elements = (
+      Array.isArray(stored.value) ? stored.value : [stored.value]
+    ).map((element) => String(element).trim());
+    for (const raw of elements) {
+      // Generic one-word answers ("yes") would over-match ordinary copy; the
+      // same specificity rule the conversation redactor uses applies here.
+      if (
+        raw !== "" &&
+        isSpecificValue(raw) &&
+        userDerivedSurfaces.some((surface) => surface.includes(raw.toLowerCase()))
+      ) {
+        throw new AppError(
+          "internal",
+          "A match response attempted to include a private answer value.",
+        );
+      }
     }
   }
 }
