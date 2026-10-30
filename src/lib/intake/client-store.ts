@@ -3,11 +3,22 @@ import type { AnswerMap, StoredAnswer } from "./flow";
 import { QUESTION_BY_ID, type Question } from "./spec";
 
 // Client-side answer store (HACK-94, under HACK-82): where form answers
-// live. The product rule (AGENTS.md § Legal): answers live on the user's
-// device and leave it only via the consented fax at the end. This module
-// is that store — localStorage-backed, same-browser by construction.
+// live. The governing rules are the real-data rules in
+// `.github/claude-review/rules.md` (Oct 29): answers live on the user's
+// device and leave it only via the consented, no-retention fax at the
+// end; on-device storage is allowed ONLY when the data is encrypted with
+// a key that exists only on the device; and the app's own endpoints never
+// receive answers. This module is that store.
 //
 // How the pieces fit:
+// - Persistence is SEALED: `saveClientAnswers` encrypts the serialized
+//   state with AES-256-GCM under the device key before `setItem`, and
+//   `loadClientAnswers` opens the envelope (PR #52 P1). The plaintext
+//   serialize/parse pair below stays storage-free — it is the envelope's
+//   inner format, never what touches localStorage. Sealing needs the
+//   device key (WebCrypto, `clientKeyProvider`); without one, saves fail
+//   closed (return false) and loads read as an empty journey — plaintext
+//   is never written as a fallback.
 // - Records carry the tri-state status + provenance + value, in ONE
 //   record per question. pii:true ("vault") values live in the SAME store
 //   distinguished by the spec's classification — the on-device vault is
@@ -22,9 +33,10 @@ import { QUESTION_BY_ID, type Question } from "./spec";
 //   unverified — the same contracts saveAnswer enforces server-side), so
 //   nothing unvalidated can enter the store, and nothing invalid stored
 //   earlier can re-enter the flow (`parseClientAnswers` drops it).
-// - Defensive storage: malformed blobs degrade to an empty store
-//   (fail-safe: the person is asked again, never shown invented data),
-//   and a value that drops out of the spec is ignored rather than fatal.
+// - Defensive storage: malformed or undecryptable blobs degrade to an
+//   empty store (fail-safe: the person is asked again, never shown
+//   invented data), and a value that drops out of the spec is ignored
+//   rather than fatal.
 
 /** localStorage key for the client answer store. */
 export const CLIENT_ANSWERS_KEY = "bn_answers_v1";
@@ -239,48 +251,201 @@ export function browserAnswerStorage(): AnswerStorage | null {
   }
 }
 
-/** Load the stored answers; no storage means an empty journey. */
-export function loadClientAnswers(
+// ---------------------------------------------------------------------------
+// Device-key sealing (PR #52 P1): the stored blob is AES-256-GCM ciphertext
+// under a key that exists only on this device. The seal/open core takes the
+// key explicitly so it is testable with any WebCrypto implementation; key
+// provision is the provider's job. `clientKeyProvider` generates a
+// non-extractable AES-GCM key in memory on first use. DURABLE provision
+// (persisting that key in IndexedDB so a page reload can reopen the store,
+// the renewal tracker's pattern) is follow-up work; until it lands, a
+// reload reads as an empty journey rather than ever storing plaintext.
+// ---------------------------------------------------------------------------
+
+/** Supplies the device-only encryption key, or null when unavailable. */
+export interface ClientKeyProvider {
+  getKey(): Promise<CryptoKey | null>;
+}
+
+const SEALED_PREFIX = "sealed1.";
+const SEAL_IV_BYTES = 12; // GCM standard nonce length
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(text: string): Uint8Array | null {
+  try {
+    const binary = atob(text);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Seal plaintext for storage: `sealed1.<iv b64>.<ciphertext b64>` (the GCM
+ * tag rides at the end of the ciphertext). Pure in (key, crypto): callers
+ * inject both so tests can use Node's WebCrypto.
+ */
+export async function sealForStorage(
+  plaintext: string,
+  key: CryptoKey,
+  subtle: SubtleCrypto,
+): Promise<string> {
+  const iv = new Uint8Array(SEAL_IV_BYTES);
+  crypto.getRandomValues(iv);
+  const cipher = await subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(plaintext),
+  );
+  return `${SEALED_PREFIX}${bytesToBase64(iv)}.${bytesToBase64(new Uint8Array(cipher))}`;
+}
+
+/**
+ * Open a sealed blob. Returns null for anything that is not a well-formed
+ * envelope decrypting under this key — a legacy plaintext blob, a foreign
+ * key's ciphertext, or tampering all fail closed to null, never to the
+ * stored text.
+ */
+export async function openSealed(
+  stored: string,
+  key: CryptoKey,
+  subtle: SubtleCrypto,
+): Promise<string | null> {
+  if (!stored.startsWith(SEALED_PREFIX)) {
+    return null;
+  }
+  const parts = stored.slice(SEALED_PREFIX.length).split(".");
+  if (parts.length !== 2) {
+    return null;
+  }
+  const iv = base64ToBytes(parts[0]);
+  const cipher = base64ToBytes(parts[1]);
+  if (!iv || !cipher || iv.length !== SEAL_IV_BYTES) {
+    return null;
+  }
+  try {
+    const plain = await subtle.decrypt(
+      { name: "AES-GCM", iv: iv as BufferSource },
+      key,
+      cipher as BufferSource,
+    );
+    return new TextDecoder().decode(plain);
+  } catch {
+    return null;
+  }
+}
+
+let memoryKey: Promise<CryptoKey | null> | null = null;
+
+/**
+ * The default key provider: one non-extractable AES-GCM key generated in
+ * memory per page session. The key never leaves the device and cannot be
+ * exported; see the durable-provision follow-up in the section comment.
+ */
+export const clientKeyProvider: ClientKeyProvider = {
+  getKey(): Promise<CryptoKey | null> {
+    memoryKey ??= (async () => {
+      try {
+        return await crypto.subtle.generateKey(
+          { name: "AES-GCM", length: 256 },
+          false,
+          ["encrypt", "decrypt"],
+        );
+      } catch {
+        return null;
+      }
+    })();
+    return memoryKey;
+  },
+};
+
+/**
+ * Load the stored answers; no storage, no key, or an undecryptable blob
+ * all mean an empty journey — never a plaintext read.
+ */
+export async function loadClientAnswers(
   storage: AnswerStorage | null = browserAnswerStorage(),
-): ClientAnswerState {
+  keys: ClientKeyProvider = clientKeyProvider,
+): Promise<ClientAnswerState> {
   if (!storage) {
     return EMPTY_CLIENT_ANSWERS;
   }
   try {
-    return parseClientAnswers(storage.getItem(CLIENT_ANSWERS_KEY));
+    const stored = storage.getItem(CLIENT_ANSWERS_KEY);
+    if (stored === null) {
+      return EMPTY_CLIENT_ANSWERS;
+    }
+    const key = await keys.getKey();
+    if (!key) {
+      return EMPTY_CLIENT_ANSWERS;
+    }
+    const plaintext = await openSealed(stored, key, crypto.subtle);
+    return plaintext === null
+      ? EMPTY_CLIENT_ANSWERS
+      : parseClientAnswers(plaintext);
   } catch {
     return EMPTY_CLIENT_ANSWERS;
   }
 }
 
-/** Persist the answers (no-op without storage). */
-export function saveClientAnswers(
+/**
+ * Persist the answers, sealed under the device key. Returns false when
+ * persistence did not happen (no storage, no key, storage refused): the
+ * answers then last only for this page view, and the caller must say so
+ * rather than silently promising a resume it cannot keep (PR #52 P2).
+ */
+export async function saveClientAnswers(
   state: ClientAnswerState,
   storage: AnswerStorage | null = browserAnswerStorage(),
-): void {
+  keys: ClientKeyProvider = clientKeyProvider,
+): Promise<boolean> {
   if (!storage) {
-    return;
+    return false;
   }
   try {
-    storage.setItem(CLIENT_ANSWERS_KEY, serializeClientAnswers(state));
+    const key = await keys.getKey();
+    if (!key) {
+      return false;
+    }
+    const sealed = await sealForStorage(
+      serializeClientAnswers(state),
+      key,
+      crypto.subtle,
+    );
+    storage.setItem(CLIENT_ANSWERS_KEY, sealed);
+    return true;
   } catch {
-    // Storage can refuse (private mode, quota). Answers then last only
-    // for this page view — the flow must say so rather than silently
-    // promising a resume it cannot keep.
+    return false;
   }
 }
 
-/** Remove the stored answers entirely (the purge's storage half). */
+/**
+ * Remove the stored answers entirely (the purge's storage half). Returns
+ * true only when the slot verifiably reads back empty — a purge
+ * confirmation must never report success while data remains (PR #52 P2).
+ * With no storage at all there is nothing stored, so the purge holds.
+ */
 export function removeStoredAnswers(
   storage: AnswerStorage | null = browserAnswerStorage(),
-): void {
+): boolean {
   if (!storage) {
-    return;
+    return true;
   }
   try {
     storage.removeItem(CLIENT_ANSWERS_KEY);
+    return storage.getItem(CLIENT_ANSWERS_KEY) === null;
   } catch {
-    // Nothing sensible to do beyond the caller's on-screen confirmation
-    // re-checking hasAnyAnswer on the in-memory state.
+    return false;
   }
 }
