@@ -602,7 +602,11 @@ class TestPilotEntries(KbSchemaTestCase):
     validate against the same schema, cite only official North Carolina
     government sources over https, carry no placeholders, and name no real
     program other than the pilot's own. The last two rules cover every file
-    in the directory, since none of them is on the VAL-KB-003 scan.
+    in the directory, since none of them is on the VAL-KB-003 scan. The
+    renewal_cadence group stays optional, as in the schema: an entry is held
+    to unique schedule ids and real start dates only when it carries the
+    group, so a later entry without renewal schedules (appeal steps, say)
+    passes, while the renewal entry must carry it.
     """
 
     def pilot_entries(self) -> list[tuple[Path, dict]]:
@@ -704,16 +708,44 @@ class TestPilotEntries(KbSchemaTestCase):
                 if ISO_DATE_RE.match(item["due"]):
                     datetime.date.fromisoformat(item["due"])
 
-    def test_cadence_schedules_are_unique_and_dated(self):
-        for path, entry in self.pilot_entries():
-            cadence = entry["facts"].get("renewal_cadence")
-            self.assertIsNotNone(cadence, f"{path.name} needs renewal_cadence")
-            assert cadence is not None
-            ids = [item["id"] for item in cadence["items"]]
-            self.assertEqual(len(ids), len(set(ids)), path.name)
-            for item in cadence["items"]:
-                if "starts_on" in item:
+    def cadence_problems(self, entry: dict) -> list[str]:
+        """What is wrong with an entry's renewal_cadence group: nothing when it has none."""
+        cadence = entry["facts"].get("renewal_cadence")
+        if cadence is None:
+            return []
+        problems = []
+        ids = [item["id"] for item in cadence["items"]]
+        if len(ids) != len(set(ids)):
+            problems.append("schedule ids repeat")
+        for item in cadence["items"]:
+            if "starts_on" in item:
+                try:
                     datetime.date.fromisoformat(item["starts_on"])
+                except ValueError:
+                    problems.append(f"schedule {item['id']} starts_on is not a real date")
+        return problems
+
+    def test_cadence_schedules_are_unique_and_dated(self):
+        # Checked only where present, as test_optional_group_source_ids_resolve
+        # does (HACK-50 third review: this used to fail any pilot entry
+        # without renewal_cadence with "needs renewal_cadence").
+        entries = dict(self.pilot_entries())
+        for path, entry in entries.items():
+            self.assertEqual(self.cadence_problems(entry), [], path.name)
+        renewal = entries[PILOT_DIR / "nc-medicaid-renewal.json"]
+        self.assertIn("renewal_cadence", renewal["facts"])
+        # An entry without schedules passes; a broken group still fails.
+        without = copy.deepcopy(renewal)
+        del without["facts"]["renewal_cadence"]
+        self.assertEqual(self.cadence_problems(without), [])
+        broken = copy.deepcopy(renewal)
+        items = broken["facts"]["renewal_cadence"]["items"]
+        items.append(copy.deepcopy(items[0]))
+        items[0]["starts_on"] = "2027-02-30"
+        self.assertEqual(
+            self.cadence_problems(broken),
+            ["schedule ids repeat", f"schedule {items[0]['id']} starts_on is not a real date"],
+        )
 
 
 if __name__ == "__main__":
