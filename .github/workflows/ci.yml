@@ -75,12 +75,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      # Test files mutate process.env.DATABASE_URL to point at their own
-      # scratch databases; on CI runners the parallel forks have been seen
-      # to interleave that env state and hang indefinitely. Run the files
-      # serially with hard timeouts so any stall fails with a name instead
-      # of hanging the job.
-      - run: >-
-          pnpm vitest run --no-file-parallelism --reporter=verbose
-          --test-timeout=5000 --hook-timeout=5000 --teardown-timeout=5000
+      - run: pnpm test
       - run: pnpm build
