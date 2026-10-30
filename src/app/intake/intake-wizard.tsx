@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ClientQuestion, IntakeClientState } from "../../lib/intake/serialize";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
+import { RenewalTrackerLink } from "../../components/renewal-tracker-link";
 import { StatusRegion } from "../../components/status-region";
 import { QuestionView } from "./question-view";
 
@@ -338,6 +339,7 @@ export function IntakeWizard() {
             </ul>
           </section>
         ) : null}
+        <RenewalTrackerLink headingLevel={3} />
         <SaveForLater
           onSave={() => void saveAndFinishLater()}
           busy={savingForLater || busy}

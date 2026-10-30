@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
+import { RenewalTrackerLink } from "../../../components/renewal-tracker-link";
 import { StatusRegion } from "../../../components/status-region";
 import {
   pickRecorderMimeType,
@@ -498,6 +499,8 @@ export function ConversationChat() {
 
       {state ? <MatchSection refreshKey={turns.length} /> : null}
       {state ? <ReviewSection refreshKey={turns.length} /> : null}
+
+      {state?.complete ? <RenewalTrackerLink headingLevel={2} /> : null}
     </div>
   );
 }
