@@ -5,9 +5,16 @@ import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../lib/honesty";
 import { parseIsoDate } from "../lib/renewal/calendar-date";
 import { PASSED_BANNER_NOTE, STALE_ESTIMATE_NOTE, UNREADABLE_BANNER_MESSAGE, bannerMessage } from "../lib/renewal/copy";
-import { reminderStatus } from "../lib/renewal/reminder";
+import { RENEWAL_REMINDER_VERSION, reminderStatus, type RenewalReminder } from "../lib/renewal/reminder";
+import {
+  REMINDER_ENVELOPE_KEY,
+  clearReminder,
+  saveReminder,
+  type DeviceKv,
+  type ReminderStoreDeps,
+} from "../lib/renewal/reminder-store";
 import { PILOT_RENEWAL_FACTS, bannerFacts } from "../lib/renewal/renewal-facts";
-import { RenewalBannerView, RenewalReminderBanner } from "./renewal-reminder-banner";
+import { RenewalBannerView, RenewalReminderBanner, readBannerState } from "./renewal-reminder-banner";
 
 // The in-app reminder banner (HACK-50): a polite live region that is always
 // mounted and silent until a saved date is within 30 days, on the day, or
@@ -68,6 +75,72 @@ describe("RenewalBannerView", () => {
     const html = renderToStaticMarkup(<RenewalReminderBanner facts={bannerFacts(PILOT_RENEWAL_FACTS)} />);
     expect(html).toContain('data-renewal-banner="none"');
     expect(html).not.toContain("Reminder");
+  });
+});
+
+/** One tab's handle on a device store that every tab shares (IndexedDB stand-in). */
+function tabOn(entries: Map<string, unknown>): ReminderStoreDeps {
+  const kv: DeviceKv = {
+    getMany: async (keys) => keys.map((key) => structuredClone(entries.get(key))),
+    setMany: async (pairs) => {
+      for (const [key, value] of pairs) {
+        entries.set(key, structuredClone(value));
+      }
+    },
+    deleteMany: async (keys, guard) => {
+      if (guard?.keep(structuredClone(entries.get(guard.key)))) {
+        return false;
+      }
+      for (const key of keys) {
+        entries.delete(key);
+      }
+      return true;
+    },
+  };
+  return {
+    kv,
+    crypto: {
+      subtle: globalThis.crypto.subtle,
+      getRandomValues: (array) => globalThis.crypto.getRandomValues(array),
+    },
+  };
+}
+
+describe("the banner reads what another tab saved or removed (third review)", () => {
+  const facts = bannerFacts(PILOT_RENEWAL_FACTS);
+  const today = parseIsoDate("2027-04-18")!;
+  const due: RenewalReminder = {
+    version: RENEWAL_REMINDER_VERSION,
+    entryId: facts.entryId,
+    kind: "renewal_due",
+    reportedDate: "2027-04-28",
+    calendarId: "0123456789abcdef0123456789abcdef",
+    revision: 0,
+  };
+
+  it("each read sees the store as it is now, so a re-read on focus picks up the other tab", async () => {
+    const device = new Map<string, unknown>();
+    const parked = tabOn(device);
+    const other = tabOn(device);
+    expect(await readBannerState(parked, facts, today)).toBeNull();
+    await saveReminder(due, other);
+    expect(await readBannerState(parked, facts, today)).toMatchObject({
+      phase: "soon",
+      message: "Reminder: you told us your renewal is due in 10 days, on April 28, 2027.",
+    });
+    await clearReminder(other);
+    expect(await readBannerState(parked, facts, today)).toBeNull();
+    // A broken reminder is announced, not deleted: the banner reads only.
+    await saveReminder(due, other);
+    new Uint8Array((device.get(REMINDER_ENVELOPE_KEY) as { ciphertext: ArrayBuffer }).ciphertext)[0]! ^= 1;
+    expect(await readBannerState(parked, facts, today)).toEqual({ phase: "unreadable", message: UNREADABLE_BANNER_MESSAGE });
+    expect(device.has(REMINDER_ENVELOPE_KEY)).toBe(true);
+  });
+
+  it("reads again on every recheck, not only when the page or the day changes", () => {
+    const banner = readFileSync(fileURLToPath(new URL("./renewal-reminder-banner.tsx", import.meta.url)), "utf8");
+    expect(banner).toMatch(/const recheck = useReminderRechecks\(\);/);
+    expect(banner).toMatch(/\}, \[pathname, today, recheck, entryId, entryStatus, schedules\]\);/);
   });
 });
 
