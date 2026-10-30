@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DEVICE_DB_NAME,
   DEVICE_DB_STORE,
@@ -309,5 +309,64 @@ describe("openDeviceKv", () => {
   it("reports no device storage where the runtime has no IndexedDB", async () => {
     expect(globalThis.indexedDB).toBeUndefined();
     expect(await openDeviceKv()).toBeNull();
+  });
+
+  it("opens a fresh connection after the browser closes or upgrades the shared one", async () => {
+    const { factory } = fakeIndexedDb();
+    const handles: { onclose?: () => void; onversionchange?: () => void; close: () => void }[] = [];
+    const tracking = {
+      open(name: string, version?: number) {
+        const request = (factory as unknown as { open: (n: string, v?: number) => Record<string, unknown> }).open(name, version);
+        const onsuccess = () => {
+          handles.push(request.result as (typeof handles)[number]);
+        };
+        return new Proxy(request, {
+          set(target, key, value) {
+            if (key === "onsuccess") {
+              target.onsuccess = (event: unknown) => {
+                onsuccess();
+                (value as (event: unknown) => void)(event);
+              };
+              return true;
+            }
+            target[key as string] = value;
+            return true;
+          },
+        });
+      },
+    };
+    vi.resetModules();
+    vi.stubGlobal("indexedDB", tracking);
+    try {
+      const fresh = await import("./device-kv");
+      const first = await fresh.openDeviceKv();
+      expect(first).not.toBeNull();
+      expect(await fresh.openDeviceKv()).toBe(first);
+      expect(handles).toHaveLength(1);
+
+      handles[0].onclose?.();
+      const second = await fresh.openDeviceKv();
+      expect(second).not.toBe(first);
+      expect(handles).toHaveLength(2);
+
+      handles[1].onversionchange?.();
+      const third = await fresh.openDeviceKv();
+      expect(third).not.toBe(second);
+      expect(handles).toHaveLength(3);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+});
+
+describe("withDeadline", () => {
+  it("passes a result or an error through, and times out work that never settles", async () => {
+    const { withDeadline } = await import("./device-kv");
+    await expect(withDeadline(Promise.resolve(7), 50, "work")).resolves.toBe(7);
+    await expect(withDeadline(Promise.reject(new Error("boom")), 50, "work")).rejects.toThrow("boom");
+    await expect(withDeadline(new Promise(() => undefined), 10, "reading device storage")).rejects.toThrow(
+      /reading device storage did not finish in time/,
+    );
   });
 });

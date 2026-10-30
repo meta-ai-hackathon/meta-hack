@@ -62,7 +62,53 @@ export class DeviceStorageTimeoutError extends Error {
   }
 }
 
-function kvFromDatabase(db: IDBDatabase): DeviceKv {
+/** Settle with `work`, or reject with DeviceStorageTimeoutError after `ms`. */
+export function withDeadline<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new DeviceStorageTimeoutError(what)), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * Whether this browser could keep anything on the device at all: IndexedDB
+ * and Web Crypto (which needs a secure https or localhost page). False means
+ * nothing was ever stored by this page in this browser; true with a failed
+ * open means something may be stored that this visit cannot reach.
+ */
+export function deviceStorageSupported(): boolean {
+  try {
+    return (
+      globalThis.indexedDB !== undefined &&
+      globalThis.indexedDB !== null &&
+      globalThis.crypto?.subtle !== undefined
+    );
+  } catch {
+    // Some browsers throw on these reads when site storage is blocked.
+    return false;
+  }
+}
+
+function kvFromDatabase(db: IDBDatabase, onLost: () => void = () => undefined): DeviceKv {
+  // The browser can close a connection under the page (site data cleared,
+  // a newer version opened in another tab, the storage process restarting
+  // on iOS). Drop the handle then, so the next call opens a fresh one
+  // instead of failing for the rest of the visit.
+  db.onversionchange = () => {
+    db.close();
+    onLost();
+  };
+  (db as IDBDatabase & { onclose: (() => void) | null }).onclose = () => onLost();
+
   /**
    * Run `work` in one transaction. `work` issues its requests and returns a
    * function that reads the outcome once the transaction has committed.
@@ -76,6 +122,8 @@ function kvFromDatabase(db: IDBDatabase): DeviceKv {
       try {
         transaction = db.transaction(DEVICE_DB_STORE, mode);
       } catch (error) {
+        // A closed connection throws here; the next call reopens.
+        onLost();
         reject(error);
         return;
       }
@@ -163,6 +211,7 @@ function kvFromDatabase(db: IDBDatabase): DeviceKv {
 export function openIndexedDbKv(
   factory: IDBFactory,
   timeoutMs: number = DEVICE_STORAGE_TIMEOUT_MS,
+  onLost: () => void = () => undefined,
 ): Promise<DeviceKv> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -196,7 +245,7 @@ export function openIndexedDbKv(
         request.result.close();
         return;
       }
-      settle(() => resolve(kvFromDatabase(request.result)));
+      settle(() => resolve(kvFromDatabase(request.result, onLost)));
     };
     request.onerror = () =>
       settle(() => reject(request.error ?? new Error("device storage unavailable")));
@@ -210,7 +259,8 @@ let sharedKv: Promise<DeviceKv | null> | undefined;
 /**
  * This browser's device storage, or null when it has none that opens in
  * time (no IndexedDB, storage blocked, or a stalled open). One connection
- * is shared for the page's life; a failed open is retried on the next call.
+ * is shared while it lasts; a failed open, or a connection the browser
+ * closes, is replaced on the next call.
  */
 export function openDeviceKv(): Promise<DeviceKv | null> {
   if (sharedKv === undefined) {
@@ -221,16 +271,24 @@ export function openDeviceKv(): Promise<DeviceKv | null> {
     } catch {
       factory = undefined;
     }
+    // `forget` runs only later (a failed open, or a connection the browser
+    // closes), by which time `current` is set.
+    const forget = () => {
+      if (sharedKv === current) {
+        sharedKv = undefined;
+      }
+    };
     const opening: Promise<DeviceKv | null> =
       factory === undefined
         ? Promise.resolve(null)
-        : openIndexedDbKv(factory).catch(() => null);
-    sharedKv = opening.then((kv) => {
+        : openIndexedDbKv(factory, DEVICE_STORAGE_TIMEOUT_MS, forget).catch(() => null);
+    const current: Promise<DeviceKv | null> = opening.then((kv) => {
       if (kv === null) {
-        sharedKv = undefined;
+        forget();
       }
       return kv;
     });
+    sharedKv = current;
   }
   return sharedKv;
 }
