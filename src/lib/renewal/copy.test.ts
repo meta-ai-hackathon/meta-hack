@@ -7,6 +7,7 @@ import {
   DATE_CHOICE_LABELS,
   NO_DATE_INTRO,
   PRIVACY_NOTE,
+  REMOVE_FAILED_NOTICE,
   STATIC_RENEWAL_COPY,
   ageAnswerSentence,
   ageChoiceLabels,
@@ -231,6 +232,12 @@ describe("renewal copy stays hedged and labeled", () => {
     const description = calendarDescription(PROGRAM, d("2027-04-30"), false, "https://medicaid.ncdhhs.gov/medicaid-recertification");
     expect(description).toContain(PROGRAM);
     expect(description).toContain("https://medicaid.ncdhhs.gov/");
+  });
+
+  it("says when removing the reminder fails, and how to remove it by hand (second review fix)", () => {
+    expect(STATIC_RENEWAL_COPY).toContain(REMOVE_FAILED_NOTICE);
+    expect(REMOVE_FAILED_NOTICE).toMatch(/^The reminder could not be removed from this device\./);
+    expect(REMOVE_FAILED_NOTICE).toMatch(/clear this site's data/);
   });
 
   it("says when the reminder starts for each kind of date (review fix: approval dates are in the past)", () => {

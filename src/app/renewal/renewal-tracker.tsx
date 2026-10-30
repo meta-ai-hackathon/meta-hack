@@ -23,6 +23,7 @@ import {
   PRIVACY_NOTE,
   REMOVED_NOTICE,
   REMOVE_BUTTON,
+  REMOVE_FAILED_NOTICE,
   SAVE_BUTTON,
   SAVE_FAILED_NOTICE,
   SECTION_HEADING,
@@ -271,6 +272,12 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
       setDraftCalendarId(null);
       setNotice(REMOVED_NOTICE);
       focusHeading();
+    } catch {
+      // Second review fix: a delete that fails (storage closed after the
+      // person cleared this site's data with the tab open, for example)
+      // left the old notice on screen and an unhandled rejection. The
+      // reminder stays shown, because it may still be on the device.
+      setNotice(REMOVE_FAILED_NOTICE);
     } finally {
       setBusy(false);
     }

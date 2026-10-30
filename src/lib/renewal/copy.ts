@@ -149,6 +149,10 @@ export const UNSUPPORTED_NOTICE =
 export const SAVE_FAILED_NOTICE =
   "The reminder could not be saved on this device. You can still download " +
   "a calendar file.";
+/** Second review fix: a failed remove used to say nothing. */
+export const REMOVE_FAILED_NOTICE =
+  "The reminder could not be removed from this device. To remove it " +
+  "yourself, clear this site's data in your browser's settings.";
 
 /** The banner's line when a saved reminder cannot be read; the tracker then removes it and says so. */
 export const UNREADABLE_BANNER_MESSAGE =
@@ -390,6 +394,7 @@ export const STATIC_RENEWAL_COPY: readonly string[] = [
   DISCARDED_NOTICE,
   UNSUPPORTED_NOTICE,
   SAVE_FAILED_NOTICE,
+  REMOVE_FAILED_NOTICE,
   UNREADABLE_BANNER_MESSAGE,
   ERROR_CHOOSE_KIND,
   ERROR_INVALID_DATE,
