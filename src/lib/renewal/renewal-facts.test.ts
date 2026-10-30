@@ -77,7 +77,9 @@ describe("the pilot renewal entry", () => {
     // Second review: the hearings office page covers decisions about a
     // Medicaid service (30 days), so the link says that instead of "How to
     // appeal a Medicaid decision", next to a 60 day window.
-    const appeal = PILOT_RENEWAL_FACTS.links.find((link) => link.url.includes("oah.nc.gov"));
+    // Found by exact hostname: a substring match would also accept a URL
+    // that only mentions the host in its path or query (CodeQL).
+    const appeal = PILOT_RENEWAL_FACTS.links.find((link) => new URL(link.url).hostname === "www.oah.nc.gov");
     expect(appeal?.label).toBe("NC Office of Administrative Hearings: how to appeal a decision about a Medicaid service");
     expect(labels).not.toContain("How to appeal a Medicaid decision");
     expect(labels.some((label) => label.startsWith("NC Medicaid Ombudsman"))).toBe(true);
