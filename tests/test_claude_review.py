@@ -67,6 +67,7 @@ HEAD = "a" * 40
 NEW_HEAD = "b" * 40
 OLD_HEAD = "d" * 40
 BASE = "c" * 40
+RELEASE_BASE = "e" * 40  # the tip of another base branch, release/1.0
 FAKE_KEY = "fake-review-key-for-tests"
 # The PR's author: PR #44's, whose account added the override label four
 # minutes before merging past three P1s. The bot's agents run under it too.
@@ -262,6 +263,7 @@ class FakeGitHub:
         self.comments = list(comments or [])
         self.fail = set(fail)
         self.reads: list[str] = []
+        self.compared: list[tuple[str, str]] = []
         self.writes: list[tuple[str, int, str]] = []
         self.reviews = list(reviews or [])
         # The HTTP status GitHub refuses approvals with (the org setting is
@@ -290,8 +292,9 @@ class FakeGitHub:
         self._pull_reads += 1
         return self.pr if self._pull_reads == 1 else self.later_pr
 
-    def list_pull_files(self, number: int) -> list[review.ChangedFile]:
+    def list_changed_files(self, base_sha: str, head_sha: str) -> list[review.ChangedFile]:
         self.reads.append("files")
+        self.compared.append((base_sha, head_sha))  # the commits the listing is pinned to
         self._maybe_fail("files")
         return list(self.files)
 
@@ -2336,8 +2339,10 @@ def after_event(pr: review.PullRequest, event: str, push: int, change: str) -> r
         return replace(pr, draft=True)
     if event == "mark ready":
         return replace(pr, draft=False)
-    if event == "retarget":  # same head, another base branch, so another diff
-        return replace(pr, base_ref="release/1.0" if pr.base_ref == "main" else "main")
+    if event == "retarget":  # same head, another base branch and its tip, so another diff
+        if pr.base_ref == "main":
+            return replace(pr, base_ref="release/1.0", base_sha=RELEASE_BASE)
+        return replace(pr, base_ref="main", base_sha=BASE)
     return pr  # an edit or a manual run changes nothing the bot reads
 
 
@@ -2411,6 +2416,7 @@ class ApprovalSequenceProperties(unittest.TestCase):
                 if event == "push":
                     github.files = PUSH_CHANGES[change]
                 reviews, calls, reads = list(github.reviews), len(github.review_calls), len(github.reads)
+                compared = len(github.compared)
                 shown = review.find_stickies(github.comments, review.BOT_LOGIN)
                 stored = review.parse_state(shown[0].body) if shown else None
                 model = WatchedModel(github, MODEL_ANSWERS[answer]())
@@ -2419,6 +2425,8 @@ class ApprovalSequenceProperties(unittest.TestCase):
                 asked.append(bool(model.requests))
                 if "re-checks that verdict without calling the model" in run.output:
                     self.assertTrue(review.reviews_this_diff(stored, pr))
+                # What the model reviews is pinned to the commits the run read.
+                self.assertIn(github.compared[compared:], ([], [(pr.base_sha, pr.head_sha)]))
                 if manual:  # never reads, approves or dismisses
                     self.assertEqual((github.reviews, len(github.review_calls)), (reviews, calls))
                     self.assertNotIn("reviews", github.reads[reads:])
@@ -2685,6 +2693,31 @@ class ApprovalTests(unittest.TestCase):
         self.assertEqual(state_of(moved.comments[0].body), (HEAD, "reviewed"))
         self.assertEqual(moved.review_calls, [("DISMISS", 1, review.WITHDRAWN_UNCONFIRMED)])
         self.assertIn("since the PR's base branch changed during the review", run.output)
+
+    def test_the_reviewed_diff_is_the_one_the_comment_names(self) -> None:
+        # Right after the run reads the PR on main, someone retargets it to a
+        # branch that already holds other code. GitHub's diff of the head
+        # against each base commit is what it is, and the run asks for the
+        # one between the commits its first read named, so the model sees
+        # main's diff, which the state line names. The approval then waits,
+        # since the PR is no longer on main.
+        clean = make_file("src/lib/thing.ts")
+        logged = make_file("src/lib/intake/store.ts", "@@ -1,2 +1,3 @@\n line\n+console.log(answers.income)\n line")
+        on_release = make_pr(base_ref="release/1.0", base_sha=RELEASE_BASE, changed_files=1)
+
+        class Comparisons(FakeGitHub):
+            def list_changed_files(self, base_sha: str, head_sha: str) -> list[review.ChangedFile]:
+                super().list_changed_files(base_sha, head_sha)
+                return {BASE: [clean, logged], RELEASE_BASE: [clean]}[base_sha]
+
+        github = Comparisons(make_pr(changed_files=2), [], later_pr=on_release)
+        model = FakeModel(reply_with([]))
+        Run(github, model)
+        self.assertEqual(github.compared, [(BASE, HEAD)])
+        self.assertIn("console.log(answers.income)", model.requests[0][0].user)
+        state = review.parse_state(github.comments[0].body)
+        self.assertEqual((state.base, state.complete) if state else None, (review.base_digest("main"), True))
+        self.assertEqual(github.review_calls, [])
 
     def test_the_event_copy_fallback_withdraws_for_a_push_and_keeps_a_re_check(self) -> None:
         github = FakeGitHub(make_pr(), FILES, bot_sticky(stored_review(OLD_HEAD)), fail=("get_pull",), reviews=[bot_review(1, OLD_HEAD)])
@@ -3265,6 +3298,8 @@ class GitHubApiTests(unittest.TestCase):
             "user": {"login": AUTHOR, "type": "User"},
         }
         files = [{"filename": "src/a.ts", "status": "modified", "additions": 1, "deletions": 0, "changes": 1, "patch": "@@ -1 +1,2 @@\n a\n+b"}]
+        # GitHub's comparison of the PR's base and head commits, with its files.
+        comparison = {"status": "ahead", "ahead_by": 1, "behind_by": 0, "merge_base_commit": {"sha": BASE}, "commits": [], "files": files}
         humans = [{"id": i, "user": {"login": "someone"}, "body": "hi"} for i in range(1, 101)]
         spoof = {"id": 150, "user": {"login": "mallory"}, "body": review.MARKER + "\nfake"}
         page2 = [{"id": i, "user": {"login": "someone"}, "body": "hi"} for i in range(101, 200)] + [spoof]
@@ -3277,7 +3312,7 @@ class GitHubApiTests(unittest.TestCase):
         mine = {"id": 2, "user": {"login": review.BOT_LOGIN}, "state": "APPROVED", "commit_id": HEAD}
         return {
             ("GET", f"{API}/pulls/7"): ok(pull),
-            ("GET", f"{API}/pulls/7/files?per_page=100"): ok(files),
+            ("GET", f"{API}/compare/{BASE}...{HEAD}"): ok(comparison),
             ("GET", comments): ok(humans, page_link(2)),
             ("GET", "https://api.github.com/repositories/123/issues/7/comments?per_page=100&page=2"): ok(page2, page_link(3)),
             ("GET", "https://api.github.com/repositories/123/issues/7/comments?per_page=100&page=3"): ok(sticky),
@@ -3324,7 +3359,30 @@ class GitHubApiTests(unittest.TestCase):
         self.assertEqual((pr.head_sha, pr.base_sha, pr.labels, pr.body, pr.head_repo), (HEAD, BASE, ("bug",), "", "o/r"))
         self.assertEqual(pr.author, AUTHOR)  # user.login
         self.assertEqual([c.id for c in review.find_stickies(api.list_issue_comments(7), review.BOT_LOGIN)], [999])
-        self.assertEqual(api.list_pull_files(7)[0].patch, "@@ -1 +1,2 @@\n a\n+b")
+        self.assertEqual(api.list_changed_files(pr.base_sha, pr.head_sha)[0].patch, "@@ -1 +1,2 @@\n a\n+b")
+
+    def test_the_changed_files_are_pinned_to_the_prs_commits(self) -> None:
+        # One GET of GitHub's comparison of exactly the two commits, which
+        # names them in its path, so nothing the PR does later changes it.
+        transport = FakeTransport(self.routes())
+        api = review.GitHubApi("o/r", "t0ken", allow_writes=False, transport=transport)
+        self.assertEqual([f.filename for f in api.list_changed_files(BASE, HEAD)], ["src/a.ts"])
+        self.assertEqual([(method, url) for method, url, _h, _b in transport.calls], [("GET", f"{API}/compare/{BASE}...{HEAD}")])
+        # Anything but a commit SHA is refused before a request goes out.
+        for base, head in ((BASE, "main"), ("../../users", HEAD), (BASE, HEAD.upper()), (BASE, HEAD + "a"), ("", HEAD)):
+            refused = FakeTransport(self.routes())
+            with self.assertRaises(review.GitHubError):
+                review.GitHubApi("o/r", "t0ken", allow_writes=False, transport=refused).list_changed_files(base, head)
+            self.assertEqual(refused.calls, [], (base, head))
+        # A SHA-256 repository's commit ids are longer and work the same way.
+        long_base, long_head = "c" * 64, "a" * 64
+        routes = {("GET", f"{API}/compare/{long_base}...{long_head}"): ok({"files": []})}
+        self.assertEqual(review.GitHubApi("o/r", None, allow_writes=False, transport=FakeTransport(routes)).list_changed_files(long_base, long_head), [])
+        # A comparison without its files list, or with an entry the bot cannot read, is a GitHub error.
+        for body in ({"status": "ahead"}, {"files": None}, {"files": [{"status": "added"}]}, ["not", "a", "comparison"]):
+            routes = {("GET", f"{API}/compare/{BASE}...{HEAD}"): ok(body)}
+            with self.assertRaises(review.GitHubError, msg=str(body)):
+                review.GitHubApi("o/r", None, allow_writes=False, transport=FakeTransport(routes)).list_changed_files(BASE, HEAD)
 
     def event_routes(self) -> dict[tuple[str, str], review.HttpResponse]:
         """The PR's issue events over two pages, as GitHub lists them (oldest

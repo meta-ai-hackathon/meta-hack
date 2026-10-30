@@ -10,11 +10,15 @@ changed files, per-file patches) and never checks out or runs PR code.
 Stdlib plus the anthropic SDK pinned in requirements-review.txt.
 
 What reaches the model: the PR title and body, the changed-file list, and
-the per-file unified diff, all wrapped as untrusted data. Lockfiles,
-binaries, generated assets, data files, and files that usually hold secrets
-are never sent, and values that look like secrets or personal data are
-redacted first. Over the token budget, files are reviewed in priority order
-and the comment lists every file that was not reviewed.
+the per-file unified diff, all wrapped as untrusted data. The files and
+the diff come from GitHub's comparison of the base and head commits the
+same PR read names, so a push or a retarget while the bot reads them can
+never put another diff under the head commit the comment and the approval
+name. Lockfiles, binaries, generated assets, data files, and files that
+usually hold secrets are never sent, and values that look like secrets or
+personal data are redacted first. Over the token budget, files are
+reviewed in priority order and the comment lists every file that was not
+reviewed.
 
 Every same-repo PR event runs the job (labels, edits, reopens and drafts
 too), because a skipped job leaves a passing check on the head commit. When
@@ -181,8 +185,10 @@ API_URL = "https://api.github.com"
 SERVER_URL = "https://github.com"
 USER_AGENT = "meta-hack-claude-review/1.0"
 GITHUB_TIMEOUT_SECONDS = 30.0
-MAX_PAGES = 40  # 4,000 comments or the 3,000-file listing cap, at 100 per page
+MAX_PAGES = 40  # 4,000 comments, reviews or issue events, at 100 per page
 REPO_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+# A commit id as GitHub writes it (SHA-1, or SHA-256 in a SHA-256 repo).
+_COMMIT_SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 
 
 @dataclass(frozen=True)
@@ -1932,7 +1938,7 @@ def parse_issue_event(data: object) -> LabelEvent | None:
 class GitHub(Protocol):
     def get_pull(self, number: int) -> PullRequest: ...
 
-    def list_pull_files(self, number: int) -> list[ChangedFile]: ...
+    def list_changed_files(self, base_sha: str, head_sha: str) -> list[ChangedFile]: ...
 
     def list_issue_comments(self, number: int) -> list[IssueComment]: ...
 
@@ -2026,8 +2032,20 @@ class GitHubApi:
     def get_pull(self, number: int) -> PullRequest:
         return parse_pull(self._json(self._send("GET", self._url(f"pulls/{number}"))))
 
-    def list_pull_files(self, number: int) -> list[ChangedFile]:
-        return [parse_changed_file(item) for item in self._get_all(f"pulls/{number}/files")]
+    def list_changed_files(self, base_sha: str, head_sha: str) -> list[ChangedFile]:
+        """The files a PR changes, as GitHub's comparison of base_sha and
+        head_sha lists them: what the PR's own file list shows, but pinned
+        to those two commits, so a push or a retarget after the PR read that
+        gave them cannot change it. GitHub lists up to 300 files there; the
+        PR's changed_files count says how many more it did not list."""
+        for sha in (base_sha, head_sha):
+            if not _COMMIT_SHA.fullmatch(sha):
+                raise GitHubError("GitHub named a commit by something that is not a commit SHA")
+        comparison = _as_dict(self._json(self._send("GET", self._url(f"compare/{base_sha}...{head_sha}"))), "comparison")
+        files = comparison.get("files")
+        if not isinstance(files, list):
+            raise GitHubError("GitHub returned a comparison without its changed files")
+        return [parse_changed_file(item) for item in files]
 
     def list_issue_comments(self, number: int) -> list[IssueComment]:
         return [parse_comment(item) for item in self._get_all(f"issues/{number}/comments")]
@@ -2741,7 +2759,9 @@ class Reviewer:
     def review(self, pr: PullRequest, docs: ContextDocs, key: str, started: float) -> int:
         options, rt = self.options, self.rt
         try:
-            files = rt.github.list_pull_files(options.pr)
+            # Pinned to the commits this PR read names, which the comment,
+            # the state line and the approval name too.
+            files = rt.github.list_changed_files(pr.base_sha, pr.head_sha)
         except ReviewError as exc:
             return self.not_reviewed(pr, f"the GitHub API failed while listing the changed files ({exc})", ())
         plan = plan_review(pr, files, options.budget_tokens)
@@ -2854,7 +2874,7 @@ class Reviewer:
         say = self.say
         options, rt = self.options, self.rt
         try:
-            files = rt.github.list_pull_files(options.pr)
+            files = rt.github.list_changed_files(pr.base_sha, pr.head_sha)
         except ReviewError as exc:
             self.warn(f"could not list the changed files ({exc})")
             return 1
