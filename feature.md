@@ -53,7 +53,7 @@
 | BN-19 | Document handling (scope decision): P0 default is checklist-only; uploads only if the secure-data decision allows (then bounded, encrypted, outside the prompt pipeline) |
 | BN-20 | Mailing-address guidance: sourced steps for getting mail without a fixed address (shelter address with consent, general delivery, PO box) — the concept's named barrier, as guidance links, not promises |
 | BN-21 | Prepared-package review: person/caseworker reviews everything before handoff; provenance labels (user-supplied vs AI-drafted) |
-| BN-22 | Renewal/deadline tracker: KB dates + user-reported events clearly labeled; in-app reminders (SMS if the channel decision allows) |
+| BN-22 | Renewal/deadline tracker: KB dates + user-reported events clearly labeled; in-app reminders (SMS if the channel decision allows). **Built (HACK-50, Oct 29):** `/renewal` shows the pilot's renewal facts from `kb/pilot/` labeled "From NC Medicaid" with sources, the person's own date labeled "You told us", and estimates labeled as estimates; the reminder lives only on the device (encrypted in the browser, banner from 30 days before and after any date passes, `.ics` with alerts 30, 7, and 1 days before as the reminder that lasts). SMS stays gated on BN-42 |
 
 ## M4 — Handoff and tracking
 

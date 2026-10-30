@@ -82,6 +82,37 @@ entries are never presented. A plain-language explanation of the top match
 is generated from that entry's facts alone and passes the banned-claim and
 grounding checks before it renders.
 
+### Renewal tracker
+
+`/renewal` (linked from the end of the conversation, the wizard's review
+screen, and the home page, each asking "Already have coverage?") keeps track
+of a renewal. It shows what the program publishes about renewal, from the
+pilot's knowledge-base entry in `kb/pilot/`: how often renewal happens, the
+January 1, 2027 change and who it does not affect, how long a person has to
+answer a renewal letter, what happens if coverage ends, the steps, and the
+official links, each labeled "From NC Medicaid" with its source, retrieval
+date, and entry version. The person can enter a due date or deadline from a
+renewal letter, the date on a letter that said their coverage was approved
+or renewed, or say they don't know. Their date is labeled "You told us"; a
+date worked out from an approval date and the published schedules is
+labeled "Estimate, not an official date". For an approval date the page
+asks one optional question, whether the person is between ages 19 and 64,
+and leaves out the 6 month estimate when the answer is no.
+
+The reminder never leaves the device. The date is sealed with AES-GCM in
+the browser under a non-extractable key kept in IndexedDB, and read back
+only after every layer validates; key and reminder are always read and
+written together, so several open tabs cannot corrupt each other. From 30
+days before a date, on the day, and from the moment any date has passed
+until the person changes it, a banner at the top of any page says so. A
+saved reminder that cannot be read is announced, never dropped silently.
+Browsers can clear site data on their own, so the page also builds a
+calendar file (`.ics`) in the browser, the reminder that lasts: alerts at
+9 AM 30, 7, and 1 days before, marked private, no program name in the title,
+and the same event identity on every download so a new file updates the old
+events. No route, log, analytics call, or model call receives the date;
+`src/lib/renewal/no-network.test.ts` scans for and traps every way it could.
+
 ### Walkthrough CLI
 
 `pnpm walkthrough` drives a full user journey over HTTP against a running app —
