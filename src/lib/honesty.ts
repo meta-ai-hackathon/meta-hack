@@ -99,8 +99,17 @@ export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
   //   the patterns backtrack linearly.
   // Continued coverage with "you" as the subject, any tense: stay or remain
   // covered, keep, still have, or continue to have coverage, continue to be
-  // covered or to qualify, and still covered.
-  /(?<!\b(?:if|whether|once|when|until|unless|how|do|does|did|will|would|can|could|should|are|don't|doesn't|didn't|won't|wouldn't|can't|couldn't|shouldn't|aren't|isn't)\s+|\byou\s+(?:told\s+us|said|reported)\s+)\byou\s*(?:(?:will|'ll|shall|(?:are|'re)\s+going\s+to)\s+)?(?:(?:definitely|certainly|absolutely|still)\s+)?(?:(?:stay|remain)\s+(?:eligible|enrolled|covered|insured|on\s+(?:nc\s+)?medicaid)|(?:keep|continue\s+to\s+(?:have|get|receive)|still\s+have)\s+(?:your\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|continue\s+to\s+(?:be\s+(?:eligible|enrolled|covered|insured)|qualify)|be\s+(?:covered|enrolled|insured)|(?:are|'re)\s+(?:still\s+)?(?:covered|enrolled|insured))\b/i,
+  // covered or to qualify, and still covered. In the present tense (are,
+  // 're), "covered" counts on its own, since it names the coverage itself
+  // (the probe fixture covered through June 2027 stays caught), while
+  // "enrolled" and "insured" count only after "still" or before a Medicaid
+  // or health coverage object (third review: enrolled in school, insured
+  // through an employer, or enrolled in a training program is intake and
+  // chat wording, not a promise). "so" is not spared: a purpose clause
+  // after advice and a result clause after a renewal use the same words,
+  // and the result clause is a promise, so honest copy drops the purpose
+  // clause ("answer the letter right away").
+  /(?<!\b(?:if|whether|once|when|until|unless|how|do|does|did|will|would|can|could|should|are|don't|doesn't|didn't|won't|wouldn't|can't|couldn't|shouldn't|aren't|isn't)\s+|\byou\s+(?:told\s+us|said|reported)\s+)\byou\s*(?:(?:will|'ll|shall|(?:are|'re)\s+going\s+to)\s+)?(?:(?:definitely|certainly|absolutely|still)\s+)?(?:(?:stay|remain)\s+(?:eligible|enrolled|covered|insured|on\s+(?:nc\s+)?medicaid)|(?:keep|continue\s+to\s+(?:have|get|receive)|still\s+have)\s+(?:your\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|continue\s+to\s+(?:be\s+(?:eligible|enrolled|covered|insured)|qualify)|be\s+(?:covered|enrolled|insured)|(?:are|'re)\s+(?:(?:still\s+)?covered|still\s+(?:enrolled|insured)|(?:enrolled|insured)\s+(?:in|on|by|through|under|with)\s+(?:(?:a|an|the|your)\s+)?(?:nc\s+)?(?:medicaid|health\s+(?:coverage|insurance|care|plans?))))\b/i,
   // Never losing coverage or being cut off, with "you" as the subject:
   // won't, will never, can't, cannot, or never, then lose it or be cut
   // off, dropped, or disenrolled.

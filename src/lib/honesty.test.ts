@@ -167,6 +167,16 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "promise after a condition", text: "Once you answer the letter, you will stay covered." },
   { label: "promise after a question", text: "Will you stay covered? Yes, you will keep your Medicaid." },
   { label: "promise after a negated question", text: "Won't you stay covered? Yes, you will keep your Medicaid." },
+  // The present-tense boundary (third review): enrolled and insured count
+  // with "still" or a Medicaid or health coverage object, covered on its
+  // own, and a result clause after "so" is still a promise.
+  { label: "present tense: enrolled in Medicaid", text: "You are enrolled in NC Medicaid." },
+  { label: "present tense: insured under Medicaid", text: "You're insured under Medicaid." },
+  { label: "present tense: enrolled in a health plan", text: "You are enrolled in a health plan." },
+  { label: "present tense: still enrolled", text: "You are still enrolled." },
+  { label: "present tense: still insured", text: "You\u2019re still insured." },
+  { label: "present tense: covered on its own", text: "Good news, you're covered." },
+  { label: "result clause after so", text: "Your renewal went through, so you stay covered." },
   { label: "promise after how-to", text: "Here is how it works: you keep your coverage." },
   { label: "is renewed with no schedule", text: "Your Medicaid is renewed." },
   { label: "is renewed, then a promise", text: "Your coverage is renewed, so nothing changes." },
@@ -252,6 +262,12 @@ const HONEST_SENTENCES: string[] = [
   "Won't you be renewed automatically?",
   "Won\u2019t you stay covered if you answer the letter?",
   "Doesn\u2019t your coverage continue after you move?",
+  // Present-tense intake and chat wording (third review): enrolled and
+  // insured with an object that is not Medicaid or health coverage.
+  "You are enrolled in school.",
+  "You are insured through your employer.",
+  "You're enrolled in a training program.",
+  "You\u2019re enrolled in a training program, which counts as an activity.",
 ];
 
 // Parsed from the repo's spec and migration files at test time — the literals
@@ -294,6 +310,28 @@ describe("banned-claims detector", () => {
     for (const sentence of HONEST_SENTENCES) {
       expect(findBannedClaims(sentence), sentence).toEqual([]);
     }
+  });
+
+  it("counts enrolled and insured in the present tense only with still or a health coverage object (third review)", () => {
+    const subject = fc.constantFrom("You are", "you are", "You're", "you\u2019re");
+    const word = fc.constantFrom("enrolled", "insured");
+    const preposition = fc.constantFrom("in", "on", "by", "through", "under", "with");
+    const other = fc.constantFrom("school", "a training program", "your employer", "the workshop", "a college course");
+    const health = fc.constantFrom("Medicaid", "NC Medicaid", "the Medicaid program", "a health plan", "your health insurance");
+    fc.assert(
+      fc.property(subject, word, preposition, other, health, (who, what, by, elsewhere, coverage) => {
+        const ordinary = `${who} ${what} ${by} ${elsewhere}.`;
+        expect(findBannedClaims(ordinary), ordinary).toEqual([]);
+        for (const promise of [
+          `${who} ${what} ${by} ${coverage}.`,
+          `${who} still ${what} ${by} ${elsewhere}.`,
+          // "covered" names the coverage itself, so it counts with any object.
+          `${who} covered ${by} ${elsewhere}.`,
+        ]) {
+          expect(findBannedClaims(promise).length, promise).toBeGreaterThan(0);
+        }
+      }),
+    );
   });
 
   it("spares a negated direct question the way it spares the positive one (third review)", () => {

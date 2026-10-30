@@ -81,6 +81,11 @@ const BANNED_FIXTURES = [
   "Your Medicaid is renewed.",
   // Third review: a promise after a negated question is still caught.
   "Won't you stay covered? Yes, you will keep your Medicaid.",
+  // Third review: the present-tense boundary.
+  "You are enrolled in NC Medicaid.",
+  "You are still enrolled.",
+  "Good news, you're covered.",
+  "Your renewal went through, so you stay covered.",
 ];
 
 // Honest sentences that must pass untouched. Hedged uncertainty stays
@@ -117,6 +122,10 @@ const CLEAN_TEXT_FIXTURES = [
   "Won't you be renewed automatically?",
   "Won\u2019t you stay covered if you answer the letter?",
   "Doesn\u2019t your coverage continue after you move?",
+  // Third review: present-tense intake and chat wording.
+  "You are enrolled in school.",
+  "You are insured through your employer.",
+  "You're enrolled in a training program.",
 ];
 
 // A client-state fixture: the shape /api/intake/* and /api/session return.
