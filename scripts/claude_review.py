@@ -298,6 +298,9 @@ class LabelEvent:
     # The app that acted for actor (performed_via_github_app): its slug, ""
     # for one GitHub did not name, or None when the actor acted directly.
     via_app: str | None = None
+    # False when the event had no performed_via_github_app at all, so it does
+    # not show whether the actor acted directly or through an app.
+    app_shown: bool = True
 
 
 # Whether the override label counts on a run (see decide_override).
@@ -1262,7 +1265,8 @@ def decide_override(
     could add it from their own account. A person's label counts only when
     they added it themselves: an app acting with their token (an agent's,
     say) is recorded as them, so a label the events show it added never
-    counts. events is None when they could not be read; the label then does
+    counts, and neither does one from an event that does not say whether an
+    app acted. events is None when they could not be read; the label then does
     not count, so a real P1 keeps failing. Logins compare without case, as
     GitHub's do. Anything GitHub did not name plainly never counts: an actor
     that is not a login, an account type other than User (none at all
@@ -1287,7 +1291,7 @@ def decide_override(
         return found
     if is_bot(latest.actor, latest.actor_type):
         return replace(found, status=OVERRIDE_BY_BOT)
-    if latest.actor_type != PERSON_TYPE:
+    if latest.actor_type != PERSON_TYPE or not latest.app_shown:
         return found
     if latest.via_app is not None:
         return replace(found, status=OVERRIDE_BY_APP)
@@ -2026,7 +2030,9 @@ def parse_issue_event(data: object) -> LabelEvent | None:
     kind = actor.get("type") if isinstance(actor, dict) else None
     created = item.get("created_at")
     # An app acting with a person's token is recorded as that person, and
-    # performed_via_github_app names it. Anything there but null is an app.
+    # performed_via_github_app names it. Null there means the actor acted
+    # directly, anything else is an app, and an event without the field does
+    # not show which.
     app = item.get("performed_via_github_app")
     slug = app.get("slug") if isinstance(app, dict) else None
     return LabelEvent(
@@ -2036,6 +2042,7 @@ def parse_issue_event(data: object) -> LabelEvent | None:
         actor_type=kind if isinstance(kind, str) else "",
         created_at=created if isinstance(created, str) else "",
         via_app=None if app is None else slug if isinstance(slug, str) else "",
+        app_shown="performed_via_github_app" in item,
     )
 
 

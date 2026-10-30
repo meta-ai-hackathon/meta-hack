@@ -731,6 +731,20 @@ RAW_ACTORS = st.one_of(
     st.fixed_dictionaries({"login": JSON_VALUES, "type": JSON_VALUES}),
     JSON_VALUES,
 )
+# An issue event's performed_via_github_app: left out, null (the actor
+# acted directly), or an app in any shape GitHub could send.
+APP_FIELDS = st.one_of(
+    st.just({}),
+    st.just({"performed_via_github_app": None}),
+    st.one_of(
+        st.fixed_dictionaries({"slug": st.sampled_from(["some-coding-agent", "copilot-swe-agent"]) | JSON_VALUES}),
+        st.text(max_size=20),
+        st.booleans(),
+        st.integers(),
+        st.lists(JSON_VALUES, max_size=3),
+        st.dictionaries(st.text(max_size=8), JSON_VALUES, max_size=3),
+    ).map(lambda app: {"performed_via_github_app": app}),
+)
 
 
 def label_events(labels: list[str]) -> st.SearchStrategy[review.LabelEvent]:
@@ -1374,7 +1388,7 @@ class OverrideRuleProperties(unittest.TestCase):
         parsed = review.parse_issue_event({**value, "performed_via_github_app": app})
         assert parsed is not None
         direct = review.decide_override(LABELED, AUTHOR, [replace(parsed, via_app=None)])
-        self.assertEqual(review.parse_issue_event(value), replace(parsed, via_app=None))
+        self.assertEqual(review.parse_issue_event({**value, "performed_via_github_app": None}), replace(parsed, via_app=None))
         override = review.decide_override(LABELED, AUTHOR, [parsed])
         if app is None:
             self.assertEqual(override, direct)
@@ -1386,8 +1400,16 @@ class OverrideRuleProperties(unittest.TestCase):
     @PBT
     @given(RAW_ACTORS, st.sampled_from(OVERRIDE_SPELLINGS))
     def test_a_label_from_any_actor_github_sends_counts_only_for_a_person(self, actor: object, spelling: str) -> None:
-        # The event as GitHub's listing carries it, through the parser and the rule.
-        value = {"event": "labeled", "label": {"name": spelling}, "actor": actor, "created_at": "2026-10-29T23:06:13Z"}
+        # The event as GitHub's listing carries it, through the parser and the
+        # rule. GitHub sends performed_via_github_app as null when the actor
+        # acted directly.
+        value = {
+            "event": "labeled",
+            "label": {"name": spelling},
+            "actor": actor,
+            "created_at": "2026-10-29T23:06:13Z",
+            "performed_via_github_app": None,
+        }
         parsed = review.parse_issue_event(value)
         assert parsed is not None  # a label event with a label name always parses
         counts = review.decide_override(LABELED, AUTHOR, [parsed]).counts
@@ -1404,6 +1426,35 @@ class OverrideRuleProperties(unittest.TestCase):
             self.assertIsInstance(actor["login"], str)
             self.assertNotEqual(actor["login"].lower(), AUTHOR.lower())
             self.assertFalse(actor["login"].lower().endswith("[bot]"))
+
+    @PBT
+    @given(RAW_ACTORS, st.sampled_from(OVERRIDE_SPELLINGS), APP_FIELDS, st.integers(min_value=1, max_value=60), st.integers(min_value=0, max_value=60))
+    def test_only_an_event_that_shows_a_direct_action_counts(
+        self, actor: object, spelling: str, field: dict[str, object], p1: int, p2: int
+    ) -> None:
+        # GitHub sends performed_via_github_app on every issue event, null
+        # when the actor acted directly. With null the account alone decides.
+        # An app there never counts, and neither does an event without the
+        # field, which shows neither. Whatever the field holds, the comment
+        # explains a label that does not count on one safe line.
+        value = {"event": "labeled", "label": {"name": spelling}, "actor": actor, "created_at": "2026-10-30T01:00:00Z", **field}
+        parsed = review.parse_issue_event(value)
+        assert parsed is not None
+        self.assertEqual(parsed.app_shown, bool(field))
+        override = review.decide_override(LABELED, AUTHOR, [parsed])
+        by_account = review.decide_override(LABELED, AUTHOR, [replace(parsed, via_app=None, app_shown=True)])
+        people = (review.OVERRIDE_HONORED, review.OVERRIDE_BY_AUTHOR)
+        if field == {"performed_via_github_app": None}:
+            self.assertEqual(override, by_account)
+        else:
+            self.assertFalse(override.counts)
+            instead = review.OVERRIDE_BY_APP if field else review.OVERRIDE_UNTRACED
+            self.assertEqual(override.status, instead if by_account.status in people else by_account.status)
+        line = review.status_paragraph({"P1": p1, "P2": p2, "P3": 0}, override.counts, ignored=override)
+        self.assertEqual(len(line.splitlines()), 1)
+        self.assertEqual(live_references(line), [])
+        if override.status == review.OVERRIDE_UNTRACED:
+            self.assertIn("the PR's events do not show that a person other than the PR's author added it", line)
 
     @PBT
     @given(OVERRIDES, st.integers(min_value=1, max_value=60), st.integers(min_value=0, max_value=60))
