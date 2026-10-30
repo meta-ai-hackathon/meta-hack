@@ -491,9 +491,43 @@ describe("PATCH /api/session (BN-25 vocabulary)", () => {
     }
   });
 
+  it("enforces the lifecycle order on the server, not just the buttons", async () => {
+    const created = await POST(postRequest({}));
+    const cookie = sessionCookieOf(created);
+    // Skipping a state: handed_off cannot be set from draft.
+    const skip = await PATCH(patchRequest({ status: "handed_off" }, cookie));
+    expect(skip.status).toBe(400);
+    // The legal first step.
+    const legal = await PATCH(patchRequest({ status: "prepared" }, cookie));
+    expect(legal.status).toBe(200);
+    // Repeating a state is not a transition.
+    const repeat = await PATCH(patchRequest({ status: "prepared" }, cookie));
+    expect(repeat.status).toBe(400);
+    // The legal second step: handed_off from prepared.
+    const advance = await PATCH(patchRequest({ status: "handed_off" }, cookie));
+    expect(advance.status).toBe(200);
+    // Moving backwards after the handoff.
+    const backwards = await PATCH(patchRequest({ status: "prepared" }, cookie));
+    expect(backwards.status).toBe(400);
+    // Repeating the terminal app-settable state is not a transition either.
+    const repeatEnd = await PATCH(
+      patchRequest({ status: "handed_off" }, cookie),
+    );
+    expect(repeatEnd.status).toBe(400);
+  });
+
   it("records a user-reported status on the person's explicit report", async () => {
     const created = await POST(postRequest({}));
     const cookie = sessionCookieOf(created);
+    // A user-reported state comes only after the handoff (lifecycle order).
+    const tooEarly = await PATCH(
+      patchRequest({ userReportedStatus: "user_reported_submitted" }, cookie),
+    );
+    expect(tooEarly.status).toBe(400);
+    for (const status of ["prepared", "handed_off"]) {
+      const response = await PATCH(patchRequest({ status }, cookie));
+      expect(response.status).toBe(200);
+    }
     const response = await PATCH(
       patchRequest({ userReportedStatus: "user_reported_submitted" }, cookie),
     );

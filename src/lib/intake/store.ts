@@ -241,11 +241,35 @@ export async function recordCaseworkerAssist(
 }
 
 /**
+ * The forward lifecycle order (BN-25), enforced SERVER-side: a status may
+ * only be set from its immediate predecessor. `draft` is the initial state
+ * (null predecessor: it can never be set or re-entered); the
+ * user_reported_* states come only after handed_off, on the person's
+ * explicit report.
+ */
+const ALLOWED_STATUS_TRANSITIONS: Readonly<
+  Record<AppSettableSessionStatus, AppSettableSessionStatus | null>
+> = {
+  draft: null,
+  prepared: "draft",
+  handed_off: "prepared",
+};
+
+const ALLOWED_REPORT_TRANSITIONS: Readonly<
+  Record<UserReportedSessionStatus, SessionStatus>
+> = {
+  user_reported_submitted: "handed_off",
+  user_reported_decided: "handed_off",
+};
+
+/**
  * Advance a session through the app-settable BN-25 states (draft → prepared
- * → handed_off). The type keeps every user_reported_* value out of bounds —
- * no code path can set a submitted-like state (BN-25: prepared ≠ submitted);
- * those ride reportUserReportedStatus below, on the person's explicit
- * report only. Unknown sessions fail with not_found.
+ * → handed_off) in lifecycle order only. The type keeps every
+ * user_reported_* value out of bounds — no code path can set a
+ * submitted-like state (BN-25: prepared ≠ submitted); those ride
+ * reportUserReportedStatus below, on the person's explicit report only.
+ * Out-of-order requests (skipping a state, moving backwards) fail with a
+ * taxonomy error. Unknown sessions fail with not_found.
  */
 export async function setSessionStatus(
   sessionId: string,
@@ -254,16 +278,23 @@ export async function setSessionStatus(
   if (!isAppSettableSessionStatus(status)) {
     throw validationError();
   }
+  const requiredBefore = ALLOWED_STATUS_TRANSITIONS[status];
   const sql = getDb();
-  const rows = await sql`
+  const current = await sql`SELECT status FROM session WHERE id = ${sessionId}`;
+  if (current.length === 0) {
+    throw new AppError("not_found", userMessageFor("not_found"));
+  }
+  const currentStatus = isSessionStatus(current[0].status)
+    ? current[0].status
+    : "draft";
+  if (currentStatus !== requiredBefore) {
+    throw validationError();
+  }
+  await sql`
     UPDATE session
     SET status = ${status}, updated_at = now()
     WHERE id = ${sessionId}
-    RETURNING id
   `;
-  if (rows.length === 0) {
-    throw new AppError("not_found", userMessageFor("not_found"));
-  }
   logInfo("session_status_advanced");
   const state = await loadSessionState(sessionId);
   if (!state) {
@@ -274,10 +305,11 @@ export async function setSessionStatus(
 
 /**
  * Record what the person told us happened OUTSIDE the app, after handoff
- * (submitted / decided). Only the user_reported_* values are accepted here —
- * the app's own transitions go through setSessionStatus and can never reach
- * these states. The report is the person's word, not a verified fact; the
- * status vocabulary keeps that distinction type-level.
+ * (submitted / decided). Only the user_reported_* values are accepted here,
+ * and only from a handed-off session — the app's own transitions go through
+ * setSessionStatus and can never reach these states. The report is the
+ * person's word, not a verified fact; the status vocabulary keeps that
+ * distinction type-level, and the lifecycle order keeps it flow-level.
  */
 export async function reportUserReportedStatus(
   sessionId: string,
@@ -286,16 +318,23 @@ export async function reportUserReportedStatus(
   if (!isUserReportedSessionStatus(status)) {
     throw validationError();
   }
+  const requiredBefore = ALLOWED_REPORT_TRANSITIONS[status];
   const sql = getDb();
-  const rows = await sql`
+  const current = await sql`SELECT status FROM session WHERE id = ${sessionId}`;
+  if (current.length === 0) {
+    throw new AppError("not_found", userMessageFor("not_found"));
+  }
+  const currentStatus = isSessionStatus(current[0].status)
+    ? current[0].status
+    : "draft";
+  if (currentStatus !== requiredBefore) {
+    throw validationError();
+  }
+  await sql`
     UPDATE session
     SET status = ${status}, updated_at = now()
     WHERE id = ${sessionId}
-    RETURNING id
   `;
-  if (rows.length === 0) {
-    throw new AppError("not_found", userMessageFor("not_found"));
-  }
   logInfo("session_status_user_reported");
   const state = await loadSessionState(sessionId);
   if (!state) {
