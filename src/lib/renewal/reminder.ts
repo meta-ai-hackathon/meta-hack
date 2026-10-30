@@ -77,11 +77,16 @@ export interface RenewalReminder {
   readonly reportedDate: string;
   /**
    * Random id that gives the calendar file's events one identity across
-   * downloads and date changes (RFC 5545 UID), so a new file updates the
-   * old events instead of adding copies with alerts on the wrong date.
+   * downloads and date changes (RFC 5545 UID), so a calendar app that
+   * honors UIDs can update an event instead of adding a copy.
    */
   readonly calendarId: string;
-  /** How many times the person changed the reminder: the calendar file's SEQUENCE. */
+  /**
+   * How many times the person saved a change to the reminder. The calendar
+   * file's SEQUENCE no longer comes from it but from the time the file is
+   * made (reminder-calendar.ts), so a file downloaded before a save cannot
+   * outrank a later one.
+   */
   readonly revision: number;
   /** Approval dates only: the age answer, when the person gave one. */
   readonly ageAnswer?: AgeAnswer;

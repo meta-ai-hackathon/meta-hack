@@ -9,7 +9,6 @@ import { buildIcsCalendar, type IcsAllDayEvent } from "./ics";
 import {
   CALENDAR_ALARM_DAYS_BEFORE,
   CALENDAR_ID_RE,
-  MAX_REMINDER_REVISION,
   parseReportedDate,
   type ReportedDateKind,
 } from "./reminder";
@@ -22,13 +21,37 @@ import type { RenewalBannerFacts, RenewalFactsView } from "./renewal-facts";
  * caller supplies the clock and the device's local moment.
  *
  * Every event's UID comes from the reminder's calendar id plus a fixed key
- * (the due date, or the schedule an estimate assumes), and SEQUENCE is the
- * reminder's revision. So downloading again, or after changing the date,
- * gives a calendar app the same events with a higher sequence to update,
- * not new copies next to old alerts on the wrong date (review fix).
+ * (the due date, or the schedule an estimate assumes), so each event keeps
+ * one identity across downloads and date changes (review fix). SEQUENCE
+ * comes from the time the file is made (calendarSequence), so it rises
+ * with every file, saved or not, and a calendar app that honors UIDs and
+ * SEQUENCE can update the event instead of adding a copy. Events a newer
+ * file leaves out are not removed by it, which the download notice says.
  */
 
 export const RENEWAL_CALENDAR_FILENAME = "renewal-reminder.ics";
+
+/** SEQUENCE counts whole seconds from this instant, 2026-01-01T00:00:00Z. */
+export const CALENDAR_SEQUENCE_EPOCH_MS = Date.UTC(2026, 0, 1);
+
+/** The largest RFC 5545 INTEGER (a signed 32-bit value). */
+export const MAX_ICS_INTEGER = 2_147_483_647;
+
+/**
+ * Each event's SEQUENCE: whole seconds from 2026-01-01 UTC to when the
+ * file is made, clamped to what RFC 5545 allows (second review fix). It
+ * used to be the saved reminder's revision, and a download from the edit
+ * form used the next revision, so after an abandoned edit the next file
+ * had a lower SEQUENCE and a different date for the same UID, and a
+ * calendar app that keeps the higher SEQUENCE kept the unsaved date.
+ */
+export function calendarSequence(now: Date): number {
+  const ms = now.getTime();
+  if (!Number.isFinite(ms)) {
+    throw new RangeError("the time the file is made must be a real instant");
+  }
+  return Math.min(MAX_ICS_INTEGER, Math.max(0, Math.floor((ms - CALENDAR_SEQUENCE_EPOCH_MS) / 1000)));
+}
 
 /** The event key for a reported due date; estimates use their schedule id. */
 export const DUE_DATE_EVENT_KEY = "due";
@@ -42,8 +65,7 @@ export interface ReminderCalendarInput {
   readonly ageAnswer?: AgeAnswer;
   /** The reminder's calendar id (32 hex characters). */
   readonly calendarId: string;
-  /** The reminder's revision, written as each event's SEQUENCE. */
-  readonly revision: number;
+  /** When the file is made: DTSTAMP, and each event's SEQUENCE (calendarSequence). */
   readonly now: Date;
   readonly today: CalendarDate;
   /** Minutes since the device's local midnight: alerts already gone are left out. */
@@ -78,13 +100,7 @@ export function buildReminderCalendar(
   if (reported === null) {
     return null;
   }
-  if (
-    !Number.isInteger(input.revision) ||
-    input.revision < 0 ||
-    input.revision > MAX_REMINDER_REVISION
-  ) {
-    throw new RangeError("revision must be a whole number from 0 to the maximum");
-  }
+  const sequence = calendarSequence(input.now);
   const fromEstimate = input.kind === "approval";
   const planned: { readonly date: CalendarDate; readonly key: string }[] = fromEstimate
     ? estimateRenewals(reported, input.facts.schedules, input.ageAnswer).map((estimate) => ({
@@ -100,7 +116,7 @@ export function buildReminderCalendar(
     stepsUrl !== undefined && stepsUrl.startsWith("https://") ? stepsUrl : undefined;
   const events: IcsAllDayEvent[] = planned.map(({ date, key }) => ({
     uid: calendarEventUid(input.calendarId, key),
-    sequence: input.revision,
+    sequence,
     date,
     summary: calendarSummary(fromEstimate),
     description: calendarDescription(input.facts.programName, date, fromEstimate, officialUrl),

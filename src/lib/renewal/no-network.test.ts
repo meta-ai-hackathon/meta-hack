@@ -196,7 +196,6 @@ describe("runtime: the whole client path with the network trapped", () => {
         reportedDate: reminder.reportedDate,
         ...(reminder.ageAnswer !== undefined ? { ageAnswer: reminder.ageAnswer } : {}),
         calendarId: reminder.calendarId,
-        revision: reminder.revision,
         now: new Date(),
         today,
         minutesIntoToday: 0,

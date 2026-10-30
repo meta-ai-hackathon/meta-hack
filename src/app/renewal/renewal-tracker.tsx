@@ -82,7 +82,11 @@ type Storage =
   | { readonly state: "unavailable" }
   | { readonly state: "ready"; readonly deps: ReminderStoreDeps };
 
-/** Which calendar events a file describes: kept across downloads and date changes. */
+/**
+ * The form's reminder identity: the calendar id names the file's events
+ * across downloads and date changes, and the revision counts saves. A
+ * file's SEQUENCE comes from the time it is made, not from the revision.
+ */
 interface CalendarIdentity {
   readonly calendarId: string;
   readonly revision: number;
@@ -222,7 +226,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
 
   function handleDownload(
     reminder: Pick<RenewalReminder, "kind" | "reportedDate" | "ageAnswer">,
-    identity: CalendarIdentity,
+    calendarId: string,
   ) {
     const now = new Date();
     const moment = deviceLocalMoment(now);
@@ -231,8 +235,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
       kind: reminder.kind,
       reportedDate: reminder.reportedDate,
       ...(reminder.ageAnswer !== undefined ? { ageAnswer: reminder.ageAnswer } : {}),
-      calendarId: identity.calendarId,
-      revision: identity.revision,
+      calendarId,
       now,
       today: moment.date,
       minutesIntoToday: moment.minutes,
@@ -251,7 +254,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
       const ageAnswer = formAgeAnswer(check.kind);
       handleDownload(
         { kind: check.kind, reportedDate: check.reportedDate, ...(ageAnswer !== undefined ? { ageAnswer } : {}) },
-        formIdentity(),
+        formIdentity().calendarId,
       );
     }
   }
@@ -333,7 +336,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={() => handleDownload(saved, { calendarId: saved.calendarId, revision: saved.revision })}
+              onClick={() => handleDownload(saved, saved.calendarId)}
               className="rounded-md bg-zinc-900 px-4 py-2 text-base font-semibold text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
             >
               {DOWNLOAD_BUTTON}
