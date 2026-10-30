@@ -77,6 +77,9 @@ import { ReportedDateView } from "./renewal-view";
 
 const DATE_CHOICES: readonly DateChoice[] = ["renewal_due", "approval", "unknown"];
 
+/** Hides the loading line when scripting is off (rendered inside <noscript>). */
+export const HIDE_LOADING_WITHOUT_SCRIPT_CSS = "[data-renewal-loading]{display:none}";
+
 type Storage =
   | { readonly state: "checking" }
   | { readonly state: "unavailable" }
@@ -319,11 +322,19 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
       <StatusRegion message={notice} className="text-sm text-zinc-700 dark:text-zinc-300" />
       {storage.state === "checking" ? (
         <>
-          <p className="text-zinc-600 dark:text-zinc-400">{LOADING_NOTE}</p>
+          <p data-renewal-loading className="text-zinc-600 dark:text-zinc-400">
+            {LOADING_NOTE}
+          </p>
           <noscript>
             <p data-renewal-noscript className="text-zinc-700 dark:text-zinc-300">
               {NOSCRIPT_NOTE}
             </p>
+          </noscript>
+          {/* Without JavaScript the check never runs, so its line would say
+              "checking" forever next to the note above (second review fix).
+              A browser only applies this style when scripting is off. */}
+          <noscript>
+            <style>{HIDE_LOADING_WITHOUT_SCRIPT_CSS}</style>
           </noscript>
         </>
       ) : null}

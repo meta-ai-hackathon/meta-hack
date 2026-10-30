@@ -4,6 +4,7 @@ import { findBannedClaims } from "../../lib/honesty";
 import { LOADING_NOTE, NOSCRIPT_NOTE, PRIVACY_NOTE } from "../../lib/renewal/copy";
 import { checkDateForm } from "../../lib/renewal/date-form";
 import RenewalPage, { metadata } from "./page";
+import { HIDE_LOADING_WITHOUT_SCRIPT_CSS } from "./renewal-tracker";
 
 // The renewal page shell (HACK-50) and the tracker's server render: the
 // facts are on the page without JavaScript, the person's date section is
@@ -47,6 +48,15 @@ describe("Renewal page", () => {
 
   it("explains itself when JavaScript is off, instead of only 'checking' forever (review fix)", () => {
     expect(html).toMatch(new RegExp(`<noscript><p[^>]*>${NOSCRIPT_NOTE}</p></noscript>`));
+  });
+
+  it("hides the loading line when JavaScript is off, so it does not claim to be checking (second review fix)", () => {
+    // The loading line carries the attribute the noscript style hides; with
+    // scripting on, a browser reads noscript content as text and the style
+    // does nothing.
+    expect(html).toMatch(new RegExp(`<p data-renewal-loading="true"[^>]*>${LOADING_NOTE}</p>`));
+    expect(html).toContain(`<noscript><style>${HIDE_LOADING_WITHOUT_SCRIPT_CSS}</style></noscript>`);
+    expect(HIDE_LOADING_WITHOUT_SCRIPT_CSS).toBe("[data-renewal-loading]{display:none}");
   });
 
   it("shows what to do if coverage ends among the official facts", () => {
