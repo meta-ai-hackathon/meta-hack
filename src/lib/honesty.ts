@@ -39,6 +39,12 @@ export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
   /\byou\s*(?:(?:will|'ll|shall|should|are)\s+)?(?:(?:definitely|certainly|absolutely)\s+)?(?:going\s+to\s+)?(?:get|receive|obtain)\s+(?:the\s+|these\s+|those\s+|your\s+)?benefits\b/i,
   // Marketing-style approval claims.
   /\b(?:instant|automatic)\s+approval\b/i,
+  // Criteria-satisfaction determinations ("meets the income rules" phrasing,
+  // droid-review P3-2 on PR #45): asserting that a person satisfies the
+  // program's criteria is a determination whether addressed to the person
+  // or in third person, present or future. Requirement language ("you must
+  // provide...", "would need to...") and hedges ("may meet") stay allowed.
+  /\b(?:you|he|she|they)\s+(?:(?:will|'ll|shall|should|do|did|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?meets?\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|documentation|disability|citizenship|application)\w*\s+)*(?:rules|requirements|criteria|guidelines|limits|thresholds|conditions|standards)\b/i,
 ];
 
 export interface BannedClaimMatch {

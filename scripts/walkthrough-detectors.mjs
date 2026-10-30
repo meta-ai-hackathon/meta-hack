@@ -29,6 +29,10 @@ export const BANNED_CLAIM_PATTERNS = [
   /\bwe\s+(?:can\s+)?(?:guarantee|promise)\b/i,
   /\byou\s*(?:(?:will|'ll|shall|should|are)\s+)?(?:(?:definitely|certainly|absolutely)\s+)?(?:going\s+to\s+)?(?:get|receive|obtain)\s+(?:the\s+|these\s+|those\s+|your\s+)?benefits\b/i,
   /\b(?:instant|automatic)\s+approval\b/i,
+  // Criteria-satisfaction determinations ("meets the income rules" phrasing,
+  // droid-review P3-2 on PR #45). Identical source to src/lib/honesty.ts —
+  // the drift test below pins the two lists together.
+  /\b(?:you|he|she|they)\s+(?:(?:will|'ll|shall|should|do|did|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?meets?\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|documentation|disability|citizenship|application)\w*\s+)*(?:rules|requirements|criteria|guidelines|limits|thresholds|conditions|standards)\b/i,
 ];
 
 /**

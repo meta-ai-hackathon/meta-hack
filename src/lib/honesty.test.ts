@@ -52,6 +52,18 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "contraction benefits promise", text: "You'll get the benefits you are owed." },
   { label: "instant approval marketing", text: "Get instant approval today." },
   { label: "automatic approval marketing", text: "Automatic approval for everyone who applies." },
+  // Criteria-satisfaction determinations ("meets the rules" phrasing,
+  // droid-review P3-2 on PR #45): asserting the person satisfies the
+  // program's criteria is a determination whether addressed to the person
+  // ("you") or in third person.
+  { label: "meet rules determination", text: "Based on what you told us, you meet the income rules." },
+  { label: "meet requirements determination", text: "You meet all the program's requirements." },
+  { label: "third-person meet determination", text: "She meets the program's requirements." },
+  { label: "plural meet determination", text: "They meet the guidelines for assistance." },
+  { label: "future meet promise", text: "You will meet the eligibility criteria once you apply." },
+  { label: "modal meet determination", text: "You should meet the income rules with that household size." },
+  { label: "negated meet determination", text: "You do not meet the income rules." },
+  { label: "future negated meet determination", text: "You will not meet the requirements without a verified ID." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty
@@ -63,6 +75,11 @@ const HONEST_SENTENCES: string[] = [
   "Only the official program can decide your eligibility.",
   "You may be eligible for some programs; you can check with the office.",
   "Nothing here is a promise about your case.",
+  // Hedged and requirement forms of the criteria phrasing stay allowed —
+  // uncertainty and program requirements are honest, determinations are not.
+  "You may meet the income rules for this program.",
+  "You would need to meet the income rules the official source lists.",
+  "You may not meet the income rules yet; the official rules decide.",
 ];
 
 // Parsed from the repo's spec and migration files at test time — the literals
