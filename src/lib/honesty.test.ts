@@ -72,6 +72,9 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "have met determination", text: "You have not met the requirements without a verified ID." },
   { label: "satisfy determination", text: "You satisfy the eligibility criteria." },
   { label: "third-person satisfy determination", text: "She satisfies the income rules." },
+  { label: "contracted negation meet", text: "You don't meet the income rules." },
+  { label: "contracted negation future meet", text: "You won't meet the requirements without a verified ID." },
+  { label: "contracted negation past meet", text: "You haven't met the criteria for assistance." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty

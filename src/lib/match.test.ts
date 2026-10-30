@@ -880,42 +880,71 @@ describe("assertNoPiiValuesInMatch", () => {
     expect(() => assertNoPiiValuesInMatch(poisoned, answers)).toThrow();
   });
 
-  it("excuses a pii value that is an exact word of the static copy", async () => {
-    // A glossary term legitimately contains "assistance"; a free-text pii
-    // answer equal to that word must not fail the user's match list even
-    // when the word renders in explanation copy. A value OUTSIDE the static
-    // sources still throws.
-    const clean = await buildMatchResponse(known("main_goal", "food"), {
+  it("excuses a pii value that is an exact word of the response's own static copy", async () => {
+    // The entry's own deadline text names an application window, and a card
+    // whose explanation quotes a glossary term renders that term — a
+    // free-text pii answer equal to such a word must not fail the user's
+    // match list. A glossary word the response does NOT render still
+    // throws. The explanation goes through the explainer stub so the card
+    // (and its rendered terms) is built from the final copy, as in
+    // production.
+    const withModelExplanation = (text: string) =>
+      buildMatchResponse(known("main_goal", "food"), {
+        explainer: async () => ({ text, source: "model" as const }),
+        explanationCache: new Map(),
+      });
+    const applicationAnswers: AnswerMap = {
+      goal_detail: { status: "known", value: "application" },
+    };
+    const applicationEcho = await withModelExplanation(
+      "The application window stays open.",
+    );
+    expect(() =>
+      assertNoPiiValuesInMatch(applicationEcho, applicationAnswers),
+    ).not.toThrow();
+    const termWordAnswers: AnswerMap = {
+      goal_detail: { status: "known", value: "assistance" },
+    };
+    const termEcho = await withModelExplanation(
+      "Food assistance may be worth pursuing.",
+    );
+    expect(() =>
+      assertNoPiiValuesInMatch(termEcho, termWordAnswers),
+    ).not.toThrow();
+    const unrenderedGlossaryWord: AnswerMap = {
+      goal_detail: { status: "known", value: "agency" },
+    };
+    const unrenderedEcho = await withModelExplanation(
+      "Contact the agency for help.",
+    );
+    expect(() =>
+      assertNoPiiValuesInMatch(unrenderedEcho, unrenderedGlossaryWord),
+    ).toThrow();
+  });
+
+  it("excuses a pii answer equal to a shown option label or status label", async () => {
+    // The reviewer fixture (claude-review P2 on PR #46): a free-text pii
+    // answer that happens to equal one of the spec's own display labels
+    // must not permanently 500 the match list — the label is public
+    // vocabulary, not the user's text. The health-care goal scores sample
+    // C, so its spec label renders on a card reason.
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "health care" },
+      main_goal: { status: "known", value: "healthcare" },
+      id_status: { status: "unverified" },
+    };
+    const response = await buildMatchResponse(answers, {
       explainer: async () => ({ text: "stub", source: "facts" }),
       explanationCache: new Map(),
     });
-    const cleanCard = clean.matches[0]!;
-    const withExplanation = (text: string) => ({
-      ...clean,
-      matches: [
-        {
-          ...cleanCard,
-          explanation: { text, source: "model" as const },
-        },
-        ...clean.matches.slice(1),
-      ],
-    });
-    const commonWordAnswers: AnswerMap = {
-      goal_detail: { status: "known", value: "assistance" },
-    };
-    expect(() =>
-      assertNoPiiValuesInMatch(
-        withExplanation("Assistance may be worth pursuing."),
-        commonWordAnswers,
-      ),
-    ).not.toThrow();
-    const sentinel = "sentinel-private-narrative-9182";
-    expect(() =>
-      assertNoPiiValuesInMatch(
-        withExplanation(sentinel),
-        { goal_detail: { status: "known", value: sentinel } },
-      ),
-    ).toThrow();
+    // The spec-produced label really renders, and the to-resolve status
+    // label really contains the word "verified".
+    const serialized = JSON.stringify(response).toLowerCase();
+    expect(serialized).toContain("health care");
+    expect(serialized).toContain("verified");
+    expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+    // The bite side — a private value in a rendered label — is pinned by
+    // the dedicated answer-label and property tests above.
   });
 
   it("excuses a pii value that matches a word of a to-resolve prompt", async () => {

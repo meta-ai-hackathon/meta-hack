@@ -3,11 +3,11 @@ import {
   isSpecificValue,
 } from "./conversation";
 import {
-  GLOSSARY_TERMS,
   glossaryTermsForText,
   type GlossaryTerm,
 } from "./glossary";
 import {
+  ANSWER_STATUS_LABELS,
   answerStatusLabel,
   type AnswerStatus,
 } from "./honesty";
@@ -679,40 +679,71 @@ function escapeRegExpValue(text: string): string {
 }
 
 /**
- * The static copy THIS response renders from its own sources: the matched
- * cards' entry text, the glossary, and the to-resolve prompts (verbatim
- * spec questions). Computed from the data sources — never from the
- * user-derived fields being gated — so a leak cannot excuse itself.
+ * The spec's plain-language option labels (lowercased). A reason's answer
+ * label is SPEC-PRODUCED — public vocabulary, never user text — when every
+ * comma-separated part of it is one of these (multi-select labels join the
+ * selected options' labels).
+ */
+const SPEC_OPTION_LABELS: ReadonlySet<string> = new Set(
+  QUESTIONS.flatMap((question) =>
+    (question.options ?? []).map((option) => option.label.trim().toLowerCase()),
+  ),
+);
+
+function isSpecProducedLabel(label: string): boolean {
+  return label
+    .split(",")
+    .map((part) => part.trim().toLowerCase())
+    .every((part) => SPEC_OPTION_LABELS.has(part));
+}
+
+/**
+ * The public copy THIS response renders from its own sources: the matched
+ * cards' entry text, the glossary terms each card actually renders, the
+ * spec-produced answer labels it shows, the fixed tri-state status labels,
+ * and the to-resolve prompts (verbatim spec questions). Never computed from
+ * a raw echo of the user's own text, so a leak cannot excuse itself.
  */
 function responseStaticCopy(response: MatchResponse): string {
-  const parts: string[] = [MATCH_FRAMING, EXPLANATION_FRAMING];
+  const parts: string[] = [
+    MATCH_FRAMING,
+    EXPLANATION_FRAMING,
+    ...Object.values(ANSWER_STATUS_LABELS),
+  ];
   for (const card of response.matches) {
     const entry = KB_ENTRIES.find((candidate) => candidate.id === card.entryId);
-    if (!entry) {
-      continue;
-    }
-    parts.push(entry.title);
-    for (const source of entry.sources) {
-      parts.push(`${source.title} ${source.supports}`);
-    }
-    for (const name of ALL_KB_FACT_GROUPS) {
-      const group = entry.facts[name];
-      if (!group) {
-        continue;
+    if (entry) {
+      parts.push(entry.title);
+      for (const source of entry.sources) {
+        parts.push(`${source.title} ${source.supports}`);
       }
-      for (const item of group.items) {
-        if (typeof item === "string") {
-          parts.push(item);
-        } else if ("questionId" in item) {
-          parts.push(item.reason);
-        } else {
-          parts.push(`${item.label} ${"due" in item ? item.due : item.url}`);
+      for (const name of ALL_KB_FACT_GROUPS) {
+        const group = entry.facts[name];
+        if (!group) {
+          continue;
+        }
+        for (const item of group.items) {
+          if (typeof item === "string") {
+            parts.push(item);
+          } else if ("questionId" in item) {
+            parts.push(item.reason);
+          } else {
+            parts.push(`${item.label} ${"due" in item ? item.due : item.url}`);
+          }
         }
       }
     }
-  }
-  for (const term of GLOSSARY_TERMS) {
-    parts.push(`${term.term} ${term.definition}`);
+    for (const reason of card.reasons) {
+      if (
+        reason.answerLabel !== undefined &&
+        isSpecProducedLabel(reason.answerLabel)
+      ) {
+        parts.push(reason.answerLabel);
+      }
+    }
+    for (const term of card.terms) {
+      parts.push(`${term.term} ${term.definition}`);
+    }
   }
   for (const item of response.toResolve) {
     parts.push(item.prompt);
@@ -726,17 +757,15 @@ function responseStaticCopy(response: MatchResponse): string {
  * or question id is echoed back. Mirrors the intake serializer's check.
  *
  * The WHOLE outgoing payload is scanned (reason text, model explanations,
- * labels, framing — anything that serializes), with two tiers:
- *
- * - USER-DERIVED fields (reason answer labels, to-resolve status labels)
- *   never get an exemption: a specific pii value there is a leak by
- *   construction, so it always throws.
- * - Every other occurrence is excused only when the value is an exact word
- *   of the response's static copy (the matched entries' facts, glossary,
- *   to-resolve prompts, framing): a free-text pii answer that happens to
- *   equal a common KB word ("application") must not fail-closed the user's
- *   whole match list (claude-review P2-3 on PR #45), while a private value
- *   echoed anywhere else — model output included — still throws.
+ * labels, framing — anything that serializes), and a specific value throws
+ * unless it is an exact word of the response's public copy: the matched
+ * entries' facts, the glossary terms the cards render, the spec-produced
+ * option labels they show, the fixed status labels, the to-resolve
+ * prompts, and the framing. A free-text pii answer that happens to equal a
+ * common KB word ("application") must not fail-closed the user's whole
+ * match list (claude-review P2-3 on PR #45) — but any other appearance of
+ * the value, in any field, still throws: a raw echo of the user's own text
+ * is never part of the excusal set, so it can never excuse itself.
  *
  * Multi-select values are checked element by element (the old whole-array
  * JSON check could never substring-match).
@@ -761,26 +790,14 @@ export function assertNoPiiValuesInMatch(
       if (raw === "" || !isSpecificValue(raw)) {
         continue;
       }
-      const lowered = raw.toLowerCase();
-      if (!serialized.includes(lowered)) {
+      if (!serialized.includes(raw.toLowerCase())) {
         continue;
       }
-      const inUserDerivedField =
-        response.matches.some((card) =>
-          card.reasons.some(
-            (reason) =>
-              reason.answerLabel !== undefined &&
-              reason.answerLabel.toLowerCase().includes(lowered),
-          ),
-        ) ||
-        response.toResolve.some((item) =>
-          item.statusLabel.toLowerCase().includes(lowered),
-        );
       const inStaticCopy = new RegExp(
         `\\b${escapeRegExpValue(raw)}\\b`,
         "i",
       ).test(staticCopy);
-      if (inUserDerivedField || !inStaticCopy) {
+      if (!inStaticCopy) {
         throw new AppError(
           "internal",
           "A match response attempted to include a private answer value.",
