@@ -1,11 +1,11 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_DISPLAY_SETTINGS,
-  HIGH_CONTRAST_ZINC,
+  HIGH_CONTRAST_ROLES,
   TEXT_ZOOM_STEPS,
   THEME_PAIRS,
   canStepZoom,
@@ -172,55 +172,72 @@ describe("contrast themes", () => {
     expect(highDark).toBeCloseTo(21, 0);
   });
 
+  const cssPath = join(
+    fileURLToPath(new URL("../app", import.meta.url)),
+    "globals.css",
+  );
+
   it("globals.css carries exactly the THEME_PAIRS values", () => {
-    const css = readFileSync(
-      join(fileURLToPath(new URL("../app", import.meta.url)), "globals.css"),
-      "utf8",
-    );
+    const css = readFileSync(cssPath, "utf8");
     for (const pair of Object.values(THEME_PAIRS)) {
       expect(css).toContain(`--background: ${pair.background};`);
       expect(css).toContain(`--foreground: ${pair.foreground};`);
     }
-    expect(css).toContain("--color-zinc-500:");
     expect(css).toContain(':root[data-contrast="high"] :disabled');
   });
 
-  it("the high-contrast zinc remap is pair-safe: every surface/content pair is 21:1", () => {
-    // PR #51 review: the original remap sent surfaces like zinc-200 to the
-    // foreground color, so `bg-zinc-200 text-zinc-700` rendered black on
-    // black. The split remap must keep every surface/content combination
-    // on the theme's foreground/background pair.
+  it("globals.css role rules implement HIGH_CONTRAST_ROLES exactly", () => {
+    // PR #51 re-review P3: parse the actual role rules out of the CSS
+    // instead of comparing a hand-written copy against constants, so CSS
+    // drift fails this test.
+    const css = readFileSync(cssPath, "utf8");
+    const roleRule = (property: string, value: string) =>
+      new RegExp(`${property}: var\\(--${value}\\) !important;`);
+    expect(css).toMatch(roleRule("color", HIGH_CONTRAST_ROLES.text));
+    expect(css).toMatch(
+      roleRule("background-color", HIGH_CONTRAST_ROLES.background),
+    );
+    expect(css).toMatch(roleRule("border-color", HIGH_CONTRAST_ROLES.border));
+    // Every text/bg/border role resolves to the theme pair, so any
+    // combination of zinc utilities is foreground-on-background: 21:1.
     for (const scheme of ["highLight", "highDark"] as const) {
-      const { surfaces, content } = HIGH_CONTRAST_ZINC[scheme];
       const theme = THEME_PAIRS[scheme];
-      for (const surface of surfaces) {
-        expect(surface).toBe(theme.background);
-        for (const ink of content) {
-          expect(ink).toBe(theme.foreground);
-          expect(contrastRatio(ink, surface)).toBeCloseTo(21, 0);
-        }
-      }
+      expect(
+        contrastRatio(theme.foreground, theme.background),
+      ).toBeCloseTo(21, 0);
     }
   });
 
-  it("globals.css carries the pair-safe remap, hover inversion and disabled cue", () => {
-    const css = readFileSync(
-      join(fileURLToPath(new URL("../app", import.meta.url)), "globals.css"),
-      "utf8",
-    );
-    // Light block (the FIRST high block): surface zinc-200 is the
-    // background (#ffffff), not the foreground black the old remap used.
-    // Dark legitimately maps it to #000000 — its own background.
-    const lightStart = css.indexOf(':root[data-contrast="high"] {');
-    const darkStart = css.indexOf(':root[data-contrast="high"] {', lightStart + 1);
-    expect(lightStart).toBeGreaterThanOrEqual(0);
-    expect(darkStart).toBeGreaterThan(lightStart);
-    const lightBlock = css.slice(lightStart, darkStart);
-    expect(lightBlock).toContain("--color-zinc-200: #ffffff;");
-    expect(lightBlock).not.toContain("--color-zinc-200: #000000;");
-    // Dark block maps the same surface to its own background.
-    expect(css.slice(darkStart)).toContain("--color-zinc-200: #000000;");
-    // Hover inverts the pair; disabled gets a non-color cue.
+  it("every zinc utility used in components has a high-contrast role rule", () => {
+    // Closes the loop the re-review asked for: a new zinc text/bg/border
+    // class anywhere in the UI without a matching role override fails here
+    // instead of silently rendering same-on-same in high contrast.
+    const css = readFileSync(cssPath, "utf8");
+    const srcRoot = fileURLToPath(new URL("..", import.meta.url));
+    const componentFiles: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (/\.(tsx|ts)$/.test(entry.name) && !/\.test\./.test(entry.name)) {
+          componentFiles.push(full);
+        }
+      }
+    };
+    walk(srcRoot);
+    const used = new Set<string>();
+    const pattern = /\b(text|bg|border)-zinc-\d+\b/g;
+    for (const file of componentFiles) {
+      for (const match of readFileSync(file, "utf8").matchAll(pattern)) {
+        used.add(match[0]);
+      }
+    }
+    expect(used.size).toBeGreaterThan(0);
+    for (const className of used) {
+      expect(css, `missing role rule for .${className}`).toContain(`.${className}`);
+    }
+    // Hover inversion and the non-color disabled cue ride along.
     expect(css).toContain(':root[data-contrast="high"] :is(button');
     expect(css).toContain("border-style: dashed;");
     expect(css).toContain("cursor: not-allowed;");
