@@ -27,12 +27,14 @@ const FACTS = PILOT_RENEWAL_FACTS;
 const d = (iso: string): CalendarDate => parseIsoDate(iso)!;
 
 function decode(html: string): string {
+  // `&amp;` decodes LAST: decoding it first would turn an original
+  // "&amp;lt;" into "<" — the double-escape CodeQL flags.
   return html
     .replace(/&#x27;/g, "'")
     .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 function headingLevels(html: string): number[] {
