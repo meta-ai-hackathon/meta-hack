@@ -46,12 +46,13 @@ const EXEMPT_FILES = new Set([
   "lib/intake/store.ts",
   // The forms pipeline (Mission v2 M4) is the SECOND sanctioned vault
   // accessor (VAL-PDF-006): the fill reads pii values ONLY via
-  // readVaultFields with the committed form-registry entry's explicit
-  // per-form fill allowlist — a form may read exactly the vault fields its
-  // reviewed registry entry names, nothing more. Filled values flow into the
+  // readVaultFieldsForFill, whose permit is derived in vault.ts from the
+  // committed form-registry entry's per-form fill allowlist — a form may
+  // read exactly the vault fields its reviewed registry entry names, and no
+  // caller can hand-read an arbitrary list. Filled values flow into the
   // returned PDF bytes only: never into prompts, logs, or any client payload
   // other than the person's own downloaded application. Only the fill module
-  // is admitted — every other forms file (parse/flow/registry/answers) stays
+  // is admitted — every other forms file (parse/flow/registry/display) stays
   // outside the boundary exactly like the rest of src/.
   "lib/forms/fill.ts",
 ]);

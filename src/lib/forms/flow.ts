@@ -15,8 +15,9 @@ import { displayValueFor } from "./display";
 //   NOT_APPLICABLE: blank by design, never asked, never to-resolve;
 // - maps to a spec question with no stored answer yet → it is ASKED (the
 //   conversation collects it through the normal pipeline);
-// - maps to nothing (the spec doesn't ask it) → it is also ASKED here,
-//   answered into the form-answer store.
+// - maps to nothing (the spec doesn't ask it) → it is also ASKED here;
+//   the answer rides the fill request and is never stored server-side
+//   (the real data rules forbid a new answer store).
 //
 // The view is what the review screen renders: answered vs still-needed
 // (BN-21), with every field's provenance and pii fields' values structurally
@@ -54,14 +55,15 @@ export interface FormFlowView {
 
 /**
  * Build the form-driven question view for one registry entry against the
- * session's answers. Pure: a function of the entry, the answer map, the
- * stored form answers (unmapped fields', keyed by field name), and the
+ * session's answers. Pure: a function of the entry, the answer map, and the
  * per-spec-question provenance lookup (the answer table's provenances).
+ * Unmapped form fields are always ASKED here — their answers ride the fill
+ * request and are never stored server-side (the real data rules forbid a
+ * new answer store), so they have nothing to pre-fill from.
  */
 export function buildFormFlow(
   entry: FormRegistryEntry,
   answers: AnswerMap,
-  formAnswers: Readonly<Record<string, { value: string; provenance: AnswerProvenance }>> = {},
   provenances: Readonly<Record<string, AnswerProvenance>> = {},
 ): FormFlowView {
   const fields: FormFlowFieldView[] = [];
@@ -115,16 +117,8 @@ export function buildFormFlow(
       counts.asked += 1;
       continue;
     }
-    // Unmapped: asked here, answered into the form-answer store.
-    const formAnswer = formAnswers[field.name];
-    if (formAnswer) {
-      fields.push({
-        ...toView(field, "prefilled", undefined, formAnswer.provenance),
-        ...(field.piiLikely ? {} : { value: formAnswer.value }),
-      });
-      counts.prefilled += 1;
-      continue;
-    }
+    // Unmapped: asked here. The answer rides the fill request (memory
+    // only) — it is never stored, so nothing pre-fills from a store.
     fields.push(toView(field, "asked"));
     toResolve.push({ fieldName: field.name, question: field.question });
     counts.asked += 1;

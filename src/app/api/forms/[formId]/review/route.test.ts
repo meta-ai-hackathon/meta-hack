@@ -6,7 +6,6 @@ import { setLogSink } from "../../../../../lib/telemetry";
 import { saveAnswer } from "../../../../../lib/intake/store";
 import { PILOT_CONFIG } from "../../../../../lib/pilot";
 import { getFormRegistryEntry } from "../../../../../lib/forms/registry";
-import { saveFormAnswer } from "../../../../../lib/forms/answers";
 import { GET } from "./route";
 
 // GET /api/forms/<formId>/review route tests (Mission v2 M4, BN-21/23/24 +
@@ -79,7 +78,6 @@ describe("GET /api/forms/<formId>/review", () => {
     const sessionId = await createSession();
     await saveAnswer(sessionId, "household_size", "known", 3);
     await saveAnswer(sessionId, "date_of_birth", "known", "1990-01-01");
-    await saveFormAnswer(sessionId, ENTRY, "applicant_name", "Jane Tester");
     const response = await GET(
       reviewRequest(ENTRY.id, `bn_session=${sessionId}`),
       { params: Promise.resolve({ formId: ENTRY.id }) },
@@ -117,15 +115,15 @@ describe("GET /api/forms/<formId>/review", () => {
     );
     expect(dob?.state).toBe("prefilled");
     expect(dob !== undefined && !("value" in dob)).toBe(true);
+    // Unmapped fields are asked (their answers ride the fill request and
+    // are never stored, so nothing can pre-fill them here).
     const name = body.fields.find(
       (field) => field.fieldName === "applicant_name",
     );
-    expect(name?.state).toBe("prefilled");
-    expect(name !== undefined && !("value" in name)).toBe(true);
+    expect(name?.state).toBe("asked");
     // The serialized payload as a whole never carries the private values.
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain("1990-01-01");
-    expect(serialized).not.toContain("Jane Tester");
     // To-resolve + lifecycle + companion links + steps.
     expect(body.toResolve.length).toBeGreaterThan(0);
     expect(body.sessionStatus).toBe("draft");

@@ -5,24 +5,27 @@ import {
   type AnswerProvenance,
 } from "../intake/store";
 import { QUESTION_BY_ID } from "../intake/spec";
-import { readVaultFields } from "../vault";
+import { readVaultFieldsForFill } from "../vault";
 import { AppError, logInfo } from "../telemetry";
-import { loadFormAnswers } from "./answers";
 import { displayValueFor } from "./display";
 import { assertLoadablePdf } from "./parse";
 import type { FormRegistryEntry, FormRegistryField } from "./registry";
 
-// Forms fill (Mission v2 M4 / HACK-74, BN-18): turn stored answers into a
-// filled application PDF the person can review and submit THEMSELVES. The
-// app never submits anything.
+// Forms fill (Mission v2 M4 / HACK-74, BN-18): turn answers into a filled
+// application PDF the person can review and submit THEMSELVES. The app
+// never submits anything.
 //
 // Value sources, per registry field:
 // - mapped to a spec question: the session's stored answer. Non-pii values
 //   come from the answer table (loadAnswerRecords); pii values cross the
-//   vault boundary ONLY via readVaultFields with the entry's committed
-//   per-form fill allowlist — the forms module is the second sanctioned
-//   accessor (VAL-PDF-006).
-// - unmapped: the form-answer store (asked in the flow, saved per entry).
+//   vault boundary ONLY via readVaultFieldsForFill with the entry's
+//   committed per-form fill allowlist — the forms module is the second
+//   sanctioned accessor (VAL-PDF-006).
+// - unmapped: asked in the flow, answered in the review view, and sent WITH
+//   the fill request. They live only in memory for the one fill — the real
+//   data rules forbid any new server-side store for answers (no plaintext
+//   table, no client payload beyond the person's own session), so nothing
+//   here writes them down; a later download asks for them again.
 //
 // Every filled field carries its provenance; fields with no answer stay
 // VISIBLY BLANK and are listed as to-resolve; fields whose mapped question
@@ -41,7 +44,7 @@ export interface FillValue {
   /** The value as it should appear on the form (choice labels, not ids). */
   readonly display: string;
   readonly provenance: AnswerProvenance;
-  readonly source: "spec_answer" | "vault" | "form_answer";
+  readonly source: "spec_answer" | "vault" | "in_request";
 }
 
 export interface FilledField {
@@ -72,30 +75,73 @@ function isWinAnsiSafe(text: string): boolean {
 // Value collection — the vault crossing
 // ---------------------------------------------------------------------------
 
+/** Bound for one in-request form answer (the review view's text inputs). */
+export const MAX_FORM_ANSWER_LENGTH = 200;
+/** Bound for how many in-request form answers one fill may carry. */
+export const MAX_FORM_VALUES = 50;
+
 /**
- * Assemble the fill values for one form from the session's stored answers.
+ * Validate the in-request form values that ride the fill request: keys must
+ * be UNMAPPED fields of the entry (spec-mapped fields never come this way —
+ * their answers live in the ordinary intake stores), values bounded
+ * non-empty text. Returns a plain record for collectFillValues; anything
+ * else is a taxonomy error. This is memory-only state — nothing here
+ * persists it.
+ */
+export function parseFormValues(
+  entry: FormRegistryEntry,
+  raw: unknown,
+): Record<string, string> {
+  if (raw === null || raw === undefined) {
+    return {};
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new AppError("validation_error", "We couldn't use those form answers.");
+  }
+  const unmapped = new Set(
+    entry.fields.filter((f) => f.specQuestionId === null).map((f) => f.name),
+  );
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!unmapped.has(name)) {
+      throw new AppError("validation_error", "We couldn't use those form answers.");
+    }
+    if (typeof value !== "string") {
+      throw new AppError("validation_error", "We couldn't use those form answers.");
+    }
+    const trimmed = value.trim();
+    if (trimmed === "" || trimmed.length > MAX_FORM_ANSWER_LENGTH) {
+      throw new AppError("validation_error", "We couldn't use those form answers.");
+    }
+    out[name] = trimmed;
+  }
+  if (Object.keys(out).length > MAX_FORM_VALUES) {
+    throw new AppError("validation_error", "We couldn't use those form answers.");
+  }
+  return out;
+}
+
+/**
+ * Assemble the fill values for one form from the session's stored answers
+ * plus the IN-REQUEST form values (unmapped fields).
  *
- * Vault crossing: every pii value is read through readVaultFields with the
- * entry's committed per-form allowlist as the explicit permit. A registry
- * entry that mapped a pii question missing from its allowlist can never see
- * that value — the field degrades to to-resolve instead (fail-closed).
- * Non-pii values come from the answer table; unmapped fields from the
- * form-answer store. No value or field id is logged.
+ * Vault crossing: every pii value is read through readVaultFieldsForFill,
+ * which admits exactly the entry's committed per-form allowlist and nothing
+ * else. A registry entry that mapped a pii question missing from its
+ * allowlist can never see that value — the field degrades to to-resolve
+ * instead (fail-closed). Non-pii values come from the answer table. No
+ * value or field id is logged.
  */
 export async function collectFillValues(
   sessionId: string,
   entry: FormRegistryEntry,
+  formValues: Readonly<Record<string, string>> = {},
 ): Promise<{
   values: Record<string, FillValue>;
   answerMap: AnswerMap;
 }> {
   const records = await loadAnswerRecords(sessionId);
-  const vaultValues = await readVaultFields(
-    sessionId,
-    entry.vaultFieldAllowlist,
-    entry.vaultFieldAllowlist,
-  );
-  const formAnswers = await loadFormAnswers(sessionId, entry.id);
+  const vaultValues = await readVaultFieldsForFill(sessionId, entry);
 
   // The skip-logic view of the session's answers: the answer table's rows
   // plus the vault values this form is sanctioned to read.
@@ -118,13 +164,14 @@ export async function collectFillValues(
   const values: Record<string, FillValue> = {};
   for (const field of entry.fields) {
     if (field.specQuestionId === null) {
-      // Unmapped: the form-answer store is the only source.
-      const formAnswer = formAnswers[field.name];
-      if (formAnswer) {
+      // Unmapped: the in-request values are the only source — they ride
+      // the fill request and live only in memory.
+      const raw = formValues[field.name];
+      if (raw !== undefined) {
         values[field.name] = {
-          display: formAnswer.value,
-          provenance: formAnswer.provenance,
-          source: "form_answer",
+          display: raw,
+          provenance: "user_supplied",
+          source: "in_request",
         };
       }
       continue;
@@ -379,16 +426,22 @@ export function skippedFieldNames(
 }
 
 /**
- * Full fill for one session: collect values (the vault crossing) → fill →
- * skip-logic-aware to-resolve list. The route calls this; the halves are
- * separate so tests can exercise them independently.
+ * Full fill for one session: collect values (the vault crossing, plus the
+ * in-request form values) → fill → skip-logic-aware to-resolve list. The
+ * route calls this; the halves are separate so tests can exercise them
+ * independently. The in-request form values live only for this call.
  */
 export async function fillForSession(
   templateBytes: Uint8Array,
   entry: FormRegistryEntry,
   sessionId: string,
+  formValues: Readonly<Record<string, string>> = {},
 ): Promise<FillOutcome> {
-  const { values, answerMap } = await collectFillValues(sessionId, entry);
+  const { values, answerMap } = await collectFillValues(
+    sessionId,
+    entry,
+    formValues,
+  );
   return fillFormPdf(templateBytes, entry, values, answerMap);
 }
 

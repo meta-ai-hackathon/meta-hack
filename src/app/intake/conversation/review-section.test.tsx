@@ -40,9 +40,7 @@ function reviewData(overrides?: Partial<Parameters<typeof buildFormFlow>[1]>) {
     housing_status: { status: "known" as const, value: "shelter" },
     ...(overrides ?? {}),
   };
-  const view = buildFormFlow(ENTRY, answers, {
-    applicant_name: { value: "Jane Tester", provenance: "user_supplied" },
-  });
+  const view = buildFormFlow(ENTRY, answers);
   return {
     hasSession: true,
     form: {

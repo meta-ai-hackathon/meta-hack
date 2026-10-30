@@ -10,11 +10,11 @@ import {
   saveAnswer,
 } from "../intake/store";
 import { getFormRegistryEntry } from "./registry";
-import { saveFormAnswer } from "./answers";
 import {
   collectFillValues,
   fillForSession,
   fillFormPdf,
+  parseFormValues,
   skippedFieldNames,
   type FillValue,
 } from "./fill";
@@ -187,10 +187,13 @@ describe("AcroForm round-trip (VAL-PDF-003)", () => {
     }
   });
 
-  it("an unmapped field's stored form answer fills and carries provenance", async () => {
+  it("an in-request unmapped answer fills and carries provenance", async () => {
     const sessionId = await createSession();
-    await saveFormAnswer(sessionId, ENTRY, "applicant_name", SENTINEL_NAME);
-    const outcome = await fillForSession(acroformTemplate(), ENTRY, sessionId);
+    // Unmapped answers ride the fill request and live only in memory —
+    // the real data rules forbid a server-side store for them.
+    const outcome = await fillForSession(acroformTemplate(), ENTRY, sessionId, {
+      applicant_name: SENTINEL_NAME,
+    });
     const pdf = await PDFDocument.load(outcome.bytes);
     expect(pdf.getForm().getTextField("applicant_name").getText()).toBe(
       SENTINEL_NAME,
@@ -203,6 +206,11 @@ describe("AcroForm round-trip (VAL-PDF-003)", () => {
     expect(outcome.toResolve.map((item) => item.fieldName)).toContain(
       "applicant_date_of_birth",
     );
+    // Without the in-request values the field stays blank + to-resolve.
+    const without = await fillForSession(acroformTemplate(), ENTRY, sessionId);
+    expect(
+      without.toResolve.map((item) => item.fieldName),
+    ).toContain("applicant_name");
   });
 
   it("conditional fields respect the flow's skip logic", async () => {
@@ -272,12 +280,12 @@ describe("AcroForm round-trip (VAL-PDF-003)", () => {
       applicant_name: {
         display: "姓名 test",
         provenance: "user_supplied",
-        source: "form_answer",
+        source: "in_request",
       },
       case_number: {
         display: "A-1234",
         provenance: "user_supplied",
-        source: "form_answer",
+        source: "in_request",
       },
     };
     const outcome = await fillFormPdf(acroformTemplate(), ENTRY, values);
@@ -365,10 +373,11 @@ describe("no value ever reaches a log line (VAL-PDF-005)", () => {
   it("the fill pipeline logs counts only — no values, no field ids", async () => {
     const sessionId = await createSession();
     await saveKnownAnswerSet(sessionId);
-    await saveFormAnswer(sessionId, ENTRY, "applicant_name", SENTINEL_NAME);
     const lines: LogLine[] = [];
     setLogSink((line) => lines.push(JSON.parse(line) as LogLine));
-    await fillForSession(acroformTemplate(), ENTRY, sessionId);
+    await fillForSession(acroformTemplate(), ENTRY, sessionId, {
+      applicant_name: SENTINEL_NAME,
+    });
     setLogSink(() => undefined);
     for (const line of lines) {
       const serialized = JSON.stringify(line);
@@ -378,5 +387,36 @@ describe("no value ever reaches a log line (VAL-PDF-005)", () => {
       expect(serialized).not.toContain("person@example.com");
       expect(serialized).not.toContain("applicant_name");
     }
+  });
+});
+
+describe("parseFormValues (in-request form answers)", () => {
+  it("accepts bounded values for unmapped fields only", () => {
+    const parsed = parseFormValues(ENTRY, {
+      applicant_name: "Jane Tester",
+      case_number: "A-1234",
+    });
+    expect(parsed).toEqual({
+      applicant_name: "Jane Tester",
+      case_number: "A-1234",
+    });
+  });
+
+  it("rejects a spec-mapped field name — mapped answers cannot ride the request", () => {
+    expect(() =>
+      parseFormValues(ENTRY, { applicant_date_of_birth: "1990-01-01" }),
+    ).toThrow();
+    expect(() => parseFormValues(ENTRY, { made_up_field: "x" })).toThrow();
+  });
+
+  it("rejects non-string, empty, and oversized values, and non-object payloads", () => {
+    expect(() => parseFormValues(ENTRY, { applicant_name: 42 })).toThrow();
+    expect(() => parseFormValues(ENTRY, { applicant_name: "   " })).toThrow();
+    expect(() =>
+      parseFormValues(ENTRY, { applicant_name: "x".repeat(201) }),
+    ).toThrow();
+    expect(() => parseFormValues(ENTRY, ["not", "an", "object"])).toThrow();
+    expect(() => parseFormValues(ENTRY, "a string")).toThrow();
+    expect(parseFormValues(ENTRY, null)).toEqual({});
   });
 });

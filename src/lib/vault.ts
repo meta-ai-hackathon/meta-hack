@@ -1,5 +1,6 @@
 import { getDb } from "./db";
 import { AppError, logInfo, PII_QUESTION_IDS } from "./telemetry";
+import type { FormRegistryEntry } from "./forms/registry";
 
 // PII vault (BN-03 / HACK-31): the secure storage layer for everything the
 // question spec marks `pii: true`. Identity details never enter prompts,
@@ -51,22 +52,23 @@ export interface VaultCrossingDecision {
  * Two allowlists, both deliberate product decisions recorded in code:
  * - CROSSING_ALLOWLIST — the global set of fields permitted into model
  *   context (empty today, and test-enforced never to hold a pii:true field).
- * - explicitAllowlist — an optional per-request list a SANCTIONED accessor
- *   passes with its request. The forms pipeline (the second sanctioned
- *   accessor, Mission v2 M4) passes the fill allowlist from the committed
- *   form-registry entry: a form may read exactly the vault fields its
- *   reviewed registry entry names, and nothing else. The allowlist only ever
- *   ADMITS vault fields — a non-vault field is rejected even if a form
- *   allowlist names it.
+ * - explicitAllowlist — an optional per-request permit. The ONLY runtime
+ *   caller is readVaultFieldsForFill (the forms fill, Mission v2 M4), which
+ *   derives it from the committed form-registry entry — the entry is the
+ *   permit, so no code path can hand-read an arbitrary field list. A form
+ *   may read exactly the vault fields its reviewed registry entry names,
+ *   and nothing else. The permit only ever ADMITS vault fields — a
+ *   non-vault field is rejected even if a form entry names it.
  *
- * Who can reach this: only a module that imports the vault at all, and the
+ * Who can reach the vault: only a module that imports it at all, and the
  * boundary test (src/lib/vault-boundary.test.ts) admits exactly TWO such
- * modules — the intake prompt builder and lib/forms/fill.ts. Any other
- * module (a future prompt builder, a route) importing vault fails CI, which
- * is where a person reviews the new accessor and its allowlist before it
- * can ever run. The per-form lists themselves are committed, git-reviewed
- * JSON — not runtime-editable state — and every registry change is
- * re-validated against the spec on load (registry.ts) and by pytest.
+ * modules — lib/intake/store.ts (prompt-facing, no permit parameter) and
+ * lib/forms/fill.ts (fill-only, permit derived from the committed entry).
+ * Any other module (a future prompt builder, a route) importing vault fails
+ * CI, which is where a person reviews the new accessor before it can ever
+ * run. The per-form lists themselves are committed, git-reviewed JSON —
+ * not runtime-editable state — and every registry change is re-validated
+ * against the spec on load (registry.ts) and by pytest.
  */
 export function vaultCrossingDecision(
   requestedFields: readonly string[],
@@ -190,28 +192,60 @@ export async function vaultFlowValues(
 }
 
 /**
- * The vault read path. Accepts ONLY explicitly allowlisted fields and rejects
- * every other request — including any pii:true field off the allowlist —
- * loudly with a taxonomy error. The surfaced message stays generic; rejected
- * field ids go only into `cause`, which is never serialized to logs or
- * responses.
- *
- * The optional `explicitAllowlist` is how a sanctioned accessor presents its
- * per-form permit (Mission v2 M4): the forms pipeline passes the fill
- * allowlist committed in the form-registry entry, so a fill reads exactly the
- * vault fields its reviewed entry names and nothing else. Without an explicit
- * allowlist the decision is the historical fail-closed one (CROSSING_ALLOWLIST
- * only). The explicit list only ever ADMITS vault fields — it cannot smuggle
- * a non-vault field across.
+ * The vault read path for the intake prompt builder (via lib/intake/store,
+ * the first sanctioned accessor). Accepts ONLY fields the global
+ * CROSSING_ALLOWLIST permits and rejects every other request — including
+ * any pii:true field — loudly with a taxonomy error. The surfaced message
+ * stays generic; rejected field ids go only into `cause`, which is never
+ * serialized to logs or responses. With the allowlist empty this returns
+ * {} or throws: nothing crosses into model context today.
  */
 export async function readVaultFields(
   sessionId: string,
   requestedFields: readonly string[],
-  explicitAllowlist?: readonly string[],
+): Promise<Record<string, string>> {
+  const { allowed, rejected } = vaultCrossingDecision(requestedFields);
+  if (rejected.length > 0) {
+    throw new AppError(
+      "validation_error",
+      "A requested field is not allowed to cross the PII vault boundary.",
+      { cause: { rejectedFields: rejected } },
+    );
+  }
+  if (allowed.length === 0) {
+    return {};
+  }
+  const sql = getDb();
+  const rows = await sql`
+    SELECT field, value FROM vault_entry
+    WHERE session_id = ${sessionId} AND field IN ${sql([...allowed])}
+  `;
+  logInfo("vault_read", { fieldCount: rows.length });
+  const entries: Record<string, string> = {};
+  for (const row of rows) {
+    entries[String(row.field)] = String(row.value);
+  }
+  return entries;
+}
+
+/**
+ * The vault read path for the FORMS FILL (via lib/forms/fill.ts, the second
+ * sanctioned accessor, Mission v2 M4). Separate from readVaultFields on
+ * purpose: the prompt-facing read path takes no caller-supplied permit at
+ * all, while the fill's permit is derived HERE from the committed,
+ * git-reviewed form-registry entry — a caller cannot pass an arbitrary
+ * field list and dress it up as a permit. A fill reads exactly the vault
+ * fields its reviewed entry names and nothing else; the permit only ever
+ * ADMITS vault fields (see vaultCrossingDecision), so an entry naming a
+ * non-vault field rejects it even if that name looks like pii.
+ */
+export async function readVaultFieldsForFill(
+  sessionId: string,
+  entry: FormRegistryEntry,
 ): Promise<Record<string, string>> {
   const { allowed, rejected } = vaultCrossingDecision(
-    requestedFields,
-    explicitAllowlist,
+    entry.vaultFieldAllowlist,
+    entry.vaultFieldAllowlist,
   );
   if (rejected.length > 0) {
     throw new AppError(

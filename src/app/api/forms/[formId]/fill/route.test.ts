@@ -8,8 +8,6 @@ import { closeDb } from "../../../../../lib/db";
 import { runMigrations } from "../../../../../lib/migrate";
 import { setLogSink, type LogLine } from "../../../../../lib/telemetry";
 import { saveAnswer } from "../../../../../lib/intake/store";
-import { getFormRegistryEntry } from "../../../../../lib/forms/registry";
-import { saveFormAnswer } from "../../../../../lib/forms/answers";
 import { POST } from "./route";
 
 // POST /api/forms/<formId>/fill route tests (Mission v2 M4,
@@ -70,9 +68,13 @@ function fillRequest(
   formId: string,
   file: Buffer,
   cookie?: string,
+  formValues?: Record<string, string>,
 ): Request {
   const form = new FormData();
   form.append("file", new Blob([new Uint8Array(file)]), "template.pdf");
+  if (formValues) {
+    form.append("answers", JSON.stringify(formValues));
+  }
   return new Request(`http://localhost:3100/api/forms/${formId}/fill`, {
     method: "POST",
     headers: cookie ? { cookie } : {},
@@ -186,6 +188,50 @@ describe("POST /api/forms/<formId>/fill", () => {
     expect(body.error.code).toBe("validation_error");
   });
 
+  it("in-request unmapped answers fill the form; mapped names are refused", async () => {
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+    await saveAnswer(sessionId, "date_of_birth", "known", "1990-01-01");
+
+    const response = await POST(
+      fillRequest(
+        "sample-application-form",
+        acroformFile(),
+        cookie,
+        { applicant_name: "Route Tester" },
+      ),
+      { params: Promise.resolve({ formId: "sample-application-form" }) },
+    );
+    expect(response.status).toBe(200);
+    const pdf = await PDFDocument.load(new Uint8Array(await response.arrayBuffer()));
+    expect(pdf.getForm().getTextField("applicant_name").getText()).toBe(
+      "Route Tester",
+    );
+    expect(pdf.getForm().getTextField("applicant_date_of_birth").getText()).toBe(
+      "1990-01-01",
+    );
+
+    // A spec-mapped name can never ride the request: mapped answers come
+    // only from the server-side stores.
+    const spoofed = await POST(
+      fillRequest(
+        "sample-application-form",
+        acroformFile(),
+        cookie,
+        { applicant_date_of_birth: "1980-01-01" },
+      ),
+      { params: Promise.resolve({ formId: "sample-application-form" }) },
+    );
+    expect(spoofed.status).toBe(400);
+    const junk = await POST(
+      fillRequest("sample-application-form", acroformFile(), cookie, {
+        applicant_name: "x".repeat(201),
+      }),
+      { params: Promise.resolve({ formId: "sample-application-form" }) },
+    );
+    expect(junk.status).toBe(400);
+  });
+
   it("rejects an unknown form id with a 404", async () => {
     const cookie = await createSessionAndGetCookie();
     const response = await POST(
@@ -214,22 +260,21 @@ describe("filled PDFs are never persisted server-side (VAL-PDF-005)", () => {
   it("no file, bytea column, transcript row, or log line ever carries the sentinel", async () => {
     const cookie = await createSessionAndGetCookie();
     const sessionId = cookie.split("=")[1];
-    // Seed the sentinel through the sanctioned stores: a vault pii value
-    // and a form answer. Both legitimately STORE the inputs; the fill must
-    // not spread them anywhere new.
+    // Seed the vault pii value through the sanctioned store, and send the
+    // unmapped answer as an IN-REQUEST value: it never touches a store at
+    // all, so step 3 asserts it appears in NO table.
     await saveAnswer(sessionId, "date_of_birth", "known", "1990-01-01");
-    await saveFormAnswer(
-      sessionId,
-      getFormRegistryEntry("sample-application-form"),
-      "applicant_name",
-      SENTINEL,
-    );
 
     const logLines: LogLine[] = [];
     setLogSink((line) => logLines.push(JSON.parse(line) as LogLine));
 
     const response = await POST(
-      fillRequest("sample-application-form", acroformFile(), cookie),
+      fillRequest(
+        "sample-application-form",
+        acroformFile(),
+        cookie,
+        { applicant_name: SENTINEL },
+      ),
       { params: Promise.resolve({ formId: "sample-application-form" }) },
     );
     expect(response.status).toBe(200);
@@ -260,12 +305,22 @@ describe("filled PDFs are never persisted server-side (VAL-PDF-005)", () => {
     `;
     expect(byteaColumns).toEqual([]);
 
-    // 3. conversation_turn never sees the sentinel.
-    const turns = await testDb`
-      SELECT count(*) AS n FROM conversation_turn
-      WHERE redacted_transcript LIKE ${"%" + SENTINEL + "%"}
-    `;
-    expect(Number(turns[0].n)).toBe(0);
+    // 3. NO table ever sees the sentinel — the in-request answer has no
+    // server-side home by design.
+    for (const table of [
+      "answer",
+      "vault_entry",
+      "conversation_turn",
+      "session_audit_note",
+      "session",
+      "person",
+    ]) {
+      const rows = await testDb`
+        SELECT count(*) AS n FROM ${testDb(table)}
+        WHERE to_jsonb(${testDb(table)})::text LIKE ${"%" + SENTINEL + "%"}
+      `;
+      expect(Number(rows[0].n), table).toBe(0);
+    }
 
     // 4. No log line carries the sentinel or the values.
     for (const line of logLines) {

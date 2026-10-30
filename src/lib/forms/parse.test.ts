@@ -155,6 +155,9 @@ describe("LLM-assisted mapping (scripted transport)", () => {
         piiLikely: true,
       },
       {
+        // An explicit false from the model stays false (a reviewer could
+        // still override it before commit — the pytest rule then forces
+        // unmapped entries back to true).
         fieldName: "case_number",
         question: "What is your case number?",
         specQuestionId: null,
@@ -221,7 +224,39 @@ describe("LLM-assisted mapping (scripted transport)", () => {
     );
     expect(name?.question).toBe("Your full name");
     expect(name?.specQuestionId).toBeNull();
-    expect(name?.piiLikely).toBe(false);
+    // Sensitive by default: with no model judgment available the field is
+    // treated as identity-likely (the pytest rule mirrors this for the
+    // committed entries).
+    expect(name?.piiLikely).toBe(true);
+  });
+
+  it("an omitted or non-boolean piiLikely defaults to sensitive", async () => {
+    scriptMappingResponse(
+      JSON.stringify({
+        mappings: [
+          {
+            fieldName: "applicant_name",
+            question: "What is your full name?",
+            specQuestionId: null,
+          },
+          {
+            fieldName: "case_number",
+            question: "What is your case number?",
+            specQuestionId: null,
+            piiLikely: "definitely",
+          },
+        ],
+      }),
+    );
+    const parsed = await parseFormPdf(acroformBytes());
+    const name = parsed.mapping.find(
+      (item) => item.fieldName === "applicant_name",
+    );
+    const caseNumber = parsed.mapping.find(
+      (item) => item.fieldName === "case_number",
+    );
+    expect(name?.piiLikely).toBe(true);
+    expect(caseNumber?.piiLikely).toBe(true);
   });
 
   it("falls back when the model returns garbage", async () => {

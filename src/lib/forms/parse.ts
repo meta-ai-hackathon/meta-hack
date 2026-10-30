@@ -484,7 +484,9 @@ function parseMappingResponse(
       fieldName: raw.fieldName,
       question,
       specQuestionId,
-      piiLikely: raw.piiLikely === true,
+      // Sensitive by default: an omitted or non-boolean flag treats the
+      // field as identity-likely rather than betting on public.
+      piiLikely: raw.piiLikely !== false,
     });
   }
   return byName;
@@ -499,7 +501,8 @@ function stripCodeFences(content: string): string {
 /**
  * The honest no-model fallback: ask the label verbatim (or a humanized field
  * name when no label was found) and map nothing to the spec — the proposal
- * stays reviewable and never guesses.
+ * stays reviewable and never guesses. Sensitive by default: with no model
+ * judgment available, the field is treated as identity-likely.
  */
 function fallbackMapping(
   field: DiscoveredField,
@@ -511,7 +514,7 @@ function fallbackMapping(
     fieldName: field.name,
     question: question.slice(0, MAX_QUESTION_LENGTH),
     specQuestionId: null,
-    piiLikely: false,
+    piiLikely: true,
   };
 }
 

@@ -357,9 +357,15 @@ export interface AnswerRecord {
 /**
  * Read the raw answer rows for a session — statuses, values (NULL for pii
  * questions), and provenance — WITHOUT any vault merge. The forms pipeline
-// (Mission v2 M4) consumes this for non-pii fill values and for the
+ * (Mission v2 M4) consumes this for non-pii fill values and for the
  * provenance labels; the vault-side reads stay in the vault module with the
  * per-form allowlist.
+ *
+ * A row whose status or provenance fails validation is SKIPPED, never
+ * guessed at: the write path's CHECK constraint makes that unreachable for
+ * rows this app wrote, so a violating row is out-of-band data, and
+ * fabricating a provenance for it (or trusting it) would both lie. Pinned
+ * by a test so the fail-closed behavior stays deliberate.
  */
 export async function loadAnswerRecords(
   sessionId: string,

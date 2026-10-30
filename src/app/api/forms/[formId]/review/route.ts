@@ -1,7 +1,6 @@
 import { PILOT_CONFIG } from "../../../../../lib/pilot";
 import { getFormRegistryEntry } from "../../../../../lib/forms/registry";
 import { buildFormFlow, FORM_SESSION_TRANSITIONS } from "../../../../../lib/forms/flow";
-import { loadFormAnswers } from "../../../../../lib/forms/answers";
 import { conversationErrorResponse } from "../../../../../lib/conversation";
 import {
   loadAnswerRecords,
@@ -42,17 +41,16 @@ export async function GET(
         return Response.json({ hasSession: false });
       }
 
-      const [answers, records, formAnswers] = await Promise.all([
+      const [answers, records] = await Promise.all([
         loadAnswers(sessionId),
         loadAnswerRecords(sessionId),
-        loadFormAnswers(sessionId, entry.id),
       ]);
       const provenances = Object.fromEntries(
         Object.entries(records).map(
           ([questionId, record]) => [questionId, record.provenance],
         ),
       );
-      const view = buildFormFlow(entry, answers, formAnswers, provenances);
+      const view = buildFormFlow(entry, answers, provenances);
       const sessionState = await loadSessionState(sessionId);
       logInfo("form_review_loaded");
 

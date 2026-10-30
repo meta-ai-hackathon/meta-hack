@@ -5,8 +5,9 @@ import { buildFormFlow } from "./flow";
 // Form-driven flow tests (Mission v2 M4, VAL-PDF-002): form questions join
 // the conversation — mapped fields pre-fill from stored answers ("we
 // already know this from what you told us"), conditional fields respect the
-// spec's skip logic, and unmapped fields are asked normally. Pii values are
-// structurally omitted from the view; their status badge speaks for them.
+// spec's skip logic, and unmapped fields are asked normally (their answers
+// ride the fill request and are never stored). Pii values are structurally
+// omitted from the view; their status badge speaks for them.
 
 const ENTRY = getFormRegistryEntry("sample-application-form");
 
@@ -25,7 +26,6 @@ describe("buildFormFlow (VAL-PDF-002)", () => {
         id_status: { status: "known", value: "need_id" },
         id_issue_detail: { status: "known", value: "my ID was lost" },
       },
-      { applicant_name: { value: "Jane Tester", provenance: "user_supplied" } },
     );
     const byName = new Map(view.fields.map((field) => [field.fieldName, field]));
     expect(byName.get("household_size_count")?.state).toBe("prefilled");
@@ -39,12 +39,14 @@ describe("buildFormFlow (VAL-PDF-002)", () => {
     // The spec's own skip logic marks housing_cost not applicable when the
     // housing situation is a shelter: not prefilled, never asked.
     expect(byName.get("monthly_rent_amount")?.state).toBe("not_applicable");
-    // case_number is unmapped with no stored form answer: still asked.
+    // Unmapped fields are asked: their answers ride the fill request.
     expect(byName.get("case_number")?.state).toBe("asked");
-    expect(view.counts.prefilled).toBe(8);
-    expect(view.counts.asked).toBe(1);
+    expect(byName.get("applicant_name")?.state).toBe("asked");
+    expect(view.counts.prefilled).toBe(7);
+    expect(view.counts.asked).toBe(2);
     expect(view.counts.notApplicable).toBe(1);
     expect(view.toResolve.map((item) => item.fieldName)).toEqual([
+      "applicant_name",
       "case_number",
     ]);
   });
@@ -104,7 +106,7 @@ describe("buildFormFlow (VAL-PDF-002)", () => {
     );
   });
 
-  it("unmapped fields are asked normally and answered into the form store", () => {
+  it("unmapped fields are asked normally — nothing persists them", () => {
     const view = buildFormFlow(ENTRY, {});
     const name = view.fields.find((field) => field.fieldName === "applicant_name");
     expect(name?.state).toBe("asked");
@@ -116,21 +118,8 @@ describe("buildFormFlow (VAL-PDF-002)", () => {
     const toResolveNames = view.toResolve.map((item) => item.fieldName);
     expect(toResolveNames).toContain("applicant_name");
     expect(toResolveNames).toContain("case_number");
-
-    // With a stored form answer, the unmapped field pre-fills too.
-    const answered = buildFormFlow(ENTRY, {}, {
-      applicant_name: { value: "Jane Tester", provenance: "user_supplied" },
-    });
-    const answeredName = answered.fields.find(
-      (field) => field.fieldName === "applicant_name",
-    );
-    expect(answeredName?.state).toBe("prefilled");
-    // piiLikely stays flagged even when the answer is on file: the value
-    // stays out of the client view by design.
-    expect(answeredName?.piiLikely).toBe(true);
-    expect(answeredName !== undefined && !("value" in answeredName)).toBe(true);
-    expect(answered.toResolve.map((item) => item.fieldName)).not.toContain(
-      "applicant_name",
-    );
+    // Sensitive by default: an unmapped field is pii_likely, so its value
+    // could never ride the client view even if one were offered.
+    expect(name?.piiLikely).toBe(true);
   });
 });

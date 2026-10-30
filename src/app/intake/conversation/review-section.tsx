@@ -181,10 +181,23 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
   async function downloadFilledPdf(): Promise<void> {
     setBusy(true);
     try {
-      const response = await fetch(
-        `/api/forms/${data.form.id}/fill`,
-        { method: "POST" },
+      // Drafted answers for fields the question spec doesn't ask ride the
+      // fill request and live only in memory — nothing is stored anywhere.
+      let body: FormData | undefined;
+      const draftsToSend = Object.entries(drafts).filter(
+        ([, value]) => value.trim() !== "",
       );
+      if (draftsToSend.length > 0) {
+        body = new FormData();
+        body.append(
+          "answers",
+          JSON.stringify(Object.fromEntries(draftsToSend)),
+        );
+      }
+      const response = await fetch(`/api/forms/${data.form.id}/fill`, {
+        method: "POST",
+        ...(body ? { body } : {}),
+      });
       if (!response.ok) {
         throw new Error("fill failed");
       }
@@ -203,30 +216,6 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
       );
     } catch {
       announce("The download didn't go through. Try again in a moment.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function saveFormAnswer(fieldName: string): Promise<void> {
-    const value = (drafts[fieldName] ?? "").trim();
-    if (value === "") {
-      return;
-    }
-    setBusy(true);
-    try {
-      const response = await fetch(`/api/forms/${data.form.id}/answer`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ fieldName, value }),
-      });
-      if (!response.ok) {
-        throw new Error("save failed");
-      }
-      setDrafts((previous) => ({ ...previous, [fieldName]: "" }));
-      announce("Saved");
-    } catch {
-      announce("That answer didn't save. Try again in a moment.");
     } finally {
       setBusy(false);
     }
@@ -275,7 +264,7 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
                 <span data-field-value={field.fieldName}>{field.value}</span>
               ) : null}
               {field.state === "asked" && field.specQuestionId === null ? (
-                <span className="flex flex-wrap items-center gap-2">
+                <span className="flex flex-col gap-1">
                   <label
                     className="sr-only"
                     htmlFor={`form-answer-${field.fieldName}`}
@@ -294,14 +283,13 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
                     }
                     className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-800"
                   />
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void saveFormAnswer(field.fieldName)}
-                    className="rounded bg-zinc-800 px-3 py-1 text-sm text-white disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-900"
+                  <span
+                    data-draft-note={field.fieldName}
+                    className="text-xs text-zinc-500 dark:text-zinc-400"
                   >
-                    Save answer
-                  </button>
+                    Used for this download only — nothing is stored on our
+                    side.
+                  </span>
                 </span>
               ) : null}
               {field.state === "asked" && field.specQuestionId !== null ? (
