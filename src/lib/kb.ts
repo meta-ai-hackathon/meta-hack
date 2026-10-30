@@ -10,6 +10,7 @@
 
 import sampleBEntryJson from "../../kb/entries/pilot-program-sample-b.json";
 import sampleCEntryJson from "../../kb/entries/pilot-program-sample-c.json";
+import realEntryJson from "../../kb/entries/nc-medicaid.json";
 import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
 
 // ---------------------------------------------------------------------------
@@ -631,13 +632,16 @@ export function citeFactGroup(
 // ---------------------------------------------------------------------------
 
 /**
- * The shipped knowledge base: three pilot-agnostic sample entries (mission
- * v2 M3 — matching needs more than one entry to rank) until the pilot
- * decision lands. Every entry is validated at module load, so invalid
+ * The shipped knowledge base: the REAL pilot entry (mission v2.1 M6 — the
+ * HACK-16 lock landed; official sources + retrieval dates + HACK-17
+ * claim-verification notes) plus the three pilot-agnostic sample entries
+ * (mission v2 M3 — matching needs more than one entry to rank) which stay
+ * available for tests. Every entry is validated at module load, so invalid
  * KB data fails fast instead of leaking unverified facts.
  */
 export const KB_ENTRIES: readonly KbEntry[] = [
   parseKbEntry(sampleEntryJson as unknown),
   parseKbEntry(sampleBEntryJson as unknown),
   parseKbEntry(sampleCEntryJson as unknown),
+  parseKbEntry(realEntryJson as unknown),
 ];
