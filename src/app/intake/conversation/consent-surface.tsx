@@ -73,6 +73,9 @@ export function ConsentPanel(props: ConsentPanelProps) {
   // Voice is its own additional toggle, and it needs the typed sharing on
   // first (spoken answers reach the same extraction path as typed ones).
   const voiceEnabled = voicePath?.termsVerified === true && props.aiChecked;
+  // The help span only exists when we show the dependency or unverified
+  // copy — never point aria-describedby at a missing element.
+  const showVoiceHelp = !voicePath?.termsVerified || !props.aiChecked;
 
   return (
     <section
@@ -85,10 +88,12 @@ export function ConsentPanel(props: ConsentPanelProps) {
           Before anything is sent: your choice about sharing
         </h2>
         <p className="text-zinc-600 dark:text-zinc-400">
-          Nothing you write or say leaves this device until you allow it. You
-          can change this at any time, and turning sharing off stops sends
-          immediately. The choice is stored on this device, with you — it
-          never carries your answers.
+          No AI provider receives anything from you until you allow it. Your
+          answers save on the app&apos;s server so you can finish later —
+          that is separate, and it is the only place they go while sharing is
+          off. You can change this at any time, and turning sharing off stops
+          sends immediately. The choice itself is stored on this device, with
+          you — it never carries your answers.
         </p>
       </div>
 
@@ -151,7 +156,9 @@ export function ConsentPanel(props: ConsentPanelProps) {
                 checked={props.voiceChecked}
                 disabled={!voiceEnabled}
                 onChange={(event) => props.onToggleVoice(event.target.checked)}
-                aria-describedby="consent-voice-help"
+                aria-describedby={
+                  showVoiceHelp ? "consent-voice-help" : undefined
+                }
                 className="mt-1 h-5 w-5 shrink-0"
               />
               <span>
@@ -214,10 +221,11 @@ export function ConsentPanel(props: ConsentPanelProps) {
         </button>
       </div>
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        The step-by-step form asks the same questions on this device, and
-        nothing is sent anywhere: you still get the same questions, honest
-        status labels, your benefit match, the review screen, and the filled
-        PDF to download.
+        The step-by-step form asks the same questions, and no AI provider
+        receives anything: you still get the same questions, honest status
+        labels, your benefit match, the review screen, and the filled PDF to
+        download. Your answers save on the app&apos;s server so you can pick
+        up later.
       </p>
     </section>
   );

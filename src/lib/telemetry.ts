@@ -371,7 +371,7 @@ const ERROR_USER_MESSAGES: Readonly<Record<ErrorCode, string>> = {
     "Our assistant is unavailable right now. You can keep filling in your answers.",
   rate_limited: "That was a lot of activity at once. Please wait a moment and try again.",
   consent_required:
-    "Nothing was sent anywhere because sharing isn't turned on. Turn on sharing below to use the assistant, or keep going in the step-by-step form.",
+    "Nothing was sent to any AI provider because sharing isn't turned on. Turn on sharing below to use the assistant, or keep going in the step-by-step form.",
   internal: "Something went wrong on our side. Please try again.",
 };
 

@@ -63,11 +63,14 @@ describe("ConsentPanel copy (VAL-CONSENT-002)", () => {
     }
   });
 
-  it("offers the zero-send alternative: the step-by-step form sends nothing", () => {
+  it("offers the zero-send alternative: the step-by-step form reaches no AI provider", () => {
     const html = panelMarkup();
     expect(html).toContain("data-consent-decline");
     expect(html).toMatch(/step-by-step form/);
-    expect(html).toMatch(/nothing is sent anywhere/i);
+    // Honest about the two planes: no AI provider receives anything, and
+    // answers still save on the app's own server (never claimed otherwise).
+    expect(html).toMatch(/no AI provider receives anything/i);
+    expect(html).toMatch(/answers save on the app's server/i);
   });
 
   it("is honest about the one call that sees raw words before redaction", () => {

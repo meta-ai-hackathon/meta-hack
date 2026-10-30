@@ -210,22 +210,22 @@ export function ConversationChat() {
     setNotice(
       next.ai
         ? next.voice
-          ? "Sharing on, including voice. Nothing has been sent yet."
-          : "Sharing on for typed answers. Nothing has been sent yet."
-        : "Sharing is off. Nothing is sent anywhere.",
+          ? "Sharing on, including voice. Nothing has been sent to any AI provider yet."
+          : "Sharing on for typed answers. Nothing has been sent to any AI provider yet."
+        : "Sharing is off. Nothing goes to any AI provider.",
     );
   }
 
   function declineConsent(): void {
     saveConsentReceipt(declinedReceipt());
     setReopened(false);
-    setNotice("Sharing is off. Nothing is sent anywhere.");
+    setNotice("Sharing is off. Nothing goes to any AI provider.");
   }
 
   function revokeConsent(): void {
     saveConsentReceipt(declinedReceipt());
     setReopened(false);
-    setNotice("Sharing is off. Nothing more will be sent anywhere.");
+    setNotice("Sharing is off. Nothing more will be sent to any AI provider.");
   }
 
   function reopenConsent(): void {
@@ -486,13 +486,14 @@ export function ConversationChat() {
           className="flex flex-col gap-3"
         >
           <h2 id="zero-send-heading" className="text-lg font-semibold">
-            Nothing is sent anywhere
+            Nothing goes to any AI provider
           </h2>
           <p className="max-w-xl text-zinc-600 dark:text-zinc-400">
             Sharing is off. The step-by-step questions below drive the same
-            application right here on this device — with honest status
-            labels, your benefit match, the review screen, and the filled PDF
-            to download when you are ready.
+            application right here — with honest status labels, your benefit
+            match, the review screen, and the filled PDF to download when you
+            are ready. Your answers save on the app&apos;s server so you can
+            pick up later; no AI provider receives any of it.
           </p>
           <IntakeWizard onAnswersChanged={() => setAnswersRefresh((n) => n + 1)} />
         </section>
