@@ -9,7 +9,7 @@
       "title": "NC Medicaid: Medicaid is Changing in 2026-27",
       "url": "https://medicaid.ncdhhs.gov/beneficiaries/medicaid-is-changing",
       "retrieved_at": "2026-10-29",
-      "supports": "The January 1, 2027 changes for adults ages 19 through 64 (renewal every 6 months instead of once a year, which the 6 month schedule cites for its age scope; 80 hours a month of work, school or volunteering, or household income of at least $580 a month), who the changes affect (adults ages 19 through 64, people who are not U.S. citizens, and people applying; for everyone else Medicaid does not change, as long as they still meet Medicaid eligibility requirements), the steps everyone with NC Medicaid should take, what happens if Medicaid ends (a letter, usually 60 days to appeal, and free help from the NC Medicaid Ombudsman), and the ePASS, local DSS directory, appeal, and Ombudsman links."
+      "supports": "The January 1, 2027 changes for adults ages 19 through 64 (renewal every 6 months instead of once a year, which the 6 month schedule cites for its age scope; 80 hours a month of work, school or volunteering, or household income of at least $580 a month), who the changes affect (adults ages 19 through 64, people who are not U.S. citizens, and people applying; for everyone else Medicaid does not change, as long as they still meet Medicaid eligibility requirements), the steps everyone with NC Medicaid should take, what happens if Medicaid ends (a letter, usually 60 days to appeal, and free help from the NC Medicaid Ombudsman), and the ePASS, local DSS directory, Office of Administrative Hearings, and Ombudsman links. The page labels the Office of Administrative Hearings link \"How to appeal a Medicaid decision\"; that page covers decisions about Medicaid services, with a 30 day window, so the entry labels the link by what it covers."
     },
     {
       "id": "ncm_work_requirement",
@@ -30,7 +30,7 @@
       "title": "NC Medicaid fact sheet (PDF): How NC Medicaid Eligibility Recertification Works (dated February 2023)",
       "url": "https://medicaid.ncdhhs.gov/documents/medicaid/how-nc-medicaid-eligibility-recertification-works-fact-sheet/download?attachment=",
       "retrieved_at": "2026-10-29",
-      "supports": "How recertification works: every 6 or 12 months depending on the Medicaid program, electronic sources first, a letter from the local DSS when more information is needed, 30 days to answer the first letter and 12 days to answer a later one, and the scam warning."
+      "supports": "How recertification works: every 6 or 12 months depending on the Medicaid program, electronic sources first, a letter from the local DSS when more information is needed, 30 days to answer the first letter and 12 days to answer a later one, how to appeal a local DSS decision if Medicaid ends or changes (up to 60 days from the date of the letter, and a hearing requested from the local DSS caseworker by phone, in writing, or through ePASS), and the scam warning."
     },
     {
       "id": "ncm_recertification_page",
@@ -48,6 +48,7 @@
         "The caseworker first tries to complete the recertification with information from electronic sources, without contacting the person.",
         "If the caseworker needs more information, the local DSS mails a letter.",
         "A person has 30 days to answer the first letter from the local DSS, such as a Medical Assistance Renewal Notice or a Request for Information form. If another letter is sent after the first one, it must be answered within 12 days.",
+        "If Medicaid ends or the Medicaid program changes and the person does not agree, they can appeal the local DSS decision. They have up to 60 days from the date of the letter to ask for an appeal, and they can call, write to, or use ePASS to contact their local DSS caseworker to ask for a hearing.",
         "A letter that asks for information and is not from the local DSS may be a scam. The local DSS can confirm whether a letter came from them."
       ],
       "source_id": "ncm_recertification_fact_sheet",
@@ -76,7 +77,7 @@
           "url": "https://medicaid.ncdhhs.gov/beneficiaries/medicaid-is-changing"
         },
         {
-          "label": "How to appeal a Medicaid decision",
+          "label": "NC Office of Administrative Hearings: how to appeal a decision about a Medicaid service",
           "url": "https://www.oah.nc.gov/hearings-division/medicaid-recipient-appeals/filing-contested-medicaid-recipient-appeal"
         },
         {

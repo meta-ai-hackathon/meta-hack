@@ -51,7 +51,9 @@ describe("Renewal page", () => {
 
   it("shows what to do if coverage ends among the official facts", () => {
     expect(html).toContain("If your coverage ends");
-    expect(html).toContain("How to appeal a Medicaid decision");
+    // The appeal link says what the hearings office page covers (second review).
+    expect(html).toContain("NC Office of Administrative Hearings: how to appeal a decision about a Medicaid service");
+    expect(html).toContain("ask for a hearing");
   });
 
   it("carries no banned claims", () => {

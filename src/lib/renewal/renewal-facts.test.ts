@@ -74,8 +74,18 @@ describe("the pilot renewal entry", () => {
       expect(item.source.sourceUrl).toBe("https://medicaid.ncdhhs.gov/beneficiaries/medicaid-is-changing");
     }
     const labels = PILOT_RENEWAL_FACTS.links.map((link) => link.label);
-    expect(labels).toContain("How to appeal a Medicaid decision");
+    // Second review: the hearings office page covers decisions about a
+    // Medicaid service (30 days), so the link says that instead of "How to
+    // appeal a Medicaid decision", next to a 60 day window.
+    const appeal = PILOT_RENEWAL_FACTS.links.find((link) => link.url.includes("oah.nc.gov"));
+    expect(appeal?.label).toBe("NC Office of Administrative Hearings: how to appeal a decision about a Medicaid service");
+    expect(labels).not.toContain("How to appeal a Medicaid decision");
     expect(labels.some((label) => label.startsWith("NC Medicaid Ombudsman"))).toBe(true);
+    // The fact sheet's route for appealing a local DSS decision.
+    const hearing = PILOT_RENEWAL_FACTS.rules.find((item) => item.text.includes("ask for a hearing"));
+    expect(hearing?.text).toMatch(/up to 60 days from the date of the letter/);
+    expect(hearing?.text).toMatch(/local DSS caseworker/);
+    expect(hearing?.source.sourceTitle).toMatch(/fact sheet/);
   });
 
   it("only says email works where the local DSS accepts it (review fix)", () => {
