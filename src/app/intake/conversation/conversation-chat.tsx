@@ -475,11 +475,11 @@ export function ConversationChat() {
 
   return (
     <div data-conversation-chat className="flex flex-col gap-6">
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-muted">
         Prefer step-by-step questions?{" "}
         <Link
           href={WIZARD_FALLBACK_URL}
-          className="underline hover:text-zinc-900 dark:hover:text-zinc-100"
+          className="underline hover:text-foreground"
         >
           Use the wizard instead
         </Link>
@@ -503,10 +503,10 @@ export function ConversationChat() {
           aria-labelledby="zero-send-heading"
           className="flex flex-col gap-3"
         >
-          <h2 id="zero-send-heading" className="text-lg font-semibold">
+          <h2 id="zero-send-heading" className="font-display text-2xl font-bold">
             Nothing goes to any AI provider
           </h2>
-          <p className="max-w-xl text-zinc-600 dark:text-zinc-400">
+          <p className="max-w-xl text-muted">
             Sharing is off. The step-by-step questions below drive the same
             application right here — with honest status labels, your benefit
             match, the review screen, and the filled PDF to download when you
@@ -520,11 +520,11 @@ export function ConversationChat() {
       <StatusRegion message={notice} />
 
       <section aria-labelledby="conversation-transcript-heading" className="flex flex-col gap-3">
-        <h2 id="conversation-transcript-heading" className="text-lg font-semibold">
+        <h2 id="conversation-transcript-heading" className="font-display text-2xl font-bold">
           Conversation
         </h2>
         {loaded && turns.length === 0 ? (
-          <p className="max-w-xl text-zinc-600 dark:text-zinc-400">
+          <p className="max-w-xl text-muted">
             Say hello, or answer the first question whenever you are ready.
           </p>
         ) : null}
@@ -534,8 +534,8 @@ export function ConversationChat() {
               key={turn.id}
               className={
                 turn.role === "user"
-                  ? "self-end max-w-[85%] rounded-2xl bg-zinc-900 px-4 py-2 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                  : "self-start max-w-[85%] rounded-2xl border border-zinc-200 px-4 py-2 dark:border-zinc-700"
+                  ? "self-end max-w-[85%] rounded-3xl rounded-br-lg bg-foreground px-4 py-2.5 text-background"
+                  : "self-start max-w-[85%] rounded-3xl rounded-bl-lg border border-surface-border bg-surface px-4 py-2.5"
               }
             >
               <span className="sr-only">
@@ -552,7 +552,7 @@ export function ConversationChat() {
         <div
           role="alert"
           data-conversation-error
-          className="flex flex-col gap-2 rounded-md border border-amber-500 bg-amber-50 p-4 text-amber-900"
+          className="flex flex-col gap-2 rounded-2xl border border-amber-line bg-amber-soft p-4 text-foreground"
         >
           <p className="font-medium">{error.message}</p>
           {error.code === "model_unavailable" || error.code === "rate_limited" ? (
@@ -596,12 +596,12 @@ export function ConversationChat() {
               }
             }}
             disabled={busy || !voiceSharingOn}
-            className="flex shrink-0 items-center gap-2 rounded-md border border-zinc-300 px-4 py-2.5 text-base font-semibold hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
+            className="flex shrink-0 items-center gap-2 rounded-full border border-teal px-4 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft disabled:opacity-50"
           >
             <span aria-hidden="true">{recording ? "■" : "●"}</span>
             {recording ? "Stop and send" : "Record an answer"}
           </button>
-          <span className="self-center text-sm text-zinc-600 dark:text-zinc-400">
+          <span className="self-center text-sm text-muted">
             {recording
               ? "Recording — speak now."
               : voiceSharingOn
@@ -612,7 +612,7 @@ export function ConversationChat() {
         {!voiceSharingOn ? (
           <p
             data-voice-consent-guidance
-            className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+            className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"
           >
             Voice sharing is off, so the microphone is never started and no
             audio is ever transmitted. You can turn it on under
@@ -622,7 +622,7 @@ export function ConversationChat() {
         {micBlocked ? (
           <p
             data-mic-blocked-guidance
-            className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+            className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"
           >
             The microphone isn&apos;t available right now. The text box below
             works exactly the same way — typed answers save, redact, and
@@ -644,16 +644,16 @@ export function ConversationChat() {
           maxLength={4000}
           disabled={busy || !aiSharingOn}
           aria-describedby="conversation-input-help"
-          className="rounded-md border border-zinc-300 p-3 text-base dark:border-zinc-600 dark:bg-zinc-800"
+          className="rounded-2xl border border-surface-border bg-surface p-3.5 text-base"
         />
-        <p id="conversation-input-help" className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p id="conversation-input-help" className="text-sm text-muted">
           Private details stay private: the transcript below shows them only as
           &ldquo;you told us&rdquo; marks, never the values themselves.
         </p>
         <button
           type="submit"
           disabled={busy || !aiSharingOn || draft.trim() === ""}
-          className="self-start rounded-md bg-zinc-900 px-5 py-2.5 text-base font-semibold text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          className="self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
         >
           {busy ? "Sending…" : "Send"}
         </button>
@@ -673,12 +673,12 @@ export function ConversationChat() {
           aria-labelledby="conversation-status-heading"
           className="flex flex-col gap-2"
         >
-          <h2 id="conversation-status-heading" className="text-lg font-semibold">
+          <h2 id="conversation-status-heading" className="font-display text-2xl font-bold">
             Your answers so far
           </h2>
           <p
             id="conversation-progress-text"
-            className="text-sm text-zinc-600 dark:text-zinc-400"
+            className="text-sm text-muted"
           >
             Answered {state.progress.answered} of {state.progress.total} questions
             {state.progress.remaining > 0
@@ -698,7 +698,7 @@ export function ConversationChat() {
                 return (
                   <li
                     key={question.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-700"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-surface-border bg-surface p-3"
                   >
                     <span className="font-medium">{question.prompt}</span>
                     {answer ? <AnswerStatusBadge status={answer.status} /> : null}
@@ -708,7 +708,7 @@ export function ConversationChat() {
             </ul>
           ) : null}
           {state.complete ? (
-            <p className="text-zinc-600 dark:text-zinc-400">
+            <p className="text-muted">
               Every question is answered. Nothing is submitted — you decide what
               happens next.
             </p>

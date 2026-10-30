@@ -57,8 +57,8 @@ function displayValue(question: ClientQuestion, value: unknown): string {
 /** The "no requirement to finish in one sitting" affordance (BN-13). */
 function SaveForLater(props: { onSave: () => void; busy: boolean }) {
   return (
-    <div className="flex flex-col gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-700">
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+    <div className="flex flex-col gap-2 border-t border-surface-border pt-4">
+      <p className="text-sm text-muted">
         Your answers save as you go on this device. Stop any time and pick up
         later — nothing is submitted until you decide.
       </p>
@@ -66,7 +66,7 @@ function SaveForLater(props: { onSave: () => void; busy: boolean }) {
         type="button"
         onClick={props.onSave}
         disabled={props.busy}
-        className="self-start rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
+        className="self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-sm font-medium hover:bg-teal-soft disabled:opacity-50"
       >
         {props.busy ? "Saving…" : "Save and finish later"}
       </button>
@@ -284,8 +284,8 @@ export function IntakeWizard(props: {
     );
     return (
       <div data-intake-wizard className="flex flex-col gap-6">
-        <h2 className="text-xl font-semibold">All questions answered for now</h2>
-        <p className="max-w-xl text-zinc-600 dark:text-zinc-400">
+        <h2 className="font-display text-2xl font-bold">All questions answered for now</h2>
+        <p className="max-w-xl text-muted">
           Nothing is submitted — you decide what happens next.
         </p>
         <StatusRegion message={notice} />
@@ -295,13 +295,13 @@ export function IntakeWizard(props: {
             return (
               <li
                 key={question.id}
-                className="flex flex-col gap-1 rounded-md border border-zinc-200 p-3 text-left dark:border-zinc-700"
+                className="flex flex-col gap-1 rounded-xl border border-surface-border bg-surface p-3 text-left"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium">{question.prompt}</span>
                   <AnswerStatusBadge status={answer.status} />
                 </div>
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                <p className="text-sm text-muted">
                   {question.pii
                     ? "Saved privately — not shown again."
                     : displayValue(question, answer.value) ||
@@ -312,7 +312,7 @@ export function IntakeWizard(props: {
                   onClick={() =>
                     goTo(state.questions.indexOf(question), state)
                   }
-                  className="self-start text-sm text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                  className="self-start text-sm text-muted underline hover:text-foreground"
                 >
                   Review this answer
                 </button>
@@ -337,7 +337,7 @@ export function IntakeWizard(props: {
                     onClick={() =>
                       goTo(state.questions.indexOf(question), state)
                     }
-                    className="text-sm text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    className="text-sm text-muted underline hover:text-foreground"
                   >
                     Answer
                   </button>
@@ -363,7 +363,7 @@ export function IntakeWizard(props: {
       <div className="flex flex-col gap-1">
         <p
           id="intake-progress-text"
-          className="text-sm text-zinc-600 dark:text-zinc-400"
+          className="text-sm text-muted"
         >
           Answered {progress.answered} of {progress.total} questions
           {progress.remaining > 0 ? ` — ${progress.remaining} to go` : ""}
@@ -393,7 +393,7 @@ export function IntakeWizard(props: {
         <button
           type="button"
           onClick={() => goTo(current - 1, state)}
-          className="self-start text-base text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          className="self-start text-base text-muted underline hover:text-foreground"
         >
           Back
         </button>

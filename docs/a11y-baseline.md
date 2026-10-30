@@ -15,7 +15,7 @@ and reusable components so every later flow inherits it.
 | Labeled field | `src/components/field.tsx` | Label/control association via `for`/`id`, help text wired through `aria-describedby`, errors announced with `role="alert"` plus `aria-invalid`/`aria-errormessage` on the control. |
 | Status region | `src/components/status-region.tsx` | `role="status"` with `aria-live="polite"` and `aria-atomic="true"`; stays mounted so the first update is announced. |
 | Motion | `src/app/globals.css` | `prefers-reduced-motion` collapses animations and transitions. |
-| Contrast | theme tokens in `src/app/globals.css` | `#171717` on `#ffffff` and `#ededed` on `#0a0a0a` both clear WCAG 2.1 AA with wide margin (about 17:1). |
+| Contrast | theme tokens in `src/app/globals.css` | After the visual-polish pass (VAL-DEMOEXP-008) the default pairing is ink `#0a0a0a` on paper `#f8f4ec` — 18.05:1, at or above the pre-polish 17.93:1 (`#171717` on `#ffffff`); dark mode keeps the pre-polish `#ededed` on `#0a0a0a` (16.91:1). Muted text measures 9.42:1 light (pre-polish muted: 7.81:1). Every token pair is gated by `src/components/contrast-tokens.test.ts`. |
 
 The home page (`src/components/a11y-demo.tsx`) demonstrates the field and
 status region until real flows replace the demo.

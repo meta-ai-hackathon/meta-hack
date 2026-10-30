@@ -46,14 +46,14 @@ function PathTerms({
   terms: ConsentPathSpec["terms"];
 }) {
   return (
-    <span className="flex flex-col gap-1 text-sm text-zinc-600 dark:text-zinc-400">
+    <span className="flex flex-col gap-1 text-sm text-muted">
       {terms.map((termsEntry) => (
         <span key={termsEntry.url}>
           <a
             href={termsEntry.url}
             target="_blank"
             rel="noreferrer"
-            className="underline hover:text-zinc-900 dark:hover:text-zinc-100"
+            className="text-teal underline hover:opacity-80"
           >
             {termsEntry.label}
           </a>{" "}
@@ -81,13 +81,13 @@ export function ConsentPanel(props: ConsentPanelProps) {
     <section
       data-consent-surface
       aria-labelledby="consent-surface-heading"
-      className="flex flex-col gap-4 rounded-lg border border-zinc-300 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-900"
+      className="flex flex-col gap-5 rounded-2xl border border-surface-border bg-surface p-6"
     >
       <div className="flex flex-col gap-2">
-        <h2 id="consent-surface-heading" className="text-xl font-semibold">
+        <h2 id="consent-surface-heading" className="font-display text-2xl font-bold">
           Before anything is sent: your choice about sharing
         </h2>
-        <p className="text-zinc-600 dark:text-zinc-400">
+        <p className="text-muted">
           No AI provider receives anything from you until you allow it. Your
           answers save on the app&apos;s server so you can finish later —
           that is separate, and it is the only place they go while sharing is
@@ -111,7 +111,7 @@ export function ConsentPanel(props: ConsentPanelProps) {
                 checked={props.aiChecked}
                 disabled={!aiEnabled}
                 onChange={(event) => props.onToggleAi(event.target.checked)}
-                className="mt-1 h-5 w-5 shrink-0"
+                className="consent-switch mt-0.5"
               />
               <span>
                 Share the words you type with {aiPath.provider},{" "}
@@ -124,12 +124,12 @@ export function ConsentPanel(props: ConsentPanelProps) {
           ) : (
             <span
               data-honest-unverified-copy
-              className="text-sm text-amber-700 dark:text-amber-400"
+              className="text-sm font-medium text-amber-ink"
             >
               {UNVERIFIED_COPY}
             </span>
           )}
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-muted">
             To be fully honest: with sharing on, each message you type is sent
             to Meta once — the step that pulls your answer out of your
             sentence sees your words before anything is hidden. That is
@@ -159,7 +159,7 @@ export function ConsentPanel(props: ConsentPanelProps) {
                 aria-describedby={
                   showVoiceHelp ? "consent-voice-help" : undefined
                 }
-                className="mt-1 h-5 w-5 shrink-0"
+                className="consent-switch mt-0.5"
               />
               <span>
                 Also share your voice: recordings go to {voicePath.provider}{" "}
@@ -175,7 +175,7 @@ export function ConsentPanel(props: ConsentPanelProps) {
                 <span
                   id="consent-voice-help"
                   data-voice-dependency-copy
-                  className="text-sm text-zinc-600 dark:text-zinc-400"
+                  className="text-sm text-muted"
                 >
                   {VOICE_DEPENDENCY_COPY}
                 </span>
@@ -185,12 +185,12 @@ export function ConsentPanel(props: ConsentPanelProps) {
             <span
               id="consent-voice-help"
               data-honest-unverified-copy
-              className="text-sm text-amber-700 dark:text-amber-400"
+              className="text-sm font-medium text-amber-ink"
             >
               {UNVERIFIED_COPY}
             </span>
           )}
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-muted">
             With voice sharing off, the microphone is never started and no
             audio is ever transmitted. Gemini&apos;s free-tier terms say
             submitted content may be used to improve Google&apos;s products
@@ -207,7 +207,7 @@ export function ConsentPanel(props: ConsentPanelProps) {
           data-consent-continue
           onClick={props.onDecide}
           disabled={!aiEnabled}
-          className="rounded-md bg-zinc-900 px-5 py-2.5 text-base font-semibold text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          className="rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
         >
           Continue with these choices
         </button>
@@ -215,12 +215,12 @@ export function ConsentPanel(props: ConsentPanelProps) {
           type="button"
           data-consent-decline
           onClick={props.onDecline}
-          className="rounded-md border border-zinc-300 px-5 py-2.5 text-base font-semibold hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+          className="rounded-full border border-teal bg-surface px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft"
         >
           Don&apos;t send anything — use the step-by-step form
         </button>
       </div>
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-muted">
         The step-by-step form asks the same questions, and no AI provider
         receives anything: you still get the same questions, honest status
         labels, your benefit match, the review screen, and the filled PDF to
@@ -250,9 +250,9 @@ export function ConsentReceiptPanel(props: ConsentReceiptPanelProps) {
     <section
       data-consent-receipt
       aria-labelledby="consent-receipt-heading"
-      className="flex flex-col gap-2 rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-700"
+      className="flex flex-col gap-2 rounded-2xl border border-surface-border bg-surface p-4 text-sm"
     >
-      <h2 id="consent-receipt-heading" className="text-lg font-semibold">
+      <h2 id="consent-receipt-heading" className="font-display text-xl font-bold">
         Your privacy choices
       </h2>
       <p>
@@ -265,7 +265,7 @@ export function ConsentReceiptPanel(props: ConsentReceiptPanelProps) {
         <summary className="cursor-pointer underline">
           The receipt, exactly as stored
         </summary>
-        <pre className="overflow-x-auto whitespace-pre-wrap break-all text-xs">
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all text-xs text-muted">
           {JSON.stringify(receipt)}
         </pre>
       </details>
@@ -275,7 +275,7 @@ export function ConsentReceiptPanel(props: ConsentReceiptPanelProps) {
           data-consent-revoke
           onClick={props.onRevoke}
           disabled={!receipt.ai && !receipt.voice}
-          className="rounded-md border border-zinc-300 px-4 py-2 font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
+          className="rounded-full border border-surface-border bg-surface px-4 py-2 font-medium hover:bg-teal-soft disabled:opacity-50"
         >
           Turn off sharing
         </button>
@@ -283,7 +283,7 @@ export function ConsentReceiptPanel(props: ConsentReceiptPanelProps) {
           type="button"
           data-consent-reopen
           onClick={props.onReopen}
-          className="rounded-md border border-zinc-300 px-4 py-2 font-medium hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+          className="rounded-full border border-surface-border bg-surface px-4 py-2 font-medium hover:bg-teal-soft"
         >
           Change your choices
         </button>

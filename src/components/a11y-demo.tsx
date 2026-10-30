@@ -25,14 +25,14 @@ export function A11yDemo() {
             {...controlProps}
             type="text"
             name="a11y-demo-field"
-            className="rounded-md border border-zinc-400 bg-white px-3 py-2 text-base text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+            className="rounded-xl border border-surface-border bg-surface px-3 py-2 text-base text-foreground"
           />
         )}
       </Field>
       <button
         type="button"
         onClick={() => setPresses((n) => n + 1)}
-        className="rounded-md border border-zinc-900 bg-zinc-900 px-4 py-2 text-base font-semibold text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+        className="rounded-full bg-teal-deep px-4 py-2 text-base font-semibold text-teal-contrast hover:bg-teal"
       >
         Show an example status update
       </button>
@@ -42,7 +42,7 @@ export function A11yDemo() {
             ? ""
             : `Example status update, press ${presses}: this change was announced to assistive technology.`
         }
-        className="min-h-6 rounded-md border border-dashed border-zinc-400 px-3 py-1.5 text-sm text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+        className="min-h-6 rounded-xl border border-dashed border-surface-border px-3 py-1.5 text-sm text-muted"
       />
     </div>
   );
