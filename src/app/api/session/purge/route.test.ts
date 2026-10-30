@@ -201,6 +201,27 @@ describe("POST /api/session/purge", () => {
     });
   });
 
+  it("refuses a cross-site browser request before reading anything (CSRF gate)", async () => {
+    const sessionId = await seedSessionWith("user_reported_submitted");
+    const response = await POST(
+      new Request("http://localhost:3100/api/session/purge", {
+        method: "POST",
+        headers: {
+          cookie: `${SESSION_COOKIE}=${sessionId}`,
+          "sec-fetch-site": "cross-site",
+        },
+      }),
+    );
+    expect(response.status).toBe(400);
+    // The data-state-driven trigger would have purged this session, but
+    // the cross-site marker short-circuits before the session is read.
+    expect(await dataRowCounts(sessionId)).toEqual({
+      answer: 2,
+      vault_entry: 1,
+      conversation_turn: 1,
+    });
+  });
+
   it("leaves a refused purge intact and resumable (VAL-DEMOEXP-007)", async () => {
     const { sessionId } = await ensureSession(null);
     await saveAnswer(sessionId, "main_goal", "known", "food");

@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../../../lib/honesty";
 import {
   PURGE_DONE_NOTICE,
-  PURGE_FAILED_NOTICE,
+  PURGE_REFUSED_NOTICE,
   PURGE_REMOVING_NOTICE,
+  PURGE_UNKNOWN_NOTICE,
   PurgeConfirmation,
   PurgeSurface,
   requestPurge,
@@ -34,12 +35,13 @@ describe("PurgeSurface (the ready phase)", () => {
     expect(html).toContain("Your data, your call");
     expect(html).toContain("Delete my information");
     expect(html).toContain("This can&#x27;t be undone");
-    // What gets erased: every answer, the filled PDF, the chat history.
+    // What gets erased: every answer, the chat history, the private
+    // details — the same population the confirmation lists.
     expect(html).toContain("data-purge-erased");
     expect(html).toContain("What gets erased");
     expect(html).toContain("Your answers");
-    expect(html).toContain("The filled PDF");
     expect(html).toContain("Your chat history");
+    expect(html).toContain("The private details you told us");
     // What never existed: the PDF was never stored server-side.
     expect(html).toContain("data-purge-never-existed");
     expect(html).toContain("What never existed");
@@ -116,7 +118,8 @@ describe("purge notices", () => {
       "Removing your answers from this device…",
     );
     expect(PURGE_DONE_NOTICE).not.toBe("");
-    expect(PURGE_FAILED_NOTICE).not.toBe("");
+    expect(PURGE_REFUSED_NOTICE).not.toBe("");
+    expect(PURGE_UNKNOWN_NOTICE).not.toBe("");
   });
 });
 
@@ -127,8 +130,7 @@ describe("requestPurge wiring", () => {
       calls.push({ url, init: init ?? {} });
       return new Response(JSON.stringify({ purged: true }), { status: 200 });
     }) as unknown as typeof fetch;
-    const ok = await requestPurge(fetchImpl);
-    expect(ok).toBe(true);
+    expect(await requestPurge(fetchImpl)).toBe("purged");
     expect(calls.length).toBe(1);
     expect(calls[0]!.url).toBe("/api/session/purge");
     expect(calls[0]!.init.method).toBe("POST");
@@ -137,13 +139,20 @@ describe("requestPurge wiring", () => {
     });
   });
 
-  it("reports failure without throwing on a refusal or a network error", async () => {
+  it("separates a definite refusal from an unknown outcome", async () => {
+    // A refusal (4xx/5xx answer) is definite: the server's purge deletes
+    // nothing on those paths, so the notice may say "nothing was removed".
     const refusing = (async () =>
       new Response("no", { status: 400 })) as unknown as typeof fetch;
-    expect(await requestPurge(refusing)).toBe(false);
+    expect(await requestPurge(refusing)).toBe("refused");
+    const serverError = (async () =>
+      new Response("boom", { status: 500 })) as unknown as typeof fetch;
+    expect(await requestPurge(serverError)).toBe("refused");
+    // No answer at all is UNKNOWN: the request may have landed, so the
+    // notice must not claim either way.
     const failing = (async () => {
       throw new Error("network down");
     }) as unknown as typeof fetch;
-    expect(await requestPurge(failing)).toBe(false);
+    expect(await requestPurge(failing)).toBe("unknown");
   });
 });

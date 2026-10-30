@@ -20,9 +20,10 @@ import { removeStoredAnswers } from "../../../lib/intake/client-store";
 // statement, the whole transcript). The on-device answer store (HACK-94)
 // is emptied too. The parent clears the client state and re-reads the
 // journey from the server, which now shows empty: the purge is real, not
-// theater. If the request fails, NOTHING was removed (the server purge is
-// transactional) and the notice says so — answers stay intact and
-// resumable.
+// theater. If the request fails the honest outcome depends on what came
+// back: a definite refusal removed nothing (the server purge is
+// transactional), while a lost connection means the outcome is unknown —
+// the copy says exactly that instead of guessing.
 
 /** The mandated on-screen beat while the purge runs. */
 export const PURGE_REMOVING_NOTICE = "Removing your answers from this device…";
@@ -30,35 +31,57 @@ export const PURGE_REMOVING_NOTICE = "Removing your answers from this device…"
 export const PURGE_DONE_NOTICE =
   "Your answers are gone. This screen lists exactly what remains.";
 
-export const PURGE_FAILED_NOTICE =
+/**
+ * A definite refusal: the server answered and the purge is transactional,
+ * so nothing was removed anywhere — answers stay intact and resumable.
+ */
+export const PURGE_REFUSED_NOTICE =
   "The delete didn't go through. Nothing was removed — your answers are " +
   "still saved. Try again.";
 
 /**
- * The purge request's wiring, injectable-fetch like the voice path: the
- * manual control always sends the explicit confirmation. Returns whether
- * the purge happened — a refusal or a network error is false, never a
- * thrown surprise for the click handler.
+ * No answer came back (the request never completed or the connection
+ * dropped): the outcome is genuinely unknown, so the notice must not
+ * claim either way. Reloading shows the truth; trying again is safe
+ * either way (a purge of an already-purged session removes nothing).
  */
+export const PURGE_UNKNOWN_NOTICE =
+  "We couldn't reach the app to finish the delete, so we can't say " +
+  "whether it went through. Reload the page to see where things stand " +
+  "— nothing more is lost by checking.";
+
+/**
+ * The purge request's wiring, injectable-fetch like the voice path: the
+ * manual control always sends the explicit confirmation. The three
+ * outcomes separate what the honesty spine may claim:
+ * - "purged": the server confirmed — the transaction committed.
+ * - "refused": a definite HTTP refusal — the server deletes nothing on
+ *   those paths, so "nothing was removed" is exact.
+ * - "unknown": no answer (network error, or the connection dropped after
+ *   the request may have landed) — the purge may or may not have
+ *   happened, and the copy must not claim either way.
+ */
+export type PurgeRequestOutcome = "purged" | "refused" | "unknown";
+
 export async function requestPurge(
   fetchImpl: typeof fetch = fetch,
-): Promise<boolean> {
+): Promise<PurgeRequestOutcome> {
   try {
     const response = await fetchImpl("/api/session/purge", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ confirmed: true }),
     });
-    return response.ok;
+    return response.ok ? "purged" : "refused";
   } catch {
-    return false;
+    return "unknown";
   }
 }
 
 const ERASED_ITEMS = [
   "Your answers",
-  "The filled PDF",
   "Your chat history",
+  "The private details you told us",
 ] as const;
 
 /**
@@ -234,8 +257,8 @@ export function PurgeSection({ onPurged }: { onPurged: () => void }) {
   async function deleteMyInformation(): Promise<void> {
     setBusy(true);
     announce(PURGE_REMOVING_NOTICE);
-    const purged = await requestPurge();
-    if (purged) {
+    const outcome = await requestPurge();
+    if (outcome === "purged") {
       // The device-side stores go too: the on-device answer store's slot
       // and the parent's client state (via onPurged, which re-reads the
       // empty journey from the server).
@@ -246,7 +269,9 @@ export function PurgeSection({ onPurged }: { onPurged: () => void }) {
       announce(PURGE_DONE_NOTICE);
     } else {
       setBusy(false);
-      announce(PURGE_FAILED_NOTICE);
+      announce(
+        outcome === "refused" ? PURGE_REFUSED_NOTICE : PURGE_UNKNOWN_NOTICE,
+      );
     }
   }
 

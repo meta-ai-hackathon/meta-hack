@@ -224,20 +224,25 @@ export async function vaultDelete(
  * Idempotent — an empty session deletes nothing. Runs on the caller's
  * executor when one is passed (the purge runs inside one transaction, so a
  * half-finished purge can never happen); defaults to the shared pool.
- * Returns the number of rows removed. Logs a count only — field ids are
- * themselves identifying content (VAL-TEL-002), values never logged.
+ * Returns the number of rows removed. Logs a count only, and only when it
+ * runs on its own connection — a transaction-scoped run is logged by
+ * purgeSessionData after the commit, so a rolled-back purge never leaves a
+ * purge log line behind (field ids are themselves identifying content,
+ * VAL-TEL-002; values never logged).
  */
 export async function purgeSessionVault(
   sessionId: string,
-  executor: postgres.Sql | postgres.TransactionSql = getDb(),
+  executor?: postgres.Sql | postgres.TransactionSql,
 ): Promise<number> {
-  const sql = executor;
+  const sql = executor ?? getDb();
   const deleted = await sql`
     DELETE FROM vault_entry
     WHERE session_id = ${sessionId}
     RETURNING 1
   `;
-  logInfo("vault_purged", { fieldCount: deleted.length });
+  if (executor === undefined) {
+    logInfo("vault_purged", { fieldCount: deleted.length });
+  }
   return deleted.length;
 }
 

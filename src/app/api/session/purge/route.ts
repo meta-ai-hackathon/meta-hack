@@ -35,10 +35,28 @@ interface PurgeRequestBody {
   confirmed?: unknown;
 }
 
+/**
+ * The purge is the one IRREVERSIBLE mutation in the app, so it gets the
+ * strictest CSRF gate of all routes on top of the session cookie's
+ * SameSite=Lax: a browser request whose Sec-Fetch-Site says the call was
+ * issued from another site (a cross-site form post, for instance) is
+ * refused before anything is read. Browsers set this header on every
+ * request they make; non-browser callers (the walkthrough, curl) set none
+ * and pass.
+ */
+function isCrossSiteBrowserRequest(request: Request): boolean {
+  return request.headers.get("sec-fetch-site") === "cross-site";
+}
+
 export async function POST(request: Request): Promise<Response> {
   const requestId = requestIdFromHeaders(request.headers);
   return runWithRequestId(requestId, async () => {
     try {
+      if (isCrossSiteBrowserRequest(request)) {
+        return errorResponse(
+          new AppError("validation_error", userMessageFor("validation_error")),
+        );
+      }
       const parsed = await optionalJsonBody(request);
       const body =
         parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
