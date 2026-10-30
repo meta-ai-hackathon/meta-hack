@@ -34,6 +34,23 @@ GitHub cannot return the PR, a PR event run uses the event's own copy of it
 ($GITHUB_EVENT_PATH), so the comment and the check still follow the event's
 head commit. 2 is a usage error.
 
+Approvals: when a live PR-event run settles its verdict for the head commit
+(a fresh review, or a re-check of a stored verdict by this same reviewer),
+the bot makes sure it has an active APPROVED review on exactly that commit
+if the verdict has no P1, every changed file reached the model, the run read
+the PR from GitHub, the comment shows the verdict, and a stored verdict was
+made against the PR's current base branch. Every other outcome on an open PR
+(a P1, even with the override label; a push that was not reviewed, or not
+fully, for any reason) dismisses every approval the bot has on the PR. A
+fresh review also dismisses them before the model runs (all but those of a
+head commit whose finished review the comment still shows), so a run that
+is cancelled or times out mid-review leaves none standing. Manual runs and
+dry runs never submit or dismiss reviews, and closed PRs and stale events
+keep the bot's reviews as they are. The approval step only logs on failure
+(including GitHub refusing approvals until an org owner allows Actions to
+approve) and starts no call near the job's time limit, so it never changes
+the check or the comment.
+
 Local dry run (reads real PR data, never writes to GitHub, never calls the
 model, needs no Anthropic key; uses GH_TOKEN or the gh CLI login):
 
@@ -55,7 +72,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from email.message import Message
 from pathlib import Path, PurePosixPath
 from typing import IO, Any, Callable, Final, Iterable, Mapping, Protocol, Sequence, TextIO
@@ -132,6 +149,10 @@ MODEL_DEADLINE_SECONDS = 900.0
 MIN_ATTEMPT_SECONDS = 45.0
 ATTEMPT_MARGIN_SECONDS = 10.0
 MAX_MODEL_ATTEMPTS = 3
+# The bot's approval step starts no GitHub call later than this after the
+# script starts, so slow GitHub replies after a slow review cannot run the
+# job past its 20 minutes and fail the check through the approval.
+APPROVAL_DEADLINE_SECONDS = MODEL_DEADLINE_SECONDS + 120.0
 # Dry runs have no real usage, so their cost line assumes this much output
 # (thinking plus the JSON answer at high effort).
 ASSUMED_OUTPUT_TOKENS = 6_000
@@ -231,6 +252,14 @@ class IssueComment:
 
 
 @dataclass(frozen=True)
+class PullReview:
+    id: int
+    author: str
+    state: str  # "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", or "PENDING"
+    commit_id: str | None  # None when GitHub no longer has the commit
+
+
+@dataclass(frozen=True)
 class Finding:
     severity: str
     file: str
@@ -322,6 +351,12 @@ class CommentInputs:
     dry_run: bool = False
     fingerprint: str | None = None  # the reviewer that produced this review
     model_ran: bool = True  # False when no changed file could be sent
+    base_ref: str | None = None  # the base branch the review was made against
+
+    @property
+    def complete(self) -> bool:
+        """Whether every changed file was sent to the model."""
+        return not self.skipped and not self.unlisted_files
 
 
 @dataclass(frozen=True)
@@ -332,6 +367,17 @@ class StickyState:
     status: str  # "pending", "reviewed", or "not_reviewed"
     reviewer: str | None = None
     counts: tuple[int, int, int] | None = None  # P1, P2, P3 of a finished review
+    model_ran: bool = True  # False when no changed file could be sent, so nothing was reviewed
+    complete: bool = True  # False when some changed file was not sent to the model
+    base: str | None = None  # base_digest() of the branch a finished review was made against
+
+
+@dataclass(frozen=True)
+class StickyWrite:
+    """What one write of the sticky comment did."""
+
+    landed: bool  # the body is now the sticky's text
+    kept: StickyState | None = None  # a finished review of the same commit, left in place instead
 
 
 # --- text safety (pure) -----------------------------------------------------------
@@ -1048,14 +1094,35 @@ def format_cost(dollars: float) -> str:
 # --- comment rendering (pure) ----------------------------------------------------------
 
 
+def base_digest(base_ref: str) -> str:
+    """The base branch as the state line keeps it. Hex only, so no branch
+    name can close the HTML comment the state line sits in, and the
+    comment's mention and reference breaking leaves it as it is."""
+    return hashlib.sha256(base_ref.encode("utf-8")).hexdigest()[:16]
+
+
 def state_line(
-    head_sha: str, status: str, *, reviewer: str | None = None, counts: Mapping[str, int] | None = None
+    head_sha: str,
+    status: str,
+    *,
+    reviewer: str | None = None,
+    counts: Mapping[str, int] | None = None,
+    model_ran: bool = True,
+    complete: bool = True,
+    base_ref: str | None = None,
 ) -> str:
     data: dict[str, object] = {"sha": head_sha, "status": status}
     if reviewer:
         data["reviewer"] = reviewer
     if counts is not None:
         data.update({severity.lower(): counts[severity] for severity in SEVERITIES})
+    if base_ref is not None:
+        data["base"] = base_digest(base_ref)
+    # Written only when false, so every other state line stays as it was.
+    if not model_ran:
+        data["model_ran"] = False
+    if not complete:
+        data["complete"] = False
     return STATE_PREFIX + json.dumps(data, sort_keys=True) + " -->"
 
 
@@ -1074,12 +1141,23 @@ def parse_state(body: str) -> StickyState | None:
         return None
     if not isinstance(data, dict):
         return None
-    sha, status, reviewer = data.get("sha"), data.get("status"), data.get("reviewer")
+    sha, status, reviewer, base = data.get("sha"), data.get("status"), data.get("reviewer"), data.get("base")
     if not isinstance(sha, str) or not isinstance(status, str):
         return None
     p1, p2, p3 = (_count(data.get(severity.lower())) for severity in SEVERITIES)
     counts = (p1, p2, p3) if p1 is not None and p2 is not None and p3 is not None else None
-    return StickyState(sha, status, reviewer if isinstance(reviewer, str) else None, counts)
+    # Anything but a missing key or true reads as false, the side that never approves.
+    model_ran = data.get("model_ran", True) is True
+    complete = data.get("complete", True) is True
+    return StickyState(
+        sha,
+        status,
+        reviewer if isinstance(reviewer, str) else None,
+        counts,
+        model_ran,
+        complete,
+        base if isinstance(base, str) else None,
+    )
 
 
 def status_paragraph(counts: Mapping[str, int], override: bool, *, model_ran: bool = True) -> str:
@@ -1201,7 +1279,15 @@ def render_review_comment(inputs: CommentInputs, limit: int = COMMENT_BUDGET) ->
     findings = sort_findings(inputs.findings)
     counts = severity_counts(findings)
     status = status_paragraph(counts, inputs.override, model_ran=inputs.model_ran)
-    state = state_line(inputs.head_sha, "reviewed", reviewer=inputs.fingerprint, counts=counts)
+    state = state_line(
+        inputs.head_sha,
+        "reviewed",
+        reviewer=inputs.fingerprint,
+        counts=counts,
+        model_ran=inputs.model_ran,
+        complete=inputs.complete,
+        base_ref=inputs.base_ref,
+    )
     head = f"{MARKER}\n{state}\n### Claude review of `{short_sha(inputs.head_sha)}`\n\n{status}\n\n"
     if inputs.summary:
         head += clean(inputs.summary) + "\n\n"
@@ -1295,6 +1381,105 @@ RETIRED_BODY = (
     "This older copy of the Claude review comment is retired. The current review is the first "
     "comment from this bot on the PR."
 )
+
+
+# --- approval (pure) ---------------------------------------------------------------------
+
+APPROVED = "APPROVED"
+APPROVAL_SETTING = "Allow GitHub Actions to create and approve pull requests"
+# Fixed text only: no model or PR text ever goes into a review or a dismissal.
+APPROVAL_BODY = (
+    "The Claude review of this commit covered every changed file and found no P1. This approval is the "
+    "review bot's verdict, not a person's review, and the bot's comment on this PR has the details."
+)
+WITHDRAWN_FOR_P1 = (
+    "The latest push has a P1 in the Claude review, so the review bot withdrew its approval. The "
+    "bot's comment on this PR or its workflow run has the details."
+)
+WITHDRAWN_UNREVIEWED = (
+    "The latest push was not reviewed by the Claude review bot, so it withdrew its approval. The "
+    "bot's comment on this PR or its workflow run says why."
+)
+WITHDRAWN_PARTIAL = (
+    "The Claude review of the latest push did not cover every changed file, so the review bot withdrew "
+    "its approval. The bot's comment on this PR says which files it did not review."
+)
+WITHDRAWN_FOR_REVIEW = (
+    "The Claude review bot is reviewing the latest push, so it withdrew this approval until that review "
+    "is done. The bot's comment on this PR shows where the review stands."
+)
+WITHDRAWN_UNCONFIRMED = (
+    "The Claude review bot could not confirm its all clear for this PR as it is now, so it withdrew its "
+    "approval. Its workflow run says why."
+)
+# GitHub's answer when the org or repo setting does not let the workflow's
+# token approve: HTTP 403 or 422 with a message like "GitHub Actions is not
+# permitted to approve pull requests." (or "... to create or approve ...").
+# Other refusals (approving its own PR, a rate limit, a missing permission)
+# have other causes, so they are warnings.
+APPROVAL_REFUSED_STATUSES = frozenset({403, 422})
+_NOT_PERMITTED = re.compile(r"\bnot permitted to (?:create or )?approve\b", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class Approval:
+    """What a live PR-event run does with the bot's own reviews."""
+
+    approve: bool  # True: approve the head commit; False: withdraw the bot's approvals
+    text: str  # the review body, or the dismissal message
+    reason: str  # for the run log
+    keep_head: bool = False  # withdrawing only: keep the bot's approvals of the head commit
+
+
+APPROVE_HEAD = Approval(True, APPROVAL_BODY, "it has no P1 and the review covered every changed file")
+WITHDRAW_FOR_P1 = Approval(False, WITHDRAWN_FOR_P1, "the latest push has a P1")
+WITHDRAW_UNREVIEWED = Approval(False, WITHDRAWN_UNREVIEWED, "the latest push was not reviewed")
+WITHDRAW_PARTIAL = Approval(False, WITHDRAWN_PARTIAL, "the review did not cover every changed file")
+WITHDRAW_FOR_REVIEW = Approval(False, WITHDRAWN_FOR_REVIEW, "a review of the latest push is starting")
+
+
+def approval_for(has_p1: bool, model_ran: bool, complete: bool) -> Approval:
+    """The approval step for a settled verdict. The override label plays no
+    part: it is a person's call to merge anyway, not the bot's all clear.
+    A verdict is not an all clear either when nothing, or not every changed
+    file, was sent to the model."""
+    if has_p1:
+        return WITHDRAW_FOR_P1
+    if not model_ran:
+        return WITHDRAW_UNREVIEWED
+    return APPROVE_HEAD if complete else WITHDRAW_PARTIAL
+
+
+def confirmed(step: Approval, problem: str | None) -> Approval:
+    """step, or a withdrawal when step would approve but the run could not
+    confirm the verdict holds for the PR as it is now (problem says why)."""
+    if step.approve and problem is not None:
+        return Approval(False, WITHDRAWN_UNCONFIRMED, problem)
+    return step
+
+
+def plan_approval(
+    reviews: Iterable[PullReview], bot_login: str, head_sha: str, *, approve: bool, keep_head: bool = False
+) -> tuple[bool, tuple[int, ...]]:
+    """Whether to post an approval of head_sha, and which reviews to dismiss.
+    Approving posts one only when the bot has no active approval of that
+    exact commit and dismisses nothing; withdrawing dismisses each active
+    approval by the bot once, except those of head_sha with keep_head.
+    Reviews by anyone else are never touched."""
+    mine = [item for item in reviews if item.author == bot_login and item.state == APPROVED]
+    if approve:
+        return not any(item.commit_id == head_sha for item in mine), ()
+    return False, tuple(dict.fromkeys(item.id for item in mine if not (keep_head and item.commit_id == head_sha)))
+
+
+def refused_by_setting(exc: ReviewError) -> bool:
+    """Whether GitHub refused an approval because the setting that lets
+    GitHub Actions approve pull requests is off."""
+    return (
+        isinstance(exc, GitHubError)
+        and exc.status in APPROVAL_REFUSED_STATUSES
+        and _NOT_PERMITTED.search(str(exc)) is not None
+    )
 
 
 # --- GitHub API ------------------------------------------------------------------------
@@ -1434,6 +1619,21 @@ def parse_comment(data: object) -> IssueComment:
         raise GitHubError(f"GitHub returned an unexpected comment ({type(exc).__name__})") from None
 
 
+def parse_pull_review(data: object) -> PullReview:
+    item = _as_dict(data, "review")
+    try:
+        user = item.get("user")
+        commit = item.get("commit_id")
+        return PullReview(
+            id=int(item["id"]),
+            author=str(user.get("login") or "") if isinstance(user, dict) else "",
+            state=str(item.get("state") or ""),
+            commit_id=commit if isinstance(commit, str) else None,
+        )
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise GitHubError(f"GitHub returned an unexpected review ({type(exc).__name__})") from None
+
+
 class GitHub(Protocol):
     def get_pull(self, number: int) -> PullRequest: ...
 
@@ -1444,6 +1644,12 @@ class GitHub(Protocol):
     def create_issue_comment(self, number: int, body: str) -> None: ...
 
     def update_issue_comment(self, comment_id: int, body: str) -> None: ...
+
+    def list_pull_reviews(self, number: int) -> list[PullReview]: ...
+
+    def approve_pull_request(self, number: int, commit_id: str, body: str) -> None: ...
+
+    def dismiss_pull_review(self, number: int, review_id: int, message: str) -> None: ...
 
 
 class GitHubApi:
@@ -1534,6 +1740,18 @@ class GitHubApi:
 
     def update_issue_comment(self, comment_id: int, body: str) -> None:
         self._send("PATCH", self._url(f"issues/comments/{comment_id}"), {"body": body})
+
+    def list_pull_reviews(self, number: int) -> list[PullReview]:
+        """Every review on the PR, oldest first (GitHub lists them in order)."""
+        return [parse_pull_review(item) for item in self._get_all(f"pulls/{number}/reviews")]
+
+    def approve_pull_request(self, number: int, commit_id: str, body: str) -> None:
+        payload = {"commit_id": commit_id, "body": body, "event": "APPROVE"}
+        self._send("POST", self._url(f"pulls/{number}/reviews"), payload)
+
+    def dismiss_pull_review(self, number: int, review_id: int, message: str) -> None:
+        payload = {"message": message, "event": "DISMISS"}
+        self._send("PUT", self._url(f"pulls/{number}/reviews/{review_id}/dismissals"), payload)
 
 
 def gh_cli_token() -> str | None:
@@ -1811,6 +2029,10 @@ class Reviewer:
         self.dispatch = self.env.get("GITHUB_EVENT_NAME") == DISPATCH_EVENT
         self.fingerprint: str | None = None
         self.rule_findings: tuple[Finding, ...] = ()
+        # Set by the path that settles the run's verdict for the head commit;
+        # None leaves the bot's reviews alone (closed PRs, stale events).
+        self.approval: Approval | None = None
+        self.started = runtime.clock()  # set again when run() starts
 
     # logging -----------------------------------------------------------------
     def say(self, message: str) -> None:
@@ -1843,7 +2065,7 @@ class Reviewer:
     def _stickies(self) -> list[IssueComment]:
         return find_stickies(self.rt.github.list_issue_comments(self.options.pr), self.options.bot_login)
 
-    def write_sticky(self, body: str, *, create: bool, keep_review_of: str | None = None) -> StickyState | None:
+    def write_sticky(self, body: str, *, create: bool, keep_review_of: str | None = None) -> StickyWrite:
         """Put body in the sticky: PATCH the oldest one (retiring duplicates),
         or POST one when there is none and create is set, which also covers a
         sticky deleted during the run. With keep_review_of, a sticky that
@@ -1851,18 +2073,19 @@ class Reviewer:
         (it is still true) and its state is returned. GitHub failures only
         warn, since the job summary has the result."""
         if not self._guard_write(body):
-            return None
+            return StickyWrite(landed=False)
+        landed = False
         try:
             stickies = self._stickies()
             if stickies and keep_review_of is not None:
                 state = parse_state(stickies[0].body)
                 if state is not None and state.sha == keep_review_of and state.status == "reviewed":
                     self.notice(f"kept the finished review of {short_sha(keep_review_of)}, which is the same commit")
-                    return state
+                    return StickyWrite(landed=False, kept=state)
             if not stickies:
                 if create:
                     self.rt.github.create_issue_comment(self.options.pr, body)
-                return None
+                return StickyWrite(landed=create)
             try:
                 self.rt.github.update_issue_comment(stickies[0].id, body)
             except GitHubError as exc:
@@ -1870,11 +2093,12 @@ class Reviewer:
                     raise
                 self.notice("the review comment was deleted during the run, so a new one was posted")
                 self.rt.github.create_issue_comment(self.options.pr, body)
+            landed = True
             for extra in stickies[1:]:
                 self.rt.github.update_issue_comment(extra.id, RETIRED_BODY)
         except ReviewError as exc:
             self.warn(f"could not update the review comment ({exc}); the job summary has the result")
-        return None
+        return StickyWrite(landed=landed)
 
     def step_summary(self, body: str) -> None:
         path = self.env.get("GITHUB_STEP_SUMMARY")
@@ -1919,11 +2143,13 @@ class Reviewer:
             server_url=self.server_url,
         )
         self.step_summary(body)
-        kept = self.write_sticky(body, create=create, keep_review_of=pr.head_sha)
+        kept = self.write_sticky(body, create=create, keep_review_of=pr.head_sha).kept
         # The check follows the comment: a finished review of this same commit
         # was kept, so its P1s still count, and so do the file-rule P1s.
         kept_p1 = kept is not None and kept.counts is not None and kept.counts[0] > 0
         rule_p1 = any(finding.severity == "P1" for finding in rule_findings)
+        # This run settled nothing, so the bot never approves from here.
+        self.approval = WITHDRAW_FOR_P1 if kept_p1 or rule_p1 else WITHDRAW_UNREVIEWED
         return 1 if (kept_p1 or rule_p1) and not has_override(pr.labels) else 0
 
     def finished_review(self, head_sha: str) -> tuple[IssueComment, StickyState] | None:
@@ -1948,13 +2174,22 @@ class Reviewer:
             return None
         return stickies[0], state
 
-    def replay(self, pr: PullRequest, sticky: IssueComment, counts: tuple[int, int, int]) -> int:
+    def replay(self, pr: PullRequest, sticky: IssueComment, state: StickyState, *, unread: bool) -> int:
         """Re-check a finished review's verdict against the current labels
         without calling the model, and keep the comment's verdict line in
-        step with the override label."""
-        p1, p2, p3 = counts
+        step with the override label. With unread, pr is the event's copy."""
+        assert state.counts is not None  # finished_review checked it
+        p1, p2, p3 = state.counts
         override = has_override(pr.labels)
         code = 1 if p1 and not override else 0
+        problem = None
+        if unread:
+            # The event's copy can be behind the PR, so it proves nothing about the head.
+            problem = "this run could not read the PR from GitHub"
+        elif state.base != base_digest(pr.base_ref):
+            # The PR's diff changes with its base, so the stored verdict is for another diff.
+            problem = "the stored review was made against another base branch"
+        self.approval = confirmed(approval_for(p1 > 0, state.model_ran, state.complete), problem)
         self.notice(
             f"{short_sha(pr.head_sha)} already has a finished review by this reviewer ({p1} P1, {p2} P2, "
             f"{p3} P3), so this run re-checks that verdict without calling the model"
@@ -1973,6 +2208,77 @@ class Reviewer:
         )
         return code
 
+    # the bot's approval ------------------------------------------------------------
+    def sync_approval(self, pr: PullRequest) -> None:
+        """The run's last step: bring the bot's own reviews in line with the
+        verdict this run settled. Manual runs never touch reviews."""
+        if self.approval is not None and not self.dispatch:
+            self.apply_approval(pr, self.approval)
+
+    def apply_approval(self, pr: PullRequest, step: Approval) -> None:
+        """Approve the head commit, or withdraw the bot's approvals on the PR.
+        Approvals are informational, so every failure here only logs: it never
+        changes the check or the comment."""
+        try:
+            self._apply_approval(pr, step)
+        except ReadOnlyViolation:
+            raise
+        except Exception as exc:  # a bug in this step must not fail the check either
+            detail = clip(" ".join(redact_sensitive(str(exc))[0].split()), 300)
+            self.say(f"claude review: unexpected {type(exc).__name__} in the approval step: {detail}")
+            self.warn(f"could not update the bot's approval ({type(exc).__name__}); the check and the comment are unaffected")
+
+    def _out_of_time(self) -> bool:
+        """Whether the approval step must stop before its next GitHub call, so
+        that slow replies cannot run the job past its time limit."""
+        if self.rt.clock() - self.started < APPROVAL_DEADLINE_SECONDS:
+            return False
+        self.warn("left the bot's approval as it was, since the run is close to the job's time limit")
+        return True
+
+    def _apply_approval(self, pr: PullRequest, step: Approval) -> None:
+        if self.options.dry_run:
+            raise ReadOnlyViolation("a dry run reached the approval step")
+        github, number, sha = self.rt.github, self.options.pr, short_sha(pr.head_sha)
+        if self._out_of_time():
+            return
+        try:
+            reviews = github.list_pull_reviews(number)
+        except ReviewError as exc:
+            self.warn(f"could not list the PR's reviews, so the bot's approval was not updated ({exc})")
+            return
+        post, dismiss = plan_approval(
+            reviews, self.options.bot_login, pr.head_sha, approve=step.approve, keep_head=step.keep_head
+        )
+        if step.approve and not post:
+            self.say(f"claude review: the bot already approves {sha}")
+        if post and not self._out_of_time():
+            try:
+                github.approve_pull_request(number, pr.head_sha, step.text)
+            except ReviewError as exc:
+                if refused_by_setting(exc):
+                    self.notice(
+                        f"GitHub did not let the bot approve {sha} ({exc}). For the bot to approve PRs, an org "
+                        f'owner has to turn on "{APPROVAL_SETTING}" (organization settings, Actions, General). '
+                        "The check and the comment are unaffected."
+                    )
+                else:
+                    self.warn(f"could not approve {sha} ({exc}); the check and the comment are unaffected")
+            else:
+                self.notice(f"approved {sha}, since {step.reason}")
+        withdrawn = 0
+        for review_id in dismiss:
+            if self._out_of_time():
+                break
+            try:
+                github.dismiss_pull_review(number, review_id, step.text)
+            except ReviewError as exc:
+                self.warn(f"could not withdraw the bot's approval in review {review_id} ({exc})")
+            else:
+                withdrawn += 1
+        if withdrawn:
+            self.notice(f"withdrew {withdrawn} approval{'s' if withdrawn != 1 else ''} by the bot, since {step.reason}")
+
     # the run ---------------------------------------------------------------------
     def run(self) -> int:
         options, rt = self.options, self.rt
@@ -1983,7 +2289,7 @@ class Reviewer:
                 "Actions. Use --dry-run locally."
             )
             return 2
-        started = rt.clock()
+        started = self.started = rt.clock()
         unread: ReviewError | None = None
         try:
             pr = rt.github.get_pull(options.pr)
@@ -2005,14 +2311,18 @@ class Reviewer:
         if not live:
             return self.dry_run(pr)
         try:
-            return self.finish(self.live(pr, started, unread))
+            code = self.live(pr, started, unread)
         except ReadOnlyViolation:
             raise
         except Exception as exc:  # the fail-open boundary: a bug must not fail the check
             detail = clip(" ".join(redact_sensitive(str(exc))[0].split()), 300)
             self.say(f"claude review: unexpected {type(exc).__name__}: {detail}")
             reason = f"the review bot hit an unexpected error ({type(exc).__name__})"
-            return self.finish(self.not_reviewed(pr, reason, self.rule_findings))
+            code = self.not_reviewed(pr, reason, self.rule_findings)
+        # After the exit code and the comment are settled, and outside the
+        # boundary above, so nothing the approval step does can change either.
+        self.sync_approval(pr)
+        return self.finish(code)
 
     def live(self, pr: PullRequest, started: float, unread: ReviewError | None = None) -> int:
         """A live run after the PR is read: re-check a stored verdict, or
@@ -2039,8 +2349,7 @@ class Reviewer:
         finished = self.finished_review(pr.head_sha)
         if finished is not None:
             sticky, state = finished
-            assert state.counts is not None  # finished_review checked it
-            return self.replay(pr, sticky, state.counts)
+            return self.replay(pr, sticky, state, unread=unread is not None)
         if pr.draft and not self.dispatch:
             return self.not_reviewed(pr, "the PR is a draft", (), create=False, hint=DRAFT_HINT)
 
@@ -2057,11 +2366,18 @@ class Reviewer:
 
         # Posted right away (not only edited), so a first push whose review
         # fails or never finishes still shows that it was not reviewed.
-        self.write_sticky(
+        pending = self.write_sticky(
             render_status_comment(pr.head_sha, pending=True, run_url=self.run_url),
             create=True,
             keep_review_of=pr.head_sha,
         )
+        if not self.dispatch:
+            # Until this review is done the push is not reviewed, so no bot
+            # approval stands meanwhile: a run that is cancelled, times out or
+            # dies mid-review never reaches its last step. Only a finished
+            # review of this same commit, which the comment still shows, keeps
+            # its approval until the new verdict replaces it.
+            self.apply_approval(pr, replace(WITHDRAW_FOR_REVIEW, keep_head=pending.kept is not None))
         return self.review(pr, docs, key, started)
 
     def review(self, pr: PullRequest, docs: ContextDocs, key: str, started: float) -> int:
@@ -2123,12 +2439,21 @@ class Reviewer:
         self.say(f"claude review: {short_sha(pr.head_sha)} has {tally}")
         self.step_summary(render_review_comment(inputs, limit=STEP_SUMMARY_BUDGET))
         if latest.head_sha != pr.head_sha:
+            # The newer run owns the bot's approval too, so it is left alone.
             self.notice(
                 f"the PR moved from {short_sha(pr.head_sha)} to {short_sha(latest.head_sha)} during the review, "
                 "so the newer run owns the comment"
             )
         else:
-            self.write_sticky(render_review_comment(inputs), create=True)
+            written = self.write_sticky(render_review_comment(inputs), create=True)
+            problem = None
+            if not written.landed:
+                # The approval points to the comment, so it needs the comment.
+                problem = "this run could not update its comment"
+            elif latest.base_ref != pr.base_ref:
+                problem = "the PR's base branch changed during the review"
+            step = approval_for(any(f.severity == "P1" for f in findings), reply is not None, inputs.complete)
+            self.approval = confirmed(step, problem)
         return decide_exit(findings, latest.labels)
 
     def comment_inputs(
@@ -2158,6 +2483,7 @@ class Reviewer:
             dry_run=self.options.dry_run,
             fingerprint=self.fingerprint,
             model_ran=reply is not None,
+            base_ref=pr.base_ref,
         )
 
     def dry_run(self, pr: PullRequest) -> int:
@@ -2186,6 +2512,7 @@ class Reviewer:
             say(render_review_comment(inputs))
             say("----- end of comment -----")
             say(f"A live run would exit {decide_exit(findings, pr.labels)}.")
+            self.preview_approval(pr, approval_for(any(f.severity == "P1" for f in findings), False, inputs.complete))
             return 0
         if options.canned_response is not None:
             try:
@@ -2240,13 +2567,56 @@ class Reviewer:
             usage=(Usage(model=MODEL, input_tokens=input_tokens, output_tokens=ASSUMED_OUTPUT_TOKENS),),
         )
         findings = sort_findings(plan.rule_findings + result.findings)
-        body = render_review_comment(self.comment_inputs(pr, plan, result.summary, findings, reply, pr.labels))
+        inputs = self.comment_inputs(pr, plan, result.summary, findings, reply, pr.labels)
+        body = render_review_comment(inputs)
         say("----- comment a live run would post (canned model response) -----")
         say(body)
         say(f"----- end of comment ({len(body):,} characters; GitHub's limit is {COMMENT_LIMIT:,}) -----")
         code = decide_exit(findings, pr.labels)
         say(f"With these canned findings a live run would exit {code}.")
+        self.preview_approval(pr, approval_for(any(f.severity == "P1" for f in findings), True, inputs.complete))
         return 0
+
+    def preview_approval(self, pr: PullRequest, step: Approval) -> None:
+        """Print what the approval steps of a live PR-event run would do with
+        this verdict. It lists the PR's reviews and never writes."""
+        sha = short_sha(pr.head_sha)
+        try:
+            reviews = self.rt.github.list_pull_reviews(self.options.pr)
+        except ReviewError as exc:
+            self.say(f"Approval step: could not list the PR's reviews ({exc}), so this dry run cannot say what it would change.")
+            return
+
+        def named(ids: Sequence[int]) -> str:
+            return f"review{'s' if len(ids) != 1 else ''} {', '.join(str(review_id) for review_id in ids)}"
+
+        post, dismiss = plan_approval(reviews, self.options.bot_login, pr.head_sha, approve=step.approve)
+        if step.approve:
+            would = f"approve {sha}, since {step.reason}" if post else f"post no approval, since the bot already approves {sha}"
+            # The review itself starts by withdrawing the bot's approvals of other commits.
+            _post, older = plan_approval(reviews, self.options.bot_login, pr.head_sha, approve=False, keep_head=True)
+            if older:
+                others = "its approval of another commit" if len(older) == 1 else "its approvals of other commits"
+                would += f", and withdraw {others} ({named(older)}) when the review starts"
+        elif dismiss:
+            would = f"withdraw the bot's approval in {named(dismiss)}, since {step.reason}"
+        else:
+            would = f"withdraw nothing, since the bot has no active approval on this PR ({step.reason})"
+        if pr.state != "open":
+            self.say(
+                f"Approval step: none, since PR #{pr.number} is {pr.state or 'not open'}. On an open PR, a live "
+                f"run of a PR event with these findings would {would}."
+            )
+        else:
+            self.say(
+                f"Approval step: a live run of a PR event with these findings would {would}. Manual runs never "
+                "approve or withdraw."
+            )
+        if post:
+            self.say(
+                f'GitHub refuses the approval until an org owner turns on "{APPROVAL_SETTING}"; the run then logs '
+                "a notice and nothing else changes."
+            )
 
 
 def run(options: Options, runtime: Runtime) -> int:
