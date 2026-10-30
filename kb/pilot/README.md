@@ -35,13 +35,16 @@ Read these before changing the renewal schedules.
 - **Who renews every 6 months.** The Medicaid is Changing page says the 2027
   changes only affect adults ages 19 through 64, people who are not U.S.
   citizens, and people applying, and that for everyone else Medicaid does not
-  change. The September 1, 2026 NCDHHS press release and the toolkit flyer
-  aim the 6 month renewal at adults ages 19 through 64 (the press release says
-  people with Medicaid expansion; the flyer is written for adults in that age
-  group without a disability). The Work and Community Engagement Requirement
-  page, which the `renewal_cadence` group cites, tells everyone who is exempt
-  from the work rule, a list that includes people younger than 19 and older
-  than 64, that they will renew every 6 months. The entry follows the
+  change, as long as they still meet Medicaid eligibility requirements. Keep
+  that condition with the fact: without it the line reads as a promise of
+  continued coverage. The September 1, 2026 NCDHHS press release and the
+  toolkit flyer aim the 6 month renewal at adults ages 19 through 64 (the
+  press release says people with Medicaid expansion; the flyer is written for
+  adults in that age group without a disability). The Work and Community
+  Engagement Requirement page, which the `renewal_cadence` group cites, tells
+  everyone who is exempt from the work rule, a list that includes people
+  younger than 19 and older than 64, that they will renew every 6 months. The
+  entry follows the
   majority reading: the 6 month schedule carries `ages` 19 through 64, the
   tracker asks one question that stays on the device, and it leaves that
   estimate out when the answer is outside those ages. The press release is

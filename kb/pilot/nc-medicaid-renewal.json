@@ -9,7 +9,7 @@
       "title": "NC Medicaid: Medicaid is Changing in 2026-27",
       "url": "https://medicaid.ncdhhs.gov/beneficiaries/medicaid-is-changing",
       "retrieved_at": "2026-10-29",
-      "supports": "The January 1, 2027 changes for adults ages 19 through 64 (renewal every 6 months instead of once a year; 80 hours a month of work, school or volunteering, or household income of at least $580 a month), who the changes affect (adults ages 19 through 64, people who are not U.S. citizens, and people applying; for everyone else Medicaid does not change), the steps everyone with NC Medicaid should take, what happens if Medicaid ends (a letter, usually 60 days to appeal, and free help from the NC Medicaid Ombudsman), and the ePASS, local DSS directory, appeal, and Ombudsman links."
+      "supports": "The January 1, 2027 changes for adults ages 19 through 64 (renewal every 6 months instead of once a year; 80 hours a month of work, school or volunteering, or household income of at least $580 a month), who the changes affect (adults ages 19 through 64, people who are not U.S. citizens, and people applying; for everyone else Medicaid does not change, as long as they still meet Medicaid eligibility requirements), the steps everyone with NC Medicaid should take, what happens if Medicaid ends (a letter, usually 60 days to appeal, and free help from the NC Medicaid Ombudsman), and the ePASS, local DSS directory, appeal, and Ombudsman links."
     },
     {
       "id": "ncm_work_requirement",
@@ -98,7 +98,7 @@
           "due": "2027-01-01"
         },
         {
-          "label": "These changes for adults apply only to ages 19 through 64. For someone the new rules do not affect, such as a U.S. citizen younger than 19 or older than 64 who already has Medicaid, Medicaid does not change",
+          "label": "These changes for adults apply only to ages 19 through 64. For someone the new rules do not affect, such as a U.S. citizen younger than 19 or older than 64 who already has Medicaid, Medicaid does not change, as long as they still meet Medicaid eligibility requirements",
           "due": "2027-01-01"
         }
       ],

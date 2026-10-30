@@ -50,9 +50,13 @@ describe("the pilot renewal entry", () => {
     expect(PILOT_RENEWAL_FACTS.keyDates[0]!.label).toContain("6 months");
     expect(PILOT_RENEWAL_FACTS.keyDates[1]!.label).toContain("$580");
     expect(PILOT_RENEWAL_FACTS.keyDates[1]!.label).toContain("80 hours");
-    // Review fix: people outside ages 19 through 64 keep their Medicaid as it is.
+    // Review fix: the 2027 changes do not apply outside ages 19 through 64,
+    // and the source's condition stays with that line (second review: it
+    // read as continued coverage without it).
     expect(PILOT_RENEWAL_FACTS.keyDates[2]!.label).toMatch(/younger than 19 or older than 64/);
-    expect(PILOT_RENEWAL_FACTS.keyDates[2]!.label).toMatch(/does not change/);
+    expect(PILOT_RENEWAL_FACTS.keyDates[2]!.label).toMatch(
+      /does not change, as long as they still meet Medicaid eligibility requirements$/,
+    );
   });
 
   it("says how long a person has to answer a renewal letter (review fix)", () => {
