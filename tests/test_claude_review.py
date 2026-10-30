@@ -69,9 +69,9 @@ OLD_HEAD = "d" * 40
 BASE = "c" * 40
 RELEASE_BASE = "e" * 40  # the tip of another base branch, release/1.0
 FAKE_KEY = "fake-review-key-for-tests"
-# The PR's author: PR #44's, whose account added the override label four
-# minutes before merging past three P1s. The bot's agents run under it too.
-AUTHOR = "yifu001"
+# The PR's author. Agents act under their owner's account, so the author's
+# agents add labels as this login too.
+AUTHOR = "pr-author"
 ZWSP = "​"
 LIVE_ENV: Mapping[str, str] = {"GITHUB_ACTIONS": "true", "ANTHROPIC_REVIEW_KEY": FAKE_KEY}
 DISPATCH_ENV: Mapping[str, str] = {**LIVE_ENV, "GITHUB_EVENT_NAME": "workflow_dispatch"}
@@ -1005,12 +1005,12 @@ class ExitRuleProperties(unittest.TestCase):
 
 class OverrideRuleProperties(unittest.TestCase):
     """The override label counts only when its most recent application was by
-    an account that is neither the PR's author nor a bot (PR #44: the
-    author's account, which their agents also run under, added it)."""
+    an account that is neither the PR's author nor a bot. The author's
+    account, which their agents also run under, never counts."""
 
     @PBT
     @given(st.lists(LABEL_EVENTS, max_size=12), st.sampled_from(OVERRIDE_SPELLINGS))
-    @example(ADDED_BY_AUTHOR, review.OVERRIDE_LABEL)  # PR #44
+    @example(ADDED_BY_AUTHOR, review.OVERRIDE_LABEL)  # the author added it
     @example([*ADDED_BY_AUTHOR, label_event("unlabeled", "kurt"), label_event("labeled", "kurt")], review.OVERRIDE_LABEL)
     @example([*ADDED_BY_KURT, label_event("unlabeled", AUTHOR), label_event("labeled", AUTHOR)], review.OVERRIDE_LABEL)
     def test_the_label_counts_exactly_when_a_person_other_than_the_author_added_it_last(
@@ -1094,7 +1094,7 @@ class OverrideRuleProperties(unittest.TestCase):
             self.assertFalse(override.counts)
 
     @PBT
-    @given(HISTORIES, st.sampled_from(["", "yifu 001", "@yifu001", "y" * 101]) | st.text(alphabet=" @<>/.\n", max_size=6))
+    @given(HISTORIES, st.sampled_from(["", "pr author", "@pr-author", "y" * 101]) | st.text(alphabet=" @<>/.\n", max_size=6))
     def test_with_no_author_to_tell_a_person_from_the_label_never_counts(
         self, events: list[review.LabelEvent], author: str
     ) -> None:
@@ -1190,7 +1190,7 @@ class OverrideRuleProperties(unittest.TestCase):
 
     @PBT
     @given(OVERRIDES, st.integers(min_value=1, max_value=60), st.integers(min_value=0, max_value=60))
-    @example(review.Override(review.OVERRIDE_BY_AUTHOR, AUTHOR, "2026-10-29T23:06:13Z"), 3, 0)  # PR #44
+    @example(review.Override(review.OVERRIDE_BY_AUTHOR, AUTHOR, "2026-01-02T03:04:05Z"), 3, 0)  # the author added it
     @example(review.Override(review.OVERRIDE_BY_BOT, "droid"), 1, 0)
     def test_an_ignored_label_is_explained_on_one_safe_line(self, override: review.Override, p1: int, p2: int) -> None:
         counts = {"P1": p1, "P2": p2, "P3": 0}
@@ -3296,7 +3296,7 @@ class OverrideRunTests(unittest.TestCase):
             (ADDED_BY_KURT, ("events",), "because the bot could not read the PR's events to see who added it", 1),
         ]
         for events, fail, says, code in cases:
-            # A merged PR, like #44: a dry run still says what a live run would decide.
+            # A merged PR: a dry run still says what a live run would decide.
             github = NoWriteGitHub(make_pr(labels=LABELED, state="closed"), FILES, events=events, fail=fail)
             run = Run(github, None, env={}, dry_run=True)
             self.assertEqual(run.code, 0)
