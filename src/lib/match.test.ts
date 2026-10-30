@@ -965,6 +965,51 @@ describe("assertNoPiiValuesInMatch", () => {
     expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
   });
 
+  it("degrades a model explanation that echoes this session's pii value", async () => {
+    // Round-5 P2 on PR #46: the explanation is model output grounded on the
+    // entry — it never sees user content — so a word colliding with this
+    // session's free-text pii answer is coincidence. THIS response's card
+    // degrades to entry-fact copy instead of failing the whole match list,
+    // and the per-entry cache (shared across users) is untouched.
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "gather" },
+      main_goal: { status: "known", value: "food" },
+    };
+    const response = await buildMatchResponse(answers, {
+      explainer: async () => ({
+        text: "Applicants should gather documents early.",
+        source: "model" as const,
+      }),
+      explanationCache: new Map(),
+    });
+    const card = response.matches.find(
+      (entry) => entry.entryId === "pilot_program_sample_b",
+    )!;
+    expect(card.explanation.source).toBe("facts");
+    expect(card.explanation.text).not.toContain("gather");
+    expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+  });
+
+  it("keeps a model explanation whose words are the entry's own copy", async () => {
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "application" },
+      main_goal: { status: "known", value: "food" },
+    };
+    const response = await buildMatchResponse(answers, {
+      explainer: async () => ({
+        text: "The application window stays open.",
+        source: "model" as const,
+      }),
+      explanationCache: new Map(),
+    });
+    const card = response.matches.find(
+      (entry) => entry.entryId === "pilot_program_sample_b",
+    )!;
+    // "application" is the entry's own deadline word — grounded copy, kept.
+    expect(card.explanation.source).toBe("model");
+    expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+  });
+
   it("bites exactly when a specific pii value reaches a user-derived field (property)", async () => {
     await fc.assert(
       fc.asyncProperty(

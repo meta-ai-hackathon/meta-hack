@@ -98,6 +98,11 @@ const HONEST_SENTENCES: string[] = [
   "The checklist shows whether you meet the requirements.",
   "When you meet the income limits, you may be eligible.",
   "Once you meet the requirements, you may be eligible.",
+  // Requirement and checklist copy describes what documents prove, not
+  // what the person's outcome is.
+  "Bring documents that show you meet the residency requirements.",
+  "You can keep your answers until you meet the caseworker.",
+  "Unless you meet the limits, the office may review your file.",
 ];
 
 // Parsed from the repo's spec and migration files at test time — the literals

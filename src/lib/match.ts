@@ -645,6 +645,21 @@ export async function buildMatchResponse(
   const ranked = rankEntries(answers, entries);
   const matches: MatchCard[] = [];
   const signalMatched = ranked.filter((rankedEntry) => rankedEntry.score > 0);
+  // Word-boundary patterns for THIS session's specific pii values, used to
+  // degrade (never pin) an explanation that collides with them.
+  const piiPatterns: RegExp[] = [];
+  for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
+    const stored = answers[questionId];
+    if (!stored || stored.value === null || stored.value === undefined) {
+      continue;
+    }
+    for (const element of Array.isArray(stored.value) ? stored.value : [stored.value]) {
+      const raw = String(element).trim();
+      if (raw !== "" && isSpecificValue(raw)) {
+        piiPatterns.push(new RegExp(`\\b${escapeRegExpValue(raw)}\\b`, "i"));
+      }
+    }
+  }
   for (const [index, rankedEntry] of signalMatched.entries()) {
     const key = explanationCacheKey(rankedEntry.entry);
     let explanation = cache.get(key);
@@ -664,7 +679,29 @@ export async function buildMatchResponse(
         source: "facts",
       };
     }
-    matches.push(buildCard(rankedEntry, explanation));
+    let card = buildCard(rankedEntry, explanation);
+    if (
+      explanation.source === "model" &&
+      piiPatterns.length > 0 &&
+      piiPatterns.some(
+        (pattern) =>
+          pattern.test(card.explanation.text) &&
+          !pattern.test(cardStaticCopy(rankedEntry.entry, card)),
+      )
+    ) {
+      // The model explanation is grounded on the entry and never sees user
+      // content, so a word colliding with this session's free-text pii
+      // answer is coincidence, not a leak. Degrade THIS card to the
+      // entry-fact copy for this response — the cached copy (per entry,
+      // shared across users) is untouched (claude-review P2 on PR #46,
+      // round 5).
+      logWarn("match_explanation_pii_echo_degraded");
+      card = buildCard(rankedEntry, {
+        text: composeFallbackExplanation(rankedEntry.entry),
+        source: "facts",
+      });
+    }
+    matches.push(card);
   }
   logInfo("match_response_built", { cardCount: matches.length });
   return { matches, toResolve: buildToResolve(answers) };
@@ -698,11 +735,43 @@ function isSpecProducedLabel(label: string): boolean {
 }
 
 /**
- * The public copy THIS response renders from its own sources: the matched
- * cards' entry text, the glossary terms each card actually renders, the
- * spec-produced answer labels it shows, the fixed tri-state status labels,
- * and the to-resolve prompts (verbatim spec questions). Never computed from
- * a raw echo of the user's own text, so a leak cannot excuse itself.
+ * The entry-derived copy one card renders: the entry's own text plus the
+ * glossary terms the card actually displays. This is the excusal set for
+ * that card's model explanation — the explanation is grounded on THIS
+ * entry, so its legitimate vocabulary is exactly here.
+ */
+function cardStaticCopy(entry: KbEntry, card: MatchCard): string {
+  const parts: string[] = [entry.title];
+  for (const source of entry.sources) {
+    parts.push(`${source.title} ${source.supports}`);
+  }
+  for (const name of ALL_KB_FACT_GROUPS) {
+    const group = entry.facts[name];
+    if (!group) {
+      continue;
+    }
+    for (const item of group.items) {
+      if (typeof item === "string") {
+        parts.push(item);
+      } else if ("questionId" in item) {
+        parts.push(item.reason);
+      } else {
+        parts.push(`${item.label} ${"due" in item ? item.due : item.url}`);
+      }
+    }
+  }
+  for (const term of card.terms) {
+    parts.push(`${term.term} ${term.definition}`);
+  }
+  return parts.join(" ").toLowerCase();
+}
+
+/**
+ * The public copy THIS response renders from its own sources: each matched
+ * card's entry text and rendered glossary terms, the spec-produced option
+ * labels it shows, the fixed tri-state status labels, and the to-resolve
+ * prompts (verbatim spec questions). Never computed from a raw echo of the
+ * user's own text, so a leak cannot excuse itself.
  */
 function responseStaticCopy(response: MatchResponse): string {
   const parts: string[] = [
@@ -713,25 +782,7 @@ function responseStaticCopy(response: MatchResponse): string {
   for (const card of response.matches) {
     const entry = KB_ENTRIES.find((candidate) => candidate.id === card.entryId);
     if (entry) {
-      parts.push(entry.title);
-      for (const source of entry.sources) {
-        parts.push(`${source.title} ${source.supports}`);
-      }
-      for (const name of ALL_KB_FACT_GROUPS) {
-        const group = entry.facts[name];
-        if (!group) {
-          continue;
-        }
-        for (const item of group.items) {
-          if (typeof item === "string") {
-            parts.push(item);
-          } else if ("questionId" in item) {
-            parts.push(item.reason);
-          } else {
-            parts.push(`${item.label} ${"due" in item ? item.due : item.url}`);
-          }
-        }
-      }
+      parts.push(cardStaticCopy(entry, card));
     }
     for (const reason of card.reasons) {
       if (
@@ -740,9 +791,6 @@ function responseStaticCopy(response: MatchResponse): string {
       ) {
         parts.push(reason.answerLabel);
       }
-    }
-    for (const term of card.terms) {
-      parts.push(`${term.term} ${term.definition}`);
     }
   }
   for (const item of response.toResolve) {
@@ -763,9 +811,13 @@ function responseStaticCopy(response: MatchResponse): string {
  * option labels they show, the fixed status labels, the to-resolve
  * prompts, and the framing. A free-text pii answer that happens to equal a
  * common KB word ("application") must not fail-closed the user's whole
- * match list (claude-review P2-3 on PR #45) — but any other appearance of
- * the value, in any field, still throws: a raw echo of the user's own text
- * is never part of the excusal set, so it can never excuse itself.
+ * match list (claude-review P2-3 on PR #45). The excusal is PER VALUE
+ * across the whole payload: once a value is a word of the public copy,
+ * every occurrence is excused, in model output included. A raw echo of the
+ * user's own text is never part of the excusal set, so it can never excuse
+ * itself. Model explanations that collide with this session's values are
+ * degraded per card at build time (see buildMatchResponse), so this gate
+ * mostly stands for user-derived fields and non-explanation copy.
  *
  * Multi-select values are checked element by element (the old whole-array
  * JSON check could never substring-match).
