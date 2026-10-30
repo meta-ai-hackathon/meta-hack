@@ -93,6 +93,21 @@ export const UNKNOWN_DATE_NOTE =
   "time.";
 
 /**
+ * Third review fix: "I don't know" while changing a saved date said to come
+ * back and add one, while the saved reminder was still on the device and
+ * the banner kept showing it.
+ */
+export const UNKNOWN_DATE_WHILE_SAVED_NOTE =
+  "That's okay. The date you saved and its reminder stay on this device " +
+  "until you change or remove them. To go back to them, choose Keep the " +
+  "saved date.";
+
+/** The note for "I don't know": the saved-date version while one is being changed. */
+export function unknownDateNote(changingSavedDate: boolean): string {
+  return changingSavedDate ? UNKNOWN_DATE_WHILE_SAVED_NOTE : UNKNOWN_DATE_NOTE;
+}
+
+/**
  * The calendar file is a plain copy of the date the person chooses to make
  * (second review fix), so the note says what leaves with it. Since the
  * third review the file names no program and links nowhere, so a synced
@@ -126,6 +141,8 @@ export const NOSCRIPT_NOTE =
 export const SAVE_BUTTON = "Save a reminder on this device";
 export const DOWNLOAD_BUTTON = "Download a calendar file (.ics)";
 export const CHANGE_BUTTON = "Change the date";
+/** Leaves the form for the saved date's summary (third review: changing a date had no way back). */
+export const KEEP_SAVED_BUTTON = "Keep the saved date";
 export const REMOVE_BUTTON = "Remove the reminder from this device";
 
 /** What saving did, for the kind of date saved (review fix: approval dates are in the past). */
@@ -412,6 +429,7 @@ export const STATIC_RENEWAL_COPY: readonly string[] = [
   SECTION_HEADING,
   NO_DATE_INTRO,
   UNKNOWN_DATE_NOTE,
+  UNKNOWN_DATE_WHILE_SAVED_NOTE,
   PRIVACY_NOTE,
   BROWSER_CAN_CLEAR_NOTE,
   STORAGE_UNAVAILABLE_NOTE,
@@ -420,6 +438,7 @@ export const STATIC_RENEWAL_COPY: readonly string[] = [
   SAVE_BUTTON,
   DOWNLOAD_BUTTON,
   CHANGE_BUTTON,
+  KEEP_SAVED_BUTTON,
   REMOVE_BUTTON,
   savedNotice("renewal_due"),
   savedNotice("approval"),

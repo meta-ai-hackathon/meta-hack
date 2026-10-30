@@ -17,6 +17,7 @@ import {
   DOWNLOADED_NOTICE,
   DOWNLOAD_BUTTON,
   DOWNLOAD_FAILED_NOTICE,
+  KEEP_SAVED_BUTTON,
   LOADING_NOTE,
   NOSCRIPT_NOTE,
   NO_DATE_INTRO,
@@ -30,11 +31,11 @@ import {
   SAVE_FAILED_NOTICE,
   SECTION_HEADING,
   STORAGE_UNAVAILABLE_NOTE,
-  UNKNOWN_DATE_NOTE,
   UNSUPPORTED_NOTICE,
   ageChoiceLabels,
   ageQuestionLegend,
   savedNotice,
+  unknownDateNote,
   type DateChoice,
 } from "../../lib/renewal/copy";
 import { checkDateForm, type DateFormCheck } from "../../lib/renewal/date-form";
@@ -316,6 +317,18 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
     focusHeading();
   }
 
+  /**
+   * Back to the saved date's summary without saving (third review: the
+   * form had no way back, so "I don't know" stranded the person there).
+   */
+  function handleKeepSaved() {
+    setEditing(false);
+    setKindError(undefined);
+    setDateError(undefined);
+    setNotice("");
+    focusHeading();
+  }
+
   const showSummary = saved !== null && !editing && today !== null;
   const ageLabels = ageRange !== null ? ageChoiceLabels(ageRange) : null;
 
@@ -436,7 +449,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
           </fieldset>
           {choice === "unknown" ? (
             <p data-renewal-unknown className="text-zinc-700 dark:text-zinc-300">
-              {UNKNOWN_DATE_NOTE}
+              {unknownDateNote(saved !== null)}
             </p>
           ) : (
             <>
@@ -512,6 +525,18 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
               </div>
             </>
           )}
+          {saved !== null ? (
+            <div>
+              <button
+                type="button"
+                data-renewal-keep-saved
+                onClick={handleKeepSaved}
+                className="rounded-md border border-zinc-400 px-4 py-2 text-base font-medium hover:bg-zinc-100 dark:border-zinc-500 dark:hover:bg-zinc-800"
+              >
+                {KEEP_SAVED_BUTTON}
+              </button>
+            </div>
+          ) : null}
         </form>
       ) : null}
       {storage.state === "ready" ? (

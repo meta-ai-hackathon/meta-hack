@@ -8,12 +8,15 @@ import {
   DATE_CHOICE_LABELS,
   DOWNLOADED_NOTICE,
   DOWNLOAD_FAILED_NOTICE,
+  KEEP_SAVED_BUTTON,
   NO_DATE_INTRO,
   PRIVACY_NOTE,
   REMOVE_FAILED_NOTICE,
   PASSED_BANNER_NOTE,
   SAVE_CHANGED_NOTICE,
   STATIC_RENEWAL_COPY,
+  UNKNOWN_DATE_NOTE,
+  UNKNOWN_DATE_WHILE_SAVED_NOTE,
   ageAnswerSentence,
   ageChoiceLabels,
   ageLeftOutNote,
@@ -30,6 +33,7 @@ import {
   reminderMessage,
   reportedDateSentence,
   savedNotice,
+  unknownDateNote,
 } from "./copy";
 import { AGE_ANSWERS } from "./estimate";
 import type { ReminderPhase } from "./reminder";
@@ -191,6 +195,19 @@ describe("renewal copy stays hedged and labeled", () => {
   it("offers an honest way out for people who do not know the date", () => {
     expect(DATE_CHOICE_LABELS.unknown).toBe("I don't know the date");
     expect(ageChoiceLabels(RANGE).unsure).toBe("I'm not sure");
+  });
+
+  it("says a saved reminder stays when the person changing it picks I don't know, and how to go back (third review fix)", () => {
+    expect(unknownDateNote(false)).toBe(UNKNOWN_DATE_NOTE);
+    expect(unknownDateNote(true)).toBe(UNKNOWN_DATE_WHILE_SAVED_NOTE);
+    // No saved date: come back and add one any time.
+    expect(UNKNOWN_DATE_NOTE).toMatch(/come back and add a date any time/);
+    // A saved date being changed: it and its reminder stay until changed
+    // or removed, and the note names the button that goes back to it.
+    expect(UNKNOWN_DATE_WHILE_SAVED_NOTE).toMatch(/stay on this device until you change or remove them/);
+    expect(UNKNOWN_DATE_WHILE_SAVED_NOTE).toContain(`choose ${KEEP_SAVED_BUTTON}.`);
+    expect(UNKNOWN_DATE_WHILE_SAVED_NOTE).not.toMatch(/add a date/);
+    expect(STATIC_RENEWAL_COPY).toEqual(expect.arrayContaining([UNKNOWN_DATE_WHILE_SAVED_NOTE, KEEP_SAVED_BUTTON]));
   });
 
   it("sends a renewal notice's deadline to the due-date choice, not the approval choice (review fix)", () => {
