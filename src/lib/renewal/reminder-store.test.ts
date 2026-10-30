@@ -125,7 +125,20 @@ describe("saving and loading", () => {
     expect(Object.keys(envelope).sort()).toEqual(["ciphertext", "format", "iv", "version"]);
     expect(envelope.format).toBe(REMINDER_ENVELOPE_FORMAT);
     const bytes = Buffer.from(storedBytes(deps.kv)).toString("latin1");
-    for (const secret of ["2027-04-30", "approval", ENTRY_ID, "reportedDate", CALENDAR_ID, "ageAnswer", "64"]) {
+    // The age answer is looked for as the sealed record writes it. A bare
+    // "64" also turned up in random IV and ciphertext bytes, about once in
+    // 300 runs, and failed a correct save.
+    for (const secret of [
+      "2027-04-30",
+      "approval",
+      ENTRY_ID,
+      "reportedDate",
+      CALENDAR_ID,
+      "ageAnswer",
+      '"min":19',
+      '"max":64',
+      '"answer":"no"',
+    ]) {
       expect(bytes.includes(secret), secret).toBe(false);
     }
     expect(JSON.stringify([...deps.kv.entries.keys()])).not.toContain("2027");
