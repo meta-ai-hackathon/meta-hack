@@ -32,37 +32,38 @@ author's agent. When those events, or who opened the PR, cannot be read the
 label does not count either, so a real P1 keeps failing the check, and the
 comment says why the label did not count.
 
-Every infrastructure failure
-(GitHub or Anthropic errors, timeouts, refusals, malformed output, a bug in
-this script) prints a ::warning:: and marks the sticky comment NOT reviewed
-(posting it if the PR has none yet). The failure never fails the check by
-itself, but a P1 the comment still shows does: one from the bot's file
-rules, or one in a finished review of the same commit, which is kept. The
-one exception is a failure to read the PR's issue events. Those only say
-whether the override label counts, so the run prints a ::warning:: and the
-label does not count, but the review stands as reviewed and a P1 in it
-fails the check. When GitHub cannot return the PR, a PR event run uses the
-event's own copy of it ($GITHUB_EVENT_PATH), so the comment and the check
-still follow the event's head commit. 2 is a usage error.
+Every infrastructure failure (GitHub or Anthropic errors, timeouts,
+refusals, malformed output, a bug in this script) prints a ::warning:: and
+marks the sticky comment NOT reviewed (posting it if the PR has none yet).
+The failure never fails the check by itself, but a P1 the comment still
+shows does: one from the bot's file rules, or one in a finished review of
+the same commit, which is kept. The one exception is a failure to read the
+PR's issue events. Those only say whether the override label counts, so
+the run prints a ::warning:: and the label does not count, but the review
+stands as reviewed and a P1 in it fails the check. When GitHub cannot
+return the PR, a PR event run uses the event's own copy of it
+($GITHUB_EVENT_PATH), so the comment and the check still follow the
+event's head commit. 2 is a usage error.
 
 Approvals: when a live PR-event run's fresh review settles the verdict for
 the head commit, the bot makes sure it has an active APPROVED review on
 exactly that commit if the verdict has no P1, every changed file reached the
-model, the run read the PR from GitHub, and the comment shows the verdict. A
-re-check of a stored verdict never approves, since anyone who can edit
-comments on the PR can edit that verdict. It leaves an approval the review
-gave in place, and it withdraws like a review when the stored verdict is no
-all clear or was made against another base branch. Every other outcome on an
-open PR (a P1, even with the override label; a push that was not reviewed,
-or not fully, for any reason) dismisses every approval the bot has on the PR. A
-fresh review also dismisses them before the model runs (all but those of a
-head commit whose finished review the comment still shows), so a run that
-is cancelled or times out mid-review leaves none standing. Manual runs and
-dry runs never submit or dismiss reviews, and closed PRs and stale events
-keep the bot's reviews as they are. The approval step only logs on failure
-(including GitHub refusing approvals until an org owner allows Actions to
-approve) and starts no call near the job's time limit, so it never changes
-the check or the comment.
+model, the comment shows the verdict, and the PR's base branch did not
+change during the review. A re-check of a stored verdict never approves,
+since anyone who can edit comments on the PR can edit that verdict. It
+leaves an approval the review gave in place, and it withdraws like a review
+when the stored verdict is not an all clear, was made against another base
+branch, or this run could not read the PR from GitHub. Every other outcome
+on an open PR (a P1, even with the override label; a push that was not
+reviewed, or not fully, for any reason) dismisses every approval the bot
+has on the PR. A fresh review also dismisses them before the model runs
+(all but those of a head commit whose finished review the comment still
+shows), so a run that is cancelled or times out mid-review leaves none
+standing. Manual runs and dry runs never submit or dismiss reviews, and
+closed PRs and stale events keep the bot's reviews as they are. The
+approval step only logs on failure (including GitHub refusing approvals
+until an org owner allows Actions to approve) and starts no call near the
+job's time limit, so it never changes the check or the comment.
 
 Local dry run (reads real PR data, never writes to GitHub, never calls the
 model, needs no Anthropic key; uses GH_TOKEN or the gh CLI login):
@@ -2456,8 +2457,9 @@ class Reviewer:
         step = confirmed(approval_for(p1 > 0, state.model_ran, state.complete), problem)
         # Anyone who can edit comments on the PR can edit the stored verdict,
         # so a re-check never approves: only a fresh review does. It still
-        # withdraws whenever the stored verdict is no all clear, and leaves an
-        # approval the review gave in place.
+        # withdraws when the stored verdict is not an all clear or the run
+        # cannot confirm it, and otherwise leaves an approval the review gave
+        # in place.
         self.approval = None if step.approve else step
         self.notice(
             f"{short_sha(pr.head_sha)} already has a finished review by this reviewer ({p1} P1, {p2} P2, "
