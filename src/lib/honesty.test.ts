@@ -161,6 +161,13 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "third person: won't lose their coverage", text: "Your kids won't lose their coverage." },
   { label: "third person: she will keep her Medicaid", text: "She'll keep her Medicaid after the renewal." },
   { label: "coverage will never end", text: "Your coverage will never end." },
+  // What the exemptions above still catch: a promise in the main clause
+  // after a condition or a question, and "is renewed" with no schedule.
+  { label: "promise after a condition", text: "Once you answer the letter, you will stay covered." },
+  { label: "promise after a question", text: "Will you stay covered? Yes, you will keep your Medicaid." },
+  { label: "promise after how-to", text: "Here is how it works: you keep your coverage." },
+  { label: "is renewed with no schedule", text: "Your Medicaid is renewed." },
+  { label: "is renewed, then a promise", text: "Your coverage is renewed, so nothing changes." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty
@@ -219,6 +226,23 @@ const HONEST_SENTENCES: string[] = [
   "Ask the office whether your child will stay covered.",
   "If they keep their coverage, the office sends a letter.",
   "Will there be a gap in your coverage? Ask your local DSS.",
+  // Honest framings the second review found flagged: NC Medicaid's own
+  // definition of recertification (verbatim from the work requirement
+  // page), a schedule statement, direct questions, how-to advice,
+  // conditions, and the person's own report.
+  "Recertification is when your NC Medicaid is renewed, which happens every 6 months.",
+  "Your Medicaid is renewed once a year for most people today.",
+  "Will you stay covered? Only your local DSS can say.",
+  "Do you keep your Medicaid if you move? Ask your local DSS.",
+  "How do you keep your coverage? Answer every letter.",
+  "Are you still covered? Check your latest letter.",
+  "Here is how you keep your Medicaid: answer every letter right away.",
+  "Once you are enrolled, you get a Medicaid ID card.",
+  "When you are covered by Medicare too, other rules apply.",
+  "Unless you are covered by other insurance, keep your Medicaid letter.",
+  "Until you are enrolled, keep every letter.",
+  "You told us you are enrolled in NC Medicaid.",
+  "You said your coverage was renewed in July.",
 ];
 
 // Parsed from the repo's spec and migration files at test time — the literals

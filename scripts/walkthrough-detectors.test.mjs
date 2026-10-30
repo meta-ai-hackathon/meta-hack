@@ -77,6 +77,8 @@ const BANNED_FIXTURES = [
   "You won\u2019t lose your coverage.",
   "You\u2019re still covered.",
   "You\u2019re eligible.",
+  "Once you answer the letter, you will stay covered.",
+  "Your Medicaid is renewed.",
 ];
 
 // Honest sentences that must pass untouched. Hedged uncertainty stays
@@ -98,6 +100,14 @@ const CLEAN_TEXT_FIXTURES = [
   "We can't tell you if your renewal will be approved.",
   "You can lose your coverage if you do not answer the letter.",
   "Ask the office whether your child will stay covered.",
+  "Recertification is when your NC Medicaid is renewed, which happens every 6 months.",
+  "Will you stay covered? Only your local DSS can say.",
+  "Do you keep your Medicaid if you move? Ask your local DSS.",
+  "Here is how you keep your Medicaid: answer every letter right away.",
+  "Once you are enrolled, you get a Medicaid ID card.",
+  "When you are covered by Medicare too, other rules apply.",
+  "Unless you are covered by other insurance, keep your Medicaid letter.",
+  "You told us you are enrolled in NC Medicaid.",
 ];
 
 // A client-state fixture: the shape /api/intake/* and /api/session return.
