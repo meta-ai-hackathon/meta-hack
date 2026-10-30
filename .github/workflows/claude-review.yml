@@ -18,11 +18,12 @@ name: Claude Review
 #
 # The check fails only for a P1, unless the claude-review-override label was
 # last added by a person's account other than the PR's author's, and not by
-# a bot. The script reads who added it from the PR's issue events, which the
-# pull-requests permission below covers. When it cannot read them, the label
-# does not count on that run. Other errors the script handles pass with a
-# warning and a NOT reviewed comment. A manual run never fails, since its
-# check lands on the default branch, not the PR.
+# a bot, on a PR a person opened (never on one a bot opened). The script
+# reads who added it from the PR's issue events, which the pull-requests
+# permission below covers. When it cannot read them, the label does not
+# count on that run. Other errors the script handles pass with a warning
+# and a NOT reviewed comment. A manual run never fails, since its check
+# lands on the default branch, not the PR.
 
 on:
   pull_request_target:

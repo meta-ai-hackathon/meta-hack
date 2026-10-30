@@ -21,16 +21,16 @@ head's verdict has a P1 or did not cover every changed file, and a twin PR
 whose approvals GitHub refuses gets the same checks and comments. The
 override label counts only when its latest application, in the PR's issue
 events, was by a person's account (GitHub's type User, not a bot) other
-than the PR's author's: a property checks that rule over random label
-event sequences against a table of accounts, another drives every path
-that consults the label (a fresh review, a re-check, a kept review,
-file-rule P1s) through the same sequences, one more checks that no label
-counts when GitHub did not name the PR's author, and any raw event GitHub
-could send counts only from an actor typed exactly User. The approval
-sequences gain a twin PR without the label,
-whose reviews and verdicts never differ. A last group pins the workflow's
-security invariants and its token's permissions. Nothing leaves the
-machine and no API key is needed.
+than the PR's author's, on a PR a person opened: a property checks that
+rule over random label event sequences against a table of accounts, for
+any account as the PR's opener too, another drives every path that
+consults the label (a fresh review, a re-check, a kept review, file-rule
+P1s) through the same sequences, one more checks that no label counts when
+GitHub did not name the PR's author, and any raw event GitHub could send
+counts only from an actor typed exactly User. The approval sequences gain
+a twin PR without the label, whose reviews and verdicts never differ. A
+last group pins the workflow's security invariants and its token's
+permissions. Nothing leaves the machine and no API key is needed.
 """
 
 from __future__ import annotations
@@ -100,6 +100,7 @@ def make_pr(**overrides: Any) -> review.PullRequest:
         labels=(),
         changed_files=2,
         author=AUTHOR,
+        author_type="User",
     )
     return replace(pr, **overrides)
 
@@ -477,7 +478,7 @@ def event_payload(pr: review.PullRequest, action: str = "synchronize") -> dict[s
         "base": {"sha": pr.base_sha, "ref": pr.base_ref},
         "labels": [{"name": label} for label in pr.labels],
         "changed_files": pr.changed_files,
-        "user": {"login": pr.author, "type": "User"},
+        "user": {"login": pr.author, "type": pr.author_type},
     }
     return {"action": action, "number": pr.number, "pull_request": pull}
 
@@ -1064,6 +1065,35 @@ class OverrideRuleProperties(unittest.TestCase):
         self.assertFalse(review.decide_override(LABELED, "", [*history, added]).counts)
 
     @PBT
+    @given(HISTORIES, st.sampled_from(sorted(ACCOUNTS)))
+    def test_on_a_pr_a_bot_opened_the_label_never_counts(self, events: list[review.LabelEvent], opener: tuple[str, str]) -> None:
+        # Whoever opened the PR, from the same table of accounts: the label
+        # counts only on a PR a person opened, when a person other than that
+        # opener added it last. On a PR a bot opened, a person's label reads
+        # as the bot author's case, and one GitHub did not name as a person
+        # as a PR with no author to tell apart.
+        override = review.decide_override(LABELED, opener[0], events, author_type=opener[1])
+        last = next((e for e in reversed(events) if e.label.lower() == review.OVERRIDE_LABEL), None)
+        applied = last if last is not None and last.action == "labeled" else None
+        labeler = ACCOUNTS[(applied.actor, applied.actor_type)] if applied is not None else "nobody"
+        if labeler in ("person", "author"):
+            opened_by = ACCOUNTS[opener]
+            if opened_by == "bot":
+                expected = review.OVERRIDE_BOT_AUTHOR
+            elif opened_by == "nobody":
+                expected = review.OVERRIDE_NO_AUTHOR
+            else:
+                assert applied is not None
+                same = applied.actor.lower() == opener[0].lower()
+                expected = review.OVERRIDE_BY_AUTHOR if same else review.OVERRIDE_HONORED
+        else:
+            expected = review.OVERRIDE_BY_BOT if labeler == "bot" else review.OVERRIDE_UNTRACED
+        self.assertEqual(override.status, expected)
+        self.assertEqual(override.counts, expected == review.OVERRIDE_HONORED)
+        if ACCOUNTS[opener] == "bot":
+            self.assertFalse(override.counts)
+
+    @PBT
     @given(HISTORIES, st.sampled_from(["", "yifu 001", "@yifu001", "y" * 101]) | st.text(alphabet=" @<>/.\n", max_size=6))
     def test_with_no_author_to_tell_a_person_from_the_label_never_counts(
         self, events: list[review.LabelEvent], author: str
@@ -1151,11 +1181,13 @@ class OverrideRuleProperties(unittest.TestCase):
             if override.status in (review.OVERRIDE_BY_AUTHOR, review.OVERRIDE_BY_BOT) and re.fullmatch(r"[A-Za-z0-9_-]+(\[bot\])?", login):
                 self.assertIn(f"@{ZWSP}{login}, added it", line)  # the login, with the mention broken
             # The advice fits the cause: a re-run when the run could not read
-            # the events or the PR's author, and otherwise a person other
-            # than the author adding the label again.
+            # the events or the PR's author, only a fix on a PR a bot opened,
+            # and otherwise a person other than the author adding the label again.
             retry = override.status in (review.OVERRIDE_UNREAD, review.OVERRIDE_NO_AUTHOR)
+            bot_pr = override.status == review.OVERRIDE_BOT_AUTHOR
             self.assertEqual("re-run the workflow" in line, retry)
-            self.assertEqual("remove the label and add it again" in line, not retry)
+            self.assertEqual("remove the label and add it again" in line, not retry and not bot_pr)
+            self.assertEqual(line.endswith("On a PR a bot opened the label never counts, so push a fix."), bot_pr)
         else:
             self.assertEqual(line, review.status_paragraph(counts, False))
         # The comment carries the same line, which a re-check can swap in place.
@@ -3012,6 +3044,23 @@ class OverrideRunTests(unittest.TestCase):
             self.assertEqual(run.code, 1, login)
             self.assertIn(f"because a bot account, @{ZWSP}{login}, added it", github.comments[0].body, login)
 
+    def test_no_label_passes_a_p1_on_a_pr_a_bot_opened(self) -> None:
+        # Any workflow can open a PR as github-actions[bot] once Actions may
+        # create PRs, and agents' apps and Dependabot open them too. A person's
+        # label there could be the one behind the PR, so it never counts, on a
+        # fresh review or on a re-check, while it still counts on a person's PR.
+        for opener in ((review.BOT_LOGIN, "Bot"), ("factory-droid[bot]", "Bot"), ("dependabot[bot]", "Bot"), ("Copilot", "Bot")):
+            github = FakeGitHub(make_pr(labels=LABELED, author=opener[0], author_type=opener[1]), FILES, events=ADDED_BY_KURT)
+            fresh = Run(github, FakeModel(reply_with([finding("P1")])))
+            again = Run(github, None)
+            self.assertEqual((fresh.code, again.code), (1, 1), opener)
+            body = github.comments[0].body
+            self.assertIn("because a bot account opened the PR", body, opener)
+            self.assertIn("On a PR a bot opened the label never counts, so push a fix.", body, opener)
+            self.assertEqual(live_references(body), [], opener)
+        persons = FakeGitHub(make_pr(labels=LABELED), FILES, events=ADDED_BY_KURT)
+        self.assertEqual(Run(persons, FakeModel(reply_with([finding("P1")]))).code, 0)
+
     def test_only_the_latest_application_counts(self) -> None:
         cases: dict[str, tuple[list[review.LabelEvent], int]] = {
             "the author's, removed and added again by another person": (
@@ -3222,7 +3271,9 @@ class OverrideRunTests(unittest.TestCase):
 PATHS_TO_THE_OVERRIDE = ("fresh review", "re-check", "kept review", "file rule")
 
 
-def override_path_run(path: str, events: list[review.LabelEvent], events_down: bool) -> tuple[Run, FakeGitHub]:
+def override_path_run(
+    path: str, events: list[review.LabelEvent], events_down: bool, opener: tuple[str, str] = (AUTHOR, "User")
+) -> tuple[Run, FakeGitHub]:
     secret = [*FILES, make_file(".env", "@@ -0,0 +1 @@\n+KEY=1")]
     comments = {
         "re-check": bot_sticky(stored_review(HEAD, (P1_FINDING,))),
@@ -3234,20 +3285,21 @@ def override_path_run(path: str, events: list[review.LabelEvent], events_down: b
         "kept review": FakeModel(status_error(400, "invalid_request_error")),
         "file rule": FakeModel(status_error(400, "invalid_request_error")),
     }.get(path)
-    github = FakeGitHub(
-        make_pr(labels=LABELED, changed_files=len(files)), files, comments, events=events, fail=("events",) if events_down else ()
-    )
+    pr = make_pr(labels=LABELED, changed_files=len(files), author=opener[0], author_type=opener[1])
+    github = FakeGitHub(pr, files, comments, events=events, fail=("events",) if events_down else ())
     return Run(github, model), github
 
 
 class OverrideRunProperties(unittest.TestCase):
     @PBT
-    @given(HISTORIES, st.booleans(), st.sampled_from(PATHS_TO_THE_OVERRIDE))
+    @given(HISTORIES, st.booleans(), st.sampled_from(PATHS_TO_THE_OVERRIDE), st.sampled_from(sorted(ACCOUNTS)))
+    @example(ADDED_BY_KURT, False, "re-check", ("Copilot", "Bot"))  # a bot named only by its type
     def test_every_path_passes_a_p1_exactly_when_the_label_counts(
-        self, events: list[review.LabelEvent], events_down: bool, path: str
+        self, events: list[review.LabelEvent], events_down: bool, path: str, opener: tuple[str, str]
     ) -> None:
-        override = review.decide_override(LABELED, AUTHOR, None if events_down else events)
-        run, github = override_path_run(path, events, events_down)
+        # Whoever opened the PR, so a bot's PR too (see OverrideRuleProperties).
+        override = review.decide_override(LABELED, opener[0], None if events_down else events, author_type=opener[1])
+        run, github = override_path_run(path, events, events_down, opener)
         self.assertEqual(run.code, 0 if override.counts else 1)
         # The comment says what the check does, and why the label did not count.
         body = review.find_stickies(github.comments, review.BOT_LOGIN)[0].body
@@ -3357,7 +3409,7 @@ class GitHubApiTests(unittest.TestCase):
         api = review.GitHubApi("o/r", None, allow_writes=False, transport=FakeTransport(self.routes()))
         pr = api.get_pull(7)
         self.assertEqual((pr.head_sha, pr.base_sha, pr.labels, pr.body, pr.head_repo), (HEAD, BASE, ("bug",), "", "o/r"))
-        self.assertEqual(pr.author, AUTHOR)  # user.login
+        self.assertEqual((pr.author, pr.author_type), (AUTHOR, "User"))  # user.login and user.type
         self.assertEqual([c.id for c in review.find_stickies(api.list_issue_comments(7), review.BOT_LOGIN)], [999])
         self.assertEqual(api.list_changed_files(pr.base_sha, pr.head_sha)[0].patch, "@@ -1 +1,2 @@\n a\n+b")
 

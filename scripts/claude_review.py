@@ -32,11 +32,13 @@ Exit codes: 1 only when the review found a P1 and the claude-review-override
 label does not count, and never for a manual (workflow_dispatch) run, whose
 check lands on the default branch. The label counts only when its latest
 application, in the PR's issue events, was by a person's account (GitHub's
-type User, not a bot) other than the PR's author's. Agents act under their
-owner's account, so a label added by the author's account may be the
-author's agent. When those events, or who opened the PR, cannot be read the
-label does not count either, so a real P1 keeps failing the check, and the
-comment says why the label did not count.
+type User, not a bot) other than the PR's author's, on a PR a person
+opened. Agents act under their owner's account, so a label added by the
+author's account may be the author's agent, and on a PR a bot opened the
+person behind it could add the label from their own account. When those
+events, or who opened the PR, cannot be read the label does not count
+either, so a real P1 keeps failing the check, and the comment says why the
+label did not count.
 
 Every infrastructure failure (GitHub or Anthropic errors, timeouts,
 refusals, malformed output, a bug in this script) prints a ::warning:: and
@@ -255,6 +257,7 @@ class PullRequest:
     labels: tuple[str, ...]
     changed_files: int
     author: str = ""  # the PR's user.login, or "" when GitHub gave none
+    author_type: str = ""  # the PR's user.type ("User", "Bot", ...), or "" when GitHub gave none
 
 
 @dataclass(frozen=True)
@@ -302,6 +305,7 @@ OVERRIDE_BY_BOT = "bot"  # a bot account added it last
 OVERRIDE_UNTRACED = "untraced"  # the events do not show a person other than the author adding it
 OVERRIDE_UNREAD = "unread"  # the PR's events could not be read
 OVERRIDE_NO_AUTHOR = "no_author"  # a person added it last, but GitHub did not name the PR's author to tell them apart
+OVERRIDE_BOT_AUTHOR = "bot_author"  # a person added it last, but a bot opened the PR, so no person is its author
 OVERRIDE_STATUSES = (
     OVERRIDE_ABSENT,
     OVERRIDE_HONORED,
@@ -310,6 +314,7 @@ OVERRIDE_STATUSES = (
     OVERRIDE_UNTRACED,
     OVERRIDE_UNREAD,
     OVERRIDE_NO_AUTHOR,
+    OVERRIDE_BOT_AUTHOR,
 )
 # The statuses a re-run can change without anyone touching the label, since
 # the run could not read what it needed.
@@ -1174,19 +1179,25 @@ def is_bot(login: str, account_type: str) -> bool:
     return account_type == "Bot" or login.lower().endswith("[bot]")
 
 
-def decide_override(labels: Iterable[str], author: str, events: Sequence[LabelEvent] | None) -> Override:
+def decide_override(
+    labels: Iterable[str], author: str, events: Sequence[LabelEvent] | None, *, author_type: str = PERSON_TYPE
+) -> Override:
     """Whether the override label counts for a PR with these labels, opened
-    by author: the PR carries the label, and its latest application in the
-    PR's issue events (the last 'labeled' event for it, in any case, after
-    its last 'unlabeled' one) was by a person's account (GitHub's type User,
-    with no [bot] login) other than the author's. Agents act under their
-    owner's account, so "a person added it" cannot be told apart from "an
-    agent added it", while "someone other than the author added it" can.
-    events is None when they could not be read; the label then does not
-    count, so a real P1 keeps failing. Logins compare without case, as
-    GitHub's do. Anything GitHub did not name plainly never counts: an actor
-    that is not a login, an account type other than User (none at all
-    included), or an author that is not a login."""
+    by author (an account of author_type): the PR carries the label, and its
+    latest application in the PR's issue events (the last 'labeled' event
+    for it, in any case, after its last 'unlabeled' one) was by a person's
+    account (GitHub's type User, with no [bot] login) other than the
+    author's. Agents act under their owner's account, so "a person added it"
+    cannot be told apart from "an agent added it", while "someone other than
+    the author added it" can. That needs a person as the author, so on a PR
+    a bot opened (Dependabot, an agent's app, or any workflow's
+    github-actions[bot]) the label never counts: whoever is behind such a PR
+    could add it from their own account. events is None when they could not
+    be read; the label then does not count, so a real P1 keeps failing.
+    Logins compare without case, as GitHub's do. Anything GitHub did not
+    name plainly never counts: an actor that is not a login, an account type
+    other than User (none at all included), or an author that is not a
+    person's login."""
     if not has_override(labels):
         return NO_OVERRIDE
     if events is None:
@@ -1209,8 +1220,13 @@ def decide_override(labels: Iterable[str], author: str, events: Sequence[LabelEv
         return replace(found, status=OVERRIDE_BY_BOT)
     if latest.actor_type != PERSON_TYPE:
         return found
-    # A person, then, who counts only when they are not the author.
+    # A person, then, who counts only when they are not the author, which
+    # takes a person as the author.
     if not _LOGIN.fullmatch(author):
+        return replace(found, status=OVERRIDE_NO_AUTHOR)
+    if is_bot(author, author_type):
+        return replace(found, status=OVERRIDE_BOT_AUTHOR)
+    if author_type != PERSON_TYPE:
         return replace(found, status=OVERRIDE_NO_AUTHOR)
     if latest.actor.lower() == author.lower():
         return replace(found, status=OVERRIDE_BY_AUTHOR)
@@ -1249,6 +1265,8 @@ def override_why(override: Override, name: Callable[[str], str] = plain_login) -
         return "the bot could not read the PR's events to see who added it"
     if override.status == OVERRIDE_NO_AUTHOR:
         return "the bot could not read who opened the PR, so it cannot tell whether the PR's author added it"
+    if override.status == OVERRIDE_BOT_AUTHOR:
+        return "a bot account opened the PR, so the bot cannot tell whether whoever is behind the PR added it"
     return "the PR's events do not show that a person other than the PR's author added it"
 
 
@@ -1256,13 +1274,19 @@ def ignored_override_text(override: Override) -> str:
     """The comment's sentences for an override label that is on the PR but
     does not count: fixed text plus the login that added it, with the
     mention broken. One line, so it fits in the comment's verdict line.
-    When the run could not read what it needed, a re-run is the way out,
-    and otherwise someone other than the author adding the label again."""
+    When the run could not read what it needed, a re-run is the way out; on
+    a PR a bot opened, only a fix; and otherwise someone other than the
+    author adding the label again."""
     label = f"`{OVERRIDE_LABEL}`"
     if override.status in OVERRIDE_RETRYABLE:
         text = (
             f"The {label} label is on this PR, but it does not count on this run, because "
             f"{override_why(override, display_login)}. Push a fix, or re-run the workflow to check the label again."
+        )
+    elif override.status == OVERRIDE_BOT_AUTHOR:
+        text = (
+            f"The {label} label is on this PR, but it does not count, because {override_why(override, display_login)}. "
+            "On a PR a bot opened the label never counts, so push a fix."
         )
     else:
         text = (
@@ -1842,6 +1866,7 @@ def parse_pull(data: object) -> PullRequest:
         )
         user = pull.get("user")
         login = user.get("login") if isinstance(user, dict) else None
+        kind = user.get("type") if isinstance(user, dict) else None
         return PullRequest(
             number=int(pull["number"]),
             title=str(pull.get("title") or ""),
@@ -1855,6 +1880,7 @@ def parse_pull(data: object) -> PullRequest:
             labels=labels,
             changed_files=int(pull.get("changed_files") or 0),
             author=login if isinstance(login, str) else "",
+            author_type=kind if isinstance(kind, str) else "",
         )
     except (KeyError, TypeError, ValueError, OverflowError) as exc:  # OverflowError: int() of an infinity
         raise GitHubError(f"GitHub returned an unexpected pull request ({type(exc).__name__})") from None
@@ -2576,7 +2602,7 @@ class Reviewer:
                 f"could not read the PR's events to see who added the {OVERRIDE_LABEL} label ({detail}), so the "
                 "label does not count on this run and a P1 still fails the check"
             )
-        override = decide_override(pr.labels, pr.author, events)
+        override = decide_override(pr.labels, pr.author, events, author_type=pr.author_type)
         if override.counts:
             self.say(f"claude review: {describe_override(pr.labels, override)}")
         elif override.status != OVERRIDE_UNREAD:
