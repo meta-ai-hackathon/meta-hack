@@ -1,4 +1,4 @@
-import { openDeviceKv, type DeviceKv } from "../device-kv";
+import { deviceStorageSupported, openDeviceKv, type DeviceKv } from "../device-kv";
 import {
   EMPTY_CLIENT_ANSWERS,
   openSealed,
@@ -227,15 +227,28 @@ export async function purgeDeviceAnswers(deps: DeviceAnswerStoreDeps): Promise<b
   }
 }
 
-/**
- * This browser's answer store, or null when it cannot keep sealed answers:
- * no Web Crypto (it needs a secure https or localhost page), no IndexedDB,
- * or storage that does not open in time. The page then keeps answers only
- * in memory and says so.
- */
+export type DeviceAnswerStoreOpen =
+  | { readonly status: "ok"; readonly store: DeviceAnswerStoreDeps }
+  /**
+   * This browser can't keep anything on the device (no IndexedDB, or no Web
+   * Crypto because the page is not https or localhost). Nothing was ever
+   * stored here.
+   */
+  | { readonly status: "unsupported" }
+  /**
+   * Device storage exists but did not open in time or refused. Answers from
+   * an earlier visit may be stored and out of reach for now.
+   */
+  | { readonly status: "failed" };
+
+/** Open this browser's answer store, saying why when it can't. Never rejects. */
 export async function openDeviceAnswerStore(
   openKv: () => Promise<DeviceKv | null> = openDeviceKv,
-): Promise<DeviceAnswerStoreDeps | null> {
+  supported: () => boolean = deviceStorageSupported,
+): Promise<DeviceAnswerStoreOpen> {
+  if (!supported()) {
+    return { status: "unsupported" };
+  }
   let subtle: SubtleCrypto | undefined;
   try {
     subtle = globalThis.crypto?.subtle;
@@ -243,8 +256,8 @@ export async function openDeviceAnswerStore(
     subtle = undefined;
   }
   if (subtle === undefined) {
-    return null;
+    return { status: "unsupported" };
   }
   const kv = await openKv().catch(() => null);
-  return kv === null ? null : { kv, subtle };
+  return kv === null ? { status: "failed" } : { status: "ok", store: { kv, subtle } };
 }

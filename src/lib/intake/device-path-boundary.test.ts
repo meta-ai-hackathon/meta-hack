@@ -92,8 +92,9 @@ describe("the on-device intake path", () => {
   it("makes no network request below the wizard", () => {
     for (const file of files) {
       if (file === "app/intake/intake-wizard.tsx") {
-        // The wizard's server mode (the conversation page) still fetches;
-        // its device branch is proven request-free by device-intake.test.ts.
+        // The wizard's server mode (the conversation page) still fetches.
+        // Its device mode is driven through the DOM with fetch failing the
+        // run in app/intake/intake-wizard.device.test.tsx.
         continue;
       }
       const source = readFileSync(join(SRC, file), "utf8");

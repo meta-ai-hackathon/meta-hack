@@ -5,7 +5,7 @@ import { IntakeWizard } from "./intake-wizard";
 export const metadata: Metadata = {
   title: "Your application — Benefits Navigator",
   description:
-    "Answer a few plain-language questions. Your answers stay on this device.",
+    "Answer a few plain-language questions. Nothing you enter on this page is sent to us.",
 };
 
 // The intake flow's page shell (BN-09). One h1; the wizard below renders

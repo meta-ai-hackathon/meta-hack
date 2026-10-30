@@ -394,14 +394,14 @@ describe("purge", () => {
 });
 
 describe("openDeviceAnswerStore", () => {
-  it("is null without device storage, and wraps the storage it is given", async () => {
-    expect(await openDeviceAnswerStore(async () => null)).toBeNull();
-    expect(
-      await openDeviceAnswerStore(() => Promise.reject(new Error("blocked"))),
-    ).toBeNull();
+  it("tells a browser that can't store apart from storage that failed, and wraps what opens", async () => {
     const { kv } = memoryKv();
-    const store = await openDeviceAnswerStore(async () => kv);
-    expect(store?.kv).toBe(kv);
-    expect(store?.subtle).toBe(crypto.subtle);
+    expect(await openDeviceAnswerStore(async () => kv, () => false)).toEqual({ status: "unsupported" });
+    expect(await openDeviceAnswerStore(async () => null, () => true)).toEqual({ status: "failed" });
+    expect(
+      await openDeviceAnswerStore(() => Promise.reject(new Error("blocked")), () => true),
+    ).toEqual({ status: "failed" });
+    const opened = await openDeviceAnswerStore(async () => kv, () => true);
+    expect(opened).toEqual({ status: "ok", store: { kv, subtle: crypto.subtle } });
   });
 });

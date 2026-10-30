@@ -1,9 +1,15 @@
-import { requestPersistentStorage } from "../device-kv";
+import {
+  DEVICE_STORAGE_TIMEOUT_MS,
+  requestPersistentStorage,
+  withDeadline,
+} from "../device-kv";
 import type { AnswerStatus } from "../honesty";
 import { canonicalAnswerValue } from "./answer-input";
 import {
   EMPTY_CLIENT_ANSWERS,
+  hasAnyAnswer,
   saveClientAnswer,
+  serializeClientAnswers,
   toAnswerMap,
   type ClientAnswerRecord,
   type ClientAnswerState,
@@ -14,7 +20,10 @@ import {
   openDeviceAnswerStore,
   purgeDeviceAnswers,
   recordDeviceAnswer,
+  type DeviceAnswerSave,
   type DeviceAnswerStoreDeps,
+  type DeviceAnswerStoreOpen,
+  type DeviceAnswersLoad,
 } from "./device-answer-store";
 import { QUESTION_BY_ID } from "./spec";
 
@@ -25,68 +34,101 @@ import { QUESTION_BY_ID } from "./spec";
 // checks it (answer-input.ts), then saved on the device; reloading the page
 // resumes at the first unanswered question.
 //
-// Every outcome is told honestly. When this browser cannot keep answers
-// (no secure page, no IndexedDB, storage blocked or refusing writes), the
-// page still works but says the answers last only until it is closed, and
-// it never claims a save, resume, or delete that did not happen.
+// Every outcome is told honestly, and what the page says depends on what
+// the browser actually did (DeviceKeeping below). It never claims a save,
+// resume, or delete that did not happen, and it never says answers are gone
+// while some are still stored on the device.
+
+/**
+ * Where answers given now end up:
+ * - "kept": saved on this device as they are given.
+ * - "unsupported": this browser can't keep anything (no IndexedDB, or no
+ *   Web Crypto off https), so nothing was ever stored here.
+ * - "unavailable": device storage didn't open, or couldn't be read, on this
+ *   visit. New answers live only in this page; answers from an earlier
+ *   visit may still be stored.
+ * - "stopped": a save failed mid-visit. New answers live only in this page;
+ *   the ones saved before the failure stay on the device.
+ */
+export type DeviceKeeping = "kept" | "unsupported" | "unavailable" | "stopped";
 
 export const DEVICE_INTAKE_COPY = {
   pageIntro:
-    "A few plain-language questions, one at a time. Your answers stay on " +
-    "this device and save as you go, and you can stop at any point. Nothing " +
-    "you enter on this page is sent to us.",
+    "A few plain-language questions, one at a time. You can stop at any " +
+    "point, and nothing you enter on this page is sent to us.",
   keptBlurb:
-    "Your answers are saved on this device as you go, locked with a key " +
-    "that never leaves this browser. Stop any time and pick up later in " +
-    "this browser. Nothing is submitted until you decide.",
-  notKeptBlurb:
-    "This browser isn't keeping your answers, so they'll be gone when you " +
-    "close this page. Nothing is submitted until you decide.",
-  notKeptOnLoad:
-    "This browser can't keep answers for this page, so they'll last only " +
+    "Your answers save in this browser as you go. Come back on this device " +
+    "to pick up where you left off. Anyone who uses this browser can see " +
+    "them, so delete them when you're done on a shared computer. Nothing is " +
+    "submitted until you decide.",
+  unsupportedBlurb:
+    "This browser can't save answers, so they'll be gone when you close " +
+    "this page. Nothing is submitted until you decide.",
+  unavailableBlurb:
+    "This browser's storage isn't working right now, so new answers last " +
+    "only until you close this page. If you saved answers here before, " +
+    "they're still on this device until you delete them.",
+  stoppedBlurb:
+    "This browser stopped saving answers. The ones you gave before are " +
+    "still saved on this device, but changes from now on aren't. To remove " +
+    "the saved ones, use Delete my answers from this device.",
+  stoppedBlurbNothingStored:
+    "This browser stopped saving answers, so they'll be gone when you close " +
+    "this page. Nothing is submitted until you decide.",
+  unsupportedOnLoad:
+    "This browser can't save answers for this page, so they'll last only " +
     "until you close it. Nothing you enter is sent to us either way.",
+  unavailableOnLoad:
+    "We couldn't open this browser's storage, so answers from an earlier " +
+    "visit aren't shown and new answers last only until you close this page.",
   unreadableOnLoad:
     "We couldn't open the answers saved on this device, so the questions " +
     "start fresh. Your next answer replaces what couldn't be opened.",
+  resumedOnLoad:
+    "Welcome back. These are the answers you saved in this browser.",
   stoppedKeeping:
+    "This browser stopped saving answers. The ones you gave before are " +
+    "still saved on this device, but this answer and any changes from now " +
+    "on aren't.",
+  stoppedKeepingNothingStored:
     "This browser stopped saving answers, so your answers from now on last " +
     "only until you close this page.",
   purgedElsewhere:
     "Your answers were deleted from this device in another tab or window, " +
     "so the questions start fresh.",
+  updatedElsewhere: "Updated with changes made in another tab or window.",
   busy:
     "Your answers are being changed in another tab right now, so this one " +
     "wasn't saved. Please try again.",
   invalidAnswer: "We couldn't use that answer. Please check it and try again.",
   savedForLaterKept:
-    "Your answers are saved on this device. Come back in this browser any " +
-    "time. Nothing is submitted until you decide.",
-  savedForLaterNotKept:
-    "This browser isn't keeping your answers, so they'll be gone when you " +
-    "close this page. Nothing is submitted until you decide.",
+    "Your answers are saved in this browser. Come back on this device to " +
+    "pick up where you left off. Private windows, and some browsers after " +
+    "about a week without a visit, clear saved answers. Nothing is " +
+    "submitted until you decide.",
   deleteButton: "Delete my answers from this device",
   deleteConfirm:
-    "This deletes every answer saved on this device. It can't be undone.",
+    "This deletes every answer saved in this browser for this form. It " +
+    "can't be undone.",
   deleteYes: "Yes, delete them",
   deleteNo: "Keep them",
   deleted: "Deleted. None of your answers are left on this device.",
-  clearedNotKept:
-    "Cleared from this page. This browser wasn't keeping your answers " +
-    "during this visit.",
+  clearedNothingStored:
+    "Cleared from this page. This browser can't save answers, so there was " +
+    "nothing on the device to delete.",
   deleteUnconfirmed:
-    "We couldn't confirm your answers were deleted. To be sure, clear this " +
-    "site's data in your browser settings.",
+    "We couldn't confirm your answers were deleted from this device. To be " +
+    "sure, clear this site's data in your browser settings.",
+  privateKept: "Saved privately — not shown again.",
+  privateNotKept: "Noted privately for this visit — not shown again.",
 } as const;
 
 /** What the page holds for the on-device intake. */
 export interface DeviceIntake {
-  /** The device store, or null when this browser cannot keep answers. */
+  /** The device store, or null when this visit has none. */
   readonly store: DeviceAnswerStoreDeps | null;
-  /**
-   * Whether new answers are written to the store. False once a write has
-   * failed: the rest of the visit stays in memory, and the page says so.
-   */
-  readonly keeping: boolean;
+  /** Where answers given now end up. See DeviceKeeping. */
+  readonly keeping: DeviceKeeping;
   /** Whether answers are known to be kept on the device (loaded or saved). */
   readonly stored: boolean;
   /** Every answer the page holds, pii values included. Never rendered or sent. */
@@ -97,13 +139,13 @@ export interface DeviceIntake {
 
 function intakeOf(
   store: DeviceAnswerStoreDeps | null,
-  keeping: boolean,
+  keeping: DeviceKeeping,
   stored: boolean,
   answers: ClientAnswerState,
 ): DeviceIntake {
   return {
     store,
-    keeping: store !== null && keeping,
+    keeping: store === null && keeping === "kept" ? "unavailable" : keeping,
     stored,
     answers,
     view: buildClientState(toAnswerMap(answers)),
@@ -112,7 +154,34 @@ function intakeOf(
 
 /** Whether answers given now will still be here after a reload. */
 export function keepsAnswers(intake: DeviceIntake): boolean {
-  return intake.store !== null && intake.keeping;
+  return intake.store !== null && intake.keeping === "kept";
+}
+
+/** The standing line under the questions: where answers are kept right now. */
+export function keepingBlurb(intake: DeviceIntake): string {
+  switch (intake.keeping) {
+    case "kept":
+      return intake.store === null
+        ? DEVICE_INTAKE_COPY.unavailableBlurb
+        : DEVICE_INTAKE_COPY.keptBlurb;
+    case "unsupported":
+      return DEVICE_INTAKE_COPY.unsupportedBlurb;
+    case "unavailable":
+      return DEVICE_INTAKE_COPY.unavailableBlurb;
+    case "stopped":
+      return intake.stored
+        ? DEVICE_INTAKE_COPY.stoppedBlurb
+        : DEVICE_INTAKE_COPY.stoppedBlurbNothingStored;
+  }
+}
+
+/** How a private answer is described on the review screen. */
+export function privateAnswerNote(intake: DeviceIntake): string {
+  return keepsAnswers(intake) ? DEVICE_INTAKE_COPY.privateKept : DEVICE_INTAKE_COPY.privateNotKept;
+}
+
+function deadline<T>(work: Promise<T>, what: string): Promise<T> {
+  return withDeadline(work, DEVICE_STORAGE_TIMEOUT_MS, what);
 }
 
 export interface DeviceIntakeLoad {
@@ -123,33 +192,51 @@ export interface DeviceIntakeLoad {
 
 /** Open the device store and resume whatever answers it keeps. Never rejects. */
 export async function loadDeviceIntake(
-  open: () => Promise<DeviceAnswerStoreDeps | null> = openDeviceAnswerStore,
+  open: () => Promise<DeviceAnswerStoreOpen> = openDeviceAnswerStore,
 ): Promise<DeviceIntakeLoad> {
-  const store = await open().catch(() => null);
-  if (store === null) {
+  let opened: DeviceAnswerStoreOpen;
+  try {
+    opened = await deadline(open(), "opening device storage");
+  } catch {
+    opened = { status: "failed" };
+  }
+  if (opened.status === "unsupported") {
     return {
-      intake: intakeOf(null, false, false, EMPTY_CLIENT_ANSWERS),
-      notice: DEVICE_INTAKE_COPY.notKeptOnLoad,
+      intake: intakeOf(null, "unsupported", false, EMPTY_CLIENT_ANSWERS),
+      notice: DEVICE_INTAKE_COPY.unsupportedOnLoad,
     };
   }
-  try {
-    const loaded = await loadDeviceAnswers(store);
-    switch (loaded.status) {
-      case "none":
-        return { intake: intakeOf(store, true, false, EMPTY_CLIENT_ANSWERS), notice: "" };
-      case "ok":
-        return { intake: intakeOf(store, true, true, loaded.state), notice: "" };
-      case "unreadable":
-        return {
-          intake: intakeOf(store, true, false, EMPTY_CLIENT_ANSWERS),
-          notice: DEVICE_INTAKE_COPY.unreadableOnLoad,
-        };
-    }
-  } catch {
+  if (opened.status === "failed") {
     return {
-      intake: intakeOf(null, false, false, EMPTY_CLIENT_ANSWERS),
-      notice: DEVICE_INTAKE_COPY.notKeptOnLoad,
+      intake: intakeOf(null, "unavailable", false, EMPTY_CLIENT_ANSWERS),
+      notice: DEVICE_INTAKE_COPY.unavailableOnLoad,
     };
+  }
+  const store = opened.store;
+  let loaded: DeviceAnswersLoad;
+  try {
+    loaded = await deadline(loadDeviceAnswers(store), "reading device storage");
+  } catch {
+    // The store opened but could not be read. Keep the handle so a delete
+    // can still try it, and say answers from before aren't shown.
+    return {
+      intake: intakeOf(store, "unavailable", false, EMPTY_CLIENT_ANSWERS),
+      notice: DEVICE_INTAKE_COPY.unavailableOnLoad,
+    };
+  }
+  switch (loaded.status) {
+    case "none":
+      return { intake: intakeOf(store, "kept", false, EMPTY_CLIENT_ANSWERS), notice: "" };
+    case "ok":
+      return {
+        intake: intakeOf(store, "kept", true, loaded.state),
+        notice: hasAnyAnswer(loaded.state) ? DEVICE_INTAKE_COPY.resumedOnLoad : "",
+      };
+    case "unreadable":
+      return {
+        intake: intakeOf(store, "kept", false, EMPTY_CLIENT_ANSWERS),
+        notice: DEVICE_INTAKE_COPY.unreadableOnLoad,
+      };
   }
 }
 
@@ -157,9 +244,9 @@ export async function loadDeviceIntake(
 export function answerNotice(
   status: AnswerStatus,
   progress: IntakeProgress,
-  kept: boolean,
+  intake: Pick<DeviceIntake, "keeping" | "stored" | "store">,
 ): string {
-  if (kept) {
+  if (intake.keeping === "kept" && intake.store !== null) {
     return status === "unknown"
       ? "Marked as not sure. You can come back to it."
       : `Saved on this device. ${progress.answered} of ${progress.total} answered.`;
@@ -168,7 +255,17 @@ export function answerNotice(
     status === "unknown"
       ? "Marked as not sure for this visit."
       : `Noted for this visit. ${progress.answered} of ${progress.total} answered.`;
-  return `${lead} This browser isn't keeping answers, so they'll be gone when you close this page.`;
+  switch (intake.keeping) {
+    case "stopped":
+      return intake.stored
+        ? `${lead} This answer isn't saved. The ones you gave before are still on this device.`
+        : `${lead} This browser stopped saving answers, so they'll be gone when you close this page.`;
+    case "unavailable":
+    case "kept":
+      return `${lead} This browser's storage isn't working right now, so this answer lasts only until you close this page.`;
+    case "unsupported":
+      return `${lead} This browser can't save answers, so they'll be gone when you close this page.`;
+  }
 }
 
 export type DeviceAnswerResult =
@@ -210,24 +307,28 @@ export async function answerOnDevice(
     provenance: "user_supplied",
     value: stored,
   };
-  const inMemory = (notice?: string): DeviceAnswerResult => {
-    const next = intakeOf(intake.store, false, intake.stored, saveClientAnswer(intake.answers, record));
+  if (!keepsAnswers(intake) || intake.store === null) {
+    const next = intakeOf(intake.store, intake.keeping, intake.stored, saveClientAnswer(intake.answers, record));
+    return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, next) };
+  }
+  let result: DeviceAnswerSave;
+  try {
+    result = await deadline(
+      recordDeviceAnswer(intake.store, record, { expectStored: intake.stored }),
+      "saving to device storage",
+    );
+  } catch {
+    // Storage refused the write (full, blocked, closed, or stalled): keep
+    // going in memory for the rest of this visit, and say what is still
+    // stored and what is not.
+    const next = intakeOf(intake.store, "stopped", intake.stored, saveClientAnswer(intake.answers, record));
     return {
       kind: "saved",
       intake: next,
-      notice: notice ?? answerNotice(status, next.view.progress, false),
+      notice: intake.stored
+        ? DEVICE_INTAKE_COPY.stoppedKeeping
+        : DEVICE_INTAKE_COPY.stoppedKeepingNothingStored,
     };
-  };
-  if (!keepsAnswers(intake) || intake.store === null) {
-    return inMemory();
-  }
-  let result;
-  try {
-    result = await recordDeviceAnswer(intake.store, record, { expectStored: intake.stored });
-  } catch {
-    // Storage refused the write (full, blocked, or closed): keep going in
-    // memory for the rest of this visit, and say so.
-    return inMemory(DEVICE_INTAKE_COPY.stoppedKeeping);
   }
   switch (result.status) {
     case "saved": {
@@ -236,13 +337,13 @@ export async function answerOnDevice(
         // the store under storage pressure. Best effort, never awaited.
         void persist().catch(() => false);
       }
-      const next = intakeOf(intake.store, true, true, result.state);
-      return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, true) };
+      const next = intakeOf(intake.store, "kept", true, result.state);
+      return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, next) };
     }
     case "purged":
       return {
         kind: "purged",
-        intake: intakeOf(intake.store, true, false, EMPTY_CLIENT_ANSWERS),
+        intake: intakeOf(intake.store, "kept", false, EMPTY_CLIENT_ANSWERS),
         notice: DEVICE_INTAKE_COPY.purgedElsewhere,
       };
     case "busy":
@@ -250,40 +351,111 @@ export async function answerOnDevice(
   }
 }
 
-/** The "save and finish later" confirmation: answers are already saved as given. */
+export interface DeviceRefresh {
+  readonly intake: DeviceIntake;
+  /** True when the stored answers differ from what the page showed. */
+  readonly changed: boolean;
+  readonly notice: string;
+}
+
+/**
+ * Re-read the store, to pick up what another tab or window changed: new
+ * answers, or a delete. Called when the page comes back into view and
+ * before confirming a save. Leaves the page as it is when nothing changed
+ * or the store can't be read. Never rejects.
+ */
+export async function refreshDeviceIntake(intake: DeviceIntake): Promise<DeviceRefresh> {
+  const unchanged: DeviceRefresh = { intake, changed: false, notice: "" };
+  if (!keepsAnswers(intake) || intake.store === null) {
+    return unchanged;
+  }
+  let loaded: DeviceAnswersLoad;
+  try {
+    loaded = await deadline(loadDeviceAnswers(intake.store), "reading device storage");
+  } catch {
+    return unchanged;
+  }
+  if (loaded.status === "none") {
+    if (!intake.stored) {
+      return unchanged;
+    }
+    return {
+      intake: intakeOf(intake.store, "kept", false, EMPTY_CLIENT_ANSWERS),
+      changed: true,
+      notice: DEVICE_INTAKE_COPY.purgedElsewhere,
+    };
+  }
+  if (loaded.status !== "ok") {
+    return unchanged;
+  }
+  if (serializeClientAnswers(loaded.state) === serializeClientAnswers(intake.answers)) {
+    return intake.stored ? unchanged : { intake: { ...intake, stored: true }, changed: false, notice: "" };
+  }
+  return {
+    intake: intakeOf(intake.store, "kept", true, loaded.state),
+    changed: true,
+    notice: DEVICE_INTAKE_COPY.updatedElsewhere,
+  };
+}
+
+/** The "save and finish later" confirmation, once the answer on screen is saved. */
 export function saveForLaterNotice(intake: DeviceIntake): string {
-  return keepsAnswers(intake)
-    ? DEVICE_INTAKE_COPY.savedForLaterKept
-    : DEVICE_INTAKE_COPY.savedForLaterNotKept;
+  return keepsAnswers(intake) ? DEVICE_INTAKE_COPY.savedForLaterKept : keepingBlurb(intake);
 }
 
 export interface DeviceDeleteResult {
   readonly intake: DeviceIntake;
-  /** True when the answers are verifiably gone from the device (or were never kept). */
+  /** True only when the answers are verifiably gone from the device, or none could ever be stored. */
   readonly deleted: boolean;
   readonly notice: string;
 }
 
 /**
- * Delete every answer from the device and from the page. With no device
- * store the answers only lived in this page, so clearing it is the whole
- * delete. When the device delete cannot be confirmed, the page keeps what it
- * shows and says so rather than claiming a delete that may not have happened.
+ * Delete every answer from the device and from the page. Only a browser
+ * that can't store anything skips the device: everything else runs the
+ * verified purge, opening the store afresh when this visit has none, and a
+ * delete that can't be confirmed says so rather than claiming success.
  */
-export async function deleteDeviceIntake(intake: DeviceIntake): Promise<DeviceDeleteResult> {
-  if (intake.store === null) {
+export async function deleteDeviceIntake(
+  intake: DeviceIntake,
+  open: () => Promise<DeviceAnswerStoreOpen> = openDeviceAnswerStore,
+): Promise<DeviceDeleteResult> {
+  if (intake.keeping === "unsupported") {
     return {
-      intake: intakeOf(null, false, false, EMPTY_CLIENT_ANSWERS),
+      intake: intakeOf(null, "unsupported", false, EMPTY_CLIENT_ANSWERS),
       deleted: true,
-      notice: DEVICE_INTAKE_COPY.clearedNotKept,
+      notice: DEVICE_INTAKE_COPY.clearedNothingStored,
     };
   }
-  const deleted = await purgeDeviceAnswers(intake.store);
+  let store = intake.store;
+  if (store === null) {
+    try {
+      const opened = await deadline(open(), "opening device storage");
+      store = opened.status === "ok" ? opened.store : null;
+    } catch {
+      store = null;
+    }
+  }
+  if (store === null) {
+    // The answers on this page were never saved, so clearing them here is
+    // real; what an earlier visit stored can't be reached, so say so.
+    return {
+      intake: intakeOf(null, "unavailable", false, EMPTY_CLIENT_ANSWERS),
+      deleted: false,
+      notice: DEVICE_INTAKE_COPY.deleteUnconfirmed,
+    };
+  }
+  let deleted: boolean;
+  try {
+    deleted = await deadline(purgeDeviceAnswers(store), "deleting from device storage");
+  } catch {
+    deleted = false;
+  }
   if (!deleted) {
     return { intake, deleted: false, notice: DEVICE_INTAKE_COPY.deleteUnconfirmed };
   }
   return {
-    intake: intakeOf(intake.store, intake.keeping, false, EMPTY_CLIENT_ANSWERS),
+    intake: intakeOf(store, "kept", false, EMPTY_CLIENT_ANSWERS),
     deleted: true,
     notice: DEVICE_INTAKE_COPY.deleted,
   };
