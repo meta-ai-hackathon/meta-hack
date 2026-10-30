@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { DisplayControls } from "./display-controls";
 
 /**
  * App shell (BN-07): the skip link is the first tab stop on every page and
@@ -9,7 +10,10 @@ import type { ReactNode } from "react";
  * The brand header (frontend-polish) sits after the skip link and gives
  * every page the same anchor: a wordmark linking home. It renders no
  * heading (the page's h1 stays the only one) and adds no copy beyond the
- * app's name.
+ * app's name. The same header carries the display controls (HACK-84:
+ * huge-text zoom + high contrast) so they are reachable from every page —
+ * including the intake, review, consent, and purge surfaces — before any
+ * content needs reading.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -24,11 +28,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         data-app-header
         className="border-b border-surface-border bg-background"
       >
-        <div className="mx-auto flex w-full max-w-5xl items-center px-6 py-4">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-6 py-4">
           <Link
             href="/"
             data-brand-link
-            className="flex items-center gap-2.5"
+            className="flex items-center gap-2.5 self-start"
           >
             <span
               aria-hidden="true"
@@ -40,6 +44,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               Benefits Navigator
             </span>
           </Link>
+          <DisplayControls />
         </div>
       </header>
       <main id="main-content" tabIndex={-1} className="flex flex-1 flex-col">
