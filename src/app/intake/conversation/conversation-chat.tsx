@@ -25,6 +25,7 @@ import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { IntakeWizard } from "../intake-wizard";
 import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
 import { MatchSection } from "./match-section";
+import { PurgeSection } from "./purge-section";
 import { ReviewSection } from "./review-section";
 
 // The wizard fallback path — kept in step with the server's
@@ -469,6 +470,16 @@ export function ConversationChat() {
     setRecording(false);
   }
 
+  // The purge's client half (HACK-80): the server rows are gone (the purge
+  // route's transaction committed), so empty the local transcript and
+  // re-read the journey from the server — which now returns the empty
+  // state. Resume/reload from here on shows the empty journey, because the
+  // data truly no longer exists.
+  function purgeClientState(): void {
+    setTurns([]);
+    setAnswersRefresh((n) => n + 1);
+  }
+
   const answeredQuestions = state
     ? state.questions.filter((question) => state.answers[question.id])
     : [];
@@ -721,6 +732,9 @@ export function ConversationChat() {
       ) : null}
       {state ? (
         <ReviewSection refreshKey={turns.length + answersRefresh} />
+      ) : null}
+      {state ? (
+        <PurgeSection onPurged={purgeClientState} />
       ) : null}
     </div>
   );
