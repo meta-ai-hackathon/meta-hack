@@ -111,10 +111,24 @@ and nothing about the journey is stored on the server.
 - **Delete:** "Delete my answers from this device" removes the key and the
   envelope in one transaction and reports success only when a read afterwards
   finds neither. Without the key, no copy of the ciphertext can be opened.
-- **Honest copy:** when the browser cannot keep answers (no secure page, no
-  IndexedDB, storage blocked or full), the page still works in memory and
-  says the answers last only until it is closed. It never claims a save,
-  resume, or delete that did not happen.
+  When this visit's store failed to open or read, the delete opens it afresh
+  and runs the same verified purge; if it still can't reach storage, it says
+  the delete couldn't be confirmed. Only a browser that can't store anything
+  at all clears just the page.
+- **Who can see them:** anyone using the same browser profile can open
+  `/intake` and see the answers, so the page says so and points to the
+  delete on shared computers. Private windows clear the store when closed,
+  and Safari clears a site's storage after about a week without a visit, so
+  the page never promises an open-ended resume.
+- **Honest copy:** what the page says follows what the browser did. When it
+  can't store anything, the page works in memory and says the answers last
+  only until it is closed. When storage fails on a visit, it says answers
+  from an earlier visit may still be stored. When a save fails mid-visit, it
+  says the answers saved before are still on the device and new changes
+  aren't. It never claims a save, resume, or delete that did not happen.
+- **Other tabs:** the page re-reads the store when it comes back into view
+  and before confirming "Save and finish later", so a delete or new answers
+  from another tab show up instead of being contradicted.
 
 The conversation page still keeps answers on the server, because its match
 and review sections read the server session. Moving them on-device is
@@ -131,6 +145,7 @@ without what the person told the chat.
 | Caseworker notes intact through resume | `/api/session` route tests (create-assisted → resume → notes present) |
 | Rejected answers create no orphan sessions | `src/app/api/intake/answer/route.test.ts` |
 | Disavowed pii values are deleted | `src/lib/vault.test.ts` + `src/lib/intake/store.test.ts` (full-population disavow property) |
-| Device mode sends no answer anywhere | `src/lib/intake/device-intake.test.ts` (a full journey with `fetch` failing the run) + `src/lib/intake/device-path-boundary.test.ts` (no server module, Node built-in, or request on the path) |
+| Device mode sends no answer anywhere | `src/app/intake/intake-wizard.device.test.tsx` (the wizard driven through the DOM with `fetch` failing the run) + `src/lib/intake/device-intake.test.ts` (a full journey) + `src/lib/intake/device-path-boundary.test.ts` (no server module, Node built-in, or request on the path) |
+| What the page says matches what the browser kept | `src/lib/intake/device-intake.test.ts` (unsupported, failed open, failed read, failed and stalled saves, other tabs) + `src/app/intake/intake-wizard.device.test.tsx` (focus and announcements in the delete flow, the double-click guard) |
 | Device storage holds no plaintext and resumes exactly | `src/lib/intake/device-answer-store.test.ts` (properties over saved answer sequences) + `src/lib/device-kv.test.ts` (sealed store over a fake IndexedDB) |
 | A device delete is verified and never undone by another tab | `src/lib/intake/device-answer-store.test.ts` (purge and racing-save properties) |
