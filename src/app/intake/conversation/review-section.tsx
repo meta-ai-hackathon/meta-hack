@@ -67,6 +67,16 @@ const STATE_COPY: Readonly<Record<ReviewFieldView["state"], string>> = {
   not_applicable: "Not needed for you",
 };
 
+// An unverified answer must never read as confirmed (honesty spine): its
+// state line says what actually happened and asks for the check, and the
+// status badge beside it repeats "Answered but not verified".
+function stateCopyFor(field: ReviewFieldView): string {
+  if (field.state === "prefilled" && field.status === "unverified") {
+    return "You answered this, but haven't verified it — please check it";
+  }
+  return STATE_COPY[field.state];
+}
+
 export const REVIEW_UNAVAILABLE_NOTICE =
   "The application review is unavailable right now. Your answers are " +
   "safe; try again after your next message.";
@@ -182,13 +192,15 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = "your-application.pdf";
+      anchor.download = `${data.form.id}.pdf`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
       setDownloaded(true);
-      announce("Your application downloaded. Nothing was saved on our side.");
+      announce(
+        "The sample application downloaded. Nothing was saved on our side.",
+      );
     } catch {
       announce("The download didn't go through. Try again in a moment.");
     } finally {
@@ -233,6 +245,10 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
           </a>{" "}
           (retrieved {data.form.retrievedAt}, form version {data.form.version})
         </p>
+        <p data-sample-form-note className="text-sm text-amber-700 dark:text-amber-400">
+          This is the demonstration form. Your program&apos;s real form replaces
+          it once the pilot is locked — do not submit the sample anywhere.
+        </p>
         <ul className="flex flex-col gap-3" data-review-fields>
           {data.fields.map((field) => (
             <li
@@ -243,7 +259,7 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
               <span className="font-medium">{field.question}</span>
               <span className="flex flex-wrap items-center gap-2 text-sm">
                 <span data-field-state={field.state} className="text-zinc-600 dark:text-zinc-400">
-                  {STATE_COPY[field.state]}
+                  {stateCopyFor(field)}
                 </span>
                 {field.status ? <AnswerStatusBadge status={field.status} /> : null}
                 {field.provenance && field.state === "prefilled" ? (

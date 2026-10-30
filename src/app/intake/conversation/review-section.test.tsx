@@ -93,6 +93,37 @@ describe("ReviewSectionContent structure", () => {
     expect(html).toContain("In progress");
   });
 
+  it("never reads an unverified answer as confirmed", () => {
+    const html = decodeEntities(
+      renderToStaticMarkup(
+        <ReviewSectionContent
+          data={reviewData({
+            date_of_birth: { status: "unverified", value: "1990-01-01" },
+          })}
+        />,
+      ),
+    );
+    // The unverified field gets its own state copy, not the "we already
+    // know this" confirmation — and the status badge repeats it.
+    expect(html).toContain(
+      "You answered this, but haven't verified it — please check it",
+    );
+    expect(html).toContain("Answered but not verified");
+    // The confirmed copy still renders for the verified answers.
+    expect(html).toContain("We already know this from what you told us");
+    // The pii-likely value still never renders.
+    expect(html).not.toContain("1990-01-01");
+  });
+
+  it("labels the sample form as a demonstration, not a real application", () => {
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
+    );
+    expect(html).toContain("data-sample-form-note");
+    expect(html).toContain("This is the demonstration form");
+    expect(html).toContain("do not submit the sample anywhere");
+  });
+
   it("keeps a hierarchical heading outline", () => {
     const levels = headingLevels(
       renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
