@@ -601,7 +601,7 @@ class KeyForm:
 
 # Line starts in a file or a diff: a diff marker, indentation, comment
 # markers (one, or two in a row such as "# // " or "-- REM "), and an
-# opening quote.
+# opening quote, with a string prefix such as Python's b or C's L.
 SPACED_COMMENT_MARKERS = ["# ", "## ", "// ", "/// ", "//! ", "* ", " * ", "; ", ";; ", "-- ", "% ", "%% ", "REM ", "rem "]
 LINE_STARTS = st.builds(
     lambda diff, indent, first, last, quote: diff + indent + "".join(first) + last + quote,
@@ -609,7 +609,7 @@ LINE_STARTS = st.builds(
     st.sampled_from(["", "  ", "    ", "\t"]),
     st.lists(st.sampled_from(SPACED_COMMENT_MARKERS), max_size=1),
     st.sampled_from(["", *SPACED_COMMENT_MARKERS, "#", "//", "*", ";", "%"]),
-    st.sampled_from(["", '"', "'", "`", '\\"']),
+    st.sampled_from(["", '"', "'", "`", '\\"', 'b"', "rb'", 'u8"', 'L"']),
 )
 # Line ends: a closing quote, a comma or + between string pieces, an
 # escaped line break, a line continuation, or nothing.
@@ -965,6 +965,7 @@ class RedactionProperties(unittest.TestCase):
     @example("RSA ", ["MIIEow"], KeyForm(("+ * ",), "", "\n"), "+/**\n", "\n+ */\n")  # in a block comment
     @example("", ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"], KeyForm(("+  ",), "", "\n"), "+tls.key: |\n", "\n")  # a YAML block scalar
     @example("", ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"], KeyForm(('  "',), '\\n" +', "\n"), "const key =\n", ";")  # JS string pieces
+    @example("", ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"], KeyForm(('+    b"',), '\\n"', "\n"), "+KEY = (\n", "\n+)\n")  # Python bytes
     def test_a_key_goes_whole_in_every_written_form(
         self, kind: str, lines: list[str], form: KeyForm, before: str, after: str
     ) -> None:

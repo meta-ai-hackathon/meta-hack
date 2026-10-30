@@ -650,12 +650,12 @@ class _Detector:
 # header (real line breaks, and ones written as \n or \r escapes in a
 # string). A line is key material when it holds nothing but base64 (a /
 # written \/ too) and the marks keys are written with: at its start a diff
-# marker, indentation and comment markers (#, //, *, ;, --, %, REM); around
-# and between its runs quotes (escaped ones too), commas, spaces, the + of a
-# string concatenation and a closing backslash. The two headers of an
-# encrypted PEM key and blank lines count too. Each piece is matched once,
-# where the last one ended, and its runs are possessive, so the walk takes
-# linear time.
+# marker, indentation, comment markers (#, //, *, ;, --, %, REM) and a
+# string's prefix; around and between its runs quotes (escaped ones too),
+# commas, spaces, the + of a string concatenation and a closing backslash.
+# The two headers of an encrypted PEM key and blank lines count too. Each
+# piece is matched once, where the last one ended, and its runs are
+# possessive, so the walk takes linear time.
 _KEY_HEADER = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _KEY_PIECE = re.compile(
     r"(?P<footer>-?-----END [A-Z ]*PRIVATE KEY-----)"
@@ -664,12 +664,15 @@ _KEY_PIECE = re.compile(
     r"""|(?P<gap>(?:[ \t"'`,]|\\++["'`t]|\\++(?=[\r\n]|\Z))++)"""
     r"|(?P<base64>(?:[A-Za-z0-9+/=]|\\++/)++)"
 )
-# What may open a line. A line of base64 can start with + or //, so they
+# What may open a line, including the prefix of a string piece such as
+# Python's b"" or C's L"". A line of base64 can start with + or //, so they
 # count as a diff marker and a comment marker only when no base64 follows
-# them (a PEM header may).
+# them (a PEM header or a string's prefix may).
+_KEY_STRING_PREFIX = r"""(?:[bBrRuUfF]{1,2}+|u8|L)(?=["'])"""
+_KEY_OPENER = r"(?:Proc-Type:|DEK-Info:|" + _KEY_STRING_PREFIX + ")"
 _KEY_LINE_START = re.compile(
-    r"(?:[ \t]|\+(?=(?i:rem)[ \t\r\n]|Proc-Type:|DEK-Info:|[^A-Za-z0-9+=]|\Z)|-{1,3}+(?!-)|[#*;%]"
-    r"|/{2,3}+(?:!?(?![A-Za-z0-9+/=])|(?=Proc-Type:|DEK-Info:))|(?i:rem)(?=[ \t\r\n]|\Z))++"
+    r"(?:[ \t]|\+(?=(?i:rem)[ \t\r\n]|" + _KEY_OPENER + r"|[^A-Za-z0-9+=]|\Z)|-{1,3}+(?!-)|[#*;%]"
+    r"|/{2,3}+(?:!?(?![A-Za-z0-9+/=])|(?=" + _KEY_OPENER + r"))|(?i:rem)(?=[ \t\r\n]|\Z)|" + _KEY_STRING_PREFIX + ")++"
 )
 # A key's base64 comes in lines of 64 characters (70 or 76 in some formats),
 # so a run of 16 or more is a line of a key. A shorter run is one only as the
