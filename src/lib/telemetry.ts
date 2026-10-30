@@ -58,6 +58,7 @@ export function setLogSink(next: LogSink): void {
 export const PII_QUESTION_IDS = [
   "goal_detail",
   "county",
+  "prior_employer_last_month",
   "housing_status",
   "id_issue_detail",
   "date_of_birth",

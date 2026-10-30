@@ -176,7 +176,7 @@
       "type": "single_select",
       "help": "This decides which money questions come next. Pick the one that fits best — you can say 'not sure' and we will ask the general questions.",
       "options": [
-        { "value": "self_employment_current", "label": "I work for myself right now (my own business or LLC)" },
+        { "value": "self_employment_current", "label": "I work for myself right now, in my own business or LLC" },
         { "value": "prior_employer_only", "label": "I had a job before, but I do not work there anymore" },
         { "value": "both", "label": "Both — I work for myself now and had a job before" },
         { "value": "neither", "label": "Neither of these" }
