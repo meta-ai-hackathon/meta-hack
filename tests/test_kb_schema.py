@@ -300,9 +300,105 @@ class TestOptionalGroups(KbSchemaTestCase):
             "retrieved_at": "2026-10-29",
         }
 
+    def cadence_group(self) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "every_6_months",
+                    "interval_months": 6,
+                    "label": "Every 6 months",
+                    "applies_to": "People the official rules name for this schedule",
+                    "starts_on": "2027-01-01",
+                },
+                {
+                    "id": "once_a_year",
+                    "interval_months": 12,
+                    "label": "Once a year",
+                    "applies_to": "Everyone else the official rules name",
+                },
+            ],
+            "source_id": "official_rules_source",
+            "retrieved_at": "2026-10-29",
+        }
+
+    def coverage_ends_group(self) -> dict:
+        return {
+            "items": ["A letter explains the decision and how to appeal it."],
+            "source_id": "official_rules_source",
+            "retrieved_at": "2026-10-29",
+        }
+
     def test_optional_groups_validate_with_provenance(self):
-        for group, value in [("steps", self.steps_group()), ("match_signals", self.signal_group())]:
+        for group, value in [
+            ("steps", self.steps_group()),
+            ("match_signals", self.signal_group()),
+            ("renewal_cadence", self.cadence_group()),
+            ("if_coverage_ends", self.coverage_ends_group()),
+        ]:
             self.assertValid(self.entry_with_group(group, value), f"entry with {group}")
+
+    def test_coverage_ends_needs_provenance_and_text(self):
+        for key in ["items", "source_id", "retrieved_at"]:
+            entry = self.entry_with_group("if_coverage_ends", self.coverage_ends_group())
+            del entry["facts"]["if_coverage_ends"][key]
+            self.assertInvalid(entry, f"if_coverage_ends without {key}")
+        blank = self.entry_with_group("if_coverage_ends", self.coverage_ends_group())
+        blank["facts"]["if_coverage_ends"]["items"] = [""]
+        self.assertInvalid(blank, "if_coverage_ends with a blank item")
+
+    def test_cadence_age_range_validates(self):
+        entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+        entry["facts"]["renewal_cadence"]["items"][0]["ages"] = {"min": 19, "max": 64}
+        self.assertValid(entry, "cadence item with an age range")
+        for ages in [
+            {"min": 19},
+            {"max": 64},
+            {"min": -1, "max": 64},
+            {"min": 19, "max": 131},
+            {"min": 19.5, "max": 64},
+            {"min": "19", "max": 64},
+            {"min": 19, "max": 64, "label": "adults"},
+            [19, 64],
+        ]:
+            bad = self.entry_with_group("renewal_cadence", self.cadence_group())
+            bad["facts"]["renewal_cadence"]["items"][0]["ages"] = ages
+            self.assertInvalid(bad, f"cadence ages {ages!r}")
+
+    def test_cadence_missing_any_required_key_fails(self):
+        for key in ["id", "interval_months", "label", "applies_to"]:
+            entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+            del entry["facts"]["renewal_cadence"]["items"][0][key]
+            self.assertInvalid(entry, f"cadence item without {key}")
+
+    def test_cadence_starts_on_stays_optional(self):
+        entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+        del entry["facts"]["renewal_cadence"]["items"][0]["starts_on"]
+        self.assertValid(entry, "cadence item without starts_on")
+
+    def test_cadence_out_of_range_interval_fails(self):
+        for months in [0, 25, -6, 1.5, "6"]:
+            entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+            entry["facts"]["renewal_cadence"]["items"][0]["interval_months"] = months
+            self.assertInvalid(entry, f"cadence interval {months!r}")
+
+    def test_cadence_malformed_fields_fail(self):
+        for key, value in [
+            ("id", "Every Six!"),
+            ("starts_on", "2027/01/01"),
+            ("label", ""),
+            ("applies_to", ""),
+        ]:
+            entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+            entry["facts"]["renewal_cadence"]["items"][0][key] = value
+            self.assertInvalid(entry, f"cadence item with {key}={value!r}")
+
+    def test_cadence_unknown_key_and_empty_items_fail(self):
+        entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+        entry["facts"]["renewal_cadence"]["items"][0]["ends_on"] = "2028-01-01"
+        self.assertInvalid(entry, "cadence item with an unknown key")
+        empty = self.entry_with_group("renewal_cadence", self.cadence_group())
+        empty["facts"]["renewal_cadence"]["items"] = []
+        self.assertInvalid(empty, "cadence group with no items")
 
     def test_optional_groups_stay_optional(self):
         self.assertValid(self.sample, "entry without the optional groups")
@@ -340,7 +436,7 @@ class TestOptionalGroups(KbSchemaTestCase):
         for path in sorted(ENTRIES_DIR.glob("*.json")):
             entry = json.loads(path.read_text(encoding="utf-8"))
             source_ids = {source["id"] for source in entry["sources"]}
-            for group in ["steps", "match_signals"]:
+            for group in ["steps", "match_signals", "renewal_cadence", "if_coverage_ends"]:
                 if group in entry["facts"]:
                     self.assertIn(
                         entry["facts"][group]["source_id"],

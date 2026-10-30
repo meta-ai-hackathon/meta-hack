@@ -44,10 +44,19 @@ export type KbFactGroupName = (typeof KB_FACT_GROUPS)[number];
 /**
  * Fact groups an entry MAY carry (mission v2 M3): `steps` feeds the
  * requirements checklist (BN-15) and `match_signals` feeds deterministic
- * scoring. Both validate with the same per-group provenance as the
- * required groups when present.
+ * scoring. `renewal_cadence` (BN-22) states how often the program renews
+ * coverage, machine-readable so the renewal tracker can estimate a next
+ * renewal date from a date the person reports, and `if_coverage_ends`
+ * (BN-22) says what happens and where to get help if coverage ends, which
+ * the tracker shows once a renewal date has passed. All validate with the
+ * same per-group provenance as the required groups when present.
  */
-export const OPTIONAL_KB_FACT_GROUPS = ["steps", "match_signals"] as const;
+export const OPTIONAL_KB_FACT_GROUPS = [
+  "steps",
+  "match_signals",
+  "renewal_cadence",
+  "if_coverage_ends",
+] as const;
 
 export type OptionalKbFactGroupName = (typeof OPTIONAL_KB_FACT_GROUPS)[number];
 
@@ -92,6 +101,32 @@ export interface KbSignalFact {
   readonly reason: string;
 }
 
+/**
+ * One renewal schedule (BN-22): how often the program renews coverage for
+ * the people the source names. An estimate built from it is always shown
+ * as an estimate with this group's source, never as an official date.
+ */
+export interface KbCadenceFact {
+  /** Snake_case schedule id, unique within the group. */
+  readonly id: string;
+  /** Months between renewals under this schedule (1-24 by the schema). */
+  readonly intervalMonths: number;
+  /** The schedule in plain language, as the source states it. */
+  readonly label: string;
+  /** Who the source says this schedule covers, in plain language. */
+  readonly appliesTo: string;
+  /** YYYY-MM-DD: first date a renewal under this schedule can fall on. */
+  readonly startsOn?: string;
+  /** The ages the source says the schedule covers, inclusive, when it names a range. */
+  readonly ages?: KbAgeRange;
+}
+
+/** An inclusive age range (0-130 by the schema, min never above max). */
+export interface KbAgeRange {
+  readonly min: number;
+  readonly max: number;
+}
+
 export interface KbFactGroup<TItem> {
   readonly items: readonly TItem[];
   /** Id of the entry source that backs every item in this group. */
@@ -109,6 +144,10 @@ export interface KbFacts {
   readonly steps?: KbFactGroup<string>;
   /** Optional: deterministic match-scoring signals over the question spec. */
   readonly match_signals?: KbFactGroup<KbSignalFact>;
+  /** Optional: renewal schedules the renewal tracker estimates from (BN-22). */
+  readonly renewal_cadence?: KbFactGroup<KbCadenceFact>;
+  /** Optional: what happens and where to get help if coverage ends (BN-22). */
+  readonly if_coverage_ends?: KbFactGroup<string>;
 }
 
 export interface KbEntry {
@@ -173,6 +212,33 @@ const SIGNAL_KEYS: ReadonlySet<string> = new Set([
   "weight",
   "reason",
 ]);
+
+/** Exactly the keys kb/schema.json allows on one renewal_cadence item. */
+const CADENCE_KEYS: ReadonlySet<string> = new Set([
+  "id",
+  "interval_months",
+  "label",
+  "applies_to",
+  "starts_on",
+  "ages",
+]);
+
+/** Exactly the keys kb/schema.json allows on a renewal_cadence age range. */
+const AGE_RANGE_KEYS: ReadonlySet<string> = new Set(["min", "max"]);
+
+/** Bounds kb/schema.json puts on renewal_cadence interval_months. */
+const CADENCE_INTERVAL_MONTHS_MIN = 1;
+const CADENCE_INTERVAL_MONTHS_MAX = 24;
+
+/** Bounds kb/schema.json puts on renewal_cadence ages. */
+const AGE_MIN = 0;
+const AGE_MAX = 130;
+
+function isAge(value: unknown): value is number {
+  return (
+    typeof value === "number" && Number.isInteger(value) && value >= AGE_MIN && value <= AGE_MAX
+  );
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -440,6 +506,8 @@ export function validateKbEntry(raw: unknown): readonly string[] {
           problems.push(`${label}.weight must be an integer from 1 to 9`);
         }
       }
+    } else if (name === "renewal_cadence") {
+      validateCadenceItems(group.items, problems);
     } else {
       for (const item of group.items) {
         if (typeof item !== "string" || item.length === 0) {
@@ -450,6 +518,74 @@ export function validateKbEntry(raw: unknown): readonly string[] {
     }
   }
   return problems;
+}
+
+/**
+ * renewal_cadence items (BN-22): the schema's shape plus what JSON Schema
+ * cannot express — ids unique within the group, starts_on a real calendar
+ * date the renewal tracker's date math accepts (year 0001 or later), and an
+ * age range whose min does not exceed its max, so an estimate can never be
+ * computed from a malformed schedule.
+ */
+function validateCadenceItems(items: readonly unknown[], problems: string[]): void {
+  const seenIds = new Set<string>();
+  items.forEach((item, index) => {
+    const label = `facts.renewal_cadence.items[${index}]`;
+    if (!isPlainObject(item)) {
+      problems.push(`${label} must be an object`);
+      return;
+    }
+    checkUnknownKeys(item, CADENCE_KEYS, label, problems);
+    if (typeof item.id !== "string" || !ENTRY_ID_RE.test(item.id)) {
+      problems.push(`${label}.id must be a snake_case schedule id`);
+    } else if (seenIds.has(item.id)) {
+      problems.push(`${label}.id "${item.id}" repeats an earlier schedule id`);
+    } else {
+      seenIds.add(item.id);
+    }
+    if (
+      typeof item.interval_months !== "number" ||
+      !Number.isInteger(item.interval_months) ||
+      item.interval_months < CADENCE_INTERVAL_MONTHS_MIN ||
+      item.interval_months > CADENCE_INTERVAL_MONTHS_MAX
+    ) {
+      problems.push(
+        `${label}.interval_months must be an integer from ` +
+          `${CADENCE_INTERVAL_MONTHS_MIN} to ${CADENCE_INTERVAL_MONTHS_MAX}`,
+      );
+    }
+    if (typeof item.label !== "string" || item.label.length === 0) {
+      problems.push(`${label}.label must be a non-empty string`);
+    }
+    if (typeof item.applies_to !== "string" || item.applies_to.length === 0) {
+      problems.push(`${label}.applies_to must be a non-empty string`);
+    }
+    if (
+      item.starts_on !== undefined &&
+      (typeof item.starts_on !== "string" ||
+        !isIsoCalendarDate(item.starts_on) ||
+        // isIsoCalendarDate accepts year 0000; the tracker's calendar math
+        // (src/lib/renewal/calendar-date.ts) starts at year 1.
+        item.starts_on.startsWith("0000"))
+    ) {
+      problems.push(`${label}.starts_on must be a real YYYY-MM-DD date when present`);
+    }
+    if (item.ages !== undefined) {
+      const ages = item.ages;
+      if (!isPlainObject(ages)) {
+        problems.push(`${label}.ages must be an object with min and max`);
+      } else {
+        checkUnknownKeys(ages, AGE_RANGE_KEYS, `${label}.ages`, problems);
+        if (!isAge(ages.min) || !isAge(ages.max)) {
+          problems.push(
+            `${label}.ages.min and ${label}.ages.max must be integers from ${AGE_MIN} to ${AGE_MAX}`,
+          );
+        } else if (ages.min > ages.max) {
+          problems.push(`${label}.ages.min must not be greater than ${label}.ages.max`);
+        }
+      }
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -525,6 +661,31 @@ function buildEntry(raw: Record<string, unknown>): KbEntry {
               retrievedAt: rawFacts.match_signals.retrieved_at as string,
             },
           }
+        : {}),
+      ...(rawFacts.renewal_cadence
+        ? {
+            renewal_cadence: {
+              items: (rawFacts.renewal_cadence.items as Record<string, unknown>[]).map(
+                (item) => ({
+                  id: item.id as string,
+                  intervalMonths: item.interval_months as number,
+                  label: item.label as string,
+                  appliesTo: item.applies_to as string,
+                  ...(typeof item.starts_on === "string"
+                    ? { startsOn: item.starts_on }
+                    : {}),
+                  ...(isPlainObject(item.ages)
+                    ? { ages: { min: item.ages.min as number, max: item.ages.max as number } }
+                    : {}),
+                }),
+              ),
+              sourceId: rawFacts.renewal_cadence.source_id as string,
+              retrievedAt: rawFacts.renewal_cadence.retrieved_at as string,
+            },
+          }
+        : {}),
+      ...(rawFacts.if_coverage_ends
+        ? { if_coverage_ends: stringGroup(rawFacts.if_coverage_ends) }
         : {}),
     },
   };

@@ -34,7 +34,7 @@ Chosen over `src/data/kb/` on purpose:
 | `status_reason` | stale / withdrawn | Why the entry is not current |
 | `superseded_by` | optional | Entry id that replaces this one |
 | `sources` | yes | One or more official sources: `id`, `title`, `url` (https only), `retrieved_at` (ISO date), `supports` (what it backs) |
-| `facts` | yes | Four required fact groups (`rules`, `required_documents`, `official_links`, `deadlines`) plus two optional ones (`steps`, `match_signals`), each source-linked |
+| `facts` | yes | Four required fact groups (`rules`, `required_documents`, `official_links`, `deadlines`) plus four optional ones (`steps`, `match_signals`, `renewal_cadence`, `if_coverage_ends`), each source-linked |
 
 Fact groups — `rules`, `required_documents`, `official_links`, `deadlines` —
 each carry `items`, a `source_id` naming one of the entry's sources, and a
@@ -53,6 +53,22 @@ Two optional groups (mission v2 M3) follow the same provenance rules:
   default 1), and the program-side `reason` a match card shows. Benefit
   matching (`src/lib/match.ts`) scores these deterministically; unknown or
   unverified answers never match a signal.
+
+Two more optional groups (BN-22 / HACK-50) follow the same rules:
+
+- `renewal_cadence` — how often the program renews coverage, so the
+  renewal tracker can estimate a next renewal date from a date the person
+  reports. Items carry `id` (snake_case, unique in the group),
+  `interval_months` (integer 1-24), the plain-language `label` and
+  `applies_to` the source states, an optional `starts_on` date before
+  which the schedule cannot set a renewal, and an optional `ages` range
+  (`min` and `max`, integers 0-130, inclusive) when the source limits the
+  schedule to certain ages. An estimate built from it is always shown as
+  an estimate with the group's source, never as an official date.
+- `if_coverage_ends` — statement strings on what happens and where to get
+  help if coverage ends (the letter, the appeal window, free help). The
+  renewal tracker shows them, labeled and sourced, once a renewal date has
+  passed.
 
 ## Status rules
 

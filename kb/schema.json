@@ -98,7 +98,12 @@
         "official_links": { "$ref": "#/definitions/link_fact_group" },
         "deadlines": { "$ref": "#/definitions/deadline_fact_group" },
         "steps": { "$ref": "#/definitions/text_fact_group" },
-        "match_signals": { "$ref": "#/definitions/signal_fact_group" }
+        "match_signals": { "$ref": "#/definitions/signal_fact_group" },
+        "renewal_cadence": { "$ref": "#/definitions/cadence_fact_group" },
+        "if_coverage_ends": {
+          "$ref": "#/definitions/text_fact_group",
+          "description": "Optional group (BN-22 renewal tracker): what the source says happens and what a person can do if their coverage ends, such as the letter, the appeal window, and free help. The tracker shows it, labeled and sourced, once a renewal date has passed."
+        }
       }
     },
     "text_fact_group": {
@@ -198,6 +203,62 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Program-side claim shown on the match card when the signal matches, backed by the group's source."
+              }
+            }
+          }
+        },
+        "source_id": { "$ref": "#/definitions/source_id" },
+        "retrieved_at": { "$ref": "#/definitions/iso_date" }
+      }
+    },
+    "cadence_fact_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "source_id", "retrieved_at"],
+      "description": "Optional group (BN-22 renewal tracker): how often the program renews coverage, machine-readable so the app can estimate a next renewal date from a date the person reports. Every estimate cites this group's source and is labeled as an estimate, never as an official date. Item ids must be unique within the group (cross-checked in code and tests; JSON Schema cannot express it).",
+      "properties": {
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "interval_months", "label", "applies_to"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "description": "Snake_case schedule id, unique within the group."
+              },
+              "interval_months": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 24,
+                "description": "Months between renewals under this schedule."
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The schedule in plain language, as the group's source states it."
+              },
+              "applies_to": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Who the group's source says this schedule covers, in plain language."
+              },
+              "starts_on": {
+                "$ref": "#/definitions/iso_date",
+                "description": "First date a renewal under this schedule can fall on. Omitted: the schedule is already in effect."
+              },
+              "ages": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["min", "max"],
+                "description": "The ages the source says this schedule covers, inclusive (min must not exceed max; checked in code). Omitted: the source names no age range. The tracker asks one on-device question about it and leaves the schedule out of the estimates when the answer is outside the range.",
+                "properties": {
+                  "min": { "type": "integer", "minimum": 0, "maximum": 130 },
+                  "max": { "type": "integer", "minimum": 0, "maximum": 130 }
+                }
               }
             }
           }

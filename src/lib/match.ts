@@ -386,6 +386,9 @@ function entryVocabulary(entry: KbEntry): ReadonlySet<string> {
         parts.push(item);
       } else if ("questionId" in item) {
         parts.push(`${item.reason} ${item.questionId} ${(item.values ?? []).join(" ")}`);
+      } else if ("intervalMonths" in item) {
+        // Renewal schedules (BN-22) are entry facts too.
+        parts.push(`${item.label} ${item.appliesTo}`);
       } else {
         parts.push(`${item.label} ${"due" in item ? item.due : item.url}`);
       }
@@ -763,6 +766,8 @@ function cardStaticCopy(entry: KbEntry, card: MatchCard): string {
         parts.push(item);
       } else if ("questionId" in item) {
         parts.push(item.reason);
+      } else if ("intervalMonths" in item) {
+        parts.push(`${item.label} ${item.appliesTo}`);
       } else {
         parts.push(`${item.label} ${"due" in item ? item.due : item.url}`);
       }
