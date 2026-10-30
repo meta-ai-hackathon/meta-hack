@@ -43,6 +43,15 @@ const BANNED_FIXTURES = [
   "You haven't met the criteria for assistance.",
   "Your answers show you meet the requirements.",
   "You meet the income limit for the program.",
+  "You will stay covered as long as you renew.",
+  "You won't lose your health coverage.",
+  "Your renewal will be approved.",
+  "You're still eligible for Medicaid.",
+  "You keep your Medicaid.",
+  "Your coverage won't end.",
+  "Your renewal has been approved.",
+  "You'll be renewed automatically.",
+  "There will be no gap in your coverage.",
 ];
 
 // Honest sentences that must pass untouched. Hedged uncertainty stays
@@ -57,6 +66,11 @@ const CLEAN_TEXT_FIXTURES = [
   "You may not meet the income rules yet; the official rules decide.",
   "If you meet the income limits, you may be eligible.",
   "Unless you meet the limits, the office may review your file.",
+  "Your renewal may be due around March 1, 2027.",
+  "You may lose your coverage if you do not answer the letter.",
+  "If your renewal is approved, you get a letter from the office.",
+  "Ask your local DSS whether you will stay covered.",
+  "We can't tell you if your renewal will be approved.",
 ];
 
 // A client-state fixture: the shape /api/intake/* and /api/session return.
