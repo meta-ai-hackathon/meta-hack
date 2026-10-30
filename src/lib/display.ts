@@ -229,9 +229,14 @@ export function contrastRatio(foreground: string, background: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-/** The themes as (foreground, background) hex pairs, mirrored in globals.css. */
+/**
+ * The themes as (foreground, background) hex pairs, mirrored in globals.css.
+ * The light baseline follows the frontend-polish tokens (#65): ink #0a0a0a
+ * on warm paper #f8f4ec (18.05:1, documented in globals.css), which replaced
+ * the pre-polish #171717-on-white pair when the polished design landed.
+ */
 export const THEME_PAIRS = {
-  light: { foreground: "#171717", background: "#ffffff" },
+  light: { foreground: "#0a0a0a", background: "#f8f4ec" },
   dark: { foreground: "#ededed", background: "#0a0a0a" },
   highLight: { foreground: "#000000", background: "#ffffff" },
   highDark: { foreground: "#ffffff", background: "#000000" },
