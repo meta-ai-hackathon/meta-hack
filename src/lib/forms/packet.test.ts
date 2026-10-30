@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "@cantoo/pdf-lib";
+import { PDFArray, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from "@cantoo/pdf-lib";
 import {
   assemblePacket,
   provenanceFromFill,
@@ -27,6 +27,53 @@ async function blankPdf(pages: number, marker: string): Promise<Uint8Array> {
 
 async function pageCount(bytes: Uint8Array): Promise<number> {
   return (await PDFDocument.load(bytes)).getPageCount();
+}
+
+/**
+ * Decoded content streams of one page — how the tests READ what a page
+ * actually draws, instead of trusting page counts (PR #61 P2).
+ */
+/** Decode the `<hex> Tj` and `(literal) Tj` strings of a content stream. */
+function decodeShownText(streamText: string): string {
+  let out = "";
+  for (const match of streamText.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
+    const bytes = new Uint8Array(match[1].length / 2);
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = parseInt(match[1].slice(index * 2, index * 2 + 2), 16);
+    }
+    out += new TextDecoder("latin1").decode(bytes);
+  }
+  for (const match of streamText.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)) {
+    out += match[1].replace(/\\([()\\])/g, "$1");
+  }
+  return out;
+}
+
+export function pageText(pdf: PDFDocument, pageIndex: number): string {
+  const page = pdf.getPage(pageIndex);
+  // Contents may be one stream or an array of refs — resolve through the
+  // document context either way.
+  const resolved: unknown = pdf.context.lookup(
+    page.node.get(PDFName.of("Contents")),
+  );
+  const streams: PDFRawStream[] = [];
+  if (resolved instanceof PDFRawStream) {
+    streams.push(resolved);
+  } else if (resolved instanceof PDFArray) {
+    for (let index = 0; index < resolved.size(); index += 1) {
+      const looked: unknown = pdf.context.lookup(resolved.get(index));
+      if (looked instanceof PDFRawStream) {
+        streams.push(looked);
+      }
+    }
+  }
+  return streams
+    .map((stream) =>
+      decodeShownText(
+        new TextDecoder("latin1").decode(decodePDFRawStream(stream).decode()),
+      ),
+    )
+    .join("\n");
 }
 
 // Non-blank text: whitespace-only fields are correctly rejected by
@@ -111,17 +158,45 @@ describe("packet assembly", () => {
   });
 
   it("the packet id appears on the cover but never on the application pages", async () => {
+    // PR #61 P2: read the pages' real content streams — a page-count
+    // comparison cannot see the id drawn onto a form page.
+    const packetId = "PKT-AUDIT-77341";
     const manifest: PacketManifest = {
       ...(await fc.sample(manifestArb, 1))[0],
+      packetId,
       statements: [],
     };
     const app = await blankPdf(2, "application");
     const outcome = await assemblePacket(app, manifest);
     const packetPdf = await PDFDocument.load(outcome.bytes);
-    // The copied application pages are page-for-page the fill output:
-    // same count, and the cover block before them carries the id.
     expect(packetPdf.getPageCount()).toBe(outcome.coverPages + 2);
-    expect(outcome.coverPages).toBeGreaterThanOrEqual(1);
+    // Every cover page may carry it; no application page may.
+    let coverCarriesId = false;
+    for (let index = 0; index < outcome.coverPages; index += 1) {
+      if (pageText(packetPdf, index).includes(packetId)) {
+        coverCarriesId = true;
+      }
+    }
+    expect(coverCarriesId).toBe(true);
+    for (let index = outcome.coverPages; index < packetPdf.getPageCount(); index += 1) {
+      expect(pageText(packetPdf, index)).not.toContain(packetId);
+    }
+  });
+
+  it("non-WinAnsi manifest text assembles instead of throwing (PR #61 P2)", async () => {
+    const manifest: PacketManifest = {
+      ...(await fc.sample(manifestArb, 1))[0],
+      packetId: "PKT-UNICODE-1",
+      statements: [
+        {
+          label: "Estado de cuenta — Marzo 📄",
+          origin: "Banco — téléchargement",
+          pdfBytes: await blankPdf(1, "statement"),
+        },
+      ],
+    };
+    const outcome = await assemblePacket(await blankPdf(1, "application"), manifest);
+    expect(outcome.pageCount).toBe(outcome.coverPages + 2);
   });
 
   it("rejects a manifest that cites an unknown source card, however shaped", async () => {
@@ -186,11 +261,18 @@ describe("fill bridge", () => {
       ],
       toResolve: [{ fieldName: "c", question: "Your income?", reason: "unknown" as const }],
     };
-    const { provenance, missing } = provenanceFromFill(fill, (name) =>
-      name === "a" ? "Your name?" : "Your job?",
+    const { provenance, missing } = provenanceFromFill(
+      fill,
+      (name) => (name === "a" ? "Your name?" : "Your job?"),
+      (name) => (name === "a" ? "vault" : "spec_answer"),
     );
     expect(provenance).toHaveLength(2);
-    expect(provenance[0]).toMatchObject({ fieldName: "a", question: "Your name?" });
+    expect(provenance[0]).toMatchObject({
+      fieldName: "a",
+      question: "Your name?",
+      source: "vault",
+    });
+    expect(provenance[1]).toMatchObject({ fieldName: "b", source: "spec_answer" });
     expect(missing).toEqual([{ fieldName: "c", question: "Your income?" }]);
   });
 });

@@ -169,13 +169,15 @@ export function validateManifest(manifest: PacketManifest): void {
     requireText(item.fieldName, "missing.fieldName");
     requireText(item.question, "missing.question");
   }
-  for (const statement of manifest.statements) {
+  manifest.statements.forEach((statement, index) => {
     requireText(statement.label, "statement.label");
     requireText(statement.origin, "statement.origin");
     if (statement.pdfBytes.length === 0) {
-      throw packetError(`statement has no bytes: ${statement.label}`);
+      // Index, never the label: labels can be user-entered text and error
+      // details may reach telemetry (PR #61 P3).
+      throw packetError(`statement ${index} has no bytes`);
     }
-  }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +192,17 @@ const MARGIN = 56;
 const LINE_HEIGHT = 15;
 const BODY_SIZE = 10.5;
 const MAX_LINE_CHARS = 92;
+
+/**
+ * Cover text is drawn with a WinAnsi standard font (no fontkit in the
+ * fork), so non-WinAnsi characters would throw mid-assembly (PR #61
+ * P2). Replace each such character with '?' — the packet still
+ * assembles, and the substitution is visible rather than silent data
+ * loss. Mirrors the fill module's WinAnsi discipline.
+ */
+function toWinAnsi(text: string): string {
+  return text.replace(/[^\x20-\x7E\xA0-\xFF\t\n\r]/g, "?");
+}
 
 function wrapLine(line: string): string[] {
   if (line.length <= MAX_LINE_CHARS) {
@@ -221,8 +234,8 @@ function coverLines(manifest: PacketManifest): string[] {
     `To (fax): ${manifest.destinationFax}`,
     `Assembled: ${manifest.assembledAt}`,
     "",
-    "This packet contains, in order: this cover sheet, the completed",
-    "application signed by the applicant, the supporting statements",
+    "This packet contains, in order: this cover sheet, the application",
+    "signed by the applicant, the supporting statements",
     "listed below, and a provenance summary so every entry on the form",
     "can be traced to its source.",
     "",
@@ -266,7 +279,7 @@ function coverLines(manifest: PacketManifest): string[] {
     "any questions to the applicant at the contact information on the",
     "application itself.",
   );
-  return lines.flatMap(wrapLine);
+  return lines.map(toWinAnsi).flatMap(wrapLine);
 }
 
 /**
@@ -331,22 +344,23 @@ export async function assemblePacket(
 
 /**
  * Bridge from the fill pipeline: the manifest rows a fill outcome already
- * knows. `questionFor` resolves the plain-language question per field
- * (the registry owns that text); values themselves never enter the
- * manifest — provenance only.
+ * knows. Both lookups are REQUIRED inputs (PR #61 P2): the cover is an
+ * audit document, so a value's source is never defaulted — a vault or
+ * in-request value mislabeled 'spec_answer' would mislead a caseworker.
+ * `questionFor` resolves the plain-language question per field (the
+ * registry owns that text); values themselves never enter the manifest —
+ * provenance only.
  */
 export function provenanceFromFill(
   fill: FillOutcome,
   questionFor: (fieldName: string) => string,
+  sourceFor: (fieldName: string) => PacketValueSource,
 ): { provenance: ProvenanceEntry[]; missing: MissingEntry[] } {
   const provenance: ProvenanceEntry[] = fill.filled.map((field) => ({
     fieldName: field.fieldName,
     question: questionFor(field.fieldName),
     provenance: field.provenance,
-    // The fill outcome records provenance per field; the source column in
-    // the manifest distinguishes vault crossings from plain answers, and
-    // callers refine it when they hold the value map. Default: spec answer.
-    source: "spec_answer" as const,
+    source: sourceFor(field.fieldName),
   }));
   const missing: MissingEntry[] = fill.toResolve.map((item) => ({
     fieldName: item.fieldName,

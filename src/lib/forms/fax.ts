@@ -69,9 +69,10 @@ export type FaxFailureKind =
   | "provider_unverified" // terms not verified in the registry (HACK-89 pending)
   | "not_consented" // no fax consent on the user's receipt
   | "test_destination_mismatch" // rehearsal aimed somewhere other than the test number
-  | "provider_down" // transport unreachable / 5xx — try again later, explicitly
+  | "provider_down" // vendor explicitly refused/unreachable — nothing was sent
   | "number_unreachable" // the destination did not answer — check the number
-  | "partial_transmission"; // some pages sent — do NOT resend the whole packet blindly
+  | "partial_transmission" // some pages sent — do NOT resend the whole packet blindly
+  | "unknown_outcome"; // unrecognized failure — the fax MAY have been sent
 
 export type FaxResult =
   | { readonly ok: true; readonly confirmation: FaxConfirmation }
@@ -99,7 +100,9 @@ const NEXT_ACTIONS: Readonly<Record<FaxFailureKind, string>> = {
   test_destination_mismatch:
     "Nothing was sent. Rehearsal faxes can only go to the test fax number.",
   provider_down:
-    "The fax service could not be reached, so nothing was sent. Your answers are unchanged — try again when you are ready, or fax the packet yourself.",
+    "The fax service refused the send, so nothing was sent. Your answers are unchanged — try again when you are ready, or fax the packet yourself.",
+  unknown_outcome:
+    "We could not confirm what happened to that fax — it may have been sent. Do not send it again yet: check with the office first to ask whether your application arrived, or fax the packet yourself and tell them a copy may already have arrived.",
   number_unreachable:
     "The fax number did not answer, so nothing was confirmed as sent. Check the number, then try once more, or fax the packet yourself.",
   partial_transmission:
@@ -111,7 +114,13 @@ function failure(kind: FaxFailureKind): FaxResult {
   return { ok: false, kind, nextAction: NEXT_ACTIONS[kind] };
 }
 
-/** Classify a transport throw into the honest failure vocabulary. */
+/**
+ * Classify a transport throw into the honest failure vocabulary. Only
+ * EXPLICIT vendor codes may read as "nothing was sent" (PR #61 P2): an
+ * unrecognized error — a timeout, a dropped connection after upload —
+ * means the fax may well have arrived, and telling the user otherwise
+ * invites a double submission of a signed legal document.
+ */
 export function classifyFaxError(error: unknown): FaxFailureKind {
   const code =
     error !== null && typeof error === "object" && "code" in error
@@ -123,7 +132,15 @@ export function classifyFaxError(error: unknown): FaxFailureKind {
   if (code === "partial" || code === "partial_transmission") {
     return "partial_transmission";
   }
-  return "provider_down";
+  if (
+    code === "provider_down" ||
+    code === "service_unavailable" ||
+    code === "connection_refused" ||
+    code === "rejected"
+  ) {
+    return "provider_down";
+  }
+  return "unknown_outcome";
 }
 
 /**

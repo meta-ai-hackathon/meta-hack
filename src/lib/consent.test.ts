@@ -47,10 +47,11 @@ describe("consent path registry (VAL-CONSENT-002/004)", () => {
   });
 
   it("carries the live-verified vendor terms with retrieval dates", () => {
-    // Every VERIFIED path carries its checked terms. The fax path ships
-    // unverified on purpose (HACK-89 owns the vendor check), so it is
-    // asserted separately below.
-    for (const path of CONSENT_PATHS.filter((entry) => entry.id !== "fax")) {
+    // Every VERIFIED path carries its checked terms — filtered on
+    // termsVerified, not on id, so the fax path gets the same checks the
+    // moment HACK-89 verifies it (PR #61 P2). It ships unverified on
+    // purpose today and is asserted separately below.
+    for (const path of CONSENT_PATHS.filter((entry) => entry.termsVerified)) {
       expect(path.termsVerified, path.id).toBe(true);
       expect(path.terms.length, path.id).toBeGreaterThan(0);
       for (const terms of path.terms) {

@@ -151,7 +151,12 @@ describe("failure honesty", () => {
       ["number_unreachable", "number_unreachable"],
       ["no_answer", "number_unreachable"],
       ["partial", "partial_transmission"],
-      ["boom", "provider_down"],
+      ["provider_down", "provider_down"],
+      ["service_unavailable", "provider_down"],
+      // Unrecognized failures are an UNKNOWN outcome, never "nothing
+      // was sent" — the fax may have arrived (PR #61 P2).
+      ["boom", "unknown_outcome"],
+      ["timeout", "unknown_outcome"],
     ];
     for (const [code, kind] of cases) {
       const error = Object.assign(new Error("vendor said no"), { code });
@@ -172,7 +177,7 @@ describe("failure honesty", () => {
       // One call per invocation — recovery is the user's decision.
       expect(calls()).toBe(1);
     }
-    expect(classifyFaxError(new Error("plain"))).toBe("provider_down");
-    expect(classifyFaxError(null)).toBe("provider_down");
+    expect(classifyFaxError(new Error("plain"))).toBe("unknown_outcome");
+    expect(classifyFaxError(null)).toBe("unknown_outcome");
   });
 });
