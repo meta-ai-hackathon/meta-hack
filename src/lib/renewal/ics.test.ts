@@ -20,7 +20,6 @@ import {
   foldIcsLine,
   formatIcsDate,
   formatIcsUtc,
-  utf8Length,
   type IcsAllDayEvent,
 } from "./ics";
 
@@ -118,9 +117,16 @@ describe("line folding (RFC 5545 3.1)", () => {
     expect(unfold(foldIcsLine(line))).toEqual([line]);
   });
 
-  it("leaves a short line alone", () => {
+  it("leaves a short line alone, and counts 1, 3, and 4 octet characters as UTF-8 does", () => {
     expect(foldIcsLine("VERSION:2.0")).toBe("VERSION:2.0");
-    expect(utf8Length("a€😀")).toBe(1 + 3 + 4);
+    // The folder's own octet count, checked against Buffer's: "a€😀" is 8
+    // octets, so nine of them and "abc" fill a line exactly, and one more
+    // octet folds it (third review: a length export that only this test
+    // read used to be checked here instead).
+    const exactlyFull = `${"a€😀".repeat(9)}abc`;
+    expect(Buffer.byteLength(exactlyFull, "utf8")).toBe(ICS_MAX_LINE_OCTETS);
+    expect(foldIcsLine(exactlyFull)).toBe(exactlyFull);
+    expect(foldIcsLine(`${exactlyFull}d`).split("\r\n")).toEqual([exactlyFull, " d"]);
   });
 });
 

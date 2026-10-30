@@ -86,15 +86,6 @@ function codePointOctets(codePoint: number): number {
   return 4;
 }
 
-/** UTF-8 length of a string (lone surrogates count as U+FFFD, 3 octets). */
-export function utf8Length(value: string): number {
-  let octets = 0;
-  for (const char of value) {
-    octets += codePointOctets(char.codePointAt(0) ?? 0);
-  }
-  return octets;
-}
-
 /** Replace lone UTF-16 surrogates, which have no UTF-8 encoding, with U+FFFD. */
 function toWellFormed(value: string): string {
   let out = "";
