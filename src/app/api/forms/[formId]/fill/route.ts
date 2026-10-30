@@ -88,7 +88,7 @@ export async function POST(
  */
 const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
 
-async function cappedBodyBytes(request: Request): Promise<Uint8Array> {
+async function cappedBodyBytes(request: Request): Promise<Uint8Array<ArrayBuffer>> {
   const reader = request.body?.getReader();
   if (!reader) {
     return new Uint8Array(0);
