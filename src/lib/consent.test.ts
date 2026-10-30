@@ -47,7 +47,11 @@ describe("consent path registry (VAL-CONSENT-002/004)", () => {
   });
 
   it("carries the live-verified vendor terms with retrieval dates", () => {
-    for (const path of CONSENT_PATHS) {
+    // Every VERIFIED path carries its checked terms — filtered on
+    // termsVerified, not on id, so the fax path gets the same checks the
+    // moment HACK-89 verifies it (PR #61 P2). It ships unverified on
+    // purpose today and is asserted separately below.
+    for (const path of CONSENT_PATHS.filter((entry) => entry.termsVerified)) {
       expect(path.termsVerified, path.id).toBe(true);
       expect(path.terms.length, path.id).toBeGreaterThan(0);
       for (const terms of path.terms) {
@@ -63,6 +67,60 @@ describe("consent path registry (VAL-CONSENT-002/004)", () => {
     );
     expect(urls).toContain("https://dev.meta.ai/legal/commitments");
     expect(urls).toContain("https://ai.google.dev/gemini-api/terms");
+  });
+});
+
+describe("fax consent path (HACK-88)", () => {
+  it("ships unverified, so no receipt can enable it until HACK-89 lands", () => {
+    const fax = CONSENT_PATHS.find((path) => path.id === "fax");
+    expect(fax).toBeDefined();
+    expect(fax?.termsVerified).toBe(false);
+    expect(fax?.sends.join(" ")).toMatch(/signed application packet/);
+    expect(
+      consentPathEnabled("fax", receiptWith({ fax: true })),
+    ).toBe(false);
+  });
+
+  it("enables fax only on explicit fax consent once terms are verified", () => {
+    const verifiedFax: ConsentPathSpec[] = CONSENT_PATHS.map((path) =>
+      path.id === "fax"
+        ? {
+            ...path,
+            termsVerified: true,
+            terms: [
+              {
+                label: "Vendor retention terms",
+                url: "https://example.invalid/terms",
+                verifiedOn: "2026-10-30",
+              },
+            ],
+          }
+        : path,
+    );
+    expect(consentPathEnabled("fax", receiptWith({ fax: true }), verifiedFax)).toBe(true);
+    expect(consentPathEnabled("fax", receiptWith({ fax: false }), verifiedFax)).toBe(false);
+    // Receipts written before the fax field existed read as off, never on.
+    expect(consentPathEnabled("fax", receiptWith(), verifiedFax)).toBe(false);
+    expect(consentPathEnabled("fax", null, verifiedFax)).toBe(false);
+  });
+
+  it("parses the fax field fail-closed", () => {
+    const raw = JSON.stringify({
+      v: 1,
+      ai: true,
+      voice: false,
+      fax: "yes",
+      at: "2026-10-30T12:00:00.000Z",
+    });
+    expect(parseConsentReceipt(raw)).toBeNull();
+    const good = JSON.stringify({
+      v: 1,
+      ai: true,
+      voice: false,
+      fax: true,
+      at: "2026-10-30T12:00:00.000Z",
+    });
+    expect(parseConsentReceipt(good)?.fax).toBe(true);
   });
 });
 
