@@ -11,6 +11,7 @@ every FlateDecode stream, so blocklisted names cannot hide inside compressed
 content.
 """
 
+import hashlib
 import json
 import re
 import unittest
@@ -25,6 +26,15 @@ FORMS_DIR = REPO_ROOT / "kb" / "forms"
 SCHEMA_PATH = FORMS_DIR / "schema.json"
 SPEC_PATH = REPO_ROOT / "specs" / "question-spec" / "generic-questions.json"
 FORMS_LIB_DIR = REPO_ROOT / "src" / "lib" / "forms"
+
+# The REAL pilot fixture (HACK-16 Done, mission v2.1 M6): the DHB-5200 as
+# published by NC DHHS, retrieved 2026-10-30 from the official apply page's
+# printable-application link. The sha256 pins the committed fixture to the
+# retrieved bytes — if the source ever changes, a person re-retrieves,
+# re-verifies, and re-pins (BN-27 discipline).
+REAL_FORM_SHA256 = (
+    "19e1e39f6150c8b823bc25e8732649e5d55bc9602c5b5a4e4a4dc7edc19232e0"
+)
 
 PROGRAM_NAME_BLOCKLIST = [
     # Benefit programs (the same list the KB surface enforces).
@@ -120,10 +130,17 @@ class TestRegistrySchemaAndEntries(unittest.TestCase):
     def test_schema_is_valid_draft07(self):
         Draft7Validator.check_schema(self.schema)
 
-    def test_exactly_the_two_sample_entries_ship(self):
+    def test_exactly_two_samples_and_the_real_form_ship(self):
+        # Mission v2.1 M6: the two synthetic samples (M4 fixtures) plus the
+        # REAL pilot registry entry (HACK-16 Done: the NC Medicaid DHB-5200,
+        # official_source origin).
         self.assertEqual(
             sorted(self.entries),
-            ["sample-form-acroform.json", "sample-form-flat.json"],
+            [
+                "dhb-5200.json",
+                "sample-form-acroform.json",
+                "sample-form-flat.json",
+            ],
         )
 
     def test_both_entries_validate(self):
@@ -221,26 +238,58 @@ class TestRegistrySchemaAndEntries(unittest.TestCase):
                 )
 
 
-class TestPilotAgnostic(unittest.TestCase):
+class TestPilotSurfaces(unittest.TestCase):
+    """Post-lock successor of TestPilotAgnostic (VAL-X2-004 as amended,
+    Oct 30): HACK-16 is Done, so real program/jurisdiction names are
+    sanctioned ONLY on surfaces that carry their own verification —
+    registry entries declared official_source (with source URL + retrieval
+    date) — while the synthetic sample fixtures and the pipeline code stay
+    pilot-agnostic."""
+
     def setUp(self) -> None:
         self.entries = load_entries()
         self.pdf_paths = [
             REPO_ROOT / entry["pdf_path"] for entry in self.entries.values()
         ]
 
-    def test_program_is_the_committed_placeholder(self):
+    def sanctioned_entry_names(self) -> set[str]:
+        # The sanction is derived from the artifact's own declared provenance,
+        # not from a name list: an entry may carry real program names only when
+        # it declares origin=official_source (the schema requires url +
+        # retrieved_at on every source).
+        return {
+            name
+            for name, entry in self.entries.items()
+            if entry["source"]["origin"] == "official_source"
+        }
+
+    def test_sample_entries_stay_placeholder_agnostic(self):
         for name, entry in self.entries.items():
+            if name in self.sanctioned_entry_names():
+                continue
             self.assertEqual(
                 entry["program"],
                 "{{PILOT_PROGRAM}}",
-                f"{name}: program must stay a placeholder until HACK-16",
+                f"{name}: sample program must stay a placeholder",
             )
 
-    def test_no_real_program_or_jurisdiction_names_on_the_forms_surface(self):
+    def test_real_entry_declares_official_provenance(self):
+        entry = self.entries["dhb-5200.json"]
+        self.assertEqual(entry["program"], "NC Medicaid")
+        self.assertEqual(entry["source"]["origin"], "official_source")
+        self.assertEqual(
+            entry["source"]["url"],
+            "https://policies.ncdhhs.gov/wp-content/uploads/dhb-5200-ia-9-2020.pdf",
+        )
+        self.assertRegex(entry["source"]["retrieved_at"], ISO_DATE_RE)
+
+    def test_no_real_program_names_outside_sanctioned_entries(self):
         # Text surface: the registry entries + schema + the forms module code.
+        sanctioned = self.sanctioned_entry_names()
         surfaces: list[tuple[str, str]] = [
             (str(path), path.read_text(encoding="utf-8"))
             for path in sorted(FORMS_DIR.glob("*.json"))
+            if path.name not in sanctioned
         ]
         if FORMS_LIB_DIR.is_dir():
             surfaces += [
@@ -253,15 +302,20 @@ class TestPilotAgnostic(unittest.TestCase):
             if match is not None:
                 self.fail(
                     f"{path_name} names a real program or jurisdiction "
-                    f"({match.group(0)!r}); the pilot decision is still OPEN"
+                    f"({match.group(0)!r}); only official_source registry "
+                    "entries may carry program names"
                 )
 
-    def test_no_real_program_or_jurisdiction_names_in_the_pdf_fixtures(self):
+    def test_sample_pdfs_stay_name_free(self):
         # Binary surface: raw bytes AND every decompressed stream of each
-        # committed sample PDF (VAL-X2-004 scope note: grep output recorded
+        # committed SAMPLE PDF (VAL-X2-004 scope note: grep output recorded
         # in the PR body for the milestone validation).
-        self.assertEqual(len(self.pdf_paths), 2, "both sample PDFs committed")
-        for path in self.pdf_paths:
+        sample_paths = [
+            REPO_ROOT / self.entries[name]["pdf_path"]
+            for name in ("sample-form-acroform.json", "sample-form-flat.json")
+        ]
+        self.assertEqual(len(sample_paths), 2, "both sample PDFs committed")
+        for path in sample_paths:
             self.assertTrue(path.is_file(), f"missing fixture {path}")
             for chunk in pdf_scannable_chunks(path):
                 match = PROGRAM_NAME_RE.search(chunk.decode("latin-1"))
@@ -270,6 +324,21 @@ class TestPilotAgnostic(unittest.TestCase):
                         f"{path.name} carries a real program or jurisdiction "
                         f"name ({match.group(0)!r}) in its content streams"
                     )
+
+    def test_real_form_fixture_is_pinned_to_the_retrieved_bytes(self):
+        # The real form's content streams ARE the state's own words — the
+        # name-free scan does not apply to it. Its integrity is pinned by
+        # the sha256 of the 2026-10-30 retrieval instead.
+        path = REPO_ROOT / self.entries["dhb-5200.json"]["pdf_path"]
+        self.assertTrue(path.is_file(), f"missing real-form fixture {path}")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.assertEqual(
+            digest,
+            REAL_FORM_SHA256,
+            "the committed DHB-5200 fixture is not the bytes retrieved "
+            "2026-10-30 — re-retrieve, re-verify the registry entry, and "
+            "re-pin the hash",
+        )
 
 
 if __name__ == "__main__":

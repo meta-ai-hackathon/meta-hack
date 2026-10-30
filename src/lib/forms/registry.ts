@@ -4,6 +4,7 @@ import { AppError } from "../telemetry";
 import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID } from "../intake/spec";
 import acroformEntryJson from "../../../kb/forms/sample-form-acroform.json";
 import flatEntryJson from "../../../kb/forms/sample-form-flat.json";
+import dhb5200EntryJson from "../../../kb/forms/dhb-5200.json";
 
 // Form registry (Mission v2 M4 / HACK-74, BN-27 discipline): the reviewed,
 // committed description of every application form the pipeline can fill.
@@ -207,6 +208,11 @@ function assertEntryConsistent(entry: FormRegistryEntry): FormRegistryEntry {
 const COMMITTED_ENTRIES: readonly FormRegistryEntry[] = [
   assertEntryConsistent(parseEntry(acroformEntryJson)),
   assertEntryConsistent(parseEntry(flatEntryJson)),
+  // The real pilot form (HACK-16 Done, mission v2.1 M6): an OFFICIAL source
+  // entry — the state's published application as-is, parsed honestly. Its
+  // registry subset is re-verified field-by-field against the committed
+  // bytes by the dhb5200-registry test suite.
+  assertEntryConsistent(parseEntry(dhb5200EntryJson)),
 ];
 
 /** Every committed registry entry, in load order. */

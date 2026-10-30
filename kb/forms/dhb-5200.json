@@ -1,0 +1,99 @@
+{
+  "id": "dhb-5200",
+  "title": "NC Medicaid application for health coverage (DHB-5200)",
+  "version": "1.0.0",
+  "kind": "acroform",
+  "program": "NC Medicaid",
+  "source": {
+    "url": "https://policies.ncdhhs.gov/wp-content/uploads/dhb-5200-ia-9-2020.pdf",
+    "retrieved_at": "2026-10-30",
+    "origin": "official_source"
+  },
+  "pdf_path": "src/lib/forms/fixtures/dhb-5200-ia-9-2020.pdf",
+  "vault_field_allowlist": [
+    "date_of_birth",
+    "phone_contact"
+  ],
+  "fields": [
+    {
+      "name": "1 First name Middle name Last name  Suffix",
+      "type": "text",
+      "label": "1. First name, Middle name, Last name & Suffix",
+      "question": "What is your full legal name, including your middle name and suffix, as it appears on official documents?",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": true,
+      "pages": [2]
+    },
+    {
+      "name": "2 Home address Leave blank if you dont have one",
+      "type": "text",
+      "label": "2. Home address (Leave blank if you don't have one)",
+      "question": "What is your home address? The form itself says to leave this blank if you don't have one.",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [2]
+    },
+    {
+      "name": "8 Mailing Address if different from home address",
+      "type": "text",
+      "label": "8. Mailing Address (if different from home address)",
+      "question": "What mailing address should the agency use if your mail goes somewhere different from your home address?",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [2]
+    },
+    {
+      "name": "14 Phone Number",
+      "type": "text",
+      "label": "14. Phone Number",
+      "question": "What phone number can the agency use to reach you?",
+      "spec_question_id": "phone_contact",
+      "pii_likely": true,
+      "required": false,
+      "pages": [2]
+    },
+    {
+      "name": "3 Date of Birth mmddyyyy",
+      "type": "text",
+      "label": "3. Date of Birth (mm/dd/yyyy):",
+      "question": "What is this person's date of birth, in the mm/dd/yyyy format the form prints?",
+      "spec_question_id": "date_of_birth",
+      "pii_likely": true,
+      "required": true,
+      "pages": [3]
+    },
+    {
+      "name": "5 Social Security Number SSN",
+      "type": "text",
+      "label": "5. Social Security Number (SSN):",
+      "question": "What is this person's Social Security number, if they have one? The form's note explains when it is needed and how to get help obtaining one.",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [3]
+    },
+    {
+      "name": "undefined_10",
+      "type": "text",
+      "label": "Wages/tips (before taxes)",
+      "question": "About how much are you paid in wages or tips, before taxes, each time you get paid at your current job?",
+      "spec_question_id": "job_income_amount",
+      "pii_likely": false,
+      "required": false,
+      "pages": [5]
+    },
+    {
+      "name": "Your total income next year if you think it will be different",
+      "type": "text",
+      "label": "Your total income next year if you think it will be different",
+      "question": "If your total income next year will be different from what it is now, about how much will it be?",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [6]
+    }
+  ]
+}
