@@ -29,9 +29,16 @@ async function pageCount(bytes: Uint8Array): Promise<number> {
   return (await PDFDocument.load(bytes)).getPageCount();
 }
 
+// Non-blank text: whitespace-only fields are correctly rejected by
+// validation, so auditable-manifest properties generate printable text.
+const textArb = (maxLength: number) =>
+  fc
+    .string({ minLength: 1, maxLength })
+    .filter((value) => value.trim() !== "");
+
 const provenanceArb: fc.Arbitrary<ProvenanceEntry> = fc.record({
-  fieldName: fc.string({ minLength: 1, maxLength: 24 }),
-  question: fc.string({ minLength: 1, maxLength: 40 }),
+  fieldName: textArb(24),
+  question: textArb(40),
   provenance: fc.constantFrom(
     "user_supplied",
     "ai_drafted",
@@ -51,8 +58,8 @@ const manifestArb: fc.Arbitrary<Omit<PacketManifest, "statements">> = fc.record(
   provenance: fc.array(provenanceArb, { maxLength: 8 }),
   missing: fc.array(
     fc.record({
-      fieldName: fc.string({ minLength: 1, maxLength: 24 }),
-      question: fc.string({ minLength: 1, maxLength: 40 }),
+      fieldName: textArb(24),
+      question: textArb(40),
     }),
     { maxLength: 4 },
   ),

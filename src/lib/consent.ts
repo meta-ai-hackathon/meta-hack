@@ -32,6 +32,8 @@ export interface ConsentReceipt {
   readonly ai: boolean;
   /** Voice may additionally go to Meta STT (and replies via Gemini TTS). */
   readonly voice: boolean;
+  /** The signed packet may go to the fax provider (HACK-88). Optional on the wire: receipts written before the fax path existed parse with fax off — absence never reads as consent. */
+  readonly fax?: boolean;
   /** ISO-8601 timestamp of the decision, for the inspectable receipt. */
   readonly at: string;
 }
@@ -43,7 +45,7 @@ export interface ConsentPathTerms {
   readonly verifiedOn: string;
 }
 
-export type ConsentPathId = "ai-conversation" | "voice";
+export type ConsentPathId = "ai-conversation" | "voice" | "fax";
 
 /**
  * One consented path: what it sends, to whom, for what, under which
@@ -79,7 +81,28 @@ export interface ConsentPathSpec {
  *   ONLY the assistant's own (already redacted, gated) reply text — never
  *   user content — and the copy discloses the tier honestly.
  */
+/**
+ * The fax path (HACK-88, under HACK-75): the one post-submission send.
+ * Its provider is deliberately a TO-BE-VERIFIED placeholder: HACK-89 owns
+ * the vendor evaluation (documented no-retention terms + per-fax cost +
+ * test destination), and until that lands `termsVerified` stays false, so
+ * `consentPathEnabled("fax", ...)` is false for every receipt — the send
+ * cannot be enabled by consent alone, exactly like the other paths before
+ * their terms were verified. When HACK-89 names the vendor, this entry's
+ * provider/terms are updated in the same reviewable change.
+ */
+export const FAX_PATH_UNVERIFIED: ConsentPathSpec = {
+  id: "fax",
+  provider: "Fax provider (to be named when its terms are verified)",
+  sends: ["your signed application packet"],
+  purpose:
+    "to fax your signed application packet to the destination you confirm",
+  terms: [],
+  termsVerified: false,
+};
+
 export const CONSENT_PATHS: readonly ConsentPathSpec[] = [
+  FAX_PATH_UNVERIFIED,
   {
     id: "ai-conversation",
     provider: "Meta (the Meta Model API chat model)",
@@ -142,6 +165,9 @@ export function consentPathEnabled(
   if (id === "ai-conversation") {
     return receipt?.ai === true;
   }
+  if (id === "fax") {
+    return receipt?.fax === true;
+  }
   // Voice is its own additional toggle AND rides on the AI consent: a
   // spoken turn reaches the same extraction path as a typed one.
   return receipt?.ai === true && receipt?.voice === true;
@@ -172,12 +198,22 @@ export function parseConsentReceipt(raw: string | null | undefined): ConsentRece
   if (typeof record.ai !== "boolean" || typeof record.voice !== "boolean") {
     return null;
   }
+  if (record.fax !== undefined && typeof record.fax !== "boolean") {
+    return null;
+  }
   if (typeof record.at !== "string" || Number.isNaN(new Date(record.at).getTime())) {
     return null;
   }
   // Only the decision fields survive: unknown fields are dropped so a
-  // future receipt can never smuggle state through the gate.
-  return { v: 1, ai: record.ai, voice: record.voice, at: record.at };
+  // future receipt can never smuggle state through the gate. A missing
+  // fax field (older receipts) stays missing, which the gate reads as off.
+  return {
+    v: 1,
+    ai: record.ai,
+    voice: record.voice,
+    ...(record.fax !== undefined ? { fax: record.fax } : {}),
+    at: record.at,
+  };
 }
 
 /** The receipt as a header value. */
