@@ -12,8 +12,9 @@ name: Claude Review
 # Every same-repo PR event runs the job, labels, edits and drafts included,
 # because a skipped job leaves a passing check on the head commit that would
 # hide an earlier failure. When the sticky comment already holds a finished
-# review of the head commit by this same reviewer, the script re-checks that
-# stored verdict against the labels instead of calling the model again.
+# review of the head commit against the PR's current base branch by this
+# same reviewer, the script re-checks that stored verdict against the labels
+# instead of calling the model again. A retarget gets a fresh review.
 #
 # The check fails only for a P1, unless the claude-review-override label was
 # last added by a person's account other than the PR's author's, and not by

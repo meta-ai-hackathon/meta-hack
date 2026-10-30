@@ -18,9 +18,11 @@ and the comment lists every file that was not reviewed.
 
 Every same-repo PR event runs the job (labels, edits, reopens and drafts
 too), because a skipped job leaves a passing check on the head commit. When
-the sticky already holds a finished review of the head commit by this same
-reviewer (script, rules and AGENTS.md), the run re-checks that stored
-verdict against the current labels instead of calling the model again.
+the sticky already holds a finished review of the head commit, made against
+the PR's current base branch by this same reviewer (script, rules and
+AGENTS.md), the run re-checks that stored verdict against the current labels
+instead of calling the model again. A retarget gives the head commit another
+diff, so it gets a fresh review.
 
 Exit codes: 1 only when the review found a P1 and the claude-review-override
 label does not count, and never for a manual (workflow_dispatch) run, whose
@@ -37,13 +39,13 @@ refusals, malformed output, a bug in this script) prints a ::warning:: and
 marks the sticky comment NOT reviewed (posting it if the PR has none yet).
 The failure never fails the check by itself, but a P1 the comment still
 shows does: one from the bot's file rules, or one in a finished review of
-the same commit, which is kept. The one exception is a failure to read the
-PR's issue events. Those only say whether the override label counts, so
-the run prints a ::warning:: and the label does not count, but the review
-stands as reviewed and a P1 in it fails the check. When GitHub cannot
-return the PR, a PR event run uses the event's own copy of it
-($GITHUB_EVENT_PATH), so the comment and the check still follow the
-event's head commit. 2 is a usage error.
+the same commit against the same base branch, which is kept. The one
+exception is a failure to read the PR's issue events. Those only say
+whether the override label counts, so the run prints a ::warning:: and the
+label does not count, but the review stands as reviewed and a P1 in it
+fails the check. When GitHub cannot return the PR, a PR event run uses the
+event's own copy of it ($GITHUB_EVENT_PATH), so the comment and the check
+still follow the event's head commit. 2 is a usage error.
 
 Approvals: when a live PR-event run's fresh review settles the verdict for
 the head commit, the bot makes sure it has an active APPROVED review on
@@ -52,14 +54,14 @@ model, the comment shows the verdict, and the PR's base branch did not
 change during the review. A re-check of a stored verdict never approves,
 since anyone who can edit comments on the PR can edit that verdict. It
 leaves an approval the review gave in place, and it withdraws like a review
-when the stored verdict is not an all clear, was made against another base
-branch, or this run could not read the PR from GitHub. Every other outcome
-on an open PR (a P1, even with the override label; a push that was not
-reviewed, or not fully, for any reason) dismisses every approval the bot
-has on the PR. A fresh review also dismisses them before the model runs
-(all but those of a head commit whose finished review the comment still
-shows), so a run that is cancelled or times out mid-review leaves none
-standing. Manual runs and dry runs never submit or dismiss reviews, and
+when the stored verdict is not an all clear or this run could not read the
+PR from GitHub. Every other outcome on an open PR (a P1, even with the
+override label; a push or a retarget that was not reviewed, or not fully,
+for any reason) dismisses every approval the bot has on the PR. A fresh
+review also dismisses them before the model runs (all but those of a head
+commit whose finished review against the same base branch the comment
+still shows), so a run that is cancelled or times out mid-review leaves
+none standing. Manual runs and dry runs never submit or dismiss reviews, and
 closed PRs and stale events keep the bot's reviews as they are. The
 approval step only logs on failure (including GitHub refusing approvals
 until an org owner allows Actions to approve) and starts no call near the
@@ -1361,6 +1363,19 @@ def parse_state(body: str) -> StickyState | None:
     )
 
 
+def reviews_this_diff(state: StickyState | None, pr: PullRequest) -> bool:
+    """Whether state is a finished review of pr's head commit made against
+    pr's base branch. A PR's diff depends on both, so a review of the same
+    commit against another base branch (before a retarget, or with no base
+    recorded) is a review of another diff."""
+    return (
+        state is not None
+        and state.status == "reviewed"
+        and state.sha == pr.head_sha
+        and state.base == base_digest(pr.base_ref)
+    )
+
+
 def status_paragraph(
     counts: Mapping[str, int], override: bool, *, model_ran: bool = True, ignored: Override | None = None
 ) -> str:
@@ -2317,13 +2332,14 @@ class Reviewer:
     def _stickies(self) -> list[IssueComment]:
         return find_stickies(self.rt.github.list_issue_comments(self.options.pr), self.options.bot_login)
 
-    def write_sticky(self, body: str, *, create: bool, keep_review_of: str | None = None) -> StickyWrite:
+    def write_sticky(self, body: str, *, create: bool, keep_review_of: PullRequest | None = None) -> StickyWrite:
         """Put body in the sticky: PATCH the oldest one (retiring duplicates),
         or POST one when there is none and create is set, which also covers a
         sticky deleted during the run. With keep_review_of, a sticky that
-        already holds a finished review of that same commit is left alone
-        (it is still true) and its state is returned. GitHub failures only
-        warn, since the job summary has the result."""
+        already holds a finished review of that PR's head commit against its
+        base branch, so of the same diff, is left alone (it is still true)
+        and its state is returned. GitHub failures only warn, since the job
+        summary has the result."""
         if not self._guard_write(body):
             return StickyWrite(landed=False)
         landed = False
@@ -2331,8 +2347,11 @@ class Reviewer:
             stickies = self._stickies()
             if stickies and keep_review_of is not None:
                 state = parse_state(stickies[0].body)
-                if state is not None and state.sha == keep_review_of and state.status == "reviewed":
-                    self.notice(f"kept the finished review of {short_sha(keep_review_of)}, which is the same commit")
+                if state is not None and reviews_this_diff(state, keep_review_of):
+                    self.notice(
+                        f"kept the finished review of {short_sha(keep_review_of.head_sha)}, which is the same "
+                        "commit against the same base branch"
+                    )
                     return StickyWrite(landed=False, kept=state, comment=stickies[0])
             if not stickies:
                 if create:
@@ -2399,9 +2418,9 @@ class Reviewer:
             override=override,
         )
         self.step_summary(body)
-        written = self.write_sticky(body, create=create, keep_review_of=pr.head_sha)
+        written = self.write_sticky(body, create=create, keep_review_of=pr)
         kept = written.kept
-        # The check follows the comment: a finished review of this same commit
+        # The check follows the comment: a finished review of this same diff
         # was kept, so its P1s still count, and so do the file-rule P1s.
         kept_p1 = kept is not None and kept.counts is not None and kept.counts[0] > 0
         # This run settled nothing, so the bot never approves from here.
@@ -2415,9 +2434,11 @@ class Reviewer:
             self.sync_verdict(written.comment, kept, override)
         return 0 if override.counts else 1
 
-    def finished_review(self, head_sha: str) -> tuple[IssueComment, StickyState] | None:
-        """The sticky and its state when it holds a finished review of
-        head_sha, with its verdict, by this same reviewer."""
+    def finished_review(self, pr: PullRequest) -> tuple[IssueComment, StickyState] | None:
+        """The sticky and its state when it holds a finished review of pr's
+        head commit against pr's base branch, with its verdict, by this same
+        reviewer. A retarget gives the same commit another diff, so it gets a
+        fresh review rather than the verdict on the old one."""
         try:
             stickies = self._stickies()
         except ReviewError as exc:
@@ -2428,8 +2449,7 @@ class Reviewer:
         state = parse_state(stickies[0].body)
         if (
             state is None
-            or state.sha != head_sha
-            or state.status != "reviewed"
+            or not reviews_this_diff(state, pr)
             or state.counts is None
             or state.reviewer is None
             or state.reviewer != self.fingerprint
@@ -2447,13 +2467,8 @@ class Reviewer:
         # The label decides nothing without a P1, so who added it is read only then.
         override = self.override_for(pr) if p1 else None
         code = 1 if p1 and not (override is not None and override.counts) else 0
-        problem = None
-        if unread:
-            # The event's copy can be behind the PR, so it proves nothing about the head.
-            problem = "this run could not read the PR from GitHub"
-        elif state.base != base_digest(pr.base_ref):
-            # The PR's diff changes with its base, so the stored verdict is for another diff.
-            problem = "the stored review was made against another base branch"
+        # The event's copy can be behind the PR, so it proves nothing about the head.
+        problem = "this run could not read the PR from GitHub" if unread else None
         step = confirmed(approval_for(p1 > 0, state.model_ran, state.complete), problem)
         # Anyone who can edit comments on the PR can edit the stored verdict,
         # so a re-check never approves: only a fresh review does. It still
@@ -2651,7 +2666,7 @@ class Reviewer:
 
         docs = load_context(rt.repo_root, self.warn)
         self.fingerprint = reviewer_fingerprint(docs)
-        finished = self.finished_review(pr.head_sha)
+        finished = self.finished_review(pr)
         if finished is not None:
             sticky, state = finished
             return self.replay(pr, sticky, state, unread=unread is not None)
@@ -2674,14 +2689,15 @@ class Reviewer:
         pending = self.write_sticky(
             render_status_comment(pr.head_sha, pending=True, run_url=self.run_url),
             create=True,
-            keep_review_of=pr.head_sha,
+            keep_review_of=pr,
         )
         if not self.dispatch:
             # Until this review is done the push is not reviewed, so no bot
             # approval stands meanwhile: a run that is cancelled, times out or
             # dies mid-review never reaches its last step. Only a finished
-            # review of this same commit, which the comment still shows, keeps
-            # its approval until the new verdict replaces it.
+            # review of this same diff (commit and base branch), which the
+            # comment still shows, keeps its approval until the new verdict
+            # replaces it.
             self.apply_approval(pr, replace(WITHDRAW_FOR_REVIEW, keep_head=pending.kept is not None))
         return self.review(pr, docs, key, started)
 

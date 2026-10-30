@@ -1583,6 +1583,33 @@ class ReplayTests(unittest.TestCase):
             self.assertEqual(len(model.requests), 1, name)
             self.assertEqual(state_of(github.comments[0].body), (HEAD, "reviewed"), name)
 
+    def test_a_retarget_reviews_the_new_diff(self) -> None:
+        # A stacked PR is reviewed clean against a feature branch that already
+        # holds code nobody reviewed, then retargeted to main. Its head is the
+        # same commit, but its diff now has that code in it, so the stored
+        # verdict decides nothing and the model sees the new diff.
+        clean = make_file("src/lib/thing.ts", "@@ -1,2 +1,3 @@\n line\n+const ok = 1;\n line")
+        logged = make_file("src/lib/intake/store.ts", "@@ -1,2 +1,3 @@\n line\n+console.log(answers.income)\n line")
+        stacked = make_pr(base_ref="feature-base", changed_files=1)
+        github = FakeGitHub(stacked, [clean])
+        self.assertEqual(Run(github, FakeModel(reply_with([]))).code, 0)
+        github.set_pr(replace(stacked, base_ref="main", changed_files=2))
+        github.files = [clean, logged]
+        model = FakeModel(reply_with([finding("P1", file="src/lib/intake/store.ts")]))
+        run = Run(github, model)
+        self.assertEqual((run.code, len(model.requests)), (1, 1))
+        self.assertIn("console.log(answers.income)", model.requests[0][0].user)
+        self.assertNotIn("re-checks that verdict", run.output)
+        state = review.parse_state(github.comments[0].body)
+        self.assertEqual((state.sha, state.base, state.counts) if state else None, (HEAD, review.base_digest("main"), (1, 0, 0)))
+        # When the review of the new diff fails, the comment says the push was
+        # not reviewed, rather than keep the all clear made for the old base.
+        old_base = review.render_review_comment(comment_inputs(head_sha=HEAD, base_ref="feature-base"))
+        github = FakeGitHub(replace(stacked, base_ref="main", changed_files=2), [clean, logged], self.sticky(old_base))
+        failed = Run(github, FakeModel(status_error(400, "invalid_request_error")))
+        self.assertEqual((failed.code, state_of(github.comments[0].body)), (0, (HEAD, "not_reviewed")))
+        self.assertNotIn("kept the finished review", failed.output)
+
     def test_a_changed_rulebook_changes_the_fingerprint(self) -> None:
         docs = review.load_context(REPO_ROOT, lambda _m: None)
         self.assertNotEqual(review.reviewer_fingerprint(replace(docs, rules=docs.rules + "\n- one more rule")), FINGERPRINT)
@@ -1643,14 +1670,19 @@ class EventTests(unittest.TestCase):
         self.assertEqual((run.code, github.writes), (0, []))
 
 
-# This bot's sticky in every state, for the event's head commit or an older one.
+# This bot's sticky in every state, for the event's head commit or an older
+# one, and for the head commit before a retarget (another base branch).
 OLDER_REVIEWERS_P1 = stored_review(HEAD, (P1_FINDING,), fingerprint="0" * 16)
+OTHER_BASES_P1 = review.render_review_comment(
+    comment_inputs(head_sha=HEAD, findings=(P1_FINDING,), fingerprint=FINGERPRINT, base_ref="release/1.0")
+)
 STICKY_BODIES = [
     earlier_review(OLD_HEAD),
     stored_review(OLD_HEAD, (P1_FINDING,)),
     earlier_review(HEAD),
     stored_review(HEAD, (P1_FINDING,)),
     OLDER_REVIEWERS_P1,
+    OTHER_BASES_P1,
     review.render_status_comment(HEAD, pending=True),
     review.render_status_comment(OLD_HEAD, pending=False, reason="it failed"),
 ]
@@ -1731,9 +1763,11 @@ class UnreadablePrTests(unittest.TestCase):
         self.assertNotIn("files", github.reads)  # nor the model: Run raises if it is reached
         stickies = review.find_stickies(comments, review.BOT_LOGIN)
         shown = review.parse_state(stickies[0].body) if stickies and "comments" not in down else None
-        kept = shown if shown is not None and (shown.sha, shown.status) == (HEAD, "reviewed") else None
-        # A finished review of this commit stays, so its P1 still fails the
-        # check, unless the event's copy has the override label.
+        same_diff = shown is not None and shown.base == review.base_digest(copy.base_ref)
+        kept = shown if shown is not None and (shown.sha, shown.status) == (HEAD, "reviewed") and same_diff else None
+        # A finished review of this commit against the same base branch stays,
+        # so its P1 still fails the check, unless the event's copy has the
+        # override label. One made against another base is of another diff.
         kept_p1 = kept is not None and kept.counts is not None and kept.counts[0] > 0
         self.assertEqual(run.code, 1 if kept_p1 and not review.has_override(copy.labels) else 0)
         people = [c for c in comments if c.author != review.BOT_LOGIN]
@@ -2191,7 +2225,9 @@ class ApprovalSequenceProperties(unittest.TestCase):
         twin never carries the override label: it ends every step with the
         same reviews and the same verdicts in its comment whoever added the
         label, and with the same check unless a person other than the PR's
-        author added it last, which can only pass the check."""
+        author added it last, which can only pass the check. A run re-checks
+        a stored verdict only when it is for the head commit against the
+        PR's current base branch, so a retarget always gets a fresh review."""
         allowed = FakeGitHub(make_pr(), FILES, reviews=seed, events=[])
         refused = FakeGitHub(make_pr(), FILES, reviews=seed, refuse_approval=refused_with, events=[])
         unlabeled = FakeGitHub(make_pr(), FILES, reviews=seed, events=[])
@@ -2210,10 +2246,14 @@ class ApprovalSequenceProperties(unittest.TestCase):
                 if event == "push":
                     github.files = PUSH_CHANGES[change]
                 reviews, calls, reads = list(github.reviews), len(github.review_calls), len(github.reads)
+                shown = review.find_stickies(github.comments, review.BOT_LOGIN)
+                stored = review.parse_state(shown[0].body) if shown else None
                 model = WatchedModel(github, MODEL_ANSWERS[answer]())
                 run = Run(github, model, env=DISPATCH_ENV if manual else LIVE_ENV)
                 codes.append(run.code)
                 asked.append(bool(model.requests))
+                if "re-checks that verdict without calling the model" in run.output:
+                    self.assertTrue(review.reviews_this_diff(stored, pr))
                 if manual:  # never reads, approves or dismisses
                     self.assertEqual((github.reviews, len(github.review_calls)), (reviews, calls))
                     self.assertNotIn("reviews", github.reads[reads:])
@@ -2496,18 +2536,16 @@ class ApprovalTests(unittest.TestCase):
             self.assertIn("re-checks that verdict without calling the model", run.output)
             self.assertEqual(github.review_calls, [("DISMISS", 1, text)])
         # After a retarget the same head has another diff, so its stored
-        # verdict is no all clear (the check still follows it, as before).
+        # verdict is not re-checked at all: the run reviews the new diff, and
+        # the approval of the old one goes before the model runs.
         retargeted = FakeGitHub(make_pr(base_ref="release/1.0"), FILES, bot_sticky(stored_review(HEAD)), reviews=[bot_review(1, HEAD)])
-        run = Run(retargeted, None)
-        self.assertEqual(run.code, 0)
-        self.assertIn("re-checks that verdict without calling the model", run.output)
-        self.assertEqual(retargeted.review_calls, [("DISMISS", 1, review.WITHDRAWN_UNCONFIRMED)])
-        self.assertIn("since the stored review was made against another base branch", run.output)
-        # Back on the base it was reviewed against, the stored verdict still
-        # brings no approval; the next push's review does.
-        retargeted.set_pr(make_pr())
-        Run(retargeted, None)
-        self.assertEqual((retargeted.review_calls[1:], approved_commits(retargeted)), ([], []))
+        model = WatchedModel(retargeted, reply_with([finding("P1")]))
+        run = Run(retargeted, model)
+        self.assertEqual((run.code, len(model.requests), model.approvals_seen), (1, 1, [[]]))
+        self.assertNotIn("re-checks that verdict", run.output)
+        self.assertEqual(retargeted.review_calls, [("DISMISS", 1, review.WITHDRAWN_FOR_REVIEW)])
+        new = review.parse_state(retargeted.comments[0].body)
+        self.assertEqual((new.sha, new.base) if new else None, (HEAD, review.base_digest("release/1.0")))
 
     def test_manual_runs_and_dry_runs_never_touch_reviews(self) -> None:
         mine = [bot_review(1, OLD_HEAD)]
