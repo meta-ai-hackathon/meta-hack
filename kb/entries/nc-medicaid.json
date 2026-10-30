@@ -1,7 +1,7 @@
 {
   "id": "nc_medicaid",
   "title": "NC Medicaid (North Carolina)",
-  "version": 1,
+  "version": 2,
   "status": "active",
   "sources": [
     {
@@ -16,7 +16,7 @@
       "title": "DHB-5200 Application for Health Coverage (NC DHHS policies)",
       "url": "https://policies.ncdhhs.gov/wp-content/uploads/dhb-5200-ia-9-2020.pdf",
       "retrieved_at": "2026-10-30",
-      "supports": "Claim-verification note (HACK-17): PDF retrieved 2026-10-30 from the printable-application link on medicaid.ncdhhs.gov/apply; form revision IA-9-2020 per the file name and the form footer. DHB-5200 vs DHB-5201 reconciliation: the official apply page presents DHB-5200 as the printable application for the household health-coverage journey and DHB-5201-ia as the 'short form' for a single adult with no dependents and no employer health coverage; the demo journey is the INITIAL MAGI Medicaid application for a household, so DHB-5200 governs. The form's own words (Step 1 and its SSN note) support the home-address-may-be-blank and SSN-optional claims recorded in rules."
+      "supports": "Claim-verification note (HACK-17): PDF retrieved 2026-10-30 from the printable-application link on medicaid.ncdhhs.gov/apply; form revision IA-9-2020 per the file name and the form footer. Verified on the form itself: the home-address field prints 'Leave blank if you don't have one' with a separate mailing-address field for people whose mail goes elsewhere, and Step 2 prints that family members who don't need health coverage do not have to provide immigration status or a Social Security Number. DHB-5200 vs DHB-5201 reconciliation: the official apply page presents DHB-5200 as the printable application for the household health-coverage journey and DHB-5201-ia as the 'short form' for a single adult with no dependents and no employer health coverage; the demo journey is the INITIAL MAGI Medicaid application for a household, so DHB-5200 governs."
     },
     {
       "id": "epass_portal",
@@ -40,9 +40,7 @@
         "You can apply at any time of the year, per the official application guidance.",
         "The official guidance says that if you are not sure whether you are eligible, they suggest you apply anyway.",
         "This entry covers the initial Medicaid application for a household (the DHB-5200 health-coverage application). The DHB-5201 'short form' is the official alternative for a single adult with no dependents and no employer health coverage.",
-        "No income limits or eligibility thresholds are stated in this entry: the official eligibility guidance decides them, and the application form's examples are not treated as current limits.",
-        "The application's home-address field may be left blank if you don't have one — the form prints that instruction next to the field — and a mailing address can be listed separately.",
-        "Family members who don't need health coverage do not have to provide an immigration status or Social Security Number, per the application's own instructions."
+        "No income limits or eligibility thresholds are stated in this entry: the official eligibility guidance decides them, and the application form's examples are not treated as current limits."
       ],
       "source_id": "nc_medicaid_apply_page",
       "retrieved_at": "2026-10-30"
@@ -115,12 +113,6 @@
           "values": ["NC"],
           "weight": 8,
           "reason": "This entry describes North Carolina's state Medicaid program and its official application paths."
-        },
-        {
-          "question_id": "main_goal",
-          "values": ["healthcare"],
-          "weight": 6,
-          "reason": "This entry describes applying for health coverage through the state's Medicaid program."
         }
       ],
       "source_id": "nc_medicaid_apply_page",

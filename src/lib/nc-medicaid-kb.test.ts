@@ -115,10 +115,20 @@ describe("the real NC Medicaid KB entry (VAL-PILOTREAL-003)", () => {
     expect(entry?.score ?? 0).toBeGreaterThan(0);
   });
 
-  it("scores zero for a person outside the pilot state (no fabricated signals)", () => {
-    const ranked = rankEntries(known("state", "CA"));
-    const entry = ranked.find((candidate) => candidate.entry.id === "nc_medicaid");
-    expect(entry?.score ?? 0).toBe(0);
+  it("never ranks outside the pilot state — even on a healthcare goal", () => {
+    // A state-specific program must not surface for someone the signals
+    // cannot place: the goal signal alone scores nothing (claude-review
+    // P2 on PR #60 — a person in any state picking healthcare never sees
+    // this entry as a match).
+    for (const answers of [
+      known("state", "CA"),
+      known("main_goal", "healthcare"),
+      { ...known("state", "CA"), ...known("main_goal", "healthcare") },
+    ]) {
+      const ranked = rankEntries(answers);
+      const entry = ranked.find((candidate) => candidate.entry.id === "nc_medicaid");
+      expect(entry?.score ?? 0).toBe(0);
+    }
   });
 
   it("renders the match card end to end with unchanged honest framing", () => {
