@@ -44,13 +44,25 @@ const encryptedFile = () =>
 let admin: postgres.Sql;
 let testDb: postgres.Sql;
 
+// CI-only hang diagnostics (removed once the stall is named): the vitest
+// fork went silent inside this file on Linux runners; each breadcrumb
+// prints the exact step that started.
+const trace = (step: string): void => {
+  console.error(`[fill-route-test] ${step}`);
+};
+
 beforeAll(async () => {
+  trace("beforeAll: dropping scratch db");
   admin = postgres(adminUrl, { max: 1 });
   await admin.unsafe(`DROP DATABASE IF EXISTS ${TEST_DB_NAME} WITH (FORCE)`);
+  trace("beforeAll: creating scratch db");
   await admin.unsafe(`CREATE DATABASE ${TEST_DB_NAME}`);
+  trace("beforeAll: constructing pools");
   testDb = postgres(testUrl, { max: 1 });
   process.env.DATABASE_URL = testUrl;
+  trace("beforeAll: running migrations");
   await runMigrations(testDb);
+  trace("beforeAll: done");
   setLogSink(() => undefined);
 });
 
@@ -94,16 +106,21 @@ async function createSessionAndGetCookie(): Promise<string> {
 
 describe("POST /api/forms/<formId>/fill", () => {
   it("returns filled PDF bytes as an attachment with expected values", async () => {
+    trace("test 1: start");
     const cookie = await createSessionAndGetCookie();
     const sessionId = cookie.split("=")[1];
+    trace("test 1: session created, saving answers");
     await saveAnswer(sessionId, "date_of_birth", "known", "1990-01-01");
     await saveAnswer(sessionId, "housing_status", "known", "shelter");
     await saveAnswer(sessionId, "phone_contact", "known", "555-0100");
+    trace("test 1: answers saved, calling POST");
 
+    trace("test 1: POST returned, asserting");
     const response = await POST(
       fillRequest("sample-application-form", acroformFile(), cookie),
       { params: Promise.resolve({ formId: "sample-application-form" }) },
     );
+    trace(`test 1: response status ${response.status}`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/pdf");
     expect(response.headers.get("content-disposition")).toContain("attachment");
