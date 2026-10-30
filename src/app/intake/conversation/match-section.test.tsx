@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../../../lib/honesty";
 import type { AnswerMap } from "../../../lib/intake/flow";
 import { buildMatchResponse, matchCardText } from "../../../lib/match";
-import { MatchSectionContent } from "./match-section";
+import { MATCH_UNAVAILABLE_NOTICE, MatchSection, MatchSectionContent } from "./match-section";
 
 // Match section tests (Mission v2 M3, VAL-MATCH-002/003 client surface):
 // the rendered card population — one card set per shipped KB entry plus
@@ -171,5 +171,28 @@ describe("zero banned claims on the rendered card population (VAL-MATCH-003)", (
       renderToStaticMarkup(<MatchSectionContent data={poisoned} />),
     );
     expect(findBannedClaims(html).length).toBeGreaterThan(0);
+  });
+});
+
+describe("MatchSection failure state (a11y convention)", () => {
+  it("mounts the status region before any state change, silent at first", () => {
+    // droid-review P2 on PR #45 + claude-review P3 on PR #46: the
+    // fetch-failure notice must render through the StatusRegion convention
+    // (role="status", polite live region) AND the region must already exist
+    // in the tree before the failure message changes into it — a live
+    // region inserted with its text may never be announced. The initial
+    // server render carries the mounted, silent region.
+    const html = renderToStaticMarkup(<MatchSection refreshKey={0} />);
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('aria-atomic="true"');
+    expect(html).not.toContain("match list is unavailable");
+  });
+
+  it("keeps the failure copy honest and non-promissory", () => {
+    expect(MATCH_UNAVAILABLE_NOTICE).toContain(
+      "The match list is unavailable right now.",
+    );
+    expect(findBannedClaims(MATCH_UNAVAILABLE_NOTICE)).toEqual([]);
   });
 });

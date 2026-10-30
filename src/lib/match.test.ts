@@ -7,13 +7,19 @@ import {
   parseKbEntry,
   type KbEntry,
 } from "./kb";
-import { QUESTION_BY_ID } from "./intake/spec";
+import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID } from "./intake/spec";
 import type { AnswerMap } from "./intake/flow";
-import { resetModelTransport, setModelTransport } from "./model";
+import {
+  CHAT_MAX_ATTEMPTS,
+  resetModelTransport,
+  setModelTransport,
+} from "./model";
+import { setLogSink } from "./telemetry";
 import {
   EXPLANATION_FRAMING,
   MATCH_FRAMING,
   MATCH_EXPLANATION_MAX_TOKENS,
+  type MatchExplanation,
   assertNoPiiValuesInMatch,
   buildMatchResponse,
   buildToResolve,
@@ -168,7 +174,10 @@ describe("active-only presentation (VAL-MATCH-004)", () => {
   });
 
   it("never surfaces stale or withdrawn facts in any built card", async () => {
-    const response = await buildMatchResponse(known("main_goal", "food"), {
+    // A housing answer scores the ACTIVE sample (its signals are
+    // housing/id/income) so the active card actually renders — and the
+    // same-signal stale/withdrawn clones stay out.
+    const response = await buildMatchResponse(known("housing_status", "shelter"), {
       entries: [STALE, WITHDRAWN, ACTIVE],
       explainer: async () => ({ text: "stub explanation", source: "facts" }),
     });
@@ -214,8 +223,15 @@ describe("match cards (VAL-MATCH-002)", () => {
   });
 
   it("carries a complete source citation on every reason, requirement, and link", async () => {
+    // Every shipped entry scores positive here, so every entry gets a card:
+    // sample A via housing, sample B via the food goal, sample C via the
+    // disability status.
     const response = await buildMatchResponse(
-      { ...known("main_goal", "food"), ...known("housing_status", "shelter") },
+      {
+        ...known("main_goal", "food"),
+        ...known("housing_status", "shelter"),
+        ...known("disability_status", "yes"),
+      },
       { explainer: async () => ({ text: "stub", source: "facts" }) },
     );
     expect(response.matches.length).toBe(KB_ENTRIES.length);
@@ -235,9 +251,16 @@ describe("match cards (VAL-MATCH-002)", () => {
   });
 
   it("builds the requirements checklist from documents, steps, and deadlines", async () => {
-    const response = await buildMatchResponse({}, {
-      explainer: async () => ({ text: "stub", source: "facts" }),
-    });
+    // Every shipped entry must score positive here so each one's checklist
+    // is exercised (a zero-signal session produces no cards at all).
+    const response = await buildMatchResponse(
+      {
+        ...known("main_goal", "food"),
+        ...known("housing_status", "shelter"),
+        ...known("disability_status", "yes"),
+      },
+      { explainer: async () => ({ text: "stub", source: "facts" }) },
+    );
     for (const card of response.matches) {
       const kinds = new Set(card.requirements.map((requirement) => requirement.kind));
       expect(kinds.has("document")).toBe(true);
@@ -343,11 +366,206 @@ describe("banned-claim scan over the card population (VAL-MATCH-003)", () => {
   });
 
   it("bites on a seeded banned-claim card fixture", async () => {
-    const response = await buildMatchResponse({}, {
+    // A positive-scoring session, so a card exists to poison.
+    const response = await buildMatchResponse(known("main_goal", "food"), {
       explainer: async () => ({ text: "stub", source: "facts" }),
     });
     const seeded = `${response.matches[0]!.framing} You qualify for this program.`;
     expect(findBannedClaims(seeded).length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Zero-signal honesty (claude-review P2-1 on PR #45): a score-0 entry is
+// never presented as a "may be worth pursuing" card, and no model call is
+// spent on a zero-signal top entry — the honest empty state speaks instead.
+// ---------------------------------------------------------------------------
+
+describe("zero-signal honesty", () => {
+  it("never presents a score-0 entry as a card and spends no explainer call", async () => {
+    let explainerCalls = 0;
+    const explainer = async (): Promise<MatchExplanation> => {
+      explainerCalls += 1;
+      return { text: "stub", source: "facts" };
+    };
+    const zeroSignalAnswerSets: AnswerMap[] = [
+      // No answers at all.
+      {},
+      // A known answer no signal evaluates (a pii free-text question).
+      { county: { status: "known", value: "anywhere" } },
+      // A known answer that matches no signal values.
+      { main_goal: { status: "known", value: "other" } },
+    ];
+    for (const answers of zeroSignalAnswerSets) {
+      const response = await buildMatchResponse(answers, {
+        explainer,
+        explanationCache: new Map<string, MatchExplanation>(),
+      });
+      expect(response.matches, JSON.stringify(answers)).toEqual([]);
+    }
+    expect(explainerCalls).toBe(0);
+  });
+
+  it("keeps the to-resolve list honest when nothing scores", async () => {
+    const response = await buildMatchResponse(
+      { id_status: { status: "unknown" } },
+      { explanationCache: new Map() },
+    );
+    expect(response.matches).toEqual([]);
+    expect(response.toResolve.map((item) => item.questionId)).toEqual([
+      "id_status",
+    ]);
+  });
+
+  it("gives every built card a positive score (property)", async () => {
+    await fc.assert(
+      fc.asyncProperty(answerMapArb, async (answers) => {
+        const response = await buildMatchResponse(answers, {
+          explainer: async () => ({ text: "stub", source: "facts" as const }),
+          explanationCache: new Map(),
+        });
+        return response.matches.every((card) => card.score > 0);
+      }),
+      { numRuns: 40 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Explanation cache (claude-review P2-2 on PR #45): ONE gated explanation
+// per entry id + version, independent of rank, attached at ranking time —
+// repeated turns never re-fire the model call.
+// ---------------------------------------------------------------------------
+
+describe("explanation cache", () => {
+  it("spends one explainer call per entry across repeated builds", async () => {
+    const cache = new Map<string, MatchExplanation>();
+    let calls = 0;
+    const explainer = async (): Promise<MatchExplanation> => {
+      calls += 1;
+      return { text: "model explanation", source: "model" };
+    };
+    const answers = known("main_goal", "food");
+    // Three turns with the same answers: one call, then cache hits.
+    await buildMatchResponse(answers, { explainer, explanationCache: cache });
+    await buildMatchResponse(answers, { explainer, explanationCache: cache });
+    await buildMatchResponse(answers, { explainer, explanationCache: cache });
+    expect(calls).toBe(1);
+  });
+
+  it("attaches the cached explanation regardless of the entry's current rank", async () => {
+    const cache = new Map<string, MatchExplanation>();
+    const calls: string[] = [];
+    const explainer = async (entry: KbEntry): Promise<MatchExplanation> => {
+      calls.push(entry.id);
+      return { text: `model explanation for ${entry.id}`, source: "model" };
+    };
+    // Turn 1: the food sample is top (food goal; the other entries score 0).
+    await buildMatchResponse(known("main_goal", "food"), {
+      explainer,
+      explanationCache: cache,
+    });
+    expect(calls).toEqual(["pilot_program_sample_b"]);
+    // Turn 2: food + housing — the housing sample ties at the top (entry-id
+    // tiebreak) and the food sample drops to a lower positive rank. The
+    // food sample's card must carry its cached MODEL explanation, not fall
+    // back to entry-fact copy, and no second call may fire for it.
+    const response = await buildMatchResponse(
+      { ...known("main_goal", "food"), ...known("housing_status", "shelter") },
+      { explainer, explanationCache: cache },
+    );
+    expect(calls).toEqual(["pilot_program_sample_b", "pilot_program_sample"]);
+    const foodCard = response.matches.find(
+      (card) => card.entryId === "pilot_program_sample_b",
+    );
+    expect(foodCard?.explanation).toEqual({
+      text: "model explanation for pilot_program_sample_b",
+      source: "model",
+    });
+  });
+
+  it("earns a fresh explanation when the entry version is bumped", async () => {
+    const cache = new Map<string, MatchExplanation>();
+    const calls: string[] = [];
+    const explainer = async (entry: KbEntry): Promise<MatchExplanation> => {
+      calls.push(`${entry.id}:v${entry.version}`);
+      return {
+        text: `model explanation for ${entry.id} v${entry.version}`,
+        source: "model",
+      };
+    };
+    const answers = known("main_goal", "food");
+    await buildMatchResponse(answers, { explainer, explanationCache: cache });
+    const current = KB_ENTRIES.find(
+      (entry) => entry.id === "pilot_program_sample_b",
+    )!;
+    const bumped: KbEntry = { ...current, version: current.version + 1 };
+    const response = await buildMatchResponse(answers, {
+      entries: [bumped],
+      explainer,
+      explanationCache: cache,
+    });
+    expect(calls).toEqual([
+      "pilot_program_sample_b:v1",
+      "pilot_program_sample_b:v2",
+    ]);
+    expect(response.matches[0]!.explanation.text).toContain("v2");
+  });
+
+  it("does not cache a degraded fallback — the next turn retries the model", async () => {
+    // A transient failure (outage, gate block, truncation) must not pin the
+    // entry to fallback copy until process restart: only model-sourced
+    // explanations are cached (claude-review P2 on PR #46). ONE shared
+    // cache across both builds proves the failed explanation never enters
+    // it.
+    process.env.MODEL_API_KEY = "sentinel-test-key-never-log";
+    let attempts = 0;
+    setModelTransport(async () => {
+      attempts += 1;
+      return new Response(JSON.stringify({ error: { message: "down" } }), {
+        status: 500,
+      });
+    });
+    const cache = new Map<string, MatchExplanation>();
+    try {
+      const answers = known("main_goal", "food");
+      const first = await buildMatchResponse(answers, { explanationCache: cache });
+      const second = await buildMatchResponse(answers, { explanationCache: cache });
+      expect(first.matches[0]?.explanation.source).toBe("facts");
+      expect(second.matches[0]?.explanation.source).toBe("facts");
+      expect(cache.size).toBe(0);
+      expect(attempts).toBe(2 * CHAT_MAX_ATTEMPTS);
+    } finally {
+      resetModelTransport();
+    }
+  });
+
+  it("never exceeds one explainer call per entry id+version (property)", async () => {
+    const cache = new Map<string, MatchExplanation>();
+    const calls: string[] = [];
+    const explainer = async (entry: KbEntry): Promise<MatchExplanation> => {
+      calls.push(`${entry.id}:v${entry.version}`);
+      return { text: "model explanation", source: "model" };
+    };
+    await fc.assert(
+      fc.asyncProperty(answerMapArb, async (answers) => {
+        const response = await buildMatchResponse(answers, {
+          explainer,
+          explanationCache: cache,
+        });
+        // No entry id+version is ever explained twice across turns.
+        if (new Set(calls).size !== calls.length) {
+          return false;
+        }
+        // The top card always carries the cached explanation.
+        const top = response.matches[0];
+        return (
+          top === undefined ||
+          cache.has(`${top.entryId}:v${top.entryVersion}`)
+        );
+      }),
+      { numRuns: 40 },
+    );
   });
 });
 
@@ -416,9 +634,10 @@ describe("grounding checker (VAL-MATCH-006)", () => {
 describe("explainEntry with scripted model responses (VAL-MATCH-006)", () => {
   afterEach(() => {
     resetModelTransport();
+    setLogSink(() => undefined);
   });
 
-  function installChat(content: string): void {
+  function installChat(content: string, finishReason = "stop"): void {
     process.env.MODEL_API_KEY = "sentinel-test-key-never-log";
     setModelTransport(async () => {
       return new Response(
@@ -428,7 +647,7 @@ describe("explainEntry with scripted model responses (VAL-MATCH-006)", () => {
           choices: [
             {
               index: 0,
-              finish_reason: "stop",
+              finish_reason: finishReason,
               message: { role: "assistant", content },
             },
           ],
@@ -482,6 +701,24 @@ describe("explainEntry with scripted model responses (VAL-MATCH-006)", () => {
     expect(checkExplanationGrounding(explanation.text, ACTIVE)).toEqual([]);
   });
 
+  it("degrades to entry-fact copy when the reply is budget-truncated", async () => {
+    // droid-review P2 on PR #45: chatCompletion returns non-empty content
+    // even with finish_reason "length" — a truncated final sentence must
+    // never ship as a complete model-sourced explanation.
+    const events: string[] = [];
+    setLogSink((line) => {
+      events.push(String((JSON.parse(line) as { event?: unknown }).event));
+    });
+    installChat(
+      `${EXPLANATION_FRAMING} The official rules state: applicants must satis`,
+      "length",
+    );
+    const explanation = await explainEntry(ACTIVE);
+    expect(explanation.source).toBe("facts");
+    expect(checkExplanationGrounding(explanation.text, ACTIVE)).toEqual([]);
+    expect(events).toContain("match_explanation_length_truncated_blocked");
+  });
+
   it("composes fallback copy that stays grounded on every shipped entry", () => {
     for (const entry of KB_ENTRIES) {
       const text = composeFallbackExplanation(entry);
@@ -505,38 +742,391 @@ describe("assertNoPiiValuesInMatch", () => {
     };
     const response = await buildMatchResponse(answers, {
       explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
     });
     expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
   });
 
-  it("bites when a reason would carry a private value", async () => {
+  it("does not fail the match list when a pii answer equals common KB copy", async () => {
+    // claude-review P2-3 on PR #45: a free-text pii answer that happens to
+    // equal a common word of KB/glossary copy must not fail-closed the
+    // user's whole match list. Every shipped entry's deadline text names an
+    // application window, so the old whole-serialization scan threw on this
+    // exact session; the gate now excuses values that are exact words of
+    // the response's public copy.
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "application" },
+      main_goal: { status: "known", value: "food" },
+    };
+    const response = await buildMatchResponse(answers, {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    // The response really does carry the word in its static KB copy — the
+    // false-positive class the old scan died on.
+    expect(JSON.stringify(response).toLowerCase()).toContain("application");
+    expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+  });
+
+  it("bites when a reason would carry a private answer label", async () => {
     const answers: AnswerMap = {
       date_of_birth: { status: "known", value: "1980-02-03" },
     };
-    const poisoned = await buildMatchResponse({}, {
+    const clean = await buildMatchResponse(known("main_goal", "food"), {
       explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
     });
+    const cleanCard = clean.matches[0]!;
+    const baseReason = cleanCard.reasons[0]!;
     const poisonedCard = {
-      ...poisoned.matches[0]!,
+      ...cleanCard,
       reasons: [
         {
-          text: "You told us your date of birth is 1980-02-03.",
-          source: poisoned.matches[0]!.reasons[0]?.source ?? {
-            entryId: "x",
-            entryTitle: "x",
-            entryVersion: 1,
-            entryStatus: "active" as const,
-            sourceUrl: "https://example.org/x",
-            retrievedAt: "2026-10-29",
-          },
+          ...baseReason,
+          // The regression this gate exists for: a bug routed the person's
+          // private answer into the reason's user-derived label field.
+          answerLabel: "1980-02-03",
         },
       ],
     };
     expect(() =>
       assertNoPiiValuesInMatch(
-        { ...poisoned, matches: [poisonedCard, ...poisoned.matches.slice(1)] },
+        { ...clean, matches: [poisonedCard, ...clean.matches.slice(1)] },
         answers,
       ),
     ).toThrow();
+  });
+
+  it("checks multi-select array elements individually", async () => {
+    // claude-review P2-3: the old check stringified the whole array — a
+    // `["a","b"]` JSON string can never substring-match card copy — so
+    // multi-select pii values were never really checked. Each element must
+    // be checked on its own.
+    const answers: AnswerMap = {
+      housing_status: {
+        status: "known",
+        value: ["shelter", "transitional_12b"],
+      },
+      main_goal: { status: "known", value: "food" },
+    };
+    const clean = await buildMatchResponse(answers, {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    // No element reaches a user-derived surface: the response passes.
+    expect(() => assertNoPiiValuesInMatch(clean, answers)).not.toThrow();
+    // One leaked element in a reason label: the gate bites on that element
+    // alone.
+    const cleanCard = clean.matches[0]!;
+    const baseReason = cleanCard.reasons[0]!;
+    const poisonedCard = {
+      ...cleanCard,
+      reasons: [{ ...baseReason, answerLabel: "transitional_12b" }],
+    };
+    expect(() =>
+      assertNoPiiValuesInMatch(
+        { ...clean, matches: [poisonedCard, ...clean.matches.slice(1)] },
+        answers,
+      ),
+    ).toThrow();
+  });
+
+  it("bites on a private value in reason text", async () => {
+    const answers: AnswerMap = {
+      date_of_birth: { status: "known", value: "1980-02-03" },
+    };
+    const clean = await buildMatchResponse(known("main_goal", "food"), {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    const cleanCard = clean.matches[0]!;
+    const poisoned = {
+      ...clean,
+      matches: [
+        {
+          ...cleanCard,
+          reasons: cleanCard.reasons.map((reason, index) =>
+            index === 0
+              ? { ...reason, text: "You told us your date of birth is 1980-02-03." }
+              : reason,
+          ),
+        },
+        ...clean.matches.slice(1),
+      ],
+    };
+    expect(() => assertNoPiiValuesInMatch(poisoned, answers)).toThrow();
+  });
+
+  it("bites on a private value in model-sourced explanation text", async () => {
+    const answers: AnswerMap = {
+      date_of_birth: { status: "known", value: "1980-02-03" },
+    };
+    const clean = await buildMatchResponse(known("main_goal", "food"), {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    const cleanCard = clean.matches[0]!;
+    const poisoned = {
+      ...clean,
+      matches: [
+        {
+          ...cleanCard,
+          explanation: {
+            text: "You told us your date of birth is 1980-02-03.",
+            source: "model" as const,
+          },
+        },
+        ...clean.matches.slice(1),
+      ],
+    };
+    expect(() => assertNoPiiValuesInMatch(poisoned, answers)).toThrow();
+  });
+
+  it("excuses a pii value that is an exact word of the response's own static copy", async () => {
+    // The entry's own deadline text names an application window, and a card
+    // whose explanation quotes a glossary term renders that term — a
+    // free-text pii answer equal to such a word must not fail the user's
+    // match list. A glossary word the response does NOT render still
+    // throws. The explanation goes through the explainer stub so the card
+    // (and its rendered terms) is built from the final copy, as in
+    // production.
+    const withModelExplanation = (text: string) =>
+      buildMatchResponse(known("main_goal", "food"), {
+        explainer: async () => ({ text, source: "model" as const }),
+        explanationCache: new Map(),
+      });
+    const applicationAnswers: AnswerMap = {
+      goal_detail: { status: "known", value: "application" },
+    };
+    const applicationEcho = await withModelExplanation(
+      "The application window stays open.",
+    );
+    expect(() =>
+      assertNoPiiValuesInMatch(applicationEcho, applicationAnswers),
+    ).not.toThrow();
+    const termWordAnswers: AnswerMap = {
+      goal_detail: { status: "known", value: "assistance" },
+    };
+    const termEcho = await withModelExplanation(
+      "Food assistance may be worth pursuing.",
+    );
+    expect(() =>
+      assertNoPiiValuesInMatch(termEcho, termWordAnswers),
+    ).not.toThrow();
+    const unrenderedGlossaryWord: AnswerMap = {
+      goal_detail: { status: "known", value: "agency" },
+    };
+    const unrenderedEcho = await withModelExplanation(
+      "Contact the agency for help.",
+    );
+    expect(() =>
+      assertNoPiiValuesInMatch(unrenderedEcho, unrenderedGlossaryWord),
+    ).toThrow();
+  });
+
+  it("excuses a pii answer equal to a shown option label or status label", async () => {
+    // The reviewer fixture (claude-review P2 on PR #46): a free-text pii
+    // answer that happens to equal one of the spec's own display labels
+    // must not permanently 500 the match list — the label is public
+    // vocabulary, not the user's text. The health-care goal scores sample
+    // C, so its spec label renders on a card reason.
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "health care" },
+      main_goal: { status: "known", value: "healthcare" },
+      id_status: { status: "unverified" },
+    };
+    const response = await buildMatchResponse(answers, {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    // The spec-produced label really renders, and the to-resolve status
+    // label really contains the word "verified".
+    const serialized = JSON.stringify(response).toLowerCase();
+    expect(serialized).toContain("health care");
+    expect(serialized).toContain("verified");
+    expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+    // The bite side — a private value in a rendered label — is pinned by
+    // the dedicated answer-label and property tests above.
+  });
+
+  it("excuses a pii value that matches a word of a to-resolve prompt", async () => {
+    // The to-resolve prompts are verbatim spec questions — static copy this
+    // response renders. A free-text pii answer that happens to equal a
+    // prompt word ("messages" in the phone prompt) must not fail the
+    // user's match list; only user-derived fields and non-static copy
+    // throw.
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "messages" },
+      phone_contact: { status: "unknown" },
+    };
+    const response = await buildMatchResponse(answers, {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    expect(JSON.stringify(response).toLowerCase()).toContain("messages");
+    expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+  });
+
+  it("degrades a model explanation that echoes this session's pii value", async () => {
+    // Round-5 P2 on PR #46: the explanation is model output grounded on the
+    // entry — it never sees user content — so a word colliding with this
+    // session's free-text pii answer is coincidence. THIS response's card
+    // degrades to entry-fact copy instead of failing the whole match list,
+    // and the per-entry cache (shared across users) is untouched.
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "gather" },
+      main_goal: { status: "known", value: "food" },
+    };
+    const response = await buildMatchResponse(answers, {
+      explainer: async () => ({
+        text: "Applicants should gather documents early.",
+        source: "model" as const,
+      }),
+      explanationCache: new Map(),
+    });
+    const card = response.matches.find(
+      (entry) => entry.entryId === "pilot_program_sample_b",
+    )!;
+    expect(card.explanation.source).toBe("facts");
+    expect(card.explanation.text).not.toContain("gather");
+    expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+  });
+
+  it("degrades an explanation carrying a pii value inside a larger word", async () => {
+    // The degrade predicate mirrors the gate EXACTLY (substring trigger,
+    // word-boundary excusal): "regather" contains "gather" as a substring,
+    // so the gate would reject this explanation — it is degraded at build
+    // time instead, and a cached copy can never pin a session to a 500.
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "gather" },
+      main_goal: { status: "known", value: "food" },
+    };
+    const response = await buildMatchResponse(answers, {
+      explainer: async () => ({
+        text: "Applicants may need to regather their documents.",
+        source: "model" as const,
+      }),
+      explanationCache: new Map(),
+    });
+    const card = response.matches.find(
+      (entry) => entry.entryId === "pilot_program_sample_b",
+    )!;
+    expect(card.explanation.source).toBe("facts");
+    expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+  });
+
+  it("keeps a model explanation whose words are the entry's own copy", async () => {
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "application" },
+      main_goal: { status: "known", value: "food" },
+    };
+    const response = await buildMatchResponse(answers, {
+      explainer: async () => ({
+        text: "The application window stays open.",
+        source: "model" as const,
+      }),
+      explanationCache: new Map(),
+    });
+    const card = response.matches.find(
+      (entry) => entry.entryId === "pilot_program_sample_b",
+    )!;
+    // "application" is the entry's own deadline word — grounded copy, kept.
+    expect(card.explanation.source).toBe("model");
+    expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+  });
+
+  it("excuses an option-label value even when echoed into an answer label", async () => {
+    // Pins the per-value excusal (round-6 P2 on PR #46): a free-text pii
+    // answer equal to a shown option label is public vocabulary — it is
+    // excused wherever it appears, INCLUDING a (buggy) echo into the
+    // answer-label field. A value indistinguishable from public copy is
+    // not a disclosure; everything else still throws.
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "health care" },
+      main_goal: { status: "known", value: "healthcare" },
+    };
+    const clean = await buildMatchResponse(answers, {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    const cleanCard = clean.matches.find(
+      (card) => card.entryId === "pilot_program_sample_c",
+    )!;
+    const echoed = {
+      ...clean,
+      matches: [
+        {
+          ...cleanCard,
+          reasons: [
+            {
+              ...cleanCard.reasons[0]!,
+              answerLabel: "Health care",
+            },
+          ],
+        },
+        ...clean.matches.slice(1),
+      ],
+    };
+    expect(() => assertNoPiiValuesInMatch(echoed, answers)).not.toThrow();
+  });
+
+  it("bites exactly when a specific pii value reaches a user-derived field (property)", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...PII_QUESTION_IDS_IN_SPEC),
+        fc.stringMatching(/^[a-z]{8,12}$/),
+        async (questionId, value) => {
+          const answers: AnswerMap = {
+            [questionId]: { status: "known", value },
+          };
+          const response = await buildMatchResponse(known("main_goal", "food"), {
+            explainer: async () => ({ text: "stub", source: "facts" }),
+            explanationCache: new Map(),
+          });
+          // The value appears in no user-derived surface of a clean
+          // response — and static KB copy never triggers the gate.
+          expect(() =>
+            assertNoPiiValuesInMatch(response, answers),
+          ).not.toThrow();
+          // The value in a reason's answer label: bites.
+          const labelPoisoned = {
+            ...response,
+            matches: response.matches.map((card, cardIndex) =>
+              cardIndex === 0
+                ? {
+                    ...card,
+                    reasons: card.reasons.map((reason, reasonIndex) =>
+                      reasonIndex === 0
+                        ? { ...reason, answerLabel: value }
+                        : reason,
+                    ),
+                  }
+                : card,
+            ),
+          };
+          expect(() =>
+            assertNoPiiValuesInMatch(labelPoisoned, answers),
+          ).toThrow();
+          // The value in a to-resolve label: bites too.
+          const toResolvePoisoned = {
+            ...response,
+            toResolve: [
+              ...response.toResolve,
+              {
+                questionId: "main_goal",
+                prompt: QUESTION_BY_ID["main_goal"]?.prompt ?? "main goal",
+                status: "unknown" as const,
+                statusLabel: value,
+              },
+            ],
+          };
+          expect(() =>
+            assertNoPiiValuesInMatch(toResolvePoisoned, answers),
+          ).toThrow();
+          return true;
+        },
+      ),
+      { numRuns: 40 },
+    );
   });
 });

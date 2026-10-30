@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
+import { StatusRegion } from "../../../components/status-region";
 
 // The match section (Mission v2 M3): the ranked benefit match under the
 // conversation, fetched from /api/match after turns change. Every claim on
@@ -226,10 +227,19 @@ export function MatchSectionContent({ data }: { data: MatchDataView }) {
   );
 }
 
+/** The fetch-failure copy, announced through the StatusRegion convention. */
+export const MATCH_UNAVAILABLE_NOTICE =
+  "The match list is unavailable right now. Your answers are safe; try " +
+  "again after your next message.";
+
 /**
  * The live section: fetches the match for the session and re-fetches when
  * the conversation moves (refreshKey = turn count). A fetch failure stays
- * quiet and honest — the cards are not the conversation's core path.
+ * quiet and honest — the cards are not the conversation's core path — and
+ * its notice is announced through the StatusRegion convention: the region
+ * is mounted for the section's whole life and the failure message CHANGES
+ * into it, so screen readers announce the update (a region inserted with
+ * its text already present may stay silent).
  */
 export function MatchSection({ refreshKey }: { refreshKey: number }) {
   const [data, setData] = useState<MatchDataView | null>(null);
@@ -260,16 +270,13 @@ export function MatchSection({ refreshKey }: { refreshKey: number }) {
     };
   }, [refreshKey]);
 
-  if (failed) {
-    return (
-      <p data-match-unavailable className="text-sm text-zinc-600 dark:text-zinc-400">
-        The match list is unavailable right now. Your answers are safe; try
-        again after your next message.
-      </p>
-    );
-  }
-  if (!data) {
-    return null;
-  }
-  return <MatchSectionContent data={data} />;
+  return (
+    <>
+      {data && !failed ? <MatchSectionContent data={data} /> : null}
+      <StatusRegion
+        message={failed ? MATCH_UNAVAILABLE_NOTICE : ""}
+        className="text-sm text-zinc-600 dark:text-zinc-400"
+      />
+    </>
+  );
 }

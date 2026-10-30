@@ -30,6 +30,19 @@ const BANNED_FIXTURES = [
   "We can promise you a positive result.",
   "You will receive benefits from the program.",
   "Get instant approval today.",
+  "Based on what you told us, you meet the income rules.",
+  "She meets the program's requirements.",
+  "You do not meet the income rules.",
+  "You'll meet the income rules once you apply.",
+  "Your answers show that you meet the requirements.",
+  "She meets the documentation rules for the program.",
+  "You meet all of the income rules.",
+  "You've met the requirements for assistance.",
+  "You satisfy the eligibility criteria.",
+  "You don't meet the income rules.",
+  "You haven't met the criteria for assistance.",
+  "Your answers show you meet the requirements.",
+  "You meet the income limit for the program.",
 ];
 
 // Honest sentences that must pass untouched. Hedged uncertainty stays
@@ -40,6 +53,10 @@ const CLEAN_TEXT_FIXTURES = [
   "Only the official program can decide your eligibility.",
   "Nothing here is a promise about your case.",
   "We cannot guarantee outcomes, and we say so.",
+  "You may meet the income rules for this program.",
+  "You may not meet the income rules yet; the official rules decide.",
+  "If you meet the income limits, you may be eligible.",
+  "Unless you meet the limits, the office may review your file.",
 ];
 
 // A client-state fixture: the shape /api/intake/* and /api/session return.

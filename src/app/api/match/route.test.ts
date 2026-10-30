@@ -10,7 +10,6 @@ import {
   sessionCookieHeader,
 } from "../../../lib/intake/store";
 import { QUESTION_BY_ID, PII_QUESTION_IDS_IN_SPEC } from "../../../lib/intake/spec";
-import { KB_ENTRIES } from "../../../lib/kb";
 import { findBannedClaims } from "../../../lib/honesty";
 import { GET, POST } from "./route";
 
@@ -145,9 +144,17 @@ describe("GET /api/match — ranked match for the session (VAL-MATCH-001)", () =
     await seedAnswers();
     const body = await bodyOf(await GET(matchRequest("GET")));
     expect(body.hasSession).toBe(true);
-    expect(body.matches.length).toBe(KB_ENTRIES.length);
     expect(body.matches[0]!.entryId).toBe("pilot_program_sample_b");
     expect(body.matches[0]!.score).toBeGreaterThan(0);
+    // Zero-signal honesty: an entry no signal matched is never presented as
+    // a card — the seeded answers score the housing and food samples only,
+    // so the citizenship/disability sample stays out of the payload.
+    for (const card of body.matches) {
+      expect(card.score, card.entryId).toBeGreaterThan(0);
+    }
+    expect(body.matches.map((card) => card.entryId)).not.toContain(
+      "pilot_program_sample_c",
+    );
     // Descending scores; ties broken by entry id.
     for (let index = 1; index < body.matches.length; index += 1) {
       const previous = body.matches[index - 1]!.score;

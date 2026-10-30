@@ -2,8 +2,12 @@ import {
   assertNoBannedClaimsEverySentence,
   isSpecificValue,
 } from "./conversation";
-import { glossaryTermsForText, type GlossaryTerm } from "./glossary";
 import {
+  glossaryTermsForText,
+  type GlossaryTerm,
+} from "./glossary";
+import {
+  ANSWER_STATUS_LABELS,
   answerStatusLabel,
   type AnswerStatus,
 } from "./honesty";
@@ -516,6 +520,14 @@ export async function explainEntry(entry: KbEntry): Promise<MatchExplanation> {
     const result = await chatCompletion([...buildExplanationMessages(entry)], {
       maxTokens: MATCH_EXPLANATION_MAX_TOKENS,
     });
+    if (result.finishReason === "length") {
+      // A budget-truncated reply ships an incomplete final sentence as a
+      // "model" explanation (droid-review P2 on PR #45) — non-empty
+      // content is not the same as a complete reply. Degrade to the
+      // deterministic entry-fact copy, like every other gate failure.
+      logWarn("match_explanation_length_truncated_blocked");
+      return { text: composeFallbackExplanation(entry), source: "facts" };
+    }
     const text = result.content.trim();
     try {
       assertNoBannedClaimsEverySentence(text);
@@ -587,11 +599,37 @@ export interface MatchBuildOptions {
   readonly entries?: readonly KbEntry[];
   /** The explanation builder (defaults to the gated model explainer). */
   readonly explainer?: MatchExplainer;
+  /**
+   * Explanation cache keyed by entry id + version. Defaults to a
+   * module-level cache so repeated turns never repeat the model call;
+   * tests inject a fresh Map per scenario.
+   */
+  readonly explanationCache?: Map<string, MatchExplanation>;
+}
+
+/**
+ * ONE gated explanation per entry id + version per server process under
+ * sequential traffic (the cache key never involves rank: an entry that was
+ * top-ranked last turn carries its explanation wherever it ranks now).
+ * Concurrent cold-start requests for the same entry may each spend a call;
+ * only the first result is cached. (claude-review P2-2 on PR #45: the
+ * ranking derives from pii answers, so re-firing the call every turn would
+ * leak that derived signal to the model on every request and block every
+ * fetch for 10-20s.)
+ */
+const moduleExplanationCache = new Map<string, MatchExplanation>();
+
+function explanationCacheKey(entry: KbEntry): string {
+  return `${entry.id}:v${entry.version}`;
 }
 
 /**
  * The full match payload: ranked active cards plus the to-resolve list.
- * Only the top match spends a model call; the rest carry the deterministic
+ * Entries are grouped by score — a score-0 entry is NEVER presented as a
+ * "may be worth pursuing" card (claude-review P2-1 on PR #45); when no
+ * signal matched anything, the payload is empty and the client shows its
+ * honest empty state. Only the top-scoring match spends a model call, and
+ * only once per entry id + version; the rest carry the deterministic
  * entry-fact explanation (cost discipline).
  */
 export async function buildMatchResponse(
@@ -600,14 +638,78 @@ export async function buildMatchResponse(
 ): Promise<MatchResponse> {
   const entries = options.entries ?? KB_ENTRIES;
   const explainer = options.explainer ?? explainEntry;
+  // The shared module cache is only for the default explainer; a custom
+  // explainer without an explicit cache gets a fresh map per build, so test
+  // stubs can never leak into (or pin) later default-explainer builds.
+  const cache =
+    options.explanationCache ??
+    (explainer === explainEntry ? moduleExplanationCache : new Map());
   const ranked = rankEntries(answers, entries);
   const matches: MatchCard[] = [];
-  for (const [index, rankedEntry] of ranked.entries()) {
-    const explanation =
-      index === 0
-        ? await explainer(rankedEntry.entry)
-        : { text: composeFallbackExplanation(rankedEntry.entry), source: "facts" as const };
-    matches.push(buildCard(rankedEntry, explanation));
+  const signalMatched = ranked.filter((rankedEntry) => rankedEntry.score > 0);
+  // THIS session's specific pii values (lowercased), used to degrade (never
+  // pin) an explanation that collides with them. The substring trigger and
+  // word-boundary excusal MIRROR the response gate exactly, so any
+  // explanation the gate would reject is degraded here first — a cached
+  // explanation can never pin a session's match list to a 500.
+  const piiValues: { lowered: string; inStatic: RegExp }[] = [];
+  for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
+    const stored = answers[questionId];
+    if (!stored || stored.value === null || stored.value === undefined) {
+      continue;
+    }
+    for (const element of Array.isArray(stored.value) ? stored.value : [stored.value]) {
+      const raw = String(element).trim();
+      if (raw !== "" && isSpecificValue(raw)) {
+        piiValues.push({
+          lowered: raw.toLowerCase(),
+          inStatic: new RegExp(`\\b${escapeRegExpValue(raw)}\\b`, "i"),
+        });
+      }
+    }
+  }
+  for (const [index, rankedEntry] of signalMatched.entries()) {
+    const key = explanationCacheKey(rankedEntry.entry);
+    let explanation = cache.get(key);
+    if (explanation === undefined && index === 0) {
+      explanation = await explainer(rankedEntry.entry);
+      // Only a model-sourced explanation is cached: a degraded fallback
+      // (model unavailable, gate failure, truncation) must not pin the
+      // entry to fallback copy until process restart — the next turn
+      // retries the model (claude-review P2 on PR #46).
+      if (explanation.source === "model") {
+        cache.set(key, explanation);
+      }
+    }
+    if (explanation === undefined) {
+      explanation = {
+        text: composeFallbackExplanation(rankedEntry.entry),
+        source: "facts",
+      };
+    }
+    let card = buildCard(rankedEntry, explanation);
+    if (
+      explanation.source === "model" &&
+      piiValues.length > 0 &&
+      piiValues.some(
+        (value) =>
+          card.explanation.text.toLowerCase().includes(value.lowered) &&
+          !value.inStatic.test(cardStaticCopy(rankedEntry.entry, card)),
+      )
+    ) {
+      // The model explanation is grounded on the entry and never sees user
+      // content, so a word colliding with this session's free-text pii
+      // answer is coincidence, not a leak. Degrade THIS card to the
+      // entry-fact copy for this response — the cached copy (per entry,
+      // shared across users) is untouched (claude-review P2 on PR #46,
+      // round 5).
+      logWarn("match_explanation_pii_echo_degraded");
+      card = buildCard(rankedEntry, {
+        text: composeFallbackExplanation(rankedEntry.entry),
+        source: "facts",
+      });
+    }
+    matches.push(card);
   }
   logInfo("match_response_built", { cardCount: matches.length });
   return { matches, toResolve: buildToResolve(answers) };
@@ -617,31 +719,159 @@ export async function buildMatchResponse(
 // PII defense in depth (the serialization-boundary pattern, for match)
 // ---------------------------------------------------------------------------
 
+function escapeRegExpValue(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The spec's plain-language option labels (lowercased). A reason's answer
+ * label is SPEC-PRODUCED — public vocabulary, never user text — when every
+ * comma-separated part of it is one of these (multi-select labels join the
+ * selected options' labels).
+ */
+const SPEC_OPTION_LABELS: ReadonlySet<string> = new Set(
+  QUESTIONS.flatMap((question) =>
+    (question.options ?? []).map((option) => option.label.trim().toLowerCase()),
+  ),
+);
+
+function isSpecProducedLabel(label: string): boolean {
+  return label
+    .split(",")
+    .map((part) => part.trim().toLowerCase())
+    .every((part) => SPEC_OPTION_LABELS.has(part));
+}
+
+/**
+ * The entry-derived copy one card renders: the entry's own text plus the
+ * glossary terms the card actually displays. This is the excusal set for
+ * that card's model explanation — the explanation is grounded on THIS
+ * entry, so its legitimate vocabulary is exactly here.
+ */
+function cardStaticCopy(entry: KbEntry, card: MatchCard): string {
+  const parts: string[] = [entry.title];
+  for (const source of entry.sources) {
+    parts.push(`${source.title} ${source.supports}`);
+  }
+  for (const name of ALL_KB_FACT_GROUPS) {
+    const group = entry.facts[name];
+    if (!group) {
+      continue;
+    }
+    for (const item of group.items) {
+      if (typeof item === "string") {
+        parts.push(item);
+      } else if ("questionId" in item) {
+        parts.push(item.reason);
+      } else {
+        parts.push(`${item.label} ${"due" in item ? item.due : item.url}`);
+      }
+    }
+  }
+  for (const term of card.terms) {
+    parts.push(`${term.term} ${term.definition}`);
+  }
+  return parts.join(" ").toLowerCase();
+}
+
+/**
+ * The public copy THIS response renders from its own sources: each matched
+ * card's entry text and rendered glossary terms, the spec-produced option
+ * labels it shows, the fixed tri-state status labels, and the to-resolve
+ * prompts (verbatim spec questions). Never computed from a raw echo of the
+ * user's own text, so a leak cannot excuse itself. Entries are matched by
+ * id AND version, so a card built from a bumped entry never inherits the
+ * old version's copy.
+ */
+function responseStaticCopy(response: MatchResponse): string {
+  const parts: string[] = [
+    MATCH_FRAMING,
+    EXPLANATION_FRAMING,
+    ...Object.values(ANSWER_STATUS_LABELS),
+  ];
+  for (const card of response.matches) {
+    const entry = KB_ENTRIES.find(
+      (candidate) =>
+        candidate.id === card.entryId &&
+        candidate.version === card.entryVersion,
+    );
+    if (entry) {
+      parts.push(cardStaticCopy(entry, card));
+    }
+    for (const reason of card.reasons) {
+      if (
+        reason.answerLabel !== undefined &&
+        isSpecProducedLabel(reason.answerLabel)
+      ) {
+        parts.push(reason.answerLabel);
+      }
+    }
+  }
+  for (const item of response.toResolve) {
+    parts.push(item.prompt);
+  }
+  return parts.join(" ").toLowerCase();
+}
+
 /**
  * Throw loudly if a match response about to leave the server carries any
  * stored value of a pii:true question. The message stays generic; no value
  * or question id is echoed back. Mirrors the intake serializer's check.
+ *
+ * The WHOLE outgoing payload is scanned (reason text, model explanations,
+ * labels, framing — anything that serializes), and a specific value throws
+ * unless it is an exact word of the response's public copy: the matched
+ * entries' facts, the glossary terms the cards render, the spec-produced
+ * option labels they show, the fixed status labels, the to-resolve
+ * prompts, and the framing. A free-text pii answer that happens to equal a
+ * common KB word ("application") must not fail-closed the user's whole
+ * match list (claude-review P2-3 on PR #45). The excusal is PER VALUE
+ * across the whole payload — there is no per-field exempted tier: once a
+ * value is a word of the public copy, every occurrence anywhere is
+ * excused, INCLUDING an answer label that echoes it (a value
+ * indistinguishable from public vocabulary is not a disclosure); a raw
+ * echo of any other user text is never part of the excusal set, so it can
+ * never excuse itself. Model explanations that collide with this
+ * session's values are degraded per card at build time (see
+ * buildMatchResponse), so this gate mostly stands for user-derived fields
+ * and non-explanation copy.
+ *
+ * Multi-select values are checked element by element (the old whole-array
+ * JSON check could never substring-match).
  */
 export function assertNoPiiValuesInMatch(
   response: MatchResponse,
   answers: AnswerMap,
 ): void {
   const serialized = JSON.stringify(response).toLowerCase();
+  const staticCopy = responseStaticCopy(response);
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     const stored = answers[questionId];
     if (!stored || stored.value === null || stored.value === undefined) {
       continue;
     }
-    const raw = (
-      typeof stored.value === "string" ? stored.value : JSON.stringify(stored.value)
-    ).trim();
-    // Generic one-word answers ("yes") would over-match ordinary copy; the
-    // same specificity rule the conversation redactor uses applies here.
-    if (raw !== "" && isSpecificValue(raw) && serialized.includes(raw.toLowerCase())) {
-      throw new AppError(
-        "internal",
-        "A match response attempted to include a private answer value.",
-      );
+    const elements = (
+      Array.isArray(stored.value) ? stored.value : [stored.value]
+    ).map((element) => String(element).trim());
+    for (const raw of elements) {
+      // Generic one-word answers ("yes") would over-match ordinary copy; the
+      // same specificity rule the conversation redactor uses applies here.
+      if (raw === "" || !isSpecificValue(raw)) {
+        continue;
+      }
+      if (!serialized.includes(raw.toLowerCase())) {
+        continue;
+      }
+      const inStaticCopy = new RegExp(
+        `\\b${escapeRegExpValue(raw)}\\b`,
+        "i",
+      ).test(staticCopy);
+      if (!inStaticCopy) {
+        throw new AppError(
+          "internal",
+          "A match response attempted to include a private answer value.",
+        );
+      }
     }
   }
 }

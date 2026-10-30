@@ -29,6 +29,16 @@ export const BANNED_CLAIM_PATTERNS = [
   /\bwe\s+(?:can\s+)?(?:guarantee|promise)\b/i,
   /\byou\s*(?:(?:will|'ll|shall|should|are)\s+)?(?:(?:definitely|certainly|absolutely)\s+)?(?:going\s+to\s+)?(?:get|receive|obtain)\s+(?:the\s+|these\s+|those\s+|your\s+)?benefits\b/i,
   /\b(?:instant|automatic)\s+approval\b/i,
+  // Criteria-satisfaction determinations ("meets the income rules" phrasing,
+  // droid-review P3-2 on PR #45). Identical source to src/lib/honesty.ts —
+  // the drift test below pins the two lists together.
+  // "documentation" is deliberately absent: "document" + \w* already covers
+  // it, and the redundant alternative makes the repetition ambiguous
+  // (exponential backtracking — the CodeQL js/redos alert). Past-tense
+  // (met) and satisfy forms are determinations too; terminal nouns take an
+  // optional plural. The lookbehind spares open conditionals; reported
+  // determinations ("your answers show you meet...") stay banned.
+  /(?<!\b(?:if|whether|once|when|until|unless)\s+)\b(?:you|he|she|they)\s*(?:(?:will|'ll|'ve|have|shall|should|do|did|don't|doesn't|didn't|won't|haven't|hasn't|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?(?:meets?|met|satisfied|satisfies|satisfy)\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+|of\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|disability|citizenship|application)\w*\s+)*(?:rules?|requirements?|criteria|guidelines?|limits?|thresholds?|conditions?|standards?)\b/i,
 ];
 
 /**

@@ -52,6 +52,32 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "contraction benefits promise", text: "You'll get the benefits you are owed." },
   { label: "instant approval marketing", text: "Get instant approval today." },
   { label: "automatic approval marketing", text: "Automatic approval for everyone who applies." },
+  // Criteria-satisfaction determinations ("meets the rules" phrasing,
+  // droid-review P3-2 on PR #45): asserting the person satisfies the
+  // program's criteria is a determination whether addressed to the person
+  // ("you") or in third person.
+  { label: "meet rules determination", text: "Based on what you told us, you meet the income rules." },
+  { label: "meet requirements determination", text: "You meet all the program's requirements." },
+  { label: "third-person meet determination", text: "She meets the program's requirements." },
+  { label: "plural meet determination", text: "They meet the guidelines for assistance." },
+  { label: "future meet promise", text: "You will meet the eligibility criteria once you apply." },
+  { label: "modal meet determination", text: "You should meet the income rules with that household size." },
+  { label: "negated meet determination", text: "You do not meet the income rules." },
+  { label: "future negated meet determination", text: "You will not meet the requirements without a verified ID." },
+  { label: "contraction meet promise", text: "You'll meet the income rules once you apply." },
+  { label: "that-clause meet determination", text: "Your answers show that you meet the requirements." },
+  { label: "documentation meet determination", text: "She meets the documentation rules for the program." },
+  { label: "of-form meet determination", text: "You meet all of the income rules." },
+  { label: "past-tense meet determination", text: "You've met the requirements for assistance." },
+  { label: "have met determination", text: "You have not met the requirements without a verified ID." },
+  { label: "satisfy determination", text: "You satisfy the eligibility criteria." },
+  { label: "third-person satisfy determination", text: "She satisfies the income rules." },
+  { label: "contracted negation meet", text: "You don't meet the income rules." },
+  { label: "contracted negation future meet", text: "You won't meet the requirements without a verified ID." },
+  { label: "contracted negation past meet", text: "You haven't met the criteria for assistance." },
+  { label: "reported determination without that", text: "Your answers show you meet the requirements." },
+  { label: "singular rule determination", text: "You meet the income limit for the program." },
+  { label: "singular requirement determination", text: "She meets the residency requirement." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty
@@ -63,6 +89,21 @@ const HONEST_SENTENCES: string[] = [
   "Only the official program can decide your eligibility.",
   "You may be eligible for some programs; you can check with the office.",
   "Nothing here is a promise about your case.",
+  // Hedged and requirement forms of the criteria phrasing stay allowed —
+  // uncertainty and program requirements are honest, determinations are not.
+  "You may meet the income rules for this program.",
+  "You would need to meet the income rules the official source lists.",
+  "You may not meet the income rules yet; the official rules decide.",
+  // Conditionals are not determinations: the hedge lives in the consequent,
+  // and any assertion there is still caught by the eligible/qualify/approved
+  // patterns. Reporting clauses ("shows that you meet...") are assertions.
+  "If you meet the income limits, you may be eligible.",
+  "The checklist shows whether you meet the requirements.",
+  "When you meet the income limits, you may be eligible.",
+  "Once you meet the requirements, you may be eligible.",
+  // Open conditionals describe what may happen, not the person's outcome.
+  "You can keep your answers until you meet the caseworker.",
+  "Unless you meet the limits, the office may review your file.",
 ];
 
 // Parsed from the repo's spec and migration files at test time — the literals
