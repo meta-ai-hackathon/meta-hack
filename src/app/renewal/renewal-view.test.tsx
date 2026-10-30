@@ -65,10 +65,30 @@ const renderReported = (
 
 const MONTH_DATE = /(?:January|February|March|April|May|June|July|August|September|October|November|December) \d{1,2}, \d{4}/;
 
+/**
+ * The text of a markup fragment: every character outside a tag. A loop
+ * rather than a regex replace, which CodeQL flags because one pass can
+ * leave a tag start such as "<script" behind.
+ */
+function textOutsideTags(markup: string): string {
+  let text = "";
+  let inTag = false;
+  for (const char of markup) {
+    if (char === "<") {
+      inTag = true;
+    } else if (char === ">" && inTag) {
+      inTag = false;
+    } else if (!inTag) {
+      text += char;
+    }
+  }
+  return text;
+}
+
 /** Every paragraph or list item that shows a date, as text, with whether it carries its origin. */
 function dateBlocks(html: string): { text: string; labeled: boolean }[] {
   return [...html.matchAll(/<(li|p)\b[^>]*>([\s\S]*?)<\/\1>/g)]
-    .map((match) => ({ markup: match[0], text: match[2]!.replace(/<[^>]+>/g, "") }))
+    .map((match) => ({ markup: match[0], text: textOutsideTags(match[2]!) }))
     .filter((block) => MONTH_DATE.test(block.text))
     .map((block) => ({
       text: block.text,
@@ -302,6 +322,15 @@ describe("a stale entry's estimates carry the stale flag (review fix, BN-29)", (
 });
 
 describe("zero banned claims in any rendered state", () => {
+  it("reads a block's text outside its tags, so the label check below is not vacuous", () => {
+    expect(textOutsideTags('<span data-origin="user">You told us</span> due <time>April 30, 2027</time>')).toBe(
+      "You told us due April 30, 2027",
+    );
+    // An unclosed tag start is dropped, not left behind.
+    expect(textOutsideTags("a <script")).toBe("a ");
+    expect(dateBlocks(renderReported("renewal_due", "2027-04-30", "2027-04-18")).length).toBeGreaterThan(0);
+  });
+
   it("scans the facts section and every reminder state", () => {
     expect(findBannedClaims(decode(renderToStaticMarkup(<RenewalFactsSection facts={FACTS} />)))).toEqual([]);
     const reported = fc
