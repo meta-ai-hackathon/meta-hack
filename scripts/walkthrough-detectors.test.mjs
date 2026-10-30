@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   ANSWER_STATUS_LABELS as SPINE_LABELS,
   BANNED_CLAIM_PATTERNS as SPINE_PATTERNS,
+  findBannedClaims as spineFindBannedClaims,
+  foldForClaimScan as spineFoldForClaimScan,
 } from "../src/lib/honesty";
 import {
   ANSWER_STATUS_LABELS,
@@ -10,6 +12,7 @@ import {
   findBannedClaims,
   findPiiValueExposure,
   findPiiValueLeaks,
+  foldForClaimScan,
 } from "./walkthrough-detectors.mjs";
 
 // The walkthrough CLI's violation detectors are the runtime check behind
@@ -52,6 +55,28 @@ const BANNED_FIXTURES = [
   "Your renewal has been approved.",
   "You'll be renewed automatically.",
   "There will be no gap in your coverage.",
+  // The second HACK-50 review's probe, including curly apostrophes, which
+  // the CLI folds the same way the app does.
+  "You will never lose your coverage.",
+  "You'll never lose your Medicaid.",
+  "You can't lose your coverage.",
+  "You cannot lose your Medicaid.",
+  "You won't be dropped.",
+  "Your coverage continues.",
+  "Your benefits continue.",
+  "Your coverage will renew automatically.",
+  "You will continue to be covered.",
+  "You will still have coverage.",
+  "You'll still have Medicaid next year.",
+  "You will continue to be eligible.",
+  "You will continue to qualify.",
+  "There won't be a gap in your coverage.",
+  "Your child will stay covered.",
+  "They will stay covered.",
+  "You\u2019ll stay covered.",
+  "You won\u2019t lose your coverage.",
+  "You\u2019re still covered.",
+  "You\u2019re eligible.",
 ];
 
 // Honest sentences that must pass untouched. Hedged uncertainty stays
@@ -71,6 +96,8 @@ const CLEAN_TEXT_FIXTURES = [
   "If your renewal is approved, you get a letter from the office.",
   "Ask your local DSS whether you will stay covered.",
   "We can't tell you if your renewal will be approved.",
+  "You can lose your coverage if you do not answer the letter.",
+  "Ask the office whether your child will stay covered.",
 ];
 
 // A client-state fixture: the shape /api/intake/* and /api/session return.
@@ -175,6 +202,22 @@ describe("walkthrough CLI vocabulary mirrors the honesty spine", () => {
 
   it("uses the spine's honest-status labels verbatim", () => {
     expect(ANSWER_STATUS_LABELS).toEqual(SPINE_LABELS);
+  });
+
+  it("folds text exactly as the spine does, so both gates agree on any text", () => {
+    const apostrophes = fc.constantFrom("\u2018", "\u2019", "\u201b", "\u02bc", "'", "`", "\u2032", "\u200b", "\u200d", "\ufeff");
+    const text = fc.array(fc.oneof(apostrophes, fc.constantFrom("You", "re", "ll", " ", "eligible", "covered", "x")), {
+      maxLength: 12,
+    });
+    fc.assert(
+      fc.property(text, (parts) => {
+        const joined = parts.join("");
+        expect(foldForClaimScan(joined)).toBe(spineFoldForClaimScan(joined));
+        expect(foldForClaimScan(joined)).toHaveLength(joined.length);
+        expect(findBannedClaims(joined)).toEqual(spineFindBannedClaims(joined));
+      }),
+      { numRuns: 300 },
+    );
   });
 });
 

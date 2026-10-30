@@ -134,6 +134,33 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   // The boundary the "that" rule draws: a reported or negated promise
   // after "that" stays banned, like "show that you meet" above.
   { label: "that-clause coverage promise", text: "This means that you will stay covered." },
+  // Promises the second HACK-50 review's probe found getting through: other
+  // negations before "lose", present-tense outcomes, "continue to be",
+  // "still have", "won't be a gap", someone else the renewal is for, and
+  // curly apostrophes.
+  { label: "review 2: will never lose", text: "You will never lose your coverage." },
+  { label: "review 2: 'll never lose", text: "You'll never lose your Medicaid." },
+  { label: "review 2: can't lose", text: "You can't lose your coverage." },
+  { label: "review 2: cannot lose", text: "You cannot lose your Medicaid." },
+  { label: "review 2: won't be dropped", text: "You won't be dropped." },
+  { label: "review 2: coverage continues", text: "Your coverage continues." },
+  { label: "review 2: benefits continue", text: "Your benefits continue." },
+  { label: "review 2: will renew automatically", text: "Your coverage will renew automatically." },
+  { label: "review 2: continue to be covered", text: "You will continue to be covered." },
+  { label: "review 2: still have coverage", text: "You will still have coverage." },
+  { label: "review 2: still have Medicaid", text: "You'll still have Medicaid next year." },
+  { label: "review 2: continue to be eligible", text: "You will continue to be eligible." },
+  { label: "review 2: continue to qualify", text: "You will continue to qualify." },
+  { label: "review 2: won't be a gap", text: "There won't be a gap in your coverage." },
+  { label: "review 2: child will stay covered", text: "Your child will stay covered." },
+  { label: "review 2: they will stay covered", text: "They will stay covered." },
+  { label: "review 2: curly 'll stay covered", text: "You\u2019ll stay covered." },
+  { label: "review 2: curly won't lose", text: "You won\u2019t lose your coverage." },
+  { label: "review 2: curly 're still covered", text: "You\u2019re still covered." },
+  { label: "review 2: curly 're eligible", text: "You\u2019re eligible." },
+  { label: "third person: won't lose their coverage", text: "Your kids won't lose their coverage." },
+  { label: "third person: she will keep her Medicaid", text: "She'll keep her Medicaid after the renewal." },
+  { label: "coverage will never end", text: "Your coverage will never end." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty
@@ -183,6 +210,15 @@ const HONEST_SENTENCES: string[] = [
   "If you're covered by another plan, tell the office.",
   "If you lose your Medicaid, you will get a letter.",
   "Recertification is how the office decides whether their Medicaid continues.",
+  // Near misses for the second review's patterns: a hedge with "can", a
+  // "never" that is not about coverage, "have" without "still", questions,
+  // and the third-person conditional.
+  "You can lose your coverage if you do not answer the letter.",
+  "You can never be sure which date applies, so check your letter.",
+  "You will have your answers on this device until you remove them.",
+  "Ask the office whether your child will stay covered.",
+  "If they keep their coverage, the office sends a letter.",
+  "Will there be a gap in your coverage? Ask your local DSS.",
 ];
 
 // Parsed from the repo's spec and migration files at test time — the literals

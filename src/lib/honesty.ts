@@ -62,7 +62,7 @@ export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
   /(?<!\b(?:if|whether|once|when|until|unless)\s+)\b(?:you|he|she|they)\s*(?:(?:will|'ll|'ve|have|shall|should|do|did|don't|doesn't|didn't|won't|haven't|hasn't|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?(?:meets?|met|satisfied|satisfies|satisfy)\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+|of\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|disability|citizenship|application)\w*\s+)*(?:rules?|requirements?|criteria|guidelines?|limits?|thresholds?|conditions?|standards?)\b/i,
   // Renewal-time promises (HACK-50 renewal tracker). Telling the person
   // their coverage carries on past a renewal is an outcome promise like an
-  // approval promise, in any tense. Shared rules for the five patterns
+  // approval promise, in any tense. Shared rules for the six patterns
   // below:
   // - Open questions stay allowed: the lookbehind spares "if" and "whether"
   //   (asking the office whether coverage carries on). "that" is NOT
@@ -75,25 +75,54 @@ export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
   //   need to renew") stay allowed.
   // - The program objects are generic coverage words plus the decided
   //   pilot's program name.
+  // - Curly apostrophes count as straight ones and zero-width characters
+  //   as spaces: findBannedClaims folds them first (foldForClaimScan), so
+  //   the contractions below cover both and nothing invisible splits a
+  //   phrase.
   // - Every token is a literal word joined by \s+ and no group repeats, so
   //   the patterns backtrack linearly.
-  // Continued coverage with "you" as the subject: stay or remain covered,
-  // keep or continue to have coverage, still covered.
-  /(?<!\b(?:if|whether)\s+)\byou\s*(?:(?:will|'ll|shall|(?:are|'re)\s+going\s+to)\s+)?(?:(?:definitely|certainly|absolutely|still)\s+)?(?:(?:stay|remain)\s+(?:eligible|enrolled|covered|insured|on\s+(?:nc\s+)?medicaid)|(?:keep|continue\s+to\s+(?:have|get|receive))\s+(?:your\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|(?:are|'re)\s+(?:still\s+)?(?:covered|enrolled|insured))\b/i,
-  // Never losing coverage or being cut off.
-  /(?<!\b(?:if|whether)\s+)\byou\s*(?:won't|will\s+not|'ll\s+not|(?:are|'re)\s+not\s+going\s+to)\s+(?:lose\s+(?:your\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|be\s+cut\s+off)\b/i,
+  // Continued coverage with "you" as the subject, any tense: stay or remain
+  // covered, keep, still have, or continue to have coverage, continue to be
+  // covered or to qualify, and still covered.
+  /(?<!\b(?:if|whether)\s+)\byou\s*(?:(?:will|'ll|shall|(?:are|'re)\s+going\s+to)\s+)?(?:(?:definitely|certainly|absolutely|still)\s+)?(?:(?:stay|remain)\s+(?:eligible|enrolled|covered|insured|on\s+(?:nc\s+)?medicaid)|(?:keep|continue\s+to\s+(?:have|get|receive)|still\s+have)\s+(?:your\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|continue\s+to\s+(?:be\s+(?:eligible|enrolled|covered|insured)|qualify)|be\s+(?:covered|enrolled|insured)|(?:are|'re)\s+(?:still\s+)?(?:covered|enrolled|insured))\b/i,
+  // Never losing coverage or being cut off, with "you" as the subject:
+  // won't, will never, can't, cannot, or never, then lose it or be cut
+  // off, dropped, or disenrolled.
+  /(?<!\b(?:if|whether)\s+)\byou\s*(?:won't|will\s+not|will\s+never|'ll\s+not|'ll\s+never|can't|cannot|can\s+not|can\s+never|never|(?:are|'re)\s+(?:not|never)\s+going\s+to)\s+(?:(?:ever|definitely|certainly)\s+)?(?:lose\s+(?:your\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|be\s+(?:cut\s+off|dropped|disenrolled|kicked\s+off))\b/i,
+  // The same promises about someone else the renewal is for, in the
+  // future tense: he, she, they, or your child (or children, kids, son,
+  // daughter, baby, family, household) will stay covered, will keep their
+  // coverage, will never lose it, or won't be cut off. The present tense
+  // for third persons ("she is covered") is out of scope: it reads as a
+  // report of the person's own facts far more often than as a promise.
+  /(?<!\b(?:if|whether)\s+)\b(?:he|she|they|your\s+(?:child|children|kids?|son|daughter|baby|family|household))\s*(?:(?:will|'ll|(?:is|'s|are|'re)\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?(?:(?:stay|remain)\s+(?:eligible|enrolled|covered|insured|on\s+(?:nc\s+)?medicaid)|(?:keep|continue\s+to\s+(?:have|get|receive)|still\s+have)\s+(?:their\s+|his\s+|her\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|continue\s+to\s+(?:be\s+(?:eligible|enrolled|covered|insured)|qualify)|never\s+lose\s+(?:their\s+|his\s+|her\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care)))|(?:won't|will\s+not|will\s+never|'ll\s+not|'ll\s+never)\s+(?:lose\s+(?:their\s+|his\s+|her\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|be\s+(?:cut\s+off|dropped|disenrolled|kicked\s+off)))\b/i,
   // Outcomes with the coverage, renewal, or application as the subject:
-  // will be renewed or approved, will continue, is or was or has been
-  // approved, won't end or stop, is safe, happens automatically.
-  /(?<!\b(?:if|whether)\s+)\byour\s+(?:nc\s+)?(?:coverage|benefits|medicaid|renewal|recertification|application|health\s+(?:coverage|insurance|care))\s+(?:(?:will|'ll|is\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?(?:be\s+(?:renewed|approved|re-?approved|continued|extended|accepted)|continue|go\s+through|happen\s+automatically)|(?:is|was|has\s+been)\s+(?:(?:already|definitely|certainly)\s+)?(?:approved|re-?approved|renewed|accepted|safe|automatic)|(?:won't|will\s+not|'ll\s+not)\s+(?:end|stop|lapse|be\s+(?:cut|cancell?ed|terminated|ended|stopped))|(?:happens|renews)\s+automatically)\b/i,
+  // will be renewed or approved, will renew or continue, continues now, is
+  // or was or has been approved, won't or will never end or stop, is safe,
+  // happens automatically.
+  /(?<!\b(?:if|whether)\s+)\byour\s+(?:nc\s+)?(?:coverage|benefits|medicaid|eligibility|renewal|recertification|application|health\s+(?:coverage|insurance|care))\s+(?:(?:will|'ll|is\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?(?:be\s+(?:renewed|approved|re-?approved|continued|extended|accepted)|continue|renew|carry\s+over|go\s+through|happen\s+automatically)|(?:still\s+)?continues?|(?:is|was|has\s+been)\s+(?:(?:already|definitely|certainly)\s+)?(?:approved|re-?approved|renewed|accepted|extended|confirmed|safe|automatic)|(?:won't|will\s+not|will\s+never|'ll\s+not|'ll\s+never|isn't\s+going\s+to|is\s+not\s+going\s+to|aren't\s+going\s+to|are\s+not\s+going\s+to)\s+(?:end|stop|lapse|be\s+(?:cut|cancell?ed|terminated|ended|stopped|dropped|taken\s+away))|(?:happens|renews)\s+automatically)\b/i,
   // Being renewed or recertified, as a promise, automatically or not. The
   // reported past ("were renewed") stays allowed, as "were approved" does
   // above.
   /(?<!\b(?:if|whether)\s+)\byou\s*(?:(?:are|'re|will|'ll|shall|must|should)\s+)?(?:(?:definitely|certainly|absolutely|already|automatically|still)\s+)?(?:going\s+to\s+)?(?:be|get|are|'re)\s+(?:automatically\s+)?(?:renewed|recertified|re-?enrolled)\b/i,
-  // A promise of no gap in coverage. "so there is no gap" (a purpose
-  // clause in advice) stays allowed.
-  /\bthere\s+(?:will|'ll)\s+(?:definitely\s+)?be\s+no\s+(?:gap|break|pause)\s+in\s+your\s+(?:nc\s+)?(?:coverage|benefits|medicaid|health\s+(?:coverage|insurance|care))\b/i,
+  // A promise of no gap in coverage: there will be no gap, or there won't
+  // be a gap. "so there is no gap" (a purpose clause in advice) stays
+  // allowed.
+  /\bthere\s+(?:(?:will|'ll)\s+(?:definitely\s+)?be\s+no|(?:won't|will\s+not|'ll\s+not)\s+(?:ever\s+)?be\s+(?:a|any))\s+(?:gap|break|pause)\s+in\s+your\s+(?:nc\s+)?(?:coverage|benefits|medicaid|health\s+(?:coverage|insurance|care))\b/i,
 ];
+
+/**
+ * What findBannedClaims matches against (HACK-50 review fix). Typographic
+ * apostrophes (U+2018, U+2019, U+201B, U+02BC) read as the straight one,
+ * so a contraction typed with a curly apostrophe is caught like the same
+ * contraction typed straight, and zero-width characters (U+200B to U+200D,
+ * U+2060, U+FEFF) read as spaces, so they cannot hide a phrase. One UTF-16
+ * unit for one, so match indexes still point into the original text.
+ * Mirrored in scripts/walkthrough-detectors.mjs.
+ */
+export function foldForClaimScan(text: string): string {
+  return text.replace(/[\u2018\u2019\u201b\u02bc]/g, "'").replace(/[\u200b-\u200d\u2060\ufeff]/g, " ");
+}
 
 export interface BannedClaimMatch {
   readonly patternSource: string;
@@ -119,8 +148,9 @@ export class BannedClaimError extends Error {
 /** Find banned promise language in a string (first match per pattern). */
 export function findBannedClaims(text: string): BannedClaimMatch[] {
   const matches: BannedClaimMatch[] = [];
+  const folded = foldForClaimScan(text);
   for (const pattern of BANNED_CLAIM_PATTERNS) {
-    const found = pattern.exec(text);
+    const found = pattern.exec(folded);
     if (found) {
       matches.push({
         patternSource: pattern.source,
