@@ -1,36 +1,37 @@
-# Architecture — footage search (working title)
+# Architecture — Benefits Navigator
 
-The build contract for the hackathon project. Sub-agents: read this before writing any code. A PR that changes pipeline semantics must update this doc in the same PR, or it gets rejected.
+The build contract for the hackathon project. Agents: read this before writing any code. A PR that changes pipeline semantics must update this doc in the same PR, or it gets rejected. Legal and privacy rules with the force of invariants live in the Legal section of `AGENTS.md`.
 
 ## Product contract
 
-Upload security footage, type what you're looking for in plain English ("guy in red hoodie with a backpack", "the white van's second visit"), get the exact clips in seconds, plus a timeline of where that object appeared across all cameras. Retrieval, not judgment.
+Guide one person through the North Carolina initial MAGI Medicaid application: plain-language questions, consented income verification, deterministic form answers, a filled official PDF the person reviews and signs under their own name, and a consented fax transmission. The app prepares and transmits only as the user's instructed mechanism and never promises eligibility or an outcome ("this may be worth pursuing," never a determination).
 
 ## Pipeline stages
 
-| Stage | Model / owner | Runs where | Output |
-|---|---|---|---|
-| Perception | SAM 3.1 (self-hosted) | Modal GPU | Masks + persistent track IDs per clip, cached once |
-| Labeling | Muse Spark (API) | Meta Model API | One call per object crop → short label ("white SUV, pallets") |
-| Timeline | ours | app service | Track events → queryable store (appear / disappear / move / meet) |
-| Reasoning | Muse Spark + Muse Wonder | Meta Model API | Answers over compressed track tables, never raw video |
-| Reports | fine-tuned open-weights (LoRA) | Modal | Incident summary from track tables |
-| Delivery | ours | Next.js | Time-scrubber UI, segmentation overlay, query box |
-
-Meta owns the model rows; the two "ours" rows are the technical-depth score.
+| Stage | Owner | Runs where | Output |
+| --- | --- | --- | --- |
+| Intake flow | ours (deterministic) | client + server routes | The next question from the question spec and stored answers; the LLM phrases, never decides |
+| Conversation | Meta model API (`muse-spark-1.3`), via `src/lib/model.ts` | server | Structured extraction and grounded replies; user text is data, never instructions |
+| Voice | Meta Voice Transcribe (STT); TTS provider behind the speak route | server | Spoken turns into the same intake path; subtitles always shown |
+| Income verification | ours (consent-gated) | server | Consented bank/payment pulls feeding the rules engine; raw statements never enter an LLM or a log |
+| Rules engine | ours (deterministic, no LLM) | server or client computation | The exact financial answers for the official form, each traceable to source transactions and a cited rule |
+| Forms | ours | form pipeline (HACK-74 line) | The official PDF filled from the on-device vault and client answer store; unknowns stay visibly blank and surface as to-resolve items |
+| Submission | ephemeral fax vendor (HACK-75 line) | third party, after explicit consent | The signed packet faxed to the destination; the confirmation is the only retained artifact, and the app then shows the purge |
 
 ## Invariants (agents do not break these)
 
-- Perception is cached per clip. The LLM never re-watches raw video — that burns the $150 credit budget
-- Reasoning reads only compressed track data
-- Track IDs persist across frames and cameras. No per-frame re-identification, no identity search ("find John"), no suspiciousness scoring — attribute search and concrete-event triggers only (see `info/restrictions.md` gray zones)
-- Every stage runs locally against fixtures before demo recording; a stage that only works live is a broken stage
+- Flow control is deterministic: next-question selection, skips, and advancement are pure functions of stored answers. The model contributes phrasing only, and the journey completes with the model unavailable
+- Form answers live on the user's device (client store plus on-device vault). They are filled from the device and the app purges them, shown on screen, after the fax confirmation. Server-side storage is never the source of truth for form data
+- Data leaves the device only via the consented fax at the end, and to an API only with explicit informed consent (voice and the fax). Reading or filling from the on-device vault is local and needs no API consent; consent refusal never blocks the journey
+- No number that lands on a government form is computed, rounded, classified, or estimated by an LLM. The deterministic rules engine computes; every figure traces to source data and a cited official rule, and unknown facts surface as to-resolve items, never guesses
+- The user previews, signs, and submits under their own name; the app is never the applicant's authorized representative. No eligibility or outcome language anywhere; the banned-claims gate is never weakened
+- Every stage runs locally against fixtures before demo recording; a stage that only works live is a broken stage. Rehearsal and synthetic traffic goes to test destinations only
 
 ## Environments
 
-- Every required key is listed in `.env.example`. Real secrets live only in `.env` (gitignored)
-- API-routed models: Spark, Wonder, Image, Voice Transcribe. Self-hosted: SAM 3.1, the LoRA report writer (Modal)
+- Every required key is listed in `.env.example`. Real secrets live only in `.env` (gitignored) or host environment settings
+- API-routed models today: Muse Spark (chat), Muse Voice Transcribe (STT), the TTS provider behind the speak route. Serving an open-weight model on a partner (for example Baseten, HACK-18) is tracked separately and does not block the demo
 
 ## Quality gates
 
-CI gates every PR (markdownlint + integrity tests; typecheck and app tests are added by the PR that introduces app code). Rules in `AGENTS.md` are non-negotiable.
+CI gates every PR (markdownlint, integrity tests, typecheck, lint, and app tests). Rules in `AGENTS.md`, including the Legal section, are non-negotiable.
