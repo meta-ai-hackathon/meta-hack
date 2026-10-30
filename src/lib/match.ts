@@ -608,12 +608,14 @@ export interface MatchBuildOptions {
 }
 
 /**
- * At most ONE gated explanation is generated per entry id + version per
- * server process, and the cache key never involves rank: an entry that was
- * top-ranked last turn carries its explanation wherever it ranks now.
- * (claude-review P2-2 on PR #45: the ranking derives from pii answers, so
- * re-firing the call every turn would leak that derived signal to the
- * model on every request and block every fetch for 10-20s.)
+ * ONE gated explanation per entry id + version per server process under
+ * sequential traffic (the cache key never involves rank: an entry that was
+ * top-ranked last turn carries its explanation wherever it ranks now).
+ * Concurrent cold-start requests for the same entry may each spend a call;
+ * only the first result is cached. (claude-review P2-2 on PR #45: the
+ * ranking derives from pii answers, so re-firing the call every turn would
+ * leak that derived signal to the model on every request and block every
+ * fetch for 10-20s.)
  */
 const moduleExplanationCache = new Map<string, MatchExplanation>();
 
@@ -777,7 +779,9 @@ function cardStaticCopy(entry: KbEntry, card: MatchCard): string {
  * card's entry text and rendered glossary terms, the spec-produced option
  * labels it shows, the fixed tri-state status labels, and the to-resolve
  * prompts (verbatim spec questions). Never computed from a raw echo of the
- * user's own text, so a leak cannot excuse itself.
+ * user's own text, so a leak cannot excuse itself. Entries are matched by
+ * id AND version, so a card built from a bumped entry never inherits the
+ * old version's copy.
  */
 function responseStaticCopy(response: MatchResponse): string {
   const parts: string[] = [
@@ -786,7 +790,11 @@ function responseStaticCopy(response: MatchResponse): string {
     ...Object.values(ANSWER_STATUS_LABELS),
   ];
   for (const card of response.matches) {
-    const entry = KB_ENTRIES.find((candidate) => candidate.id === card.entryId);
+    const entry = KB_ENTRIES.find(
+      (candidate) =>
+        candidate.id === card.entryId &&
+        candidate.version === card.entryVersion,
+    );
     if (entry) {
       parts.push(cardStaticCopy(entry, card));
     }

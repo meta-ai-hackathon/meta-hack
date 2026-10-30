@@ -540,7 +540,8 @@ describe("explanation cache", () => {
     }
   });
 
-  it("never exceeds one explainer call per entry id+version (property)", async () => {    const cache = new Map<string, MatchExplanation>();
+  it("never exceeds one explainer call per entry id+version (property)", async () => {
+    const cache = new Map<string, MatchExplanation>();
     const calls: string[] = [];
     const explainer = async (entry: KbEntry): Promise<MatchExplanation> => {
       calls.push(`${entry.id}:v${entry.version}`);
