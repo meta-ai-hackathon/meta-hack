@@ -8,6 +8,7 @@ import { QUESTION_BY_ID } from "../intake/spec";
 import { readVaultFields } from "../vault";
 import { AppError, logInfo } from "../telemetry";
 import { loadFormAnswers } from "./answers";
+import { displayValueFor } from "./display";
 import { assertLoadablePdf } from "./parse";
 import type { FormRegistryEntry, FormRegistryField } from "./registry";
 
@@ -65,44 +66,6 @@ export interface FillOutcome {
 /** WinAnsi-safe text (StandardFonts are WinAnsi-only; no fontkit in the fork). */
 function isWinAnsiSafe(text: string): boolean {
   return /^[\x20-\x7E\xA0-\xFF\t\n\r]*$/.test(text);
-}
-
-/**
- * Display form of a stored answer for a registry field: choice answers
- * render their spec option label (labels are display vocabulary, values are
- * storage vocabulary), booleans map onto checkbox state, everything else is
- * its canonical string.
- */
-export function displayValueFor(
-  field: FormRegistryField,
-  raw: unknown,
-): string | null {
-  if (raw === null || raw === undefined) {
-    return null;
-  }
-  if (field.type === "checkbox") {
-    // Boolean answers (jsonb boolean, or the vault's stringified form).
-    if (raw === true || raw === "true") {
-      return "checked";
-    }
-    if (raw === false || raw === "false") {
-      return "unchecked";
-    }
-    return null;
-  }
-  const question =
-    field.specQuestionId !== null ? QUESTION_BY_ID[field.specQuestionId] : undefined;
-  if (question?.options) {
-    const values = Array.isArray(raw) ? raw : [raw];
-    const labels = values.map((value) => {
-      const option = question.options?.find(
-        (candidate) => candidate.value === String(value),
-      );
-      return option ? option.label : String(value);
-    });
-    return labels.join(", ");
-  }
-  return String(raw);
 }
 
 // ---------------------------------------------------------------------------

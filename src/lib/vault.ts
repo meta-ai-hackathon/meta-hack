@@ -58,6 +58,15 @@ export interface VaultCrossingDecision {
  *   reviewed registry entry names, and nothing else. The allowlist only ever
  *   ADMITS vault fields — a non-vault field is rejected even if a form
  *   allowlist names it.
+ *
+ * Who can reach this: only a module that imports the vault at all, and the
+ * boundary test (src/lib/vault-boundary.test.ts) admits exactly TWO such
+ * modules — the intake prompt builder and lib/forms/fill.ts. Any other
+ * module (a future prompt builder, a route) importing vault fails CI, which
+ * is where a person reviews the new accessor and its allowlist before it
+ * can ever run. The per-form lists themselves are committed, git-reviewed
+ * JSON — not runtime-editable state — and every registry change is
+ * re-validated against the spec on load (registry.ts) and by pytest.
  */
 export function vaultCrossingDecision(
   requestedFields: readonly string[],

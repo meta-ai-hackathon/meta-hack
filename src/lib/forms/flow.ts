@@ -3,7 +3,7 @@ import { QUESTION_BY_ID } from "../intake/spec";
 import type { AnswerStatus, SessionStatus } from "../honesty";
 import type { AnswerProvenance } from "../intake/store";
 import type { FormRegistryEntry, FormRegistryField } from "./registry";
-import { displayValueFor } from "./fill";
+import { displayValueFor } from "./display";
 
 // Form-driven flow (Mission v2 M4, BN-18/BN-21): the application form's
 // questions join the conversation. A form field either:
