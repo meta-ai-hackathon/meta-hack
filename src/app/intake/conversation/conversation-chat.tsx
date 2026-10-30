@@ -557,7 +557,9 @@ export function ConversationChat() {
           <p className="font-medium">{error.message}</p>
           {error.code === "model_unavailable" || error.code === "rate_limited" ? (
             <p>
-              You can keep going right now in the step-by-step form:{" "}
+              You can answer step by step instead. That form keeps answers
+              only on this device, so it doesn&apos;t see what you told the
+              chat:{" "}
               <Link
                 href={error.wizardFallbackUrl}
                 data-wizard-fallback-link

@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
+import { DEVICE_INTAKE_COPY } from "../../lib/intake/device-intake";
 import { IntakeWizard } from "./intake-wizard";
 
 export const metadata: Metadata = {
   title: "Your application — Benefits Navigator",
   description:
-    "Answer a few plain-language questions. Your answers save as you go.",
+    "Answer a few plain-language questions. Your answers stay on this device.",
 };
 
 // The intake flow's page shell (BN-09). One h1; the wizard below renders
-// exactly one question per screen, driven by the question spec.
+// exactly one question per screen, driven by the question spec. Answers on
+// this page live only on the person's device (HACK-99).
 export default function IntakePage() {
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-12">
@@ -17,11 +19,10 @@ export default function IntakePage() {
           Your benefits application
         </h1>
         <p className="max-w-xl text-lg text-muted">
-          A few plain-language questions, one at a time. Your answers save as
-          you go, and you can stop at any point.
+          {DEVICE_INTAKE_COPY.pageIntro}
         </p>
       </div>
-      <IntakeWizard />
+      <IntakeWizard persistence="device" />
     </div>
   );
 }
