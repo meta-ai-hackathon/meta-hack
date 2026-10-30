@@ -153,6 +153,18 @@ The `claude-review` check fails only when the review finds a P1 and the PR does 
 
 Errors the script can handle (an Anthropic or GitHub error, a timeout, a refusal, malformed output, a missing key) never fail the check. The job passes with a warning, and the comment says the push was NOT reviewed. A failure before the script starts (checkout, Python setup, or the SDK install) or the 20 minute job timeout does fail the job, so re-run it. Drafts are not reviewed until they are marked ready. PRs from forks are skipped, and GitHub counts that skipped check as passing, so a person has to review fork PRs.
 
+### The bot's approval
+
+When a push to an open PR gets a review with no P1 that covered every changed file, the bot also approves that exact commit as `github-actions[bot]`, with a fixed note that points to its comment. Re-checking the stored verdict on a label, edit, or reopen approves the same way while the PR keeps the base branch the review was made against, and the bot never approves one commit twice.
+
+Any other result on the PR's own events withdraws every approval the bot has on the PR: a P1, even with the override label (that label is a person's call, not the bot's all clear), a review that left any changed file out (a lockfile, an image, a generated or minified file, a file over the budget), or a push that was not reviewed for any reason, including a draft, a missing key, or a run that could not read the PR or update its comment. A new review also withdraws the bot's approvals as it starts, so a run that is cancelled or times out partway leaves none standing. The one exception is a fresh look at a commit whose finished review the comment still shows (after a reviewer change), which keeps that commit's approval until the new verdict is in.
+
+Manual runs and dry runs never approve or withdraw. Like the PR's own check, the approval follows the PR's events, so when a manual run changes the comment's verdict, the approval catches up on the PR's next event. Re-running an old workflow run runs the reviewer from that run's base commit, so a run from before approvals existed never approves or withdraws.
+
+GitHub refuses these approvals until an org owner turns on "Allow GitHub Actions to create and approve pull requests" (organization settings, Actions, General). Until then a clean run logs one notice and nothing else changes. No approval failure ever changes the check or the comment, and near the job's time limit the bot skips the approval step rather than let the job time out.
+
+Branch protection on `main` requires the `lint` and `test` checks, but not approvals or the `claude-review` check, so the approval is informational today. If `main` ever requires approvals, a bot approval would count toward them, so a clean Claude review alone could meet the rule without a person reading the PR. Decide that before turning on either the org setting or required approvals. Required approvals also need "Dismiss stale pull request approvals when new commits are pushed", because the bot can only withdraw an approval once its run for the new push has started.
+
 ### Setup and cost
 
 The workflow reads the `ANTHROPIC_REVIEW_KEY` repo secret (Settings, Secrets and variables, Actions). Create the key in an Anthropic Console workspace with a monthly spend limit. Without the secret the job passes with a warning and posts no new comment. Runs that Dependabot starts get Dependabot secrets instead, so add the same key under Dependabot secrets too, or Dependabot PRs pass without a review.
