@@ -26,9 +26,13 @@ Exit codes: 1 only when the review found a P1 and the PR does not carry the
 claude-review-override label, and never for a manual (workflow_dispatch)
 run, whose check lands on the default branch. Every infrastructure failure
 (GitHub or Anthropic errors, timeouts, refusals, malformed output, a bug in
-this script) prints a ::warning:: and exits 0, after marking the sticky
-comment NOT reviewed (posting it if the PR has none yet). 2 is a usage
-error.
+this script) prints a ::warning:: and marks the sticky comment NOT reviewed
+(posting it if the PR has none yet). The failure never fails the check by
+itself, but a P1 the comment still shows does: one from the bot's file
+rules, or one in a finished review of the same commit, which is kept. When
+GitHub cannot return the PR, a PR event run uses the event's own copy of it
+($GITHUB_EVENT_PATH), so the comment and the check still follow the event's
+head commit. 2 is a usage error.
 
 Local dry run (reads real PR data, never writes to GitHub, never calls the
 model, needs no Anthropic key; uses GH_TOKEN or the gh CLI login):
@@ -40,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import math
 import os
@@ -1335,11 +1340,13 @@ def urllib_transport(
     except urllib.error.HTTPError as exc:
         try:
             raw = exc.read()
-        except OSError:
+        except (OSError, http.client.HTTPException):
             raw = b""
         found = {k.lower(): v for k, v in exc.headers.items()} if exc.headers else {}
         return HttpResponse(exc.code, found, raw)
-    except OSError as exc:  # URLError, timeouts, resets; never carries the token
+    # URLError, timeouts and resets, plus replies that are cut short or
+    # malformed, which http.client raises outside OSError. Never carries the token.
+    except (OSError, http.client.HTTPException) as exc:
         raise GitHubError(f"network error talking to GitHub ({type(exc).__name__})") from exc
 
 
@@ -1392,7 +1399,7 @@ def parse_pull(data: object) -> PullRequest:
             labels=labels,
             changed_files=int(pull.get("changed_files") or 0),
         )
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:  # OverflowError: int() of an infinity
         raise GitHubError(f"GitHub returned an unexpected pull request ({type(exc).__name__})") from None
 
 
@@ -1547,6 +1554,20 @@ def resolve_github_token(env: Mapping[str, str], *, allow_gh_cli: bool) -> str |
         if value:
             return value
     return gh_cli_token() if allow_gh_cli else None
+
+
+def event_pull(path: str, number: int) -> PullRequest | None:
+    """PR number as the triggering event recorded it in the Actions event file
+    at path ($GITHUB_EVENT_PATH), or None when the file holds no readable copy
+    of that PR. Never raises, since it runs after GitHub has already failed."""
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            pr = parse_pull(_as_dict(json.load(handle), "event").get("pull_request"))
+    except (OSError, ValueError, RecursionError, ReviewError):
+        return None
+    return pr if pr.number == number else None
 
 
 def find_stickies(comments: Iterable[IssueComment], bot_login: str) -> list[IssueComment]:
@@ -1963,15 +1984,28 @@ class Reviewer:
             )
             return 2
         started = rt.clock()
+        unread: ReviewError | None = None
         try:
             pr = rt.github.get_pull(options.pr)
         except ReviewError as exc:
-            self.warn(f"skipped, could not read PR #{options.pr} ({exc})")
-            return 0 if live else 1
+            # A PR event still has its own copy of the PR (head commit, labels,
+            # draft flag, state), so the run goes on with that and marks the
+            # push NOT reviewed as any failed review would. Manual runs and dry
+            # runs go without. A re-run of an event older than the latest push
+            # still marks the event's commit; that errs toward NOT reviewed,
+            # and the newer commit's next run reviews it again.
+            copy = None
+            if live and not self.dispatch:
+                copy = event_pull(self.env.get("GITHUB_EVENT_PATH", ""), options.pr)
+            if copy is None:
+                self.warn(f"skipped, could not read PR #{options.pr} ({exc})")
+                return 0 if live else 1
+            self.warn(f"could not read PR #{options.pr} ({exc}), so this run uses the event's copy of it")
+            pr, unread = copy, exc
         if not live:
             return self.dry_run(pr)
         try:
-            return self.finish(self.live(pr, started))
+            return self.finish(self.live(pr, started, unread))
         except ReadOnlyViolation:
             raise
         except Exception as exc:  # the fail-open boundary: a bug must not fail the check
@@ -1980,9 +2014,12 @@ class Reviewer:
             reason = f"the review bot hit an unexpected error ({type(exc).__name__})"
             return self.finish(self.not_reviewed(pr, reason, self.rule_findings))
 
-    def live(self, pr: PullRequest, started: float) -> int:
+    def live(self, pr: PullRequest, started: float, unread: ReviewError | None = None) -> int:
         """A live run after the PR is read: re-check a stored verdict, or
-        mark the comment pending and review."""
+        mark the comment pending and review. With unread, GitHub could not
+        return the PR and pr is the event's copy of it: the run goes as far
+        as a normal one would without the changed files, then marks the push
+        NOT reviewed."""
         rt = self.rt
         # The check run belongs to the event's head commit. If the PR moved on
         # since, the run for the newer push reviews it.
@@ -2015,6 +2052,8 @@ class Reviewer:
             )
             reason = "the ANTHROPIC_REVIEW_KEY secret is not set"
             return self.not_reviewed(pr, reason, (), create=False, hint=MISSING_KEY_HINT)
+        if unread is not None:
+            return self.not_reviewed(pr, f"the GitHub API failed while reading the PR ({unread})", ())
 
         # Posted right away (not only edited), so a first push whose review
         # fails or never finishes still shows that it was not reviewed.
