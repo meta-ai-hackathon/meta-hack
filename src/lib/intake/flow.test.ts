@@ -308,7 +308,7 @@ describe("spec skip chains (real question spec, read-only)", () => {
     it("the demo persona walks end-to-end: branch, offer, still-there, last-paid", () => {
       const journey: AnswerMap = {
         income_kind: known("both"),
-        self_employment_statements_offer: known("yes_connect"),
+        self_employment_statements_offer: known("will_share"),
         prior_employer_current: known("no_longer_there"),
         prior_employer_last_month: known("June 2025"),
       };
