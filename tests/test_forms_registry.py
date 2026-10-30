@@ -177,6 +177,21 @@ class TestRegistrySchemaAndEntries(unittest.TestCase):
                     f"the spec flag for {spec_id}",
                 )
 
+    def test_unmapped_fields_are_sensitive_by_default(self):
+        # A field the spec does not ask has no classification from the spec,
+        # so it is treated as identity-likely by default: its value is
+        # omitted from client views. A registry author must make a
+        # deliberate, reviewed choice to expose one — the schema cannot
+        # carry a default, so the test enforces the conservative direction.
+        for name, entry in self.entries.items():
+            for field in entry["fields"]:
+                if field["spec_question_id"] is None:
+                    self.assertTrue(
+                        field["pii_likely"],
+                        f"{name}: unmapped field {field['name']} must be "
+                        "pii_likely (sensitive by default)",
+                    )
+
     def test_flat_entry_has_answer_boxes_and_acroform_entry_does_not(self):
         for name, entry in self.entries.items():
             for field in entry["fields"]:

@@ -111,6 +111,22 @@ describe("POST /api/forms/<formId>/answer", () => {
     expect(body.error.code).toBe("validation_error");
   });
 
+  it("rejects a spec-mapped field — pii spec answers cannot bypass the vault", async () => {
+    // applicant_date_of_birth maps to the pii:true spec question
+    // date_of_birth. Its answer belongs to the intake stores (vault for
+    // pii), never a plaintext row here.
+    const response = await POST(
+      answerRequest(ENTRY.id, {
+        fieldName: "applicant_date_of_birth",
+        value: "1990-01-01",
+      }),
+      { params: Promise.resolve({ formId: ENTRY.id }) },
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("validation_error");
+  });
+
   it("rejects junk bodies", async () => {
     for (const body of [
       { value: "no field name" },

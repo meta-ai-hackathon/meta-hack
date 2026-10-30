@@ -29,8 +29,15 @@
       "spec_question_id": null,
       "pii_likely": true,
       "required": true,
-      "pages": [1],
-      "answer_box": { "page": 1, "x": 224, "y": 645, "max_width": 292 }
+      "pages": [
+        1
+      ],
+      "answer_box": {
+        "page": 1,
+        "x": 224,
+        "y": 645,
+        "max_width": 292
+      }
     },
     {
       "name": "applicant_date_of_birth",
@@ -40,8 +47,15 @@
       "spec_question_id": "date_of_birth",
       "pii_likely": true,
       "required": true,
-      "pages": [1],
-      "answer_box": { "page": 1, "x": 224, "y": 605, "max_width": 142 }
+      "pages": [
+        1
+      ],
+      "answer_box": {
+        "page": 1,
+        "x": 224,
+        "y": 605,
+        "max_width": 142
+      }
     },
     {
       "name": "household_size_count",
@@ -51,8 +65,15 @@
       "spec_question_id": "household_size",
       "pii_likely": false,
       "required": true,
-      "pages": [1],
-      "answer_box": { "page": 1, "x": 344, "y": 565, "max_width": 72 }
+      "pages": [
+        1
+      ],
+      "answer_box": {
+        "page": 1,
+        "x": 344,
+        "y": 565,
+        "max_width": 72
+      }
     },
     {
       "name": "housing_situation",
@@ -62,8 +83,15 @@
       "spec_question_id": "housing_status",
       "pii_likely": true,
       "required": true,
-      "pages": [1],
-      "answer_box": { "page": 1, "x": 224, "y": 525, "max_width": 252 }
+      "pages": [
+        1
+      ],
+      "answer_box": {
+        "page": 1,
+        "x": 224,
+        "y": 525,
+        "max_width": 252
+      }
     },
     {
       "name": "monthly_rent_amount",
@@ -73,8 +101,15 @@
       "spec_question_id": "housing_cost",
       "pii_likely": false,
       "required": false,
-      "pages": [1],
-      "answer_box": { "page": 1, "x": 224, "y": 485, "max_width": 112 }
+      "pages": [
+        1
+      ],
+      "answer_box": {
+        "page": 1,
+        "x": 224,
+        "y": 485,
+        "max_width": 112
+      }
     },
     {
       "name": "contact_phone",
@@ -84,8 +119,15 @@
       "spec_question_id": "phone_contact",
       "pii_likely": true,
       "required": false,
-      "pages": [1],
-      "answer_box": { "page": 1, "x": 224, "y": 445, "max_width": 172 }
+      "pages": [
+        1
+      ],
+      "answer_box": {
+        "page": 1,
+        "x": 224,
+        "y": 445,
+        "max_width": 172
+      }
     },
     {
       "name": "contact_email",
@@ -95,8 +137,15 @@
       "spec_question_id": "email_contact",
       "pii_likely": true,
       "required": false,
-      "pages": [1],
-      "answer_box": { "page": 1, "x": 224, "y": 405, "max_width": 252 }
+      "pages": [
+        1
+      ],
+      "answer_box": {
+        "page": 1,
+        "x": 224,
+        "y": 405,
+        "max_width": 252
+      }
     },
     {
       "name": "mail_consent",
@@ -106,8 +155,15 @@
       "spec_question_id": "shelter_mail_consent",
       "pii_likely": true,
       "required": false,
-      "pages": [1],
-      "answer_box": { "page": 1, "x": 440, "y": 372, "max_width": 60 }
+      "pages": [
+        1
+      ],
+      "answer_box": {
+        "page": 1,
+        "x": 440,
+        "y": 372,
+        "max_width": 60
+      }
     },
     {
       "name": "id_problem_explanation",
@@ -117,8 +173,15 @@
       "spec_question_id": "id_issue_detail",
       "pii_likely": true,
       "required": false,
-      "pages": [1],
-      "answer_box": { "page": 1, "x": 224, "y": 295, "max_width": 312 }
+      "pages": [
+        1
+      ],
+      "answer_box": {
+        "page": 1,
+        "x": 224,
+        "y": 295,
+        "max_width": 312
+      }
     },
     {
       "name": "case_number",
@@ -126,10 +189,17 @@
       "label": "Case number, if you already have one (optional)",
       "question": "What is your case number, if you already have one?",
       "spec_question_id": null,
-      "pii_likely": false,
+      "pii_likely": true,
       "required": false,
-      "pages": [1],
-      "answer_box": { "page": 1, "x": 224, "y": 255, "max_width": 192 }
+      "pages": [
+        1
+      ],
+      "answer_box": {
+        "page": 1,
+        "x": 224,
+        "y": 255,
+        "max_width": 192
+      }
     }
   ]
 }

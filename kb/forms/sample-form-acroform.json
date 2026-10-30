@@ -29,7 +29,9 @@
       "spec_question_id": null,
       "pii_likely": true,
       "required": true,
-      "pages": [1]
+      "pages": [
+        1
+      ]
     },
     {
       "name": "applicant_date_of_birth",
@@ -39,7 +41,9 @@
       "spec_question_id": "date_of_birth",
       "pii_likely": true,
       "required": true,
-      "pages": [1]
+      "pages": [
+        1
+      ]
     },
     {
       "name": "household_size_count",
@@ -49,7 +53,9 @@
       "spec_question_id": "household_size",
       "pii_likely": false,
       "required": true,
-      "pages": [1]
+      "pages": [
+        1
+      ]
     },
     {
       "name": "housing_situation",
@@ -59,7 +65,9 @@
       "spec_question_id": "housing_status",
       "pii_likely": true,
       "required": true,
-      "pages": [1]
+      "pages": [
+        1
+      ]
     },
     {
       "name": "monthly_rent_amount",
@@ -69,7 +77,9 @@
       "spec_question_id": "housing_cost",
       "pii_likely": false,
       "required": false,
-      "pages": [1]
+      "pages": [
+        1
+      ]
     },
     {
       "name": "contact_phone",
@@ -79,7 +89,9 @@
       "spec_question_id": "phone_contact",
       "pii_likely": true,
       "required": false,
-      "pages": [1]
+      "pages": [
+        1
+      ]
     },
     {
       "name": "contact_email",
@@ -89,7 +101,9 @@
       "spec_question_id": "email_contact",
       "pii_likely": true,
       "required": false,
-      "pages": [1]
+      "pages": [
+        1
+      ]
     },
     {
       "name": "mail_consent",
@@ -99,7 +113,9 @@
       "spec_question_id": "shelter_mail_consent",
       "pii_likely": true,
       "required": false,
-      "pages": [1]
+      "pages": [
+        1
+      ]
     },
     {
       "name": "id_problem_explanation",
@@ -109,7 +125,9 @@
       "spec_question_id": "id_issue_detail",
       "pii_likely": true,
       "required": false,
-      "pages": [1]
+      "pages": [
+        1
+      ]
     },
     {
       "name": "case_number",
@@ -117,9 +135,11 @@
       "label": "Case number, if you already have one (optional)",
       "question": "What is your case number, if you already have one?",
       "spec_question_id": null,
-      "pii_likely": false,
+      "pii_likely": true,
       "required": false,
-      "pages": [1]
+      "pages": [
+        1
+      ]
     }
   ]
 }

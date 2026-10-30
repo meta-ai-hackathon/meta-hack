@@ -32,8 +32,12 @@ function validationError(detail?: string): AppError {
 
 /**
  * Save (or update) one form-field answer for one registry entry. The field
- * must belong to the entry and the value must be bounded non-empty text.
- * Re-answering updates the row — never a duplicate.
+ * must be UNMAPPED (the registry lists it without a spec question id) and
+ * the value must be bounded non-empty text. Spec-mapped fields are
+ * REFUSED here — their values live in the ordinary answer table, and the
+ * pii:true ones in the vault; letting this store take them would create a
+ * plaintext copy outside the vault boundary. Re-answering updates the row —
+ * never a duplicate.
  */
 export async function saveFormAnswer(
   sessionId: string,
@@ -45,6 +49,10 @@ export async function saveFormAnswer(
   const field = entry.fields.find((candidate) => candidate.name === fieldName);
   if (!field) {
     throw validationError("unknown_field");
+  }
+  if (field.specQuestionId !== null) {
+    // A spec-mapped field's answer belongs to the intake stores, not here.
+    throw validationError("spec_mapped_field");
   }
   if (!isAnswerProvenance(provenance)) {
     throw validationError("bad_provenance");
