@@ -1,0 +1,97 @@
+{
+  "id": "pilot_program_sample_c",
+  "title": "{{PILOT_PROGRAM}} sample entry C (matching fixture)",
+  "version": 1,
+  "status": "active",
+  "sources": [
+    {
+      "id": "official_rules_source_c",
+      "title": "{{PILOT_PROGRAM}} sample entry C official rules page",
+      "url": "https://example.org/{{PILOT_PROGRAM}}/sample-c/rules",
+      "retrieved_at": "2026-10-29",
+      "supports": "Program rules, required documents, steps, and deadlines stated in this entry."
+    },
+    {
+      "id": "official_application_portal_c",
+      "title": "{{PILOT_PROGRAM}} sample entry C official application portal",
+      "url": "https://example.org/{{PILOT_PROGRAM}}/sample-c/apply",
+      "retrieved_at": "2026-10-29",
+      "supports": "The official application link listed in the official_links fact group."
+    }
+  ],
+  "facts": {
+    "rules": {
+      "items": [
+        "Eligibility for sample entry C is decided solely by the program's official rules, never by this app.",
+        "Sample entry C can change its rules at any time; every fact must be re-verified against the source and retrieval date listed for its group.",
+        "Applicants must satisfy the health and disability rules stated in the official rules source for this entry."
+      ],
+      "source_id": "official_rules_source_c",
+      "retrieved_at": "2026-10-29"
+    },
+    "required_documents": {
+      "items": [
+        "Health coverage information accepted by sample entry C (placeholder - the official source lists the accepted documents).",
+        "Identity document accepted by sample entry C (placeholder - the official source lists the accepted documents)."
+      ],
+      "source_id": "official_rules_source_c",
+      "retrieved_at": "2026-10-29"
+    },
+    "official_links": {
+      "items": [
+        {
+          "label": "Sample entry C application portal",
+          "url": "https://example.org/{{PILOT_PROGRAM}}/sample-c/apply"
+        }
+      ],
+      "source_id": "official_application_portal_c",
+      "retrieved_at": "2026-10-29"
+    },
+    "deadlines": {
+      "items": [
+        {
+          "label": "Sample entry C application window",
+          "due": "Published by the official source - placeholder until a pilot program is chosen"
+        },
+        {
+          "label": "Renewal: sample entry C re-verifies your facts on a schedule the official rules set",
+          "due": "Published by the official source - placeholder until a pilot program is chosen"
+        }
+      ],
+      "source_id": "official_rules_source_c",
+      "retrieved_at": "2026-10-29"
+    },
+    "steps": {
+      "items": [
+        "Have the household's health coverage details ready.",
+        "Start the application through the official application portal.",
+        "Answer the program's follow-up questions when they arrive."
+      ],
+      "source_id": "official_rules_source_c",
+      "retrieved_at": "2026-10-29"
+    },
+    "match_signals": {
+      "items": [
+        {
+          "question_id": "main_goal",
+          "values": ["healthcare"],
+          "weight": 3,
+          "reason": "The program's rules cover help with health care."
+        },
+        {
+          "question_id": "disability_status",
+          "values": ["yes"],
+          "weight": 2,
+          "reason": "The program's rules consider health conditions that limit daily life."
+        },
+        {
+          "question_id": "citizenship_status",
+          "weight": 1,
+          "reason": "The program's rules consider each household member's citizenship or immigration status."
+        }
+      ],
+      "source_id": "official_rules_source_c",
+      "retrieved_at": "2026-10-29"
+    }
+  }
+}

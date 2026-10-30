@@ -214,9 +214,15 @@ export function buildSystemPrompt(
       lines.push(`Context for that question: "${nextQuestion.help}"`);
     }
     if (nextQuestion.options && nextQuestion.options.length > 0) {
+      // Copy hygiene (voice-mode validation suggestion, 2026-10-29): the
+      // assistant phrases its question from the spec's PLAIN-LANGUAGE
+      // option labels — raw choice values ("self, family_member") are
+      // storage vocabulary and must never become spoken or on-screen copy.
+      // The extraction call maps label phrasings back onto option values
+      // deterministically (choice-map).
       lines.push(
-        `Acceptable answers to offer: ${nextQuestion.options
-          .map((option) => option.value)
+        `Acceptable answers to offer (use these plain-language labels, never internal option values): ${nextQuestion.options
+          .map((option) => option.label)
           .join(", ")}.`,
       );
     }
@@ -474,9 +480,11 @@ function containsIgnoreCase(haystack: string, needle: string): boolean {
  * ("yes", "no", "true", "car") would over-redact ordinary sentences, so as
  * bare canonical values they are skipped — the verbatim span covers them
  * within the turn they came from, and the fail-closed sweep below catches
- * anything that would otherwise survive.
+ * anything that would otherwise survive. Exported for the match module's
+ * pii detector, which applies the same specificity rule to its
+ * private-value check.
  */
-function isSpecificValue(raw: string): boolean {
+export function isSpecificValue(raw: string): boolean {
   return raw.length >= 6 || /[\d@._\-/\s]/.test(raw);
 }
 

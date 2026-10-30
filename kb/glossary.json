@@ -1,0 +1,44 @@
+{
+  "terms": [
+    {
+      "id": "government_benefits",
+      "term": "Government benefits",
+      "definition": "Government programs that may help pay for food, housing, health care, and other basic living expenses.",
+      "source": {
+        "title": "USAGov: Government benefits",
+        "url": "https://www.usa.gov/benefits",
+        "retrieved_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "eligibility_screening",
+      "term": "Eligibility screening",
+      "definition": "A set of questions that points you toward benefits that may fit your situation; only the program's official rules decide.",
+      "source": {
+        "title": "USAGov: Find government benefits and financial help",
+        "url": "https://www.usa.gov/benefit-finder",
+        "retrieved_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "food_assistance",
+      "term": "Food assistance",
+      "definition": "Programs that help you and your family get nutritious food.",
+      "source": {
+        "title": "USAGov: Food assistance",
+        "url": "https://www.usa.gov/food-help",
+        "retrieved_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "state_agency",
+      "term": "State social service agency",
+      "definition": "The state office to contact for information about state benefit programs and how to apply.",
+      "source": {
+        "title": "USAGov: State social service agencies",
+        "url": "https://www.usa.gov/state-social-services",
+        "retrieved_at": "2026-10-29"
+      }
+    }
+  ]
+}

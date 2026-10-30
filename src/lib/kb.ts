@@ -8,6 +8,8 @@
  * status and non-active entries require explicit acknowledgment to cite.
  */
 
+import sampleBEntryJson from "../../kb/entries/pilot-program-sample-b.json";
+import sampleCEntryJson from "../../kb/entries/pilot-program-sample-c.json";
 import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
 
 // ---------------------------------------------------------------------------
@@ -39,6 +41,19 @@ export const KB_FACT_GROUPS = [
 
 export type KbFactGroupName = (typeof KB_FACT_GROUPS)[number];
 
+/**
+ * Fact groups an entry MAY carry (mission v2 M3): `steps` feeds the
+ * requirements checklist (BN-15) and `match_signals` feeds deterministic
+ * scoring. Both validate with the same per-group provenance as the
+ * required groups when present.
+ */
+export const OPTIONAL_KB_FACT_GROUPS = ["steps", "match_signals"] as const;
+
+export type OptionalKbFactGroupName = (typeof OPTIONAL_KB_FACT_GROUPS)[number];
+
+export const ALL_KB_FACT_GROUPS: readonly (KbFactGroupName | OptionalKbFactGroupName)[] =
+  [...KB_FACT_GROUPS, ...OPTIONAL_KB_FACT_GROUPS];
+
 // ---------------------------------------------------------------------------
 // Shapes (fact-group keys mirror the JSON data vocabulary; other fields are
 // camelCase module API)
@@ -65,6 +80,18 @@ export interface KbDeadlineFact {
   readonly due: string;
 }
 
+/** One match signal: what this entry's rules consider about a person. */
+export interface KbSignalFact {
+  /** Id of a question in the generic question spec this signal evaluates. */
+  readonly questionId: string;
+  /** Option values the signal matches on; omitted = any known answer. */
+  readonly values?: readonly string[];
+  /** Score contribution when matched (default 1, bounded 1-9 by the schema). */
+  readonly weight?: number;
+  /** Program-side reason the card shows when the signal matches. */
+  readonly reason: string;
+}
+
 export interface KbFactGroup<TItem> {
   readonly items: readonly TItem[];
   /** Id of the entry source that backs every item in this group. */
@@ -78,6 +105,10 @@ export interface KbFacts {
   readonly required_documents: KbFactGroup<string>;
   readonly official_links: KbFactGroup<KbLinkFact>;
   readonly deadlines: KbFactGroup<KbDeadlineFact>;
+  /** Optional: application steps for the requirements checklist (BN-15). */
+  readonly steps?: KbFactGroup<string>;
+  /** Optional: deterministic match-scoring signals over the question spec. */
+  readonly match_signals?: KbFactGroup<KbSignalFact>;
 }
 
 export interface KbEntry {
@@ -135,6 +166,14 @@ const SOURCE_KEYS: ReadonlySet<string> = new Set([
   "supports",
 ]);
 
+/** Exactly the keys kb/schema.json allows on one match_signal item. */
+const SIGNAL_KEYS: ReadonlySet<string> = new Set([
+  "question_id",
+  "values",
+  "weight",
+  "reason",
+]);
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -174,7 +213,7 @@ export function isIsoCalendarDate(value: string): boolean {
 
 function validateGroupProvenance(
   group: unknown,
-  name: KbFactGroupName,
+  name: KbFactGroupName | OptionalKbFactGroupName,
   problems: string[],
   sourceIds: ReadonlySet<string>,
 ): Record<string, unknown> | undefined {
@@ -304,8 +343,10 @@ export function validateKbEntry(raw: unknown): readonly string[] {
     return problems;
   }
   for (const key of Object.keys(facts)) {
-    if (!(KB_FACT_GROUPS as readonly string[]).includes(key)) {
-      problems.push(`facts.${key} is not one of the four fact groups`);
+    if (!(ALL_KB_FACT_GROUPS as readonly string[]).includes(key)) {
+      problems.push(
+        `facts.${key} is not one of the allowed fact groups (${ALL_KB_FACT_GROUPS.join(", ")})`,
+      );
     }
   }
   for (const name of KB_FACT_GROUPS) {
@@ -343,6 +384,60 @@ export function validateKbEntry(raw: unknown): readonly string[] {
             "facts.deadlines.items entries need a label and a due statement",
           );
           break;
+        }
+      }
+    } else {
+      for (const item of group.items) {
+        if (typeof item !== "string" || item.length === 0) {
+          problems.push(`facts.${name}.items entries must be non-empty strings`);
+          break;
+        }
+      }
+    }
+  }
+  for (const name of OPTIONAL_KB_FACT_GROUPS) {
+    // Optional groups validate with identical provenance rules when present.
+    if (facts[name] === undefined) {
+      continue;
+    }
+    const group = validateGroupProvenance(facts[name], name, problems, sourceIds);
+    if (!group || !Array.isArray(group.items)) {
+      continue;
+    }
+    if (name === "match_signals") {
+      for (let index = 0; index < group.items.length; index += 1) {
+        const item = group.items[index];
+        const label = `facts.match_signals.items[${index}]`;
+        if (!isPlainObject(item)) {
+          problems.push(`${label} must be an object`);
+          continue;
+        }
+        checkUnknownKeys(item, SIGNAL_KEYS, label, problems);
+        if (
+          typeof item.question_id !== "string" ||
+          !ENTRY_ID_RE.test(item.question_id)
+        ) {
+          problems.push(`${label}.question_id must be a snake_case question id`);
+        }
+        if (typeof item.reason !== "string" || item.reason.length === 0) {
+          problems.push(`${label}.reason must be a non-empty string`);
+        }
+        if (
+          item.values !== undefined &&
+          (!Array.isArray(item.values) ||
+            item.values.length < 1 ||
+            item.values.some((value) => typeof value !== "string" || value.length === 0))
+        ) {
+          problems.push(`${label}.values must be a non-empty list of strings`);
+        }
+        if (
+          item.weight !== undefined &&
+          (typeof item.weight !== "number" ||
+            !Number.isInteger(item.weight) ||
+            item.weight < 1 ||
+            item.weight > 9)
+        ) {
+          problems.push(`${label}.weight must be an integer from 1 to 9`);
         }
       }
     } else {
@@ -404,6 +499,33 @@ function buildEntry(raw: Record<string, unknown>): KbEntry {
         sourceId: rawFacts.deadlines.source_id as string,
         retrievedAt: rawFacts.deadlines.retrieved_at as string,
       },
+      ...(rawFacts.steps
+        ? {
+            steps: {
+              items: rawFacts.steps.items as string[],
+              sourceId: rawFacts.steps.source_id as string,
+              retrievedAt: rawFacts.steps.retrieved_at as string,
+            },
+          }
+        : {}),
+      ...(rawFacts.match_signals
+        ? {
+            match_signals: {
+              items: (rawFacts.match_signals.items as Record<string, unknown>[]).map(
+                (item) => ({
+                  questionId: item.question_id as string,
+                  ...(Array.isArray(item.values)
+                    ? { values: item.values as string[] }
+                    : {}),
+                  ...(typeof item.weight === "number" ? { weight: item.weight } : {}),
+                  reason: item.reason as string,
+                }),
+              ),
+              sourceId: rawFacts.match_signals.source_id as string,
+              retrievedAt: rawFacts.match_signals.retrieved_at as string,
+            },
+          }
+        : {}),
     },
   };
 }
@@ -437,7 +559,7 @@ export interface KbCitation {
   readonly status: KbEntryStatus;
   /** Present whenever the entry carries one (required for stale/withdrawn). */
   readonly statusReason?: string;
-  readonly group: KbFactGroupName;
+  readonly group: KbFactGroupName | OptionalKbFactGroupName;
   readonly sourceId: string;
   readonly sourceUrl: string;
   readonly retrievedAt: string;
@@ -466,10 +588,15 @@ export interface CiteOptions {
  */
 export function citeFactGroup(
   entry: KbEntry,
-  group: KbFactGroupName,
+  group: KbFactGroupName | OptionalKbFactGroupName,
   options: CiteOptions = {},
 ): KbCitation {
   const facts = entry.facts[group];
+  if (!facts) {
+    throw new KbValidationError([
+      `entry "${entry.id}" carries no ${group} fact group to cite`,
+    ]);
+  }
   const source = entry.sources.find(
     (candidate) => candidate.id === facts.sourceId,
   );
@@ -504,10 +631,13 @@ export function citeFactGroup(
 // ---------------------------------------------------------------------------
 
 /**
- * The shipped knowledge base: one pilot-agnostic sample entry until the
- * pilot decision lands. Every entry is validated at module load, so invalid
+ * The shipped knowledge base: three pilot-agnostic sample entries (mission
+ * v2 M3 — matching needs more than one entry to rank) until the pilot
+ * decision lands. Every entry is validated at module load, so invalid
  * KB data fails fast instead of leaking unverified facts.
  */
 export const KB_ENTRIES: readonly KbEntry[] = [
   parseKbEntry(sampleEntryJson as unknown),
+  parseKbEntry(sampleBEntryJson as unknown),
+  parseKbEntry(sampleCEntryJson as unknown),
 ];

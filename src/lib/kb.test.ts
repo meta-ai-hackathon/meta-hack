@@ -106,7 +106,9 @@ describe("shipped sample entry", () => {
   it("parses with version, sources, and per-group provenance", () => {
     const entry = parseKbEntry(RAW_SAMPLE);
     expect(entry.id).toBe("pilot_program_sample");
-    expect(entry.version).toBe(1);
+    // Bumped to 2 when the optional steps/match_signals groups landed
+    // (mission v2 M3) — the versioning rule bumps on any fact change.
+    expect(entry.version).toBe(2);
     expect(entry.status).toBe("active");
     expect(entry.sources.length).toBeGreaterThanOrEqual(1);
     for (const source of entry.sources) {
@@ -128,8 +130,14 @@ describe("shipped sample entry", () => {
     expect(text).not.toContain("{{PILOT_PROGRAM}}{{");
   });
 
-  it("is the single shipped entry and loads through the dataset", () => {
-    expect(KB_ENTRIES.length).toBe(1);
+  it("ships the three sample entries and loads them through the dataset", () => {
+    // Mission v2 M3: matching needs more than one entry to rank (the KB
+    // stayed single-entry through milestone M1 knowledge-pii).
+    expect(KB_ENTRIES.map((entry) => entry.id)).toEqual([
+      "pilot_program_sample",
+      "pilot_program_sample_b",
+      "pilot_program_sample_c",
+    ]);
     expect(KB_ENTRIES[0]).toEqual(parseKbEntry(RAW_SAMPLE));
   });
 });
@@ -289,6 +297,130 @@ describe("citation API: stale and withdrawn entries are never cited silently", (
   it("exposes status as a required, typed citation field", () => {
     expectTypeOf<KbCitation["status"]>().toEqualTypeOf<KbEntryStatus>();
     expectTypeOf<KbCitation["retrievedAt"]>().toEqualTypeOf<string>();
+  });
+});
+
+describe("optional fact groups: steps and match_signals (mission v2 M3)", () => {
+  // A raw entry clone carrying both optional groups, shaped exactly as the
+  // shipped sample entries do. Signals point at generic spec question ids
+  // and carry the program-side reason every card reason is built from.
+  function rawWithOptionalGroups(): Record<string, unknown> {
+    const raw = rawClone();
+    const facts = raw.facts as Record<string, Record<string, unknown>>;
+    facts.steps = {
+      items: ["Gather the required documents.", "Start the application."],
+      source_id: "official_rules_source",
+      retrieved_at: "2026-10-29",
+    };
+    facts.match_signals = {
+      items: [
+        {
+          question_id: "housing_status",
+          values: ["shelter", "car"],
+          weight: 3,
+          reason: "The program's rules give priority to people without stable housing.",
+        },
+        { question_id: "household_size", reason: "The program considers household size." },
+      ],
+      source_id: "official_rules_source",
+      retrieved_at: "2026-10-29",
+    };
+    return raw;
+  }
+
+  it("validates an entry carrying both optional groups", () => {
+    expect(validateKbEntry(rawWithOptionalGroups())).toEqual([]);
+  });
+
+  it("omits the optional groups from the parsed entry when absent", () => {
+    const bare = rawClone();
+    const bareFacts = bare.facts as Record<string, unknown>;
+    delete bareFacts.steps;
+    delete bareFacts.match_signals;
+    const entry = parseKbEntry(bare);
+    expect(entry.facts.steps).toBeUndefined();
+    expect(entry.facts.match_signals).toBeUndefined();
+  });
+
+  it("parses the optional groups with per-group provenance", () => {
+    const entry = parseKbEntry(rawWithOptionalGroups());
+    expect(entry.facts.steps?.items).toEqual([
+      "Gather the required documents.",
+      "Start the application.",
+    ]);
+    expect(entry.facts.steps?.sourceId).toBe("official_rules_source");
+    expect(entry.facts.match_signals?.items[0]?.questionId).toBe("housing_status");
+    expect(entry.facts.match_signals?.items[0]?.weight).toBe(3);
+    expect(entry.facts.match_signals?.items[0]?.values).toEqual(["shelter", "car"]);
+    expect(entry.facts.match_signals?.items[1]?.values).toBeUndefined();
+    expect(entry.facts.match_signals?.retrievedAt).toBe("2026-10-29");
+  });
+
+  it("cites the optional groups through the same citation API", () => {
+    const entry = parseKbEntry(rawWithOptionalGroups());
+    for (const group of ["steps", "match_signals"] as const) {
+      const citation = citeFactGroup(entry, group);
+      expect(citation.status).toBe("active");
+      expect(citation.sourceUrl.startsWith("https://")).toBe(true);
+      expect(citation.retrievedAt).toBe("2026-10-29");
+    }
+  });
+
+  it("rejects a signal without a reason", () => {
+    const raw = rawWithOptionalGroups();
+    const signals = (raw.facts as Record<string, Record<string, unknown>>)
+      .match_signals as Record<string, unknown>;
+    delete (signals.items as Record<string, unknown>[])[0].reason;
+    expect(() => parseKbEntry(raw)).toThrow(/reason/);
+  });
+
+  it("rejects a signal with a malformed question id", () => {
+    const raw = rawWithOptionalGroups();
+    const signals = (raw.facts as Record<string, Record<string, unknown>>)
+      .match_signals as Record<string, unknown>;
+    (signals.items as Record<string, unknown>[])[0].question_id = "Not A Question!";
+    expect(() => parseKbEntry(raw)).toThrow(/question_id/);
+  });
+
+  it("rejects a signal with an unknown key", () => {
+    const raw = rawWithOptionalGroups();
+    const signals = (raw.facts as Record<string, Record<string, unknown>>)
+      .match_signals as Record<string, unknown>;
+    (signals.items as Record<string, unknown>[])[0].bonus = "nope";
+    expect(() => parseKbEntry(raw)).toThrow(/bonus/);
+  });
+
+  it("rejects a non-integer or out-of-range weight", () => {
+    for (const weight of [0, -1, 1.5, "high", 10]) {
+      const raw = rawWithOptionalGroups();
+      const signals = (raw.facts as Record<string, Record<string, unknown>>)
+        .match_signals as Record<string, unknown>;
+      (signals.items as Record<string, unknown>[])[0].weight = weight;
+      expect(() => parseKbEntry(raw), `weight ${JSON.stringify(weight)}`).toThrow(
+        KbValidationError,
+      );
+    }
+  });
+
+  it("rejects an empty values list and an empty items array", () => {
+    const emptyValues = rawWithOptionalGroups();
+    const signals = (emptyValues.facts as Record<string, Record<string, unknown>>)
+      .match_signals as Record<string, unknown>;
+    (signals.items as Record<string, unknown>[])[0].values = [];
+    expect(() => parseKbEntry(emptyValues)).toThrow(KbValidationError);
+
+    const emptyItems = rawWithOptionalGroups();
+    const otherSignals = (emptyItems.facts as Record<string, Record<string, unknown>>)
+      .match_signals as Record<string, unknown>;
+    otherSignals.items = [];
+    expect(() => parseKbEntry(emptyItems)).toThrow(/non-empty/);
+  });
+
+  it("rejects the optional groups when their provenance is broken", () => {
+    const raw = rawWithOptionalGroups();
+    const facts = raw.facts as Record<string, Record<string, unknown>>;
+    (facts.steps as Record<string, unknown>).source_id = "not_a_listed_source";
+    expect(() => parseKbEntry(raw)).toThrow(/source/);
   });
 });
 
