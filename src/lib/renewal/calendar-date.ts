@@ -269,10 +269,25 @@ export function deviceToday(
 /**
  * Milliseconds until the device's next local midnight, at least one second.
  * Wall-clock arithmetic: on a day a clock change makes 23 or 25 hours long
- * the timer can land an hour off, so callers re-read the date when it fires
- * and schedule again.
+ * it is an hour off, so schedule checks with msUntilNextDayCheck.
  */
 export function msUntilNextLocalMidnight(instant: Date, moment: LocalMoment): number {
   const elapsedMs = moment.minutes * 60_000 + instant.getSeconds() * 1000 + instant.getMilliseconds();
   return Math.max(1000, MINUTES_PER_DAY * 60_000 - elapsedMs);
+}
+
+/** The longest the tracker waits between checks of the device's date. */
+export const MAX_DAY_CHECK_MS = 60 * 60_000;
+
+/**
+ * When to check the device's date next: at the next local midnight, but
+ * never more than an hour away (second review fix). On the night a clock
+ * springs forward, the wall-clock wait from midnight is 24 hours while the
+ * real day is 23, so a single timer saw the new day an hour late. Checking
+ * at least hourly re-reads the wall clock within the last hour before
+ * midnight, so the check lands on the new day on that night too. A night
+ * that falls back is longer, and an early check just schedules again.
+ */
+export function msUntilNextDayCheck(instant: Date, moment: LocalMoment): number {
+  return Math.min(msUntilNextLocalMidnight(instant, moment), MAX_DAY_CHECK_MS);
 }

@@ -17,6 +17,8 @@ import {
   isValidCalendarDate,
   localMomentFromDateGetters,
   localMomentInTimeZone,
+  MAX_DAY_CHECK_MS,
+  msUntilNextDayCheck,
   msUntilNextLocalMidnight,
   parseIsoDate,
   toEpochDay,
@@ -315,6 +317,44 @@ describe("the device's local moment (review fix: an unknown zone never stalls th
       expect(() => localMomentInTimeZone(new Date(), zone)).not.toThrow();
     }
     expect(() => deviceToday()).not.toThrow();
+  });
+
+  it("checks at least hourly, so a chain of checks sees each new day within a second, clock changes included", () => {
+    // Second review fix: a single wall-clock timer saw the new day an hour
+    // late on the night clocks spring forward. Follow the chain of checks
+    // from any instant to the first one on a new local date, in zones with
+    // clock changes at 2 AM, at midnight (Santiago), and by half an hour
+    // (Lord Howe), and require the date to have changed less than a second
+    // before that check.
+    const zone = fc.constantFrom("America/New_York", "Europe/London", "America/Santiago", "Australia/Lord_Howe", "UTC");
+    const start = fc
+      .integer({ min: Date.UTC(2026, 0, 1), max: Date.UTC(2030, 11, 31) })
+      .map((ms) => new Date(ms));
+    fc.assert(
+      fc.property(start, zone, (from, timeZone) => {
+        const day = (at: Date) => formatIsoDate(localMomentInTimeZone(at, timeZone).date);
+        const startDay = day(from);
+        let at = from;
+        for (let step = 0; step < 40 && day(at) === startDay; step += 1) {
+          const wait = msUntilNextDayCheck(at, localMomentInTimeZone(at, timeZone));
+          expect(wait).toBeGreaterThanOrEqual(1000);
+          expect(wait).toBeLessThanOrEqual(MAX_DAY_CHECK_MS);
+          expect(wait).toBeLessThanOrEqual(msUntilNextLocalMidnight(at, localMomentInTimeZone(at, timeZone)));
+          at = new Date(at.getTime() + wait);
+        }
+        expect(day(at), `${from.toISOString()} ${timeZone}`).not.toBe(startDay);
+        expect(day(new Date(at.getTime() - 1000)), `${from.toISOString()} ${timeZone}`).toBe(startDay);
+      }),
+      { numRuns: 400 },
+    );
+    // The review's night: 00:00 EST on March 14, 2027 is 23 real hours from
+    // the next midnight, and the chain lands on it.
+    const springForward = new Date("2027-03-14T05:00:00Z");
+    let at = springForward;
+    while (formatIsoDate(localMomentInTimeZone(at, "America/New_York").date) === "2027-03-14") {
+      at = new Date(at.getTime() + msUntilNextDayCheck(at, localMomentInTimeZone(at, "America/New_York")));
+    }
+    expect(at.toISOString()).toBe("2027-03-15T04:00:00.000Z");
   });
 
   it("schedules the next check for the next local midnight, never sooner than a second", () => {

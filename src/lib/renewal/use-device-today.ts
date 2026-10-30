@@ -2,9 +2,10 @@ import { useMemo, useSyncExternalStore } from "react";
 import {
   deviceLocalMoment,
   formatIsoDate,
-  msUntilNextLocalMidnight,
+  msUntilNextDayCheck,
   parseIsoDate,
   type CalendarDate,
+  type LocalMoment,
 } from "./calendar-date";
 
 /**
@@ -15,18 +16,25 @@ import {
  * server and during hydration, so both renders agree.
  */
 
-/** Calls `onChange` whenever the device's date may have changed. Browser-only. */
-export function subscribeToDeviceDay(onChange: () => void): () => void {
+/**
+ * Calls `onChange` whenever the device's date may have changed. Browser-only.
+ * `momentOf` reads the device's wall clock; tests pass a fixed zone.
+ */
+export function subscribeToDeviceDay(
+  onChange: () => void,
+  momentOf: (instant: Date) => LocalMoment = deviceLocalMoment,
+): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const schedule = () => {
     clearTimeout(timer);
     const now = new Date();
-    // Re-read and re-schedule when it fires: on a day a clock change makes
-    // 23 or 25 hours long, the first timer can land an hour early.
+    // At the next local midnight or within the hour, whichever is sooner,
+    // then re-read and schedule again: a clock change makes some days 23
+    // or 25 hours long (second review fix: spring forward was an hour late).
     timer = setTimeout(() => {
       onChange();
       schedule();
-    }, msUntilNextLocalMidnight(now, deviceLocalMoment(now)));
+    }, msUntilNextDayCheck(now, momentOf(now)));
   };
   const onVisibility = () => {
     if (document.visibilityState === "visible") {
