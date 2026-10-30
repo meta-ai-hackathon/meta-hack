@@ -75,6 +75,9 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "contracted negation meet", text: "You don't meet the income rules." },
   { label: "contracted negation future meet", text: "You won't meet the requirements without a verified ID." },
   { label: "contracted negation past meet", text: "You haven't met the criteria for assistance." },
+  { label: "reported determination without that", text: "Your answers show you meet the requirements." },
+  { label: "singular rule determination", text: "You meet the income limit for the program." },
+  { label: "singular requirement determination", text: "She meets the residency requirement." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty
@@ -98,9 +101,7 @@ const HONEST_SENTENCES: string[] = [
   "The checklist shows whether you meet the requirements.",
   "When you meet the income limits, you may be eligible.",
   "Once you meet the requirements, you may be eligible.",
-  // Requirement and checklist copy describes what documents prove, not
-  // what the person's outcome is.
-  "Bring documents that show you meet the residency requirements.",
+  // Open conditionals describe what may happen, not the person's outcome.
   "You can keep your answers until you meet the caseworker.",
   "Unless you meet the limits, the office may review your file.",
 ];

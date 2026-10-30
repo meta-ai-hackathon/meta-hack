@@ -812,12 +812,15 @@ function responseStaticCopy(response: MatchResponse): string {
  * prompts, and the framing. A free-text pii answer that happens to equal a
  * common KB word ("application") must not fail-closed the user's whole
  * match list (claude-review P2-3 on PR #45). The excusal is PER VALUE
- * across the whole payload: once a value is a word of the public copy,
- * every occurrence is excused, in model output included. A raw echo of the
- * user's own text is never part of the excusal set, so it can never excuse
- * itself. Model explanations that collide with this session's values are
- * degraded per card at build time (see buildMatchResponse), so this gate
- * mostly stands for user-derived fields and non-explanation copy.
+ * across the whole payload — there is no per-field exempted tier: once a
+ * value is a word of the public copy, every occurrence anywhere is
+ * excused, INCLUDING an answer label that echoes it (a value
+ * indistinguishable from public vocabulary is not a disclosure); a raw
+ * echo of any other user text is never part of the excusal set, so it can
+ * never excuse itself. Model explanations that collide with this
+ * session's values are degraded per card at build time (see
+ * buildMatchResponse), so this gate mostly stands for user-derived fields
+ * and non-explanation copy.
  *
  * Multi-select values are checked element by element (the old whole-array
  * JSON check could never substring-match).

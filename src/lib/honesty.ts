@@ -49,14 +49,15 @@ export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
   // "documentation" is deliberately absent: "document" + \w* already covers
   // it, and the redundant alternative makes the repetition ambiguous
   // (exponential backtracking — the CodeQL js/redos alert). Past-tense
-  // (met) and satisfy forms are determinations too. The lookbehind spares
-  // open conditionals and requirement/checklist copy ("documents that show
-  // you meet...", "until you meet..."); the "that"-clause reporting form
-  // ("answers show that you meet...") stays banned — a determination about
-  // the person, not a requirement. Lexical backstops are over/under-
-  // inclusive at the margins by nature; the grounding checker carries the
-  // load for explanation prose.
-  /(?<!\b(?:if|whether|once|when|until|unless|show|shows)\s+)\b(?:you|he|she|they)\s*(?:(?:will|'ll|'ve|have|shall|should|do|did|don't|doesn't|didn't|won't|haven't|hasn't|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?(?:meets?|met|satisfied|satisfies|satisfy)\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+|of\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|disability|citizenship|application)\w*\s+)*(?:rules|requirements|criteria|guidelines|limits|thresholds|conditions|standards)\b/i,
+  // (met) and satisfy forms are determinations too; terminal nouns take an
+  // optional plural. The lookbehind spares open conditionals ("if/until/
+  // unless you meet..."). Reported determinations ("your answers show you
+  // meet...", "show that you meet...") stay banned — the boundary cost is
+  // that requirement copy must avoid "show you meet" phrasing (word it as
+  // "documents proving residency status" instead). Lexical backstops are
+  // over/under-inclusive at the margins by nature; the grounding checker
+  // carries the load for explanation prose.
+  /(?<!\b(?:if|whether|once|when|until|unless)\s+)\b(?:you|he|she|they)\s*(?:(?:will|'ll|'ve|have|shall|should|do|did|don't|doesn't|didn't|won't|haven't|hasn't|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?(?:meets?|met|satisfied|satisfies|satisfy)\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+|of\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|disability|citizenship|application)\w*\s+)*(?:rules?|requirements?|criteria|guidelines?|limits?|thresholds?|conditions?|standards?)\b/i,
 ];
 
 export interface BannedClaimMatch {

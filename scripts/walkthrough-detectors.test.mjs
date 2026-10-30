@@ -41,6 +41,8 @@ const BANNED_FIXTURES = [
   "You satisfy the eligibility criteria.",
   "You don't meet the income rules.",
   "You haven't met the criteria for assistance.",
+  "Your answers show you meet the requirements.",
+  "You meet the income limit for the program.",
 ];
 
 // Honest sentences that must pass untouched. Hedged uncertainty stays
@@ -54,7 +56,7 @@ const CLEAN_TEXT_FIXTURES = [
   "You may meet the income rules for this program.",
   "You may not meet the income rules yet; the official rules decide.",
   "If you meet the income limits, you may be eligible.",
-  "Bring documents that show you meet the residency requirements.",
+  "Unless you meet the limits, the office may review your file.",
 ];
 
 // A client-state fixture: the shape /api/intake/* and /api/session return.

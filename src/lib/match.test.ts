@@ -751,7 +751,8 @@ describe("assertNoPiiValuesInMatch", () => {
     // equal a common word of KB/glossary copy must not fail-closed the
     // user's whole match list. Every shipped entry's deadline text names an
     // application window, so the old whole-serialization scan threw on this
-    // exact session; the gate now compares user-derived fields only.
+    // exact session; the gate now excuses values that are exact words of
+    // the response's public copy.
     const answers: AnswerMap = {
       goal_detail: { status: "known", value: "application" },
       main_goal: { status: "known", value: "food" },
@@ -1008,6 +1009,41 @@ describe("assertNoPiiValuesInMatch", () => {
     // "application" is the entry's own deadline word — grounded copy, kept.
     expect(card.explanation.source).toBe("model");
     expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+  });
+
+  it("excuses an option-label value even when echoed into an answer label", async () => {
+    // Pins the per-value excusal (round-6 P2 on PR #46): a free-text pii
+    // answer equal to a shown option label is public vocabulary — it is
+    // excused wherever it appears, INCLUDING a (buggy) echo into the
+    // answer-label field. A value indistinguishable from public copy is
+    // not a disclosure; everything else still throws.
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "health care" },
+      main_goal: { status: "known", value: "healthcare" },
+    };
+    const clean = await buildMatchResponse(answers, {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    const cleanCard = clean.matches.find(
+      (card) => card.entryId === "pilot_program_sample_c",
+    )!;
+    const echoed = {
+      ...clean,
+      matches: [
+        {
+          ...cleanCard,
+          reasons: [
+            {
+              ...cleanCard.reasons[0]!,
+              answerLabel: "Health care",
+            },
+          ],
+        },
+        ...clean.matches.slice(1),
+      ],
+    };
+    expect(() => assertNoPiiValuesInMatch(echoed, answers)).not.toThrow();
   });
 
   it("bites exactly when a specific pii value reaches a user-derived field (property)", async () => {
