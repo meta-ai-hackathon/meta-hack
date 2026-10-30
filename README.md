@@ -121,12 +121,13 @@ marked private, and no program name or link in its title, notes, or alerts,
 so a synced event carries only the neutral title, the date, and a pointer
 to the tracker on the device where the file was made. The file is a plain
 copy of the date that the person chooses to download, and their calendar
-app may sync it. Each event keeps one UID with a SEQUENCE that
-rises with every file, so a calendar app that honors UIDs can update it;
-events a newer file leaves out are not removed, so the download notice asks
-people to delete old ones. No route, log, analytics call, or model call
-receives the date; `src/lib/renewal/no-network.test.ts` scans for and traps
-every way it could.
+app may sync it. Each event keeps one UID with a SEQUENCE that never goes
+down while the device's clock runs forward (it counts seconds, so two files
+made in the same second share one), so a calendar app that honors UIDs can
+update it; events a newer file leaves out are not removed, so the download
+notice asks people to delete old ones. No route, log, analytics call, or
+model call receives the date; `src/lib/renewal/no-network.test.ts` scans for
+and traps every way it could.
 
 ### Walkthrough CLI
 

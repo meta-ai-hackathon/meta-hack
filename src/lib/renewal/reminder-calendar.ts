@@ -28,10 +28,13 @@ import type { RenewalBannerFacts } from "./renewal-facts";
  * Every event's UID comes from the reminder's calendar id plus a fixed key
  * (the due date, or the schedule an estimate assumes), so each event keeps
  * one identity across downloads and date changes (review fix). SEQUENCE
- * comes from the time the file is made (calendarSequence), so it rises
- * with every file, saved or not, and a calendar app that honors UIDs and
- * SEQUENCE can update the event instead of adding a copy. Events a newer
- * file leaves out are not removed by it, which the download notice says.
+ * comes from the time the file is made (calendarSequence), so it never
+ * goes down from one file to the next, saved or not, while the device's
+ * clock runs forward: it counts whole seconds, so two files made in the
+ * same second share one, and it stops at the RFC's largest INTEGER. A
+ * calendar app that honors UIDs and SEQUENCE can then update the event
+ * instead of adding a copy. Events a newer file leaves out are not removed
+ * by it, which the download notice says.
  */
 
 export const RENEWAL_CALENDAR_FILENAME = "renewal-reminder.ics";
