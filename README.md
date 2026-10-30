@@ -99,19 +99,25 @@ labeled "Estimate, not an official date". For an approval date the page
 asks one optional question, whether the person is between ages 19 and 64,
 and leaves out the 6 month estimate when the answer is no.
 
-The reminder never leaves the device. The date is sealed with AES-GCM in
-the browser under a non-extractable key kept in IndexedDB, and read back
+The saved reminder never leaves the device. The date is sealed with AES-GCM
+in the browser under a non-extractable key kept in IndexedDB, and read back
 only after every layer validates; key and reminder are always read and
 written together, so several open tabs cannot corrupt each other. From 30
 days before a date, on the day, and from the moment any date has passed
-until the person changes it, a banner at the top of any page says so. A
-saved reminder that cannot be read is announced, never dropped silently.
-Browsers can clear site data on their own, so the page also builds a
-calendar file (`.ics`) in the browser, the reminder that lasts: alerts at
-9 AM 30, 7, and 1 days before, marked private, no program name in the title,
-and the same event identity on every download so a new file updates the old
-events. No route, log, analytics call, or model call receives the date;
-`src/lib/renewal/no-network.test.ts` scans for and traps every way it could.
+until the person changes it, a banner at the top of every page except the
+tracker, which shows the same status, says so. A saved reminder that cannot
+be read is announced, never dropped silently. Browsers can clear site data
+on their own, so the page also builds a calendar file (`.ics`) in the
+browser, the reminder that lasts: alerts at 9 AM 30, 7, and 1 days before,
+marked private, and no program name in the title (the event notes name it
+and link to the official page, and the privacy note says so). The file is a
+plain copy of the date that the person chooses to download, and their
+calendar app may sync it. Each event keeps one UID with a SEQUENCE that
+rises with every file, so a calendar app that honors UIDs can update it;
+events a newer file leaves out are not removed, so the download notice asks
+people to delete old ones. No route, log, analytics call, or model call
+receives the date; `src/lib/renewal/no-network.test.ts` scans for and traps
+every way it could.
 
 ### Walkthrough CLI
 
