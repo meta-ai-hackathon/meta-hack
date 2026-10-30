@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_DISPLAY_SETTINGS,
+  HIGH_CONTRAST_ZINC,
   TEXT_ZOOM_STEPS,
   THEME_PAIRS,
   canStepZoom,
@@ -182,6 +183,47 @@ describe("contrast themes", () => {
     }
     expect(css).toContain("--color-zinc-500:");
     expect(css).toContain(':root[data-contrast="high"] :disabled');
+  });
+
+  it("the high-contrast zinc remap is pair-safe: every surface/content pair is 21:1", () => {
+    // PR #51 review: the original remap sent surfaces like zinc-200 to the
+    // foreground color, so `bg-zinc-200 text-zinc-700` rendered black on
+    // black. The split remap must keep every surface/content combination
+    // on the theme's foreground/background pair.
+    for (const scheme of ["highLight", "highDark"] as const) {
+      const { surfaces, content } = HIGH_CONTRAST_ZINC[scheme];
+      const theme = THEME_PAIRS[scheme];
+      for (const surface of surfaces) {
+        expect(surface).toBe(theme.background);
+        for (const ink of content) {
+          expect(ink).toBe(theme.foreground);
+          expect(contrastRatio(ink, surface)).toBeCloseTo(21, 0);
+        }
+      }
+    }
+  });
+
+  it("globals.css carries the pair-safe remap, hover inversion and disabled cue", () => {
+    const css = readFileSync(
+      join(fileURLToPath(new URL("../app", import.meta.url)), "globals.css"),
+      "utf8",
+    );
+    // Light block (the FIRST high block): surface zinc-200 is the
+    // background (#ffffff), not the foreground black the old remap used.
+    // Dark legitimately maps it to #000000 — its own background.
+    const lightStart = css.indexOf(':root[data-contrast="high"] {');
+    const darkStart = css.indexOf(':root[data-contrast="high"] {', lightStart + 1);
+    expect(lightStart).toBeGreaterThanOrEqual(0);
+    expect(darkStart).toBeGreaterThan(lightStart);
+    const lightBlock = css.slice(lightStart, darkStart);
+    expect(lightBlock).toContain("--color-zinc-200: #ffffff;");
+    expect(lightBlock).not.toContain("--color-zinc-200: #000000;");
+    // Dark block maps the same surface to its own background.
+    expect(css.slice(darkStart)).toContain("--color-zinc-200: #000000;");
+    // Hover inverts the pair; disabled gets a non-color cue.
+    expect(css).toContain(':root[data-contrast="high"] :is(button');
+    expect(css).toContain("border-style: dashed;");
+    expect(css).toContain("cursor: not-allowed;");
   });
 });
 

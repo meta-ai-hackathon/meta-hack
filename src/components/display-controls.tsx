@@ -84,6 +84,7 @@ export function DisplayControls() {
         <button
           type="button"
           data-zoom-out
+          aria-label={`Smaller text, currently ${percent}`}
           disabled={atMin}
           onClick={() =>
             apply(stepZoom(settings, -1), `Text size ${zoomFontSizePercent(stepZoom(settings, -1))}.`)
@@ -98,6 +99,7 @@ export function DisplayControls() {
         <button
           type="button"
           data-zoom-in
+          aria-label={`Bigger text, currently ${percent}`}
           disabled={atMax}
           onClick={() =>
             apply(stepZoom(settings, 1), `Text size ${zoomFontSizePercent(stepZoom(settings, 1))}.`)

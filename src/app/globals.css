@@ -71,18 +71,27 @@
    21:1, measurably above the ~17:1 BN-07 baseline (THEME_PAIRS in
    src/lib/display.ts holds the same values; src/lib/display.test.ts proves
    the ratios and asserts this file carries them). The zinc palette is
-   REMAPPED so Tailwind's zinc utilities follow too: light-zinc surfaces
-   collapse to white or black, middle greys to the foreground, and opacity
-   dimming is disabled — gray borders and faded disabled controls must not
-   survive the mode that exists for people who cannot see them. */
+   REMAPPED so Tailwind's zinc utilities follow too — but the remap must
+   be PAIR-SAFE, which an all-shades-to-two-colors collapse is not:
+   surface shades (zinc-50..400) collapse to the BACKGROUND color and
+   content shades (zinc-500..900) to the FOREGROUND color. Any zinc
+   surface/content pair — a `bg-zinc-100` card with `text-zinc-700`, a
+   `bg-zinc-50` hover with inherited text — therefore always renders as
+   foreground on background (21:1 in both schemes). The residual misuse
+   (a dark `bg-zinc-800` panel behind inherited text) cannot be fixed by
+   palette alone without reintroducing same-on-same pairs, so high
+   contrast also forces background/color inheritance below, and hover
+   states get an explicit inverted pair. Opacity dimming is disabled —
+   gray borders and faded disabled controls must not survive the mode
+   that exists for people who cannot see them. */
 :root[data-contrast="high"] {
   --background: #ffffff;
   --foreground: #000000;
   --color-zinc-50: #ffffff;
   --color-zinc-100: #ffffff;
-  --color-zinc-200: #000000;
-  --color-zinc-300: #000000;
-  --color-zinc-400: #000000;
+  --color-zinc-200: #ffffff;
+  --color-zinc-300: #ffffff;
+  --color-zinc-400: #ffffff;
   --color-zinc-500: #000000;
   --color-zinc-600: #000000;
   --color-zinc-700: #000000;
@@ -96,9 +105,9 @@
     --foreground: #ffffff;
     --color-zinc-50: #000000;
     --color-zinc-100: #000000;
-    --color-zinc-200: #ffffff;
-    --color-zinc-300: #ffffff;
-    --color-zinc-400: #ffffff;
+    --color-zinc-200: #000000;
+    --color-zinc-300: #000000;
+    --color-zinc-400: #000000;
     --color-zinc-500: #ffffff;
     --color-zinc-600: #ffffff;
     --color-zinc-700: #ffffff;
@@ -107,9 +116,31 @@
   }
 }
 
-/* High contrast never dims: a disabled control must stay legible. */
+/* Pair-safety net: in high contrast every surface is the background color
+   and all inherited text the foreground color (21:1). Utilities that set
+   an explicit text or background color still win for that element, and
+   because the palette remap above keeps those on the same pair, explicit
+   zinc pairs stay legible too. */
+:root[data-contrast="high"] body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* Hover/focus feedback in high contrast must invert, not just recolor:
+   hovering a control flips it to foreground background with background
+   text, which stays 21:1 in both schemes. */
+:root[data-contrast="high"] :is(button, [role="button"], a):hover {
+  background-color: var(--foreground);
+  color: var(--background);
+}
+
+/* High contrast never dims: a disabled control must stay legible. The
+   disabled state itself is signalled without color or opacity: a dashed
+   border plus not-allowed cursor, so it is visible to sighted users too. */
 :root[data-contrast="high"] :disabled {
   opacity: 1;
+  border-style: dashed;
+  cursor: not-allowed;
 }
 
 /* HACK-84: huge-text zoom. DisplayControls sets the root font-size to the

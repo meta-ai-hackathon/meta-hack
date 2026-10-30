@@ -27,6 +27,12 @@ describe("DisplayControls", () => {
     expect(bigger.slice(0, bigger.indexOf(">"))).not.toContain('disabled=""');
   });
 
+  it("names the zoom buttons with the current level, so it is learnable on demand (PR #51 P3)", () => {
+    const html = markup(<DisplayControls />);
+    expect(html).toContain('aria-label="Smaller text, currently 100%"');
+    expect(html).toContain('aria-label="Bigger text, currently 100%"');
+  });
+
   it("renders the high-contrast checkbox labelled and off by default", () => {
     const html = markup(<DisplayControls />);
     expect(html).toContain('id="display-high-contrast"');

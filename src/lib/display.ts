@@ -236,3 +236,23 @@ export const THEME_PAIRS = {
   highLight: { foreground: "#000000", background: "#ffffff" },
   highDark: { foreground: "#ffffff", background: "#000000" },
 } as const;
+
+/**
+ * The high-contrast zinc remap as data, so tests can prove pair-safety
+ * against the real values in globals.css (PR #51 review). Surface shades
+ * (50..400) collapse to the theme background; content shades (500..900)
+ * collapse to the theme foreground. Any zinc surface/content pair
+ * therefore renders as foreground-on-background — 21:1 in both schemes —
+ * and a same-shade pair (e.g. `bg-zinc-800` text on `bg-zinc-800`) is the
+ * caller's own same-color bug, visible in every theme.
+ */
+export const HIGH_CONTRAST_ZINC = {
+  highLight: {
+    surfaces: ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff"],
+    content: ["#000000", "#000000", "#000000", "#000000", "#000000"],
+  },
+  highDark: {
+    surfaces: ["#000000", "#000000", "#000000", "#000000", "#000000"],
+    content: ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff"],
+  },
+} as const;
