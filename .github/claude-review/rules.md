@@ -39,8 +39,8 @@ These come from `specs/question-spec/README.md` and the vault module, `src/lib/v
 
 The team adopted these on Oct 29 2026, when the demo moved to real people and real data. They apply to every change.
 
-- No PII reaches any cloud LLM, and that includes the Meta Model API the app itself uses. A prompt builder that could include an answer, a document, or anything a user typed is a P1 unless it uses only allowlisted fields that are not PII.
-- Sensitive answers, meaning every answer plus anything from gig income verification, are stored or sent nowhere except a fax API that keeps no copies. The one exception is data encrypted on the client with a key that exists only on the user's device. New storage, logging, caching, analytics, or a third party endpoint for that data is a P1.
+- No PII hits any API except a voice model and a fax API that doesn't retain any data, both with explicit user knowledge and consent. That includes the Meta Model API the app itself uses: PII never reaches any cloud LLM. A prompt builder that could include an answer, a document, or anything a user typed is a P1 unless it uses only allowlisted fields that are not PII. A voice-model or fax send without the user's explicit, informed consent — or to any other API — is a P1.
+- Sensitive answers, meaning every answer plus anything from income verification, are stored or sent nowhere except the consented voice and no-retention fax APIs above. The one other exception is data encrypted on the client with a key that exists only on the user's device. New storage, logging, caching, analytics, or a third party endpoint for that data beyond those consented paths is a P1.
 - The user previews and signs the application. A flow that submits, faxes, or signs for the user without that step is a P1.
 - The team never acts as the applicant's authorized representative. Copy, forms, or code that makes the team or the app the authorized representative is a P1.
 
