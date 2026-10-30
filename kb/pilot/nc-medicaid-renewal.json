@@ -1,0 +1,147 @@
+{
+  "id": "nc_medicaid_renewal",
+  "title": "NC Medicaid",
+  "version": 1,
+  "status": "active",
+  "sources": [
+    {
+      "id": "ncm_medicaid_is_changing",
+      "title": "NC Medicaid: Medicaid is Changing in 2026-27",
+      "url": "https://medicaid.ncdhhs.gov/beneficiaries/medicaid-is-changing",
+      "retrieved_at": "2026-10-29",
+      "supports": "The January 1, 2027 changes for adults ages 19 through 64 (renewal every 6 months instead of once a year; 80 hours a month of work, school or volunteering, or household income of at least $580 a month), who the changes affect (adults ages 19 through 64, people who are not U.S. citizens, and people applying; for everyone else Medicaid does not change), the steps everyone with NC Medicaid should take, what happens if Medicaid ends (a letter, usually 60 days to appeal, and free help from the NC Medicaid Ombudsman), and the ePASS, local DSS directory, appeal, and Ombudsman links."
+    },
+    {
+      "id": "ncm_work_requirement",
+      "title": "NC Medicaid: The Work and Community Engagement Requirement (page last modified 10/13/2026)",
+      "url": "https://medicaid.ncdhhs.gov/beneficiaries/impact-hr-1-and-federal-changes-medicaid/work-and-community-engagement-requirement",
+      "retrieved_at": "2026-10-29",
+      "supports": "The renewal schedules: starting January 1, 2027, renewal every 6 months instead of once a year for most adults ages 19 through 64, while American Indians, Alaska Natives and other members eligible for Indian Health Services (IHS) renew once a year."
+    },
+    {
+      "id": "ncm_changes_flyer",
+      "title": "NC Medicaid flyer (PDF): NC Medicaid is Changing. Know What's Next (dated 08/2026)",
+      "url": "https://medicaid.ncdhhs.gov/flyer-changes-adults-19-64-without-disability-english/download?attachment",
+      "retrieved_at": "2026-10-29",
+      "supports": "Corroborates the scope of the six-month renewal change: the flyer is written for most adults ages 19 through 64 without a disability, and says that starting January 1, 2027 most adults ages 19 through 64 will renew every 6 months instead of once a year, with a letter from the local DSS at renewal time when it needs information."
+    },
+    {
+      "id": "ncm_recertification_fact_sheet",
+      "title": "NC Medicaid fact sheet (PDF): How NC Medicaid Eligibility Recertification Works (dated February 2023)",
+      "url": "https://medicaid.ncdhhs.gov/documents/medicaid/how-nc-medicaid-eligibility-recertification-works-fact-sheet/download?attachment=",
+      "retrieved_at": "2026-10-29",
+      "supports": "How recertification works: every 6 or 12 months depending on the Medicaid program, electronic sources first, a letter from the local DSS when more information is needed, 30 days to answer the first letter and 12 days to answer a later one, and the scam warning."
+    },
+    {
+      "id": "ncm_recertification_page",
+      "title": "NC Medicaid: Medicaid Recertification",
+      "url": "https://medicaid.ncdhhs.gov/medicaid-recertification",
+      "retrieved_at": "2026-10-29",
+      "supports": "The renewal letters a local DSS may send (Request for More Information, Medical Assistance Renewal Notice) and the ways to return them, with email only where the local DSS accepts it."
+    }
+  ],
+  "facts": {
+    "rules": {
+      "items": [
+        "Recertification, also called renewal, is how the local Department of Social Services (DSS) reviews a person's information to decide whether their Medicaid continues.",
+        "Recertification happens every 6 or 12 months, depending on the Medicaid program.",
+        "The caseworker first tries to complete the recertification with information from electronic sources, without contacting the person.",
+        "If the caseworker needs more information, the local DSS mails a letter.",
+        "A person has 30 days to answer the first letter from the local DSS, such as a Medical Assistance Renewal Notice or a Request for Information form. If another letter is sent after the first one, it must be answered within 12 days.",
+        "A letter that asks for information and is not from the local DSS may be a scam. The local DSS can confirm whether a letter came from them."
+      ],
+      "source_id": "ncm_recertification_fact_sheet",
+      "retrieved_at": "2026-10-29"
+    },
+    "required_documents": {
+      "items": [
+        "The Medical Assistance Renewal Notice or the Request for More Information letter, if the local DSS mails one, with any information it asks for.",
+        "Ways to return it: online with an enhanced ePASS account, by mail, by phone, in person at the local DSS office, by fax, or by email if the local DSS accepts it."
+      ],
+      "source_id": "ncm_recertification_page",
+      "retrieved_at": "2026-10-29"
+    },
+    "official_links": {
+      "items": [
+        {
+          "label": "ePASS: update your address and, with an enhanced account, upload documents",
+          "url": "https://epass.nc.gov/"
+        },
+        {
+          "label": "Find your local DSS office",
+          "url": "https://www.ncdhhs.gov/divisions/social-services/local-dss-directory"
+        },
+        {
+          "label": "Medicaid is Changing in 2026-27",
+          "url": "https://medicaid.ncdhhs.gov/beneficiaries/medicaid-is-changing"
+        },
+        {
+          "label": "How to appeal a Medicaid decision",
+          "url": "https://www.oah.nc.gov/hearings-division/medicaid-recipient-appeals/filing-contested-medicaid-recipient-appeal"
+        },
+        {
+          "label": "NC Medicaid Ombudsman: free help with a notice or a bill",
+          "url": "https://medicaid.ncdhhs.gov/about-nc-medicaid/nc-medicaid-ombudsman"
+        }
+      ],
+      "source_id": "ncm_medicaid_is_changing",
+      "retrieved_at": "2026-10-29"
+    },
+    "deadlines": {
+      "items": [
+        {
+          "label": "Renewal every 6 months instead of once a year begins for most adults ages 19 through 64",
+          "due": "2027-01-01"
+        },
+        {
+          "label": "Most adults ages 19 through 64 need 80 hours a month of work, school or volunteering, or household income of at least $580 a month, and must show proof. Some people do not need to meet this rule, such as people with a disability, parents of children under age 14, and people who are pregnant",
+          "due": "2027-01-01"
+        },
+        {
+          "label": "These changes for adults apply only to ages 19 through 64. For someone the new rules do not affect, such as a U.S. citizen younger than 19 or older than 64 who already has Medicaid, Medicaid does not change",
+          "due": "2027-01-01"
+        }
+      ],
+      "source_id": "ncm_medicaid_is_changing",
+      "retrieved_at": "2026-10-29"
+    },
+    "steps": {
+      "items": [
+        "Check that your local Department of Social Services (local DSS) has your current address and phone number.",
+        "Update your address online at ePASS or call your local DSS.",
+        "Answer any letter right away. Letters from your local DSS usually have a deadline.",
+        "Get an enhanced ePASS account if you do not have one. You need an enhanced account to upload documents."
+      ],
+      "source_id": "ncm_medicaid_is_changing",
+      "retrieved_at": "2026-10-29"
+    },
+    "renewal_cadence": {
+      "items": [
+        {
+          "id": "every_6_months",
+          "interval_months": 6,
+          "label": "Every 6 months",
+          "applies_to": "Most adults ages 19 through 64, starting January 1, 2027",
+          "starts_on": "2027-01-01",
+          "ages": { "min": 19, "max": 64 }
+        },
+        {
+          "id": "once_a_year",
+          "interval_months": 12,
+          "label": "Once a year",
+          "applies_to": "Most adults ages 19 through 64 before January 1, 2027, and American Indians, Alaska Natives and other members eligible for Indian Health Services (IHS) after that date"
+        }
+      ],
+      "source_id": "ncm_work_requirement",
+      "retrieved_at": "2026-10-29"
+    },
+    "if_coverage_ends": {
+      "items": [
+        "If you lose your Medicaid, you will get a letter. It explains why and tells you how to appeal if you disagree. You usually have 60 days from the date on the letter.",
+        "For free help with a notice or a bill, call the NC Medicaid Ombudsman at 1-877-201-3750. The Ombudsman is independent of your local Department of Social Services (DSS)."
+      ],
+      "source_id": "ncm_medicaid_is_changing",
+      "retrieved_at": "2026-10-29"
+    }
+  }
+}

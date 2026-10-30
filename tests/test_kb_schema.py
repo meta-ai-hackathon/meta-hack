@@ -9,11 +9,13 @@ against kb/schema.json with the draft-07 validator from the pinned
 """
 
 import copy
+import datetime
 import json
 import re
 import unittest
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from jsonschema import Draft7Validator
 
@@ -23,6 +25,10 @@ SCHEMA_PATH = KB_DIR / "schema.json"
 ENTRIES_DIR = KB_DIR / "entries"
 SAMPLE_PATH = ENTRIES_DIR / "pilot-program-sample.json"
 KB_CODE_PATH = REPO_ROOT / "src" / "lib" / "kb.ts"
+# Entries for the decided pilot (HACK-50 / BN-22). Real facts with official
+# sources live here, apart from the pilot-agnostic samples in ENTRIES_DIR,
+# and TestPilotEntries holds them to their own rules.
+PILOT_DIR = KB_DIR / "pilot"
 
 FACT_GROUPS = ["rules", "required_documents", "official_links", "deadlines"]
 
@@ -72,6 +78,15 @@ PROGRAM_NAME_RE = re.compile(
 )
 
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# The decided pilot is NC Medicaid (Mecklenburg County). Its entries may name
+# exactly this program; every other blocklisted name stays banned there too.
+PILOT_PROGRAM_NAMES = {"medicaid"}
+
+# Official sources for the pilot entries: North Carolina government hosts,
+# https only. A host matches when it equals one of these or ends with
+# "." + one of them.
+PILOT_SOURCE_DOMAINS = ("ncdhhs.gov", "nc.gov")
 
 
 def load_schema() -> dict:
@@ -433,7 +448,7 @@ class TestOptionalGroups(KbSchemaTestCase):
         # The schema cannot cross-reference source_id -> sources (the same
         # limitation the required groups have, checked in the consuming
         # module). Here: every shipped entry's optional groups resolve.
-        for path in sorted(ENTRIES_DIR.glob("*.json")):
+        for path in sorted(ENTRIES_DIR.glob("*.json")) + sorted(PILOT_DIR.glob("*.json")):
             entry = json.loads(path.read_text(encoding="utf-8"))
             source_ids = {source["id"] for source in entry["sources"]}
             for group in ["steps", "match_signals", "renewal_cadence", "if_coverage_ends"]:
@@ -465,10 +480,28 @@ class TestOptionalGroups(KbSchemaTestCase):
 
 class TestPilotAgnostic(KbSchemaTestCase):
     def kb_surface_files(self) -> list[Path]:
-        files = [path for path in KB_DIR.rglob("*") if path.is_file()]
+        # kb/pilot/ is the one exception: it holds the decided pilot's real
+        # entries (HACK-50), and TestPilotEntries below checks them instead.
+        # The samples, schema, README, and the consuming module stay free of
+        # program names.
+        files = [
+            path
+            for path in KB_DIR.rglob("*")
+            if path.is_file() and PILOT_DIR not in path.parents
+        ]
         if KB_CODE_PATH.is_file():
             files.append(KB_CODE_PATH)
         return files
+
+    def test_surface_scan_still_covers_the_samples_and_schema(self):
+        # The pilot exclusion must not hollow out the scan.
+        names = {path.name for path in self.kb_surface_files()}
+        for expected in ["schema.json", "README.md", "pilot-program-sample.json", "kb.ts"]:
+            self.assertIn(expected, names)
+        self.assertFalse(
+            any(PILOT_DIR in path.parents for path in self.kb_surface_files()),
+            "pilot entries are checked by TestPilotEntries, not this scan",
+        )
 
     def test_sample_uses_pilot_placeholder(self):
         text = SAMPLE_PATH.read_text(encoding="utf-8")
@@ -485,6 +518,114 @@ class TestPilotAgnostic(KbSchemaTestCase):
                     f"{path.name} names a real program ({match.group(0)!r}); "
                     "the pilot decision is still OPEN"
                 )
+
+
+def is_official_pilot_host(url: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    return parsed.scheme == "https" and any(
+        host == domain or host.endswith("." + domain) for domain in PILOT_SOURCE_DOMAINS
+    )
+
+
+class TestPilotEntries(KbSchemaTestCase):
+    """HACK-50: entries for the decided pilot carry real, verified facts.
+
+    They live in kb/pilot/, apart from the pilot-agnostic samples, and must
+    validate against the same schema, cite only official North Carolina
+    government sources over https, carry no placeholders, and name no real
+    program other than the pilot's own.
+    """
+
+    def pilot_entries(self) -> list[tuple[Path, dict]]:
+        return [
+            (path, json.loads(path.read_text(encoding="utf-8")))
+            for path in sorted(PILOT_DIR.glob("*.json"))
+        ]
+
+    def test_ships_the_renewal_entry(self):
+        # assertIn, not an exact list: the next kb/pilot entry adds a file
+        # without loosening this check.
+        names = [path.name for path, _ in self.pilot_entries()]
+        self.assertIn("nc-medicaid-renewal.json", names)
+
+    def test_cadence_age_ranges_are_ordered(self):
+        # The schema cannot compare min with max; kb.ts and this check do.
+        for path, entry in self.pilot_entries():
+            for item in entry["facts"].get("renewal_cadence", {}).get("items", []):
+                if "ages" in item:
+                    self.assertLessEqual(item["ages"]["min"], item["ages"]["max"], path.name)
+
+    def test_pilot_entries_validate(self):
+        for path, entry in self.pilot_entries():
+            self.assertEqual(self.schema_errors(entry), [], path.name)
+            self.assertEqual(entry["status"], "active", path.name)
+
+    def test_pilot_ids_do_not_collide_with_the_samples(self):
+        sample_ids = {
+            json.loads(path.read_text(encoding="utf-8"))["id"]
+            for path in ENTRIES_DIR.glob("*.json")
+        }
+        pilot_ids = [entry["id"] for _, entry in self.pilot_entries()]
+        self.assertEqual(len(pilot_ids), len(set(pilot_ids)))
+        self.assertFalse(sample_ids & set(pilot_ids))
+
+    def test_every_group_cites_a_listed_source(self):
+        for path, entry in self.pilot_entries():
+            source_ids = {source["id"] for source in entry["sources"]}
+            for group, facts in entry["facts"].items():
+                self.assertIn(facts["source_id"], source_ids, f"{path.name} facts.{group}")
+
+    def test_sources_and_links_are_official_nc_https(self):
+        for path, entry in self.pilot_entries():
+            for source in entry["sources"]:
+                self.assertTrue(is_official_pilot_host(source["url"]), source["url"])
+            for link in entry["facts"]["official_links"]["items"]:
+                self.assertTrue(is_official_pilot_host(link["url"]), link["url"])
+
+    def test_official_host_check_bites(self):
+        for url in [
+            "http://medicaid.ncdhhs.gov/renewals",
+            "https://example.org/medicaid",
+            "https://ncdhhs.gov.example.com/page",
+            "https://fakencdhhs.gov/page",
+        ]:
+            self.assertFalse(is_official_pilot_host(url), url)
+        self.assertTrue(is_official_pilot_host("https://epass.nc.gov/"))
+
+    def test_no_placeholders_survive(self):
+        for path, _ in self.pilot_entries():
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("{{", text, path.name)
+            self.assertNotIn("example.org", text, path.name)
+
+    def test_names_only_the_pilot_program(self):
+        for path, _ in self.pilot_entries():
+            text = path.read_text(encoding="utf-8")
+            named = {match.group(0).lower() for match in PROGRAM_NAME_RE.finditer(text)}
+            self.assertEqual(named - PILOT_PROGRAM_NAMES, set(), path.name)
+
+    def test_dates_are_real_and_never_in_the_future(self):
+        today = datetime.date.today()
+        for path, entry in self.pilot_entries():
+            dates = [source["retrieved_at"] for source in entry["sources"]]
+            dates += [facts["retrieved_at"] for facts in entry["facts"].values()]
+            for value in dates:
+                self.assertLessEqual(datetime.date.fromisoformat(value), today, path.name)
+            for item in entry["facts"]["deadlines"]["items"]:
+                if ISO_DATE_RE.match(item["due"]):
+                    datetime.date.fromisoformat(item["due"])
+
+    def test_cadence_schedules_are_unique_and_dated(self):
+        for path, entry in self.pilot_entries():
+            cadence = entry["facts"].get("renewal_cadence")
+            self.assertIsNotNone(cadence, f"{path.name} needs renewal_cadence")
+            assert cadence is not None
+            ids = [item["id"] for item in cadence["items"]]
+            self.assertEqual(len(ids), len(set(ids)), path.name)
+            for item in cadence["items"]:
+                if "starts_on" in item:
+                    datetime.date.fromisoformat(item["starts_on"])
 
 
 if __name__ == "__main__":
