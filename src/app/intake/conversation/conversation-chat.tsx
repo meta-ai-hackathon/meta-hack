@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
 import { StatusRegion } from "../../../components/status-region";
 import {
@@ -10,7 +10,20 @@ import {
   recordedBlobToWav,
   voiceCaptureSupported,
 } from "../../../lib/audio/capture";
+import {
+  CONSENT_PATHS,
+  attachConsentHeader,
+  cachedConsentSnapshot,
+  clearConsentReceipt,
+  consentPathEnabled,
+  declinedReceipt,
+  saveConsentReceipt,
+  subscribeToConsentChanges,
+  type ConsentReceipt,
+} from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
+import { IntakeWizard } from "../intake-wizard";
+import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
 import { MatchSection } from "./match-section";
 import { ReviewSection } from "./review-section";
 
@@ -19,17 +32,22 @@ import { ReviewSection } from "./review-section";
 // conversation engine is server-only and must not enter the client bundle.
 const WIZARD_FALLBACK_URL = "/intake";
 
-// The conversational intake chat (Mission v2 M1 text, M2 voice). Talk or
-// type — both flow through the same route and the same redaction. The
-// transcript shows the REDACTED form of every user turn — the server
-// replaces private values with "you told us" markers before they are stored
-// or returned, so this screen keeps them private by construction (the mic
-// hears it, the screen keeps it private). Assistant replies are subtitled
-// in the transcript and spoken: Gemini audio when the server has a key,
-// browser speechSynthesis otherwise. A model failure renders the honest
-// error plus the wizard fallback link (VAL-CONV-007/008); a denied or
-// missing microphone shows the typed path — never a dead end
-// (VAL-VOICE-005).
+// The conversational intake chat (Mission v2 M1 text, M2 voice, M5 consent).
+// Talk or type — both flow through the same route and the same redaction.
+//
+// CONSENT GATE (Mission v2.1 M5, HACK-81, VAL-CONSENT-*): nothing is sent
+// anywhere before the user's per-device consent receipt allows it. The
+// consent surface precedes the first send; the voice path sits behind its
+// own additional toggle — with it off, the microphone is never started and
+// no audio is transmitted; with consent declined, the deterministic
+// spec-driven wizard drives the SAME journey on this page with zero API
+// calls carrying user content (the server independently refuses every send
+// without a receipt). HONEST FRAMING: with sharing on, the extraction step
+// sees the raw typed sentence before anything is hidden — the consent copy
+// discloses that send rather than pretending it does not happen. The
+// receipt lives in the user's localStorage (no answer data attached), is
+// shown in the privacy-choices panel, and revoking stops further sends
+// immediately (every send re-checks it; the server re-checks too).
 
 interface ConversationTurn {
   readonly id: string;
@@ -67,6 +85,23 @@ export function ConversationChat() {
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
   const [micBlocked, setMicBlocked] = useState(false);
+  // Consent state (VAL-CONSENT-*): the receipt is an EXTERNAL store —
+  // this device's localStorage, subscribed via useSyncExternalStore (SSR
+  // renders the server snapshot: no receipt, surface open, sends off —
+  // the honest first paint). Revoking in another tab stops sends here too.
+  const storedReceipt = useSyncExternalStore(
+    subscribeToConsentChanges,
+    cachedConsentSnapshot,
+    () => null,
+  );
+  const [reopened, setReopened] = useState(false);
+  const [draftAi, setDraftAi] = useState(false);
+  const [draftVoice, setDraftVoice] = useState(false);
+  // Bumped by the deterministic wizard after each save, so match/review
+  // re-read the stored answers in zero-send mode (no conversation turns
+  // happen to trigger their refreshKey otherwise).
+  const [answersRefresh, setAnswersRefresh] = useState(0);
+  const receipt = storedReceipt;
   const [error, setError] = useState<{
     code: string;
     message: string;
@@ -77,6 +112,10 @@ export function ConversationChat() {
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+
+  // The consent surface is open when no decided receipt exists (nothing
+  // sent yet) or the user asked to change the choices. Derived — no effect.
+  const panelOpen = receipt === null || reopened;
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +151,31 @@ export function ConversationChat() {
     transcriptEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [turns]);
 
+  // Zero-send mode has no conversation turns to bump the match/review
+  // refresh key: the deterministic wizard's saves re-read the stored state
+  // instead (a GET of the caller's own session — no provider send involved).
+  useEffect(() => {
+    if (answersRefresh === 0) {
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/conversation/history")
+      .then(async (response) => {
+        if (!response.ok) {
+          return;
+        }
+        const data = (await response.json()) as HistoryResponse;
+        if (!cancelled) {
+          setTurns(data.turns);
+          setState(data.state);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [answersRefresh]);
+
   // Capability probe: when the browser (or a headless context) has no mic
   // stack, surface the typed path immediately instead of on first click.
   // Deferred a microtask past hydration, and cleaned up on unmount.
@@ -127,25 +191,74 @@ export function ConversationChat() {
     };
   }, []);
 
+  // Consent-derived gates (re-checked at EVERY send, so revoking stops
+  // further sends immediately).
+  const aiSharingOn = consentPathEnabled("ai-conversation", receipt);
+  const voiceSharingOn = consentPathEnabled("voice", receipt);
+  const sharingDeclined = receipt !== null && !receipt.ai;
+  const zeroSend = sharingDeclined && !panelOpen;
+
+  function decideConsent(): void {
+    const next: ConsentReceipt = {
+      v: 1,
+      ai: draftAi,
+      voice: draftAi && draftVoice,
+      at: new Date().toISOString(),
+    };
+    saveConsentReceipt(next);
+    setReopened(false);
+    setNotice(
+      next.ai
+        ? next.voice
+          ? "Sharing on, including voice. Nothing has been sent yet."
+          : "Sharing on for typed answers. Nothing has been sent yet."
+        : "Sharing is off. Nothing is sent anywhere.",
+    );
+  }
+
+  function declineConsent(): void {
+    saveConsentReceipt(declinedReceipt());
+    setReopened(false);
+    setNotice("Sharing is off. Nothing is sent anywhere.");
+  }
+
+  function revokeConsent(): void {
+    saveConsentReceipt(declinedReceipt());
+    setReopened(false);
+    setNotice("Sharing is off. Nothing more will be sent anywhere.");
+  }
+
+  function reopenConsent(): void {
+    setDraftAi(receipt?.ai ?? false);
+    setDraftVoice(receipt?.voice ?? false);
+    setReopened(true);
+  }
+
   async function speakReply(turnId: string, subtitle: string): Promise<void> {
     // Spoken replies (VAL-VOICE-003): Gemini audio for the STORED reply
     // (the server speaks the turn by id — never client-supplied text)
-    // when the server has a key, browser speechSynthesis otherwise. The
-    // utterance is always the EXACT subtitle text shown in the transcript.
-    try {
-      const response = await fetch("/api/conversation/speak", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ turnId }),
-      });
-      if (response.ok) {
-        const audio = new Audio(URL.createObjectURL(await response.blob()));
-        audio.onended = () => URL.revokeObjectURL(audio.src);
-        await audio.play();
-        return;
+    // when voice sharing is ON, browser speechSynthesis otherwise. With
+    // voice sharing off the speak route is never called — reply audio is
+    // made locally or not at all (VAL-CONSENT-003). The utterance is
+    // always the EXACT subtitle text shown in the transcript.
+    if (voiceSharingOn) {
+      try {
+        const response = await fetch("/api/conversation/speak", {
+          method: "POST",
+          headers: attachConsentHeader(
+            new Headers({ "content-type": "application/json" }),
+          ),
+          body: JSON.stringify({ turnId }),
+        });
+        if (response.ok) {
+          const audio = new Audio(URL.createObjectURL(await response.blob()));
+          audio.onended = () => URL.revokeObjectURL(audio.src);
+          await audio.play();
+          return;
+        }
+      } catch {
+        // Fall through to the built-in voice.
       }
-    } catch {
-      // Fall through to the built-in voice.
     }
     try {
       queueSpeech(subtitle);
@@ -160,6 +273,17 @@ export function ConversationChat() {
   ): Promise<void> {
     if (!response.ok) {
       const data = (await response.json()) as ConversationErrorResponse;
+      if (data.error?.code === "consent_required") {
+        // Out of sync (e.g. the receipt was revoked in another tab):
+        // nothing was sent — drop the local receipt so the choice surface
+        // re-opens, fail closed.
+        clearConsentReceipt();
+        setReopened(false);
+        setNotice(
+          "Your sharing choice was missing, so nothing was sent. Choose again to continue.",
+        );
+        return;
+      }
       setError({
         code: data.error?.code ?? "internal",
         message:
@@ -188,7 +312,7 @@ export function ConversationChat() {
         ? "The assistant asked the next question."
         : "All questions are answered.",
     );
-    if (spoken) {
+    if (spoken && voiceSharingOn) {
       void speakReply(data.assistantTurnId, data.assistantReply);
     }
   }
@@ -198,13 +322,25 @@ export function ConversationChat() {
     if (text === "" || busy) {
       return;
     }
+    // The consent gate, at send time (VAL-CONSENT-001/002): no typed words
+    // leave the device unless the receipt allows it. The server checks the
+    // same receipt again.
+    if (!consentPathEnabled("ai-conversation", receipt)) {
+      setReopened(true);
+      setNotice(
+        "Choose your sharing setting first — nothing is sent without it.",
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice("");
     try {
       const response = await fetch("/api/conversation/turn", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: attachConsentHeader(
+          new Headers({ "content-type": "application/json" }),
+        ),
         body: JSON.stringify({ text }),
       });
       await handleTurnResponse(response, false);
@@ -248,6 +384,16 @@ export function ConversationChat() {
   async function startRecording(): Promise<void> {
     setError(null);
     setNotice("");
+    // The consent gate for voice (VAL-CONSENT-003): with voice sharing off,
+    // the microphone is NEVER started and no audio is transmitted. The
+    // record button is disabled too — this is the belt to its braces.
+    if (!consentPathEnabled("voice", receipt)) {
+      setReopened(true);
+      setNotice(
+        "Voice sharing is off, so recording is off. Turn on voice sharing, or type your answer below — it works exactly the same way.",
+      );
+      return;
+    }
     if (!voiceCaptureSupported()) {
       setMicBlocked(true);
       setNotice(
@@ -321,6 +467,37 @@ export function ConversationChat() {
         </Link>
       </p>
 
+      {panelOpen ? (
+        <ConsentPanel
+          aiChecked={draftAi}
+          voiceChecked={draftVoice}
+          paths={CONSENT_PATHS}
+          onToggleAi={setDraftAi}
+          onToggleVoice={setDraftVoice}
+          onDecide={decideConsent}
+          onDecline={declineConsent}
+        />
+      ) : null}
+
+      {zeroSend ? (
+        <section
+          data-zero-send-mode
+          aria-labelledby="zero-send-heading"
+          className="flex flex-col gap-3"
+        >
+          <h2 id="zero-send-heading" className="text-lg font-semibold">
+            Nothing is sent anywhere
+          </h2>
+          <p className="max-w-xl text-zinc-600 dark:text-zinc-400">
+            Sharing is off. The step-by-step questions below drive the same
+            application right here on this device — with honest status
+            labels, your benefit match, the review screen, and the filled PDF
+            to download when you are ready.
+          </p>
+          <IntakeWizard onAnswersChanged={() => setAnswersRefresh((n) => n + 1)} />
+        </section>
+      ) : null}
+
       <StatusRegion message={notice} />
 
       <section aria-labelledby="conversation-transcript-heading" className="flex flex-col gap-3">
@@ -374,6 +551,7 @@ export function ConversationChat() {
         </div>
       ) : null}
 
+      {zeroSend ? null : (
       <form
         className="flex flex-col gap-2"
         onSubmit={(event) => {
@@ -382,7 +560,9 @@ export function ConversationChat() {
         }}
       >
         <label htmlFor="conversation-input" className="font-medium">
-          {micBlocked ? "Type your answer" : "Speak or type your answer"}
+          {micBlocked || !voiceSharingOn
+            ? "Type your answer"
+            : "Speak or type your answer"}
         </label>
         <div className="flex items-stretch gap-2">
           <button
@@ -396,7 +576,7 @@ export function ConversationChat() {
                 void startRecording();
               }
             }}
-            disabled={busy}
+            disabled={busy || !voiceSharingOn}
             className="flex shrink-0 items-center gap-2 rounded-md border border-zinc-300 px-4 py-2.5 text-base font-semibold hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
           >
             <span aria-hidden="true">{recording ? "■" : "●"}</span>
@@ -405,9 +585,21 @@ export function ConversationChat() {
           <span className="self-center text-sm text-zinc-600 dark:text-zinc-400">
             {recording
               ? "Recording — speak now."
-              : "Hold a short conversation with the assistant using your voice."}
+              : voiceSharingOn
+                ? "Hold a short conversation with the assistant using your voice."
+                : "Voice sharing is off, so the microphone is never used."}
           </span>
         </div>
+        {!voiceSharingOn ? (
+          <p
+            data-voice-consent-guidance
+            className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+          >
+            Voice sharing is off, so the microphone is never started and no
+            audio is ever transmitted. You can turn it on under
+            &ldquo;Your privacy choices&rdquo;, or just type below.
+          </p>
+        ) : null}
         {micBlocked ? (
           <p
             data-mic-blocked-guidance
@@ -431,7 +623,7 @@ export function ConversationChat() {
           }}
           rows={2}
           maxLength={4000}
-          disabled={busy}
+          disabled={busy || !aiSharingOn}
           aria-describedby="conversation-input-help"
           className="rounded-md border border-zinc-300 p-3 text-base dark:border-zinc-600 dark:bg-zinc-800"
         />
@@ -441,12 +633,21 @@ export function ConversationChat() {
         </p>
         <button
           type="submit"
-          disabled={busy || draft.trim() === ""}
+          disabled={busy || !aiSharingOn || draft.trim() === ""}
           className="self-start rounded-md bg-zinc-900 px-5 py-2.5 text-base font-semibold text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
           {busy ? "Sending…" : "Send"}
         </button>
       </form>
+      )}
+
+      {receipt !== null && !panelOpen ? (
+        <ConsentReceiptPanel
+          receipt={receipt}
+          onRevoke={revokeConsent}
+          onReopen={reopenConsent}
+        />
+      ) : null}
 
       {state ? (
         <section
@@ -496,8 +697,12 @@ export function ConversationChat() {
         </section>
       ) : null}
 
-      {state ? <MatchSection refreshKey={turns.length} /> : null}
-      {state ? <ReviewSection refreshKey={turns.length} /> : null}
+      {state ? (
+        <MatchSection refreshKey={turns.length + answersRefresh} />
+      ) : null}
+      {state ? (
+        <ReviewSection refreshKey={turns.length + answersRefresh} />
+      ) : null}
     </div>
   );
 }
