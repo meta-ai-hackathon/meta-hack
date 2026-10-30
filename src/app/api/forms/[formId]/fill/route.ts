@@ -1,4 +1,5 @@
 import { fillForSession, parseFormValues } from "../../../../../lib/forms/fill";
+import { readBodyCapped } from "../../../../../lib/forms/upload-cap";
 import { getFormRegistryEntry, loadTemplatePdf } from "../../../../../lib/forms/registry";
 import { conversationErrorResponse } from "../../../../../lib/conversation";
 import { loadSession, readSessionCookie } from "../../../../../lib/intake/store";
@@ -79,49 +80,11 @@ export async function POST(
  * non-multipart request (the UI download path without drafted answers) or
  * a multipart request without a part yields undefined for that part.
  *
- * Uploads are memory-capped by READING the body as a stream with a
- * byte-counting limit BEFORE any parsing (so a chunked request with no
- * declared length is still bounded — formData() on an unbounded body could
- * exhaust memory), then re-checked per part before the file part's bytes
- * are read. An arbitrarily large untrusted upload never reaches
- * PDFDocument.load.
+ * The body is memory-capped by readBodyCapped (streamed, byte-counted)
+ * BEFORE any parsing — a chunked request with no declared length is bounded
+ * too — then the file part's bytes are read. An arbitrarily large
+ * untrusted upload never reaches PDFDocument.load.
  */
-const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
-
-async function cappedBodyBytes(request: Request): Promise<Uint8Array<ArrayBuffer>> {
-  const reader = request.body?.getReader();
-  if (!reader) {
-    return new Uint8Array(0);
-  }
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      total += value.byteLength;
-      if (total > MAX_UPLOAD_BYTES) {
-        throw new AppError(
-          "validation_error",
-          userMessageFor("validation_error"),
-        );
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return out;
-}
-
 async function multipartParts(
   request: Request,
   entry: ReturnType<typeof getFormRegistryEntry>,
@@ -133,9 +96,18 @@ async function multipartParts(
   if (!contentType.includes("multipart/form-data")) {
     return { uploaded: undefined, formValues: undefined };
   }
-  // Rebuild the request around the capped bytes so formData() parses a
-  // bounded body no matter how the upload arrived.
-  const bytes = await cappedBodyBytes(request);
+  // Read the body under the cap, then rebuild the request around the
+  // bounded bytes so formData() parses a bounded body no matter how the
+  // upload arrived.
+  let bytes: Uint8Array<ArrayBuffer>;
+  try {
+    bytes = await readBodyCapped(request.body);
+  } catch {
+    throw new AppError(
+      "validation_error",
+      userMessageFor("validation_error"),
+    );
+  }
   const replay = new Request(request.url, {
     method: "POST",
     headers: request.headers,
