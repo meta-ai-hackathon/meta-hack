@@ -28,7 +28,11 @@ import { QUESTIONS } from "../intake/spec";
 // The mapping degrades honestly: a model failure yields label-verbatim
 // questions and no spec mapping, never a fabricated guess.
 
-export const MAPPING_MAX_TOKENS = 2048;
+// The mapping is a structured-output task over the spec + fields: reasoning
+// tokens consume the completion budget (live-verified: a 2048 budget ends
+// in null content + finish_reason "length"; 4096 completes — the same
+// budget the match explanations needed).
+export const MAPPING_MAX_TOKENS = 4096;
 
 export type DiscoveredFieldKind =
   | "text"
