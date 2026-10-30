@@ -645,9 +645,12 @@ export async function buildMatchResponse(
   const ranked = rankEntries(answers, entries);
   const matches: MatchCard[] = [];
   const signalMatched = ranked.filter((rankedEntry) => rankedEntry.score > 0);
-  // Word-boundary patterns for THIS session's specific pii values, used to
-  // degrade (never pin) an explanation that collides with them.
-  const piiPatterns: RegExp[] = [];
+  // THIS session's specific pii values (lowercased), used to degrade (never
+  // pin) an explanation that collides with them. The substring trigger and
+  // word-boundary excusal MIRROR the response gate exactly, so any
+  // explanation the gate would reject is degraded here first — a cached
+  // explanation can never pin a session's match list to a 500.
+  const piiValues: { lowered: string; inStatic: RegExp }[] = [];
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     const stored = answers[questionId];
     if (!stored || stored.value === null || stored.value === undefined) {
@@ -656,7 +659,10 @@ export async function buildMatchResponse(
     for (const element of Array.isArray(stored.value) ? stored.value : [stored.value]) {
       const raw = String(element).trim();
       if (raw !== "" && isSpecificValue(raw)) {
-        piiPatterns.push(new RegExp(`\\b${escapeRegExpValue(raw)}\\b`, "i"));
+        piiValues.push({
+          lowered: raw.toLowerCase(),
+          inStatic: new RegExp(`\\b${escapeRegExpValue(raw)}\\b`, "i"),
+        });
       }
     }
   }
@@ -682,11 +688,11 @@ export async function buildMatchResponse(
     let card = buildCard(rankedEntry, explanation);
     if (
       explanation.source === "model" &&
-      piiPatterns.length > 0 &&
-      piiPatterns.some(
-        (pattern) =>
-          pattern.test(card.explanation.text) &&
-          !pattern.test(cardStaticCopy(rankedEntry.entry, card)),
+      piiValues.length > 0 &&
+      piiValues.some(
+        (value) =>
+          card.explanation.text.toLowerCase().includes(value.lowered) &&
+          !value.inStatic.test(cardStaticCopy(rankedEntry.entry, card)),
       )
     ) {
       // The model explanation is grounded on the entry and never sees user

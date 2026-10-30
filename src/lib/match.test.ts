@@ -991,6 +991,29 @@ describe("assertNoPiiValuesInMatch", () => {
     expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
   });
 
+  it("degrades an explanation carrying a pii value inside a larger word", async () => {
+    // The degrade predicate mirrors the gate EXACTLY (substring trigger,
+    // word-boundary excusal): "regather" contains "gather" as a substring,
+    // so the gate would reject this explanation — it is degraded at build
+    // time instead, and a cached copy can never pin a session to a 500.
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "gather" },
+      main_goal: { status: "known", value: "food" },
+    };
+    const response = await buildMatchResponse(answers, {
+      explainer: async () => ({
+        text: "Applicants may need to regather their documents.",
+        source: "model" as const,
+      }),
+      explanationCache: new Map(),
+    });
+    const card = response.matches.find(
+      (entry) => entry.entryId === "pilot_program_sample_b",
+    )!;
+    expect(card.explanation.source).toBe("facts");
+    expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+  });
+
   it("keeps a model explanation whose words are the entry's own copy", async () => {
     const answers: AnswerMap = {
       goal_detail: { status: "known", value: "application" },
