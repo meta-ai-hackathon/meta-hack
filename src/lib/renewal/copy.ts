@@ -3,6 +3,8 @@ import { formatLongDate, type CalendarDate } from "./calendar-date";
 import type { AgeAnswer, AgeAnswerValue, AgeRange } from "./estimate";
 import {
   REMINDER_WINDOW_DAYS,
+  REPORTED_YEAR_MAX,
+  REPORTED_YEAR_MIN,
   type ReminderStatus,
   type ReportedDateKind,
 } from "./reminder";
@@ -174,7 +176,7 @@ export const UNREADABLE_BANNER_MESSAGE =
 
 export const ERROR_CHOOSE_KIND = "Choose which date you have, or choose I don't know the date.";
 export const ERROR_INVALID_DATE =
-  "Enter a real date between the years 2000 and 2100, like 2027-04-30.";
+  `Enter a real date between the years ${REPORTED_YEAR_MIN} and ${REPORTED_YEAR_MAX}, like 2027-04-30.`;
 export const ERROR_APPROVAL_IN_FUTURE =
   "A letter that says the coverage was approved or renewed is dated today " +
   "or earlier. If this date is a due date or a deadline, choose the first " +

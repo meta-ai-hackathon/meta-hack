@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
@@ -11,12 +13,17 @@ import {
   toEpochDay,
   type CalendarDate,
 } from "./calendar-date";
+import { ERROR_INVALID_DATE } from "./copy";
 import { AGE_ANSWERS } from "./estimate";
 import {
   CALENDAR_ID_RE,
   MAX_REMINDER_REVISION,
   REMINDER_WINDOW_DAYS,
   RENEWAL_REMINDER_VERSION,
+  REPORTED_DATE_MAX,
+  REPORTED_DATE_MIN,
+  REPORTED_YEAR_MAX,
+  REPORTED_YEAR_MIN,
   bannerIsDue,
   newCalendarId,
   parseReportedDate,
@@ -310,5 +317,32 @@ describe("validateReminder: nothing read back is trusted", () => {
     expect(parseReportedDate("2100-12-31")).toEqual(d("2100-12-31"));
     expect(parseReportedDate("1999-12-31")).toBeNull();
     expect(parseReportedDate("2101-01-01")).toBeNull();
+  });
+
+  it("accepts exactly the dates between the date input's min and max (third review, property)", () => {
+    // The picker's bounds come from the same years the check enforces, so
+    // it never offers a date that is then refused, or hides one that works.
+    expect([REPORTED_DATE_MIN, REPORTED_DATE_MAX]).toEqual([`${REPORTED_YEAR_MIN}-01-01`, `${REPORTED_YEAR_MAX}-12-31`]);
+    const day = fc
+      .integer({ min: toEpochDay(d(`${REPORTED_YEAR_MIN - 5}-01-01`)), max: toEpochDay(d(`${REPORTED_YEAR_MAX + 5}-12-31`)) })
+      .map((epochDay) => formatIsoDate(fromEpochDay(epochDay)));
+    fc.assert(
+      fc.property(day, (iso) => {
+        const insideInput = iso >= REPORTED_DATE_MIN && iso <= REPORTED_DATE_MAX;
+        expect(parseReportedDate(iso) !== null, iso).toBe(insideInput);
+      }),
+      { numRuns: 500 },
+    );
+    for (const edge of [REPORTED_DATE_MIN, REPORTED_DATE_MAX]) {
+      expect(parseReportedDate(edge)).not.toBeNull();
+    }
+  });
+
+  it("puts those bounds on the date input and in its error, not copies of them", () => {
+    const tracker = readFileSync(fileURLToPath(new URL("../../app/renewal/renewal-tracker.tsx", import.meta.url)), "utf8");
+    expect(tracker).toContain("min={REPORTED_DATE_MIN}");
+    expect(tracker).toContain("max={REPORTED_DATE_MAX}");
+    expect(tracker).not.toMatch(/\b(min|max)="\d{4}-\d{2}-\d{2}"/);
+    expect(ERROR_INVALID_DATE).toContain(`between the years ${REPORTED_YEAR_MIN} and ${REPORTED_YEAR_MAX}`);
   });
 });

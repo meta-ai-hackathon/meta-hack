@@ -50,6 +50,14 @@ export const REPORTED_YEAR_MIN = 2000;
 export const REPORTED_YEAR_MAX = 2100;
 
 /**
+ * The first and last dates parseReportedDate accepts, as YYYY-MM-DD: the
+ * date input's min and max, so the picker never offers a date the check
+ * then refuses (third review: the input carried its own copies).
+ */
+export const REPORTED_DATE_MIN = `${REPORTED_YEAR_MIN}-01-01`;
+export const REPORTED_DATE_MAX = `${REPORTED_YEAR_MAX}-12-31`;
+
+/**
  * Version 1 is the first shape that ever ships. It gained calendarId,
  * revision, and ageAnswer before release (review fixes), so no reminder of
  * an earlier shape exists outside development browsers; one that turns up

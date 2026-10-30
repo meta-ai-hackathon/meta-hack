@@ -54,6 +54,8 @@ import {
 import {
   MAX_REMINDER_REVISION,
   RENEWAL_REMINDER_VERSION,
+  REPORTED_DATE_MAX,
+  REPORTED_DATE_MIN,
   newCalendarId,
   type RenewalReminder,
   type ReportedDateKind,
@@ -448,8 +450,8 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
                   <input
                     {...control}
                     type="date"
-                    min="2000-01-01"
-                    max="2100-12-31"
+                    min={REPORTED_DATE_MIN}
+                    max={REPORTED_DATE_MAX}
                     autoComplete="off"
                     value={dateText}
                     onChange={(event) => {
