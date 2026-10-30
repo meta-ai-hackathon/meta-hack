@@ -103,10 +103,11 @@ validator checks the calendar; JSON Schema checks the shape).
 
 The one exception is `kb/pilot/`, which holds the decided pilot program's
 entries (HACK-50). The grep skips that directory, and `TestPilotEntries`
-holds it to stricter rules instead: schema-valid, official state
-government sources over https, no placeholders, no future retrieval dates,
-and no real program name other than the pilot's own. Entries there are not
-part of the matching dataset (`KB_ENTRIES`).
+holds it to stricter rules instead. Every file there, the README included,
+carries no placeholders and no real program name other than the pilot's
+own. Every entry there is also schema-valid, cites official state
+government sources over https, and has no future retrieval dates. Entries
+there are not part of the matching dataset (`KB_ENTRIES`).
 
 ## Validating an entry
 

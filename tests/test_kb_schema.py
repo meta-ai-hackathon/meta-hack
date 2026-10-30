@@ -12,6 +12,7 @@ import copy
 import datetime
 import json
 import re
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
@@ -528,13 +529,33 @@ def is_official_pilot_host(url: str) -> bool:
     )
 
 
+def pilot_files(directory: Path = PILOT_DIR) -> list[Path]:
+    # Every file under kb/pilot/, not only the JSON entries. The VAL-KB-003
+    # scan skips the whole directory, README and any later notes included,
+    # so the name and placeholder checks have to read all of it.
+    return sorted(path for path in directory.rglob("*") if path.is_file())
+
+
+def other_program_names(paths: list[Path]) -> dict[str, set[str]]:
+    """Blocklisted program names other than the pilot's own, by file path."""
+    found: dict[str, set[str]] = {}
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        named = {match.group(0).lower() for match in PROGRAM_NAME_RE.finditer(text)}
+        extra = named - PILOT_PROGRAM_NAMES
+        if extra:
+            found[str(path)] = extra
+    return found
+
+
 class TestPilotEntries(KbSchemaTestCase):
     """HACK-50: entries for the decided pilot carry real, verified facts.
 
     They live in kb/pilot/, apart from the pilot-agnostic samples, and must
     validate against the same schema, cite only official North Carolina
     government sources over https, carry no placeholders, and name no real
-    program other than the pilot's own.
+    program other than the pilot's own. The last two rules cover every file
+    in the directory, since none of them is on the VAL-KB-003 scan.
     """
 
     def pilot_entries(self) -> list[tuple[Path, dict]]:
@@ -594,16 +615,33 @@ class TestPilotEntries(KbSchemaTestCase):
         self.assertTrue(is_official_pilot_host("https://epass.nc.gov/"))
 
     def test_no_placeholders_survive(self):
-        for path, _ in self.pilot_entries():
+        for path in pilot_files():
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("{{", text, path.name)
             self.assertNotIn("example.org", text, path.name)
 
     def test_names_only_the_pilot_program(self):
-        for path, _ in self.pilot_entries():
-            text = path.read_text(encoding="utf-8")
-            named = {match.group(0).lower() for match in PROGRAM_NAME_RE.finditer(text)}
-            self.assertEqual(named - PILOT_PROGRAM_NAMES, set(), path.name)
+        self.assertEqual(other_program_names(pilot_files()), {})
+
+    def test_pilot_file_checks_read_every_file_not_only_json(self):
+        # The README is on the list, so the checks above are not vacuous.
+        names = {path.name for path in pilot_files()}
+        self.assertIn("README.md", names)
+        self.assertIn("nc-medicaid-renewal.json", names)
+        # And the name check bites on files that are not entries: the probe
+        # from the HACK-50 review, a README line and a plain text note.
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "README.md").write_text(
+                "SNAP and CHIP renew on other schedules.\n", encoding="utf-8"
+            )
+            (folder / "notes.txt").write_text("SNAP\n", encoding="utf-8")
+            (folder / "entry.json").write_text('{"title": "NC Medicaid"}\n', encoding="utf-8")
+            found = other_program_names(pilot_files(folder))
+        self.assertEqual(
+            {Path(name).name: sorted(extra) for name, extra in found.items()},
+            {"README.md": ["chip", "snap"], "notes.txt": ["snap"]},
+        )
 
     def test_dates_are_real_and_never_in_the_future(self):
         today = datetime.date.today()
