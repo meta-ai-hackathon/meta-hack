@@ -25,6 +25,7 @@ TIMEOUT = 30
 CORE_TABLES = [
     "answer",
     "conversation_turn",
+    "form_answer",
     "person",
     "schema_migrations",
     "session",
