@@ -5,6 +5,7 @@ import { addDays, fromEpochDay, parseIsoDate, toEpochDay, type CalendarDate } fr
 import {
   DATE_CHOICE_HELP,
   DATE_CHOICE_LABELS,
+  DOWNLOAD_FAILED_NOTICE,
   NO_DATE_INTRO,
   PRIVACY_NOTE,
   REMOVE_FAILED_NOTICE,
@@ -240,7 +241,13 @@ describe("renewal copy stays hedged and labeled", () => {
     expect(REMOVE_FAILED_NOTICE).toMatch(/clear this site's data/);
   });
 
-  it("says when the reminder starts for each kind of date (review fix: approval dates are in the past)", () => {
+  it("says when the calendar file cannot be made, and what to do instead (third review fix)", () => {
+    expect(STATIC_RENEWAL_COPY).toContain(DOWNLOAD_FAILED_NOTICE);
+    expect(DOWNLOAD_FAILED_NOTICE).toMatch(/^The calendar file could not be made in this browser\./);
+    expect(DOWNLOAD_FAILED_NOTICE).toMatch(/add the date to your calendar by hand/);
+  });
+
+    it("says when the reminder starts for each kind of date (review fix: approval dates are in the past)", () => {
     expect(savedNotice("renewal_due")).toMatch(/30 days before the date/);
     expect(savedNotice("approval")).toMatch(/30 days before each estimate/);
     for (const kind of ["renewal_due", "approval"] as const) {

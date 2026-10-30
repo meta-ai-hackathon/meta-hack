@@ -140,6 +140,10 @@ export const DOWNLOADED_NOTICE =
   "app, then check that the event has a reminder alert, because some " +
   "calendar apps drop them. If you added a file before, delete any old " +
   "event it left.";
+/** Third review fix: a failed download used to say nothing. */
+export const DOWNLOAD_FAILED_NOTICE =
+  "The calendar file could not be made in this browser. You can add the " +
+  "date to your calendar by hand, or try again in another browser.";
 export const DISCARDED_NOTICE =
   "A saved reminder on this device could not be read, so it was removed. " +
   "You can save your date again.";
@@ -391,6 +395,7 @@ export const STATIC_RENEWAL_COPY: readonly string[] = [
   savedNotice("approval"),
   REMOVED_NOTICE,
   DOWNLOADED_NOTICE,
+  DOWNLOAD_FAILED_NOTICE,
   DISCARDED_NOTICE,
   UNSUPPORTED_NOTICE,
   SAVE_FAILED_NOTICE,

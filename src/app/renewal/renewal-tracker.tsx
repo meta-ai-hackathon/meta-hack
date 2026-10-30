@@ -16,6 +16,7 @@ import {
   DISCARDED_NOTICE,
   DOWNLOADED_NOTICE,
   DOWNLOAD_BUTTON,
+  DOWNLOAD_FAILED_NOTICE,
   LOADING_NOTE,
   NOSCRIPT_NOTE,
   NO_DATE_INTRO,
@@ -42,7 +43,7 @@ import {
   requestPersistentStorage,
   withDeadline,
 } from "../../lib/renewal/device-kv";
-import { downloadTextFile } from "../../lib/renewal/download";
+import { CALENDAR_FILE_TYPE, downloadTextFile, offerFile } from "../../lib/renewal/download";
 import {
   AGE_ANSWERS,
   ageQuestionRange,
@@ -231,24 +232,27 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
     reminder: Pick<RenewalReminder, "kind" | "reportedDate" | "ageAnswer">,
     calendarId: string,
   ) {
-    const now = new Date();
-    const moment = deviceLocalMoment(now);
-    const file = buildReminderCalendar({
-      facts,
-      kind: reminder.kind,
-      reportedDate: reminder.reportedDate,
-      ...(reminder.ageAnswer !== undefined ? { ageAnswer: reminder.ageAnswer } : {}),
-      calendarId,
-      now,
-      today: moment.date,
-      minutesIntoToday: moment.minutes,
-    });
-    if (file === null) {
-      setNotice(NO_ESTIMATE_NOTE);
-      return;
-    }
-    downloadTextFile(file.filename, file.text, "text/calendar;charset=utf-8");
-    setNotice(DOWNLOADED_NOTICE);
+    const outcome = offerFile(
+      () => {
+        const now = new Date();
+        const moment = deviceLocalMoment(now);
+        return buildReminderCalendar({
+          facts,
+          kind: reminder.kind,
+          reportedDate: reminder.reportedDate,
+          ...(reminder.ageAnswer !== undefined ? { ageAnswer: reminder.ageAnswer } : {}),
+          calendarId,
+          now,
+          today: moment.date,
+          minutesIntoToday: moment.minutes,
+        });
+      },
+      downloadTextFile,
+      CALENDAR_FILE_TYPE,
+    );
+    setNotice(
+      outcome === "downloaded" ? DOWNLOADED_NOTICE : outcome === "nothing" ? NO_ESTIMATE_NOTE : DOWNLOAD_FAILED_NOTICE,
+    );
   }
 
   function handleDownloadFromForm() {
