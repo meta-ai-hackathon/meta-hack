@@ -17,8 +17,8 @@ name: Claude Review
 # instead of calling the model again. A retarget gets a fresh review.
 #
 # The check fails only for a P1, unless the claude-review-override label was
-# last added by a person's account other than the PR's author's, and not by
-# a bot, on a PR a person opened (never on one a bot opened). The script
+# last added by a person's account other than the PR's author's, directly
+# and not by a bot or an app, on a PR a person opened. The script
 # reads who added it from the PR's issue events, which the pull-requests
 # permission below covers. When it cannot read them, the label does not
 # count on that run. Other errors the script handles pass with a warning

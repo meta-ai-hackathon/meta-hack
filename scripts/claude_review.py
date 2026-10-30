@@ -32,13 +32,13 @@ Exit codes: 1 only when the review found a P1 and the claude-review-override
 label does not count, and never for a manual (workflow_dispatch) run, whose
 check lands on the default branch. The label counts only when its latest
 application, in the PR's issue events, was by a person's account (GitHub's
-type User, not a bot) other than the PR's author's, on a PR a person
-opened. Agents act under their owner's account, so a label added by the
-author's account may be the author's agent, and on a PR a bot opened the
-person behind it could add the label from their own account. When those
-events, or who opened the PR, cannot be read the label does not count
-either, so a real P1 keeps failing the check, and the comment says why the
-label did not count.
+type User, not a bot, and not through an app acting for it) other than the
+PR's author's, on a PR a person opened. Agents act under their owner's
+account, so a label added by the author's account may be the author's
+agent, and on a PR a bot opened the person behind it could add the label
+from their own account. When those events, or who opened the PR, cannot be
+read the label does not count either, so a real P1 keeps failing the check,
+and the comment says why the label did not count.
 
 Every infrastructure failure (GitHub or Anthropic errors, timeouts,
 refusals, malformed output, a bug in this script) prints a ::warning:: and
@@ -295,6 +295,9 @@ class LabelEvent:
     actor: str  # the login that added or removed the label, or "" when GitHub named none
     actor_type: str  # the account type ("User", "Bot", ...), or "" when GitHub gave none
     created_at: str = ""  # as GitHub reports it, for the run log
+    # The app that acted for actor (performed_via_github_app): its slug, ""
+    # for one GitHub did not name, or None when the actor acted directly.
+    via_app: str | None = None
 
 
 # Whether the override label counts on a run (see decide_override).
@@ -306,6 +309,7 @@ OVERRIDE_UNTRACED = "untraced"  # the events do not show a person other than the
 OVERRIDE_UNREAD = "unread"  # the PR's events could not be read
 OVERRIDE_NO_AUTHOR = "no_author"  # a person added it last, but GitHub did not name the PR's author to tell them apart
 OVERRIDE_BOT_AUTHOR = "bot_author"  # a person added it last, but a bot opened the PR, so no person is its author
+OVERRIDE_BY_APP = "app"  # an app added it last, acting for a person's account
 OVERRIDE_STATUSES = (
     OVERRIDE_ABSENT,
     OVERRIDE_HONORED,
@@ -315,6 +319,7 @@ OVERRIDE_STATUSES = (
     OVERRIDE_UNREAD,
     OVERRIDE_NO_AUTHOR,
     OVERRIDE_BOT_AUTHOR,
+    OVERRIDE_BY_APP,
 )
 # The statuses a re-run can change without anyone touching the label, since
 # the run could not read what it needed.
@@ -1192,12 +1197,14 @@ def decide_override(
     the author added it" can. That needs a person as the author, so on a PR
     a bot opened (Dependabot, an agent's app, or any workflow's
     github-actions[bot]) the label never counts: whoever is behind such a PR
-    could add it from their own account. events is None when they could not
-    be read; the label then does not count, so a real P1 keeps failing.
-    Logins compare without case, as GitHub's do. Anything GitHub did not
-    name plainly never counts: an actor that is not a login, an account type
-    other than User (none at all included), or an author that is not a
-    person's login."""
+    could add it from their own account. A person's label counts only when
+    they added it themselves: an app acting with their token (an agent's,
+    say) is recorded as them, so a label the events show it added never
+    counts. events is None when they could not be read; the label then does
+    not count, so a real P1 keeps failing. Logins compare without case, as
+    GitHub's do. Anything GitHub did not name plainly never counts: an actor
+    that is not a login, an account type other than User (none at all
+    included), or an author that is not a person's login."""
     if not has_override(labels):
         return NO_OVERRIDE
     if events is None:
@@ -1220,6 +1227,8 @@ def decide_override(
         return replace(found, status=OVERRIDE_BY_BOT)
     if latest.actor_type != PERSON_TYPE:
         return found
+    if latest.via_app is not None:
+        return replace(found, status=OVERRIDE_BY_APP)
     # A person, then, who counts only when they are not the author, which
     # takes a person as the author.
     if not _LOGIN.fullmatch(author):
@@ -1267,6 +1276,8 @@ def override_why(override: Override, name: Callable[[str], str] = plain_login) -
         return "the bot could not read who opened the PR, so it cannot tell whether the PR's author added it"
     if override.status == OVERRIDE_BOT_AUTHOR:
         return "a bot account opened the PR, so the bot cannot tell whether whoever is behind the PR added it"
+    if override.status == OVERRIDE_BY_APP:
+        return f"an app added it for {name(override.actor or '')}, not that person directly"
     return "the PR's events do not show that a person other than the PR's author added it"
 
 
@@ -1952,12 +1963,17 @@ def parse_issue_event(data: object) -> LabelEvent | None:
     login = actor.get("login") if isinstance(actor, dict) else None
     kind = actor.get("type") if isinstance(actor, dict) else None
     created = item.get("created_at")
+    # An app acting with a person's token is recorded as that person, and
+    # performed_via_github_app names it. Anything there but null is an app.
+    app = item.get("performed_via_github_app")
+    slug = app.get("slug") if isinstance(app, dict) else None
     return LabelEvent(
         action=action,
         label=name,
         actor=login if isinstance(login, str) else "",
         actor_type=kind if isinstance(kind, str) else "",
         created_at=created if isinstance(created, str) else "",
+        via_app=None if app is None else slug if isinstance(slug, str) else "",
     )
 
 

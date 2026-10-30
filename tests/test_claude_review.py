@@ -1119,6 +1119,7 @@ class OverrideRuleProperties(unittest.TestCase):
                 "label": JSON_VALUES | st.fixed_dictionaries({"name": JSON_VALUES | st.sampled_from(OVERRIDE_SPELLINGS)}),
                 "actor": JSON_VALUES | st.fixed_dictionaries({"login": JSON_VALUES, "type": JSON_VALUES}),
                 "created_at": JSON_VALUES,
+                "performed_via_github_app": JSON_VALUES | st.fixed_dictionaries({"slug": JSON_VALUES}),
             }
         )
     )
@@ -1136,6 +1137,34 @@ class OverrideRuleProperties(unittest.TestCase):
         self.assertIn(parsed.action, review.LABEL_ACTIONS)
         for text in (parsed.label, parsed.actor, parsed.actor_type, parsed.created_at):
             self.assertIsInstance(text, str)
+        # An app is named when GitHub sent anything there but null.
+        app = value.get("performed_via_github_app") if isinstance(value, dict) else None
+        self.assertEqual(parsed.via_app is None, app is None)
+        self.assertTrue(parsed.via_app is None or isinstance(parsed.via_app, str))
+
+    @PBT
+    @given(
+        RAW_ACTORS,
+        st.sampled_from(OVERRIDE_SPELLINGS),
+        st.fixed_dictionaries({"slug": st.sampled_from(["some-coding-agent", "copilot-swe-agent"]) | JSON_VALUES}) | JSON_VALUES,
+    )
+    def test_a_label_an_app_added_for_a_person_never_counts(self, actor: object, spelling: str, app: object) -> None:
+        # An app acting with a person's token is recorded as that person,
+        # with the app in performed_via_github_app. Such a label never counts,
+        # and the reason names the app's part whenever the account would
+        # otherwise read as a person's. Without an app it reads as before.
+        value = {"event": "labeled", "label": {"name": spelling}, "actor": actor, "created_at": "2026-10-30T01:00:00Z"}
+        parsed = review.parse_issue_event({**value, "performed_via_github_app": app})
+        assert parsed is not None
+        direct = review.decide_override(LABELED, AUTHOR, [replace(parsed, via_app=None)])
+        self.assertEqual(review.parse_issue_event(value), replace(parsed, via_app=None))
+        override = review.decide_override(LABELED, AUTHOR, [parsed])
+        if app is None:
+            self.assertEqual(override, direct)
+            return
+        self.assertFalse(override.counts)
+        people = (review.OVERRIDE_HONORED, review.OVERRIDE_BY_AUTHOR)
+        self.assertEqual(override.status, review.OVERRIDE_BY_APP if direct.status in people else direct.status)
 
     @PBT
     @given(RAW_ACTORS, st.sampled_from(OVERRIDE_SPELLINGS))
@@ -3043,6 +3072,21 @@ class OverrideRunTests(unittest.TestCase):
             run = Run(github, FakeModel(reply_with([finding("P1")])))
             self.assertEqual(run.code, 1, login)
             self.assertIn(f"because a bot account, @{ZWSP}{login}, added it", github.comments[0].body, login)
+
+    def test_a_label_an_app_added_for_a_person_does_not_pass_a_p1(self) -> None:
+        # The events name kurt, a person other than the author, but an app
+        # acting with kurt's token added the label, so it does not count.
+        via_app = [replace(label_event("labeled", "kurt"), via_app="some-coding-agent")]
+        github = FakeGitHub(make_pr(labels=LABELED), FILES, events=via_app)
+        run = Run(github, FakeModel(reply_with([finding("P1")])))
+        self.assertEqual(run.code, 1)
+        body = github.comments[0].body
+        self.assertIn(f"because an app added it for @{ZWSP}kurt, not that person directly", body)
+        self.assertIn("remove the label and add it again", body)
+        # kurt adding it again directly counts.
+        github.set_pr(make_pr(labels=LABELED))
+        github.events = [*via_app, label_event("unlabeled", "kurt"), label_event("labeled", "kurt")]
+        self.assertEqual(Run(github, None).code, 0)
 
     def test_no_label_passes_a_p1_on_a_pr_a_bot_opened(self) -> None:
         # Any workflow can open a PR as github-actions[bot] once Actions may
