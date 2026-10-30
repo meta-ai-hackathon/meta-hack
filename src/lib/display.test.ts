@@ -1,8 +1,12 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   DEFAULT_DISPLAY_SETTINGS,
   TEXT_ZOOM_STEPS,
+  THEME_PAIRS,
   canStepZoom,
   clampZoomIndex,
   contrastRatio,
@@ -97,8 +101,7 @@ describe("stored settings", () => {
     fc.assert(
       fc.property(settingsArb, (settings) => {
         const parsed = parseDisplaySettings(serializeDisplaySettings(settings));
-        expect(parsed.zoomIndex).toBeGreaterThanOrEqual(0);
-        expect(parsed.zoomIndex).toBeLessThan(TEXT_ZOOM_STEPS.length);
+        expect(parsed.zoomIndex).toBe(clampZoomIndex(settings.zoomIndex));
         expect(parsed.highContrast).toBe(settings.highContrast === true);
       }),
     );
@@ -145,12 +148,40 @@ describe("contrast themes", () => {
   });
 
   it("high contrast beats the already-strong baseline in both schemes", () => {
-    const baselineLight = contrastRatio("#171717", "#ffffff");
-    const baselineDark = contrastRatio("#ededed", "#0a0a0a");
+    const baselineLight = contrastRatio(
+      THEME_PAIRS.light.foreground,
+      THEME_PAIRS.light.background,
+    );
+    const baselineDark = contrastRatio(
+      THEME_PAIRS.dark.foreground,
+      THEME_PAIRS.dark.background,
+    );
     expect(baselineLight).toBeGreaterThan(15); // documented ~17:1 baseline
-    expect(contrastRatio("#000000", "#ffffff")).toBeGreaterThan(baselineLight);
-    expect(contrastRatio("#ffffff", "#000000")).toBeGreaterThan(baselineDark);
-    expect(contrastRatio("#ffffff", "#000000")).toBeCloseTo(21, 0);
+    const highLight = contrastRatio(
+      THEME_PAIRS.highLight.foreground,
+      THEME_PAIRS.highLight.background,
+    );
+    const highDark = contrastRatio(
+      THEME_PAIRS.highDark.foreground,
+      THEME_PAIRS.highDark.background,
+    );
+    expect(highLight).toBeGreaterThan(baselineLight);
+    expect(highDark).toBeGreaterThan(baselineDark);
+    expect(highLight).toBeCloseTo(21, 0);
+    expect(highDark).toBeCloseTo(21, 0);
+  });
+
+  it("globals.css carries exactly the THEME_PAIRS values", () => {
+    const css = readFileSync(
+      join(fileURLToPath(new URL("../app", import.meta.url)), "globals.css"),
+      "utf8",
+    );
+    for (const pair of Object.values(THEME_PAIRS)) {
+      expect(css).toContain(`--background: ${pair.background};`);
+      expect(css).toContain(`--foreground: ${pair.foreground};`);
+    }
+    expect(css).toContain("--color-zinc-500:");
+    expect(css).toContain(':root[data-contrast="high"] :disabled');
   });
 });
 

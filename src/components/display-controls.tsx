@@ -75,13 +75,11 @@ export function DisplayControls() {
 
   return (
     <section
-      aria-labelledby="display-controls-heading"
+      aria-label="Text size and contrast"
       data-display-controls
       className="flex flex-wrap items-center gap-x-6 gap-y-3"
     >
-      <h2 id="display-controls-heading" className="text-base font-semibold">
-        Text size and contrast
-      </h2>
+      <p className="text-base font-semibold">Text size and contrast</p>
       <div className="flex items-center gap-2">
         <button
           type="button"

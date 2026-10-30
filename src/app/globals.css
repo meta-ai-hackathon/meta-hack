@@ -68,18 +68,48 @@
 
 /* HACK-84: high contrast (user toggle, `data-contrast="high"` on <html>).
    Pure black on white in light scheme, pure white on black in dark:
-   21:1, measurably above the ~17:1 BN-07 baseline (proven numerically in
-   src/lib/display.test.ts against these exact hex pairs). */
+   21:1, measurably above the ~17:1 BN-07 baseline (THEME_PAIRS in
+   src/lib/display.ts holds the same values; src/lib/display.test.ts proves
+   the ratios and asserts this file carries them). The zinc palette is
+   REMAPPED so Tailwind's zinc utilities follow too: light-zinc surfaces
+   collapse to white or black, middle greys to the foreground, and opacity
+   dimming is disabled — gray borders and faded disabled controls must not
+   survive the mode that exists for people who cannot see them. */
 :root[data-contrast="high"] {
   --background: #ffffff;
   --foreground: #000000;
+  --color-zinc-50: #ffffff;
+  --color-zinc-100: #ffffff;
+  --color-zinc-200: #000000;
+  --color-zinc-300: #000000;
+  --color-zinc-400: #000000;
+  --color-zinc-500: #000000;
+  --color-zinc-600: #000000;
+  --color-zinc-700: #000000;
+  --color-zinc-800: #000000;
+  --color-zinc-900: #000000;
 }
 
 @media (prefers-color-scheme: dark) {
   :root[data-contrast="high"] {
     --background: #000000;
     --foreground: #ffffff;
+    --color-zinc-50: #000000;
+    --color-zinc-100: #000000;
+    --color-zinc-200: #ffffff;
+    --color-zinc-300: #ffffff;
+    --color-zinc-400: #ffffff;
+    --color-zinc-500: #ffffff;
+    --color-zinc-600: #ffffff;
+    --color-zinc-700: #ffffff;
+    --color-zinc-800: #ffffff;
+    --color-zinc-900: #ffffff;
   }
+}
+
+/* High contrast never dims: a disabled control must stay legible. */
+:root[data-contrast="high"] :disabled {
+  opacity: 1;
 }
 
 /* HACK-84: huge-text zoom. DisplayControls sets the root font-size to the
