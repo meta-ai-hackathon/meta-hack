@@ -21,6 +21,12 @@ export interface PilotConfig {
   readonly stateCode: string;
   /** The form-registry entry the PDF pipeline fills for this pilot. */
   readonly formRegistryId: string;
+  /**
+   * The committed SYNTHETIC demo form (a fixture, not program-specific):
+   * the registry entry the demo and the validation journeys fill today.
+   * Stays the same after the HACK-16 flip — only formRegistryId changes.
+   */
+  readonly sampleFormRegistryId: string;
   /** Knowledge-base entries that ground the assistant for this pilot. */
   readonly kbEntryIds: readonly string[];
   /** Official portal links shown to the person (never auto-submitted). */
@@ -32,6 +38,7 @@ export const PILOT_CONFIG: PilotConfig = {
   countyName: "{{PILOT_COUNTY}}",
   stateCode: "{{PILOT_STATE}}",
   formRegistryId: "{{PILOT_FORM_REGISTRY_ID}}",
+  sampleFormRegistryId: "sample-application-form",
   kbEntryIds: ["{{PILOT_KB_ENTRY_ID}}"],
   portalLinks: [
     {

@@ -12,6 +12,12 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  // The forms fill route reads the committed sample-form templates from the
+  // registry at request time (server-side fixture data, no person data);
+  // include them in the traced output so production downloads work too.
+  outputFileTracingIncludes: {
+    "/api/forms/**": ["./src/lib/forms/fixtures/**"],
+  },
 };
 
 export default nextConfig;
