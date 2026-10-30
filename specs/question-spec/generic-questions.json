@@ -171,6 +171,70 @@
       "provenance": "user-supplied"
     },
     {
+      "id": "income_kind",
+      "prompt": "What kind of income do you have?",
+      "type": "single_select",
+      "help": "This decides which money questions come next. Pick the one that fits best. You can also say you are not sure — then we will ask the general questions.",
+      "options": [
+        { "value": "self_employment_current", "label": "I work for myself right now, in my own business or LLC" },
+        { "value": "prior_employer_only", "label": "I had a job before, but I do not work there anymore" },
+        { "value": "both", "label": "Both — I work for myself now and had a job before" },
+        { "value": "neither", "label": "Neither of these" }
+      ],
+      "pii": false,
+      "required": true,
+      "skip_conditions": [
+        { "question_id": "income_sources", "operator": "in", "value": "none" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "self_employment_statements_offer",
+      "prompt": "Want to bring in your recent bank and payment statements to show this income?",
+      "type": "single_select",
+      "help": "You can share statement files from your bank or payment service, or type the numbers yourself. Anything you share stays on this device, encrypted — nothing is sent anywhere from here. Saying not sure is fine; we will ask for the numbers in a way that works for you.",
+      "options": [
+        { "value": "will_share", "label": "Yes, I can share statements" },
+        { "value": "will_type", "label": "I will type the numbers myself" },
+        { "value": "not_sure_yet", "label": "Not sure yet" }
+      ],
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_kind", "operator": "not_in", "value": "self_employment_current,both" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "prior_employer_current",
+      "prompt": "Do you still work for that earlier employer?",
+      "type": "single_select",
+      "help": "Money from a job you no longer have may be treated differently from money you earn now — the office decides. This can help show that old pay is not current income.",
+      "options": [
+        { "value": "no_longer_there", "label": "No, I do not work there anymore" },
+        { "value": "yes_still_there", "label": "Yes, I still work there" }
+      ],
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_kind", "operator": "not_in", "value": "prior_employer_only,both" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "prior_employer_last_month",
+      "prompt": "In what month and year did you last get paid by that employer?",
+      "type": "text",
+      "help": "For example: March 2025. Your best memory is fine. This helps show that the pay is from the past, not current income.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_kind", "operator": "not_in", "value": "prior_employer_only,both" },
+        { "question_id": "prior_employer_current", "operator": "equals", "value": "yes_still_there" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
       "id": "job_income_amount",
       "prompt": "About how much money comes in from jobs each time you get paid?",
       "type": "number",

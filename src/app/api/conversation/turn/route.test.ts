@@ -448,6 +448,10 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       { questionId: "shelter_mail_consent", text: "The shelter agreed to hold my mail", value: true, verbatim: "agreed to hold my mail", vaultValue: "true", wholeBodyCheck: false },
       { questionId: "phone_contact", text: "You can call me at 555-0143", value: "555-0143", verbatim: "555-0143", vaultValue: "555-0143", wholeBodyCheck: true },
       { questionId: "email_contact", text: "My email is person@example.com", value: "person@example.com", verbatim: "person@example.com", vaultValue: "person@example.com", wholeBodyCheck: true },
+      // NB: the value must not be the spec help text's own example ("March
+      // 2025") — that ships to the client as public help, so it can never
+      // satisfy the whole-body check. "June 2024" appears nowhere in the spec.
+      { questionId: "prior_employer_last_month", text: "I last got paid by that employer in June 2024", value: "June 2024", verbatim: "June 2024", vaultValue: "June 2024", wholeBodyCheck: true },
     ];
 
     // The full population: exactly every pii:true question in the spec.

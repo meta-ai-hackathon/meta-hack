@@ -51,6 +51,11 @@ function fullAnswers(): AnswerMap {
   answers.mailing_situation = { status: "known", value: "shelter" };
   answers.shelter_mail_consent = { status: "known", value: true };
   answers.contact_preference = { status: "unknown", value: null };
+  // Income-kind branch (HACK-85): income_kind = both keeps the whole branch
+  // visible, and prior_employer_current = no_longer_there keeps the pii:true
+  // prior_employer_last_month visible too.
+  answers.income_kind = { status: "known", value: "both" };
+  answers.prior_employer_current = { status: "known", value: "no_longer_there" };
   return answers;
 }
 

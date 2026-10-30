@@ -251,6 +251,87 @@ describe("spec skip chains (real question spec, read-only)", () => {
     }
   });
 
+  describe("income-kind branching (HACK-85, demo persona)", () => {
+    // The persona: current self-employment (LLC, no tax return yet) plus a
+    // stale prior-employer W-2. The branch question — never the LLM —
+    // decides which verification questions come next.
+    it("self-employment now: offers the consented statements pull, hides prior-employer questions", () => {
+      const ids = visibleIds(
+        answersFor({ income_kind: known("self_employment_current") }),
+      );
+      expect(ids).toContain("self_employment_statements_offer");
+      expect(ids).not.toContain("prior_employer_current");
+      expect(ids).not.toContain("prior_employer_last_month");
+    });
+
+    it("prior employer only: asks the still-there question and the last-paid month, hides the pull offer", () => {
+      const ids = visibleIds(
+        answersFor({ income_kind: known("prior_employer_only") }),
+      );
+      expect(ids).toContain("prior_employer_current");
+      expect(ids).toContain("prior_employer_last_month");
+      expect(ids).not.toContain("self_employment_statements_offer");
+    });
+
+    it("both: both paths are asked", () => {
+      const ids = visibleIds(answersFor({ income_kind: known("both") }));
+      expect(ids).toContain("self_employment_statements_offer");
+      expect(ids).toContain("prior_employer_current");
+      expect(ids).toContain("prior_employer_last_month");
+    });
+
+    it("still working there: the last-paid question goes away (that pay is current)", () => {
+      const ids = visibleIds(
+        answersFor({
+          income_kind: known("prior_employer_only"),
+          prior_employer_current: known("yes_still_there"),
+        }),
+      );
+      expect(ids).toContain("prior_employer_current");
+      expect(ids).not.toContain("prior_employer_last_month");
+    });
+
+    it("neither: no branch follow-ups at all", () => {
+      const ids = visibleIds(answersFor({ income_kind: known("neither") }));
+      expect(ids).not.toContain("self_employment_statements_offer");
+      expect(ids).not.toContain("prior_employer_current");
+      expect(ids).not.toContain("prior_employer_last_month");
+    });
+
+    it("unknown branch answer never infers a path: every follow-up stays asked", () => {
+      const ids = visibleIds(answersFor({ income_kind: notSure() }));
+      expect(ids).toContain("self_employment_statements_offer");
+      expect(ids).toContain("prior_employer_current");
+      expect(ids).toContain("prior_employer_last_month");
+    });
+
+    it("the demo persona walks end-to-end: branch, offer, still-there, last-paid", () => {
+      const journey: AnswerMap = {
+        income_kind: known("both"),
+        self_employment_statements_offer: known("will_share"),
+        prior_employer_current: known("no_longer_there"),
+        prior_employer_last_month: known("June 2025"),
+      };
+      const ids = visibleIds(journey);
+      expect(ids).toContain("job_income_amount");
+      expect(progressCounts(visibleQuestions(QUESTIONS, journey), journey).remaining).toBeGreaterThan(0);
+    });
+
+    it("no persona copy uses gig framing", () => {
+      for (const id of [
+        "income_kind",
+        "self_employment_statements_offer",
+        "prior_employer_current",
+        "prior_employer_last_month",
+      ]) {
+        const question = QUESTION_BY_ID[id];
+        expect(question, id).toBeDefined();
+        const copy = `${question.prompt} ${question.help} ${(question.options ?? []).map((option) => option.label).join(" ")}`;
+        expect(copy.toLowerCase()).not.toMatch(/gig|1099|rideshare|delivery app/);
+      }
+    });
+  });
+
   describe("income_sources chain, both directions", () => {
     it("asks job follow-ups when a listed source is selected", () => {
       const ids = visibleIds(answersFor({ income_sources: known(["job"]) }));
