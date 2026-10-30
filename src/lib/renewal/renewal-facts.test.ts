@@ -1,7 +1,9 @@
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { parseKbEntry, type KbEntry } from "../kb";
+import { KbValidationError, parseKbEntry, type KbEntry } from "../kb";
 import pilotEntryJson from "../../../kb/pilot/nc-medicaid-renewal.json";
 import { parseIsoDate } from "./calendar-date";
+import { buildReminderCalendar } from "./reminder-calendar";
 import {
   PILOT_RENEWAL_ENTRY,
   PILOT_RENEWAL_FACTS,
@@ -169,5 +171,64 @@ describe("non-active entries are never shown silently (BN-29)", () => {
     expect(view.statusReason).toBe("The source page changed after it was read.");
     expect(allSources(view)).toEqual([]);
     expect(view.schedules).toEqual([]);
+  });
+});
+
+describe("every URL the view shows is one the calendar builder accepts (third review)", () => {
+  type RawEntry = {
+    sources: { id: string; url: string }[];
+    facts: { steps: { source_id: string }; official_links: { items: { url: string }[] } };
+  };
+
+  function withUrl(place: "steps" | "link", url: string): unknown {
+    const raw = structuredClone(pilotEntryJson) as RawEntry;
+    if (place === "steps") {
+      raw.sources.find((source) => source.id === raw.facts.steps.source_id)!.url = url;
+    } else {
+      raw.facts.official_links.items[0]!.url = url;
+    }
+    return raw;
+  }
+
+  const place = fc.constantFrom("steps" as const, "link" as const);
+  const plainPath = fc.stringMatching(/^[a-z0-9._~/?=&%-]{0,24}$/);
+  const refused = fc.constantFrom(" ", "\t", '"', "<", ">", "\\", "^", "`", "{", "|", "}");
+
+  it("fails at load on a steps or link URL the calendar builder refuses, and loads a plain one", () => {
+    fc.assert(
+      fc.property(place, plainPath, plainPath, refused, (where, head, tail, bad) => {
+        const plain = `https://medicaid.ncdhhs.gov/${head}${tail}`;
+        expect(buildRenewalFactsView(parseKbEntry(withUrl(where, plain))).entryId).toBe("nc_medicaid_renewal");
+        const broken = `https://medicaid.ncdhhs.gov/${head}${bad}${tail}`;
+        expect(() => buildRenewalFactsView(parseKbEntry(withUrl(where, broken)))).toThrow(KbValidationError);
+      }),
+    );
+  });
+
+  it("so the download never meets a URL it refuses: any view that loads builds its calendar file", () => {
+    // The review's probe: a steps URL with a space passed every KB check and
+    // then threw inside the download click.
+    fc.assert(
+      fc.property(place, fc.string({ maxLength: 30 }), (where, path) => {
+        let facts;
+        try {
+          facts = buildRenewalFactsView(parseKbEntry(withUrl(where, `https://medicaid.ncdhhs.gov/${path}`)));
+        } catch (error) {
+          expect(error).toBeInstanceOf(KbValidationError);
+          return;
+        }
+        const file = buildReminderCalendar({
+          facts,
+          kind: "renewal_due",
+          reportedDate: "2027-04-30",
+          calendarId: "0123456789abcdef0123456789abcdef",
+          now: new Date("2026-10-30T12:00:00Z"),
+          today: parseIsoDate("2026-10-30")!,
+          minutesIntoToday: 0,
+        });
+        expect(file).not.toBeNull();
+      }),
+      { numRuns: 300 },
+    );
   });
 });

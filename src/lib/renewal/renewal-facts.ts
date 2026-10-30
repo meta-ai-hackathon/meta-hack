@@ -1,5 +1,6 @@
 import pilotRenewalEntryJson from "../../../kb/pilot/nc-medicaid-renewal.json";
 import {
+  KbValidationError,
   citeCadenceSchedule,
   citeFactGroup,
   parseKbEntry,
@@ -11,6 +12,7 @@ import {
 } from "../kb";
 import { parseIsoDate } from "./calendar-date";
 import type { RenewalSchedule } from "./estimate";
+import { isPlainHttpsUrl } from "./ics";
 
 /**
  * The knowledge-base side of the renewal tracker (BN-22 / HACK-50).
@@ -171,7 +173,7 @@ export function buildRenewalFactsView(entry: KbEntry): RenewalFactsView {
   keyDates.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
   const linkSource = cite("official_links");
-  return {
+  const view: RenewalFactsView = {
     ...base,
     schedules,
     keyDates,
@@ -186,6 +188,36 @@ export function buildRenewalFactsView(entry: KbEntry): RenewalFactsView {
       source: linkSource,
     })),
   };
+  assertPlainUrls(view);
+  return view;
+}
+
+/**
+ * Every source and link URL the view shows must be a plain https URL, by
+ * the rule the calendar builder holds an event URL to (isPlainHttpsUrl in
+ * ics.ts). The KB checks only look at the https:// prefix, so a URL with a
+ * space or a quote used to load and then throw inside the download click
+ * (third review). Checked here instead, so bad knowledge-base data fails
+ * when this module loads, which for the pilot entry is the build.
+ */
+function assertPlainUrls(view: RenewalFactsView): void {
+  const sourced = [
+    ...view.schedules,
+    ...view.keyDates,
+    ...view.deadlineNotes,
+    ...view.rules,
+    ...view.documents,
+    ...view.steps,
+    ...view.ifCoverageEnds,
+    ...view.links,
+  ];
+  const urls = new Set([...sourced.map((item) => item.source.sourceUrl), ...view.links.map((link) => link.url)]);
+  const problems = [...urls]
+    .filter((url) => !isPlainHttpsUrl(url))
+    .map((url) => `url "${url}" is not a plain https URL (no spaces, quotes, angle brackets, or the like)`);
+  if (problems.length > 0) {
+    throw new KbValidationError(problems);
+  }
 }
 
 /** The banner's slice of a facts view. */

@@ -194,6 +194,16 @@ export function alarmTrigger(daysBefore: number, atHour: number = ICS_ALARM_HOUR
 
 const SAFE_URI_RE = /^https:\/\/[^\s"<>\\^`{|}]+$/;
 
+/**
+ * Whether a URL is one an event's URL line can carry as is: https, with no
+ * whitespace, quotes, angle brackets, backslash, caret, backtick, braces, or
+ * pipe. The renewal facts view holds every URL it shows to the same rule
+ * when it loads (renewal-facts.ts), so bad knowledge-base data fails there.
+ */
+export function isPlainHttpsUrl(value: string): boolean {
+  return SAFE_URI_RE.test(value);
+}
+
 function eventLines(event: IcsAllDayEvent, options: IcsCalendarOptions): string[] {
   if (!/^[\x21-\x7e]+$/.test(event.uid)) {
     throw new RangeError("event uid must be printable ASCII with no spaces");
@@ -212,7 +222,7 @@ function eventLines(event: IcsAllDayEvent, options: IcsCalendarOptions): string[
     `DESCRIPTION:${escapeIcsText(event.description)}`,
   ];
   if (event.url !== undefined) {
-    if (!SAFE_URI_RE.test(event.url)) {
+    if (!isPlainHttpsUrl(event.url)) {
       throw new RangeError("event url must be a plain https URL");
     }
     lines.push(`URL:${event.url}`);
