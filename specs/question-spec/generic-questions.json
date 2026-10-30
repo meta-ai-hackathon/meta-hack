@@ -171,6 +171,68 @@
       "provenance": "user-supplied"
     },
     {
+      "id": "income_kind",
+      "prompt": "What kind of income do you have?",
+      "type": "single_select",
+      "help": "This decides which money questions come next. Pick the one that fits best — you can say 'not sure' and we will ask the general questions.",
+      "options": [
+        { "value": "self_employment_current", "label": "I work for myself right now (my own business or LLC)" },
+        { "value": "prior_employer_only", "label": "I had a job before, but I do not work there anymore" },
+        { "value": "both", "label": "Both — I work for myself now and had a job before" },
+        { "value": "neither", "label": "Neither of these" }
+      ],
+      "pii": false,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "self_employment_statements_offer",
+      "prompt": "Want to connect your bank and payment accounts so we can pull your recent statements for you?",
+      "type": "single_select",
+      "help": "This is your choice. If you say yes, we will ask for your permission first and show you exactly which service would receive your information before anything is sent. If you say no, you can type the numbers yourself or share statements another way. Nothing is sent anywhere unless you say yes.",
+      "options": [
+        { "value": "yes_connect", "label": "Yes, connect my accounts" },
+        { "value": "no_manual", "label": "No, I will enter it myself" },
+        { "value": "not_sure_yet", "label": "Not sure yet" }
+      ],
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_kind", "operator": "not_in", "value": "self_employment_current,both" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "prior_employer_current",
+      "prompt": "Do you still work for that earlier employer?",
+      "type": "single_select",
+      "help": "Money from a job you no longer have does not count the same way as money you earn now. Answering honestly keeps old pay from being counted as current income.",
+      "options": [
+        { "value": "no_longer_there", "label": "No, I do not work there anymore" },
+        { "value": "yes_still_there", "label": "Yes, I still work there" }
+      ],
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_kind", "operator": "not_in", "value": "prior_employer_only,both" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "prior_employer_last_month",
+      "prompt": "In what month and year did you last get paid by that employer?",
+      "type": "text",
+      "help": "For example: March 2025. Your best memory is fine. This helps show that the pay is from the past, not current income.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_kind", "operator": "not_in", "value": "prior_employer_only,both" },
+        { "question_id": "prior_employer_current", "operator": "equals", "value": "yes_still_there" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
       "id": "job_income_amount",
       "prompt": "About how much money comes in from jobs each time you get paid?",
       "type": "number",
