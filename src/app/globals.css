@@ -1,14 +1,48 @@
 @import "tailwindcss";
 
+/* Design tokens — the polished visual language (frontend-polish, VAL-
+   DEMOEXP-008): warm paper, ink text, deep teal accents, serif display
+   headings. Every text/background pairing is gated by
+   src/components/contrast-tokens.test.ts against the PRE-POLISH baselines:
+   default text 18.05:1 light / 16.91:1 dark (>= the pre-polish 17.93 / 16.91),
+   muted text 9.42:1 light (>= pre-polish 7.81), and every component pair at
+   WCAG AAA. The dark scheme preserves the pre-polish dark palette. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8f4ec;
+  --foreground: #0a0a0a;
+  --surface: #ffffff;
+  --surface-border: #dcd5c6;
+  --muted: #444036;
+  --teal: #0f3d3e;
+  --teal-soft: #ecf2ee;
+  --teal-deep: #123b38;
+  --teal-contrast: #ffffff;
+  --amber-soft: #fcf6e3;
+  --amber-line: #b98a1f;
+  --amber-ink: #5c4708;
+  --danger: #7f2718;
+  --danger-soft: #fef3f0;
+  --danger-contrast: #ffffff;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-border: var(--surface-border);
+  --color-muted: var(--muted);
+  --color-teal: var(--teal);
+  --color-teal-soft: var(--teal-soft);
+  --color-teal-deep: var(--teal-deep);
+  --color-teal-contrast: var(--teal-contrast);
+  --color-amber-soft: var(--amber-soft);
+  --color-amber-line: var(--amber-line);
+  --color-amber-ink: var(--amber-ink);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-contrast: var(--danger-contrast);
   --font-sans: var(--font-geist-sans);
+  --font-display: var(--font-serif-display);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -16,13 +50,78 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --surface: #111111;
+    --surface-border: #3f3f46;
+    --muted: #a1a1aa;
+    --teal: #93e2d2;
+    --teal-soft: #13221f;
+    --teal-deep: #d5f0e9;
+    --teal-contrast: #0a0a0a;
+    --amber-soft: #241d0c;
+    --amber-line: #8a6a1f;
+    --amber-ink: #efcf6e;
+    --danger: #f0b0a6;
+    --danger-soft: #2a120e;
+    --danger-contrast: #2a120e;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Progress bars pick up the teal accent (the <progress> element ignores
+   text-color utilities on some engines; accent-color is the supported hook). */
+progress {
+  accent-color: var(--teal);
+}
+
+/* Consent toggle switch (frontend-polish): a real checkbox styled as a
+   switch — keyboard operable, announced by its label exactly as before.
+   The styling lives here rather than in utility classes because the
+   consent surface's gate test asserts the rendered toggle markup never
+   matches /checked/ (it must not pre-check the choice); a `checked:`
+   Tailwind variant in the class attribute would false-match that guard. */
+.consent-switch {
+  appearance: none;
+  position: relative;
+  cursor: pointer;
+  height: 1.5rem;
+  width: 2.75rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-border);
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.consent-switch::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  height: 1.25rem;
+  width: 1.25rem;
+  border-radius: 9999px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  transition: transform 150ms ease;
+}
+
+.consent-switch:checked {
+  border-color: var(--teal-deep);
+  background: var(--teal-deep);
+}
+
+.consent-switch:checked::before {
+  transform: translateX(1.25rem);
+}
+
+.consent-switch:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 /* BN-07: visible keyboard focus everywhere. Never remove the default outline
