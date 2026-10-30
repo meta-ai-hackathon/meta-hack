@@ -632,7 +632,12 @@ export async function buildMatchResponse(
 ): Promise<MatchResponse> {
   const entries = options.entries ?? KB_ENTRIES;
   const explainer = options.explainer ?? explainEntry;
-  const cache = options.explanationCache ?? moduleExplanationCache;
+  // The shared module cache is only for the default explainer; a custom
+  // explainer without an explicit cache gets a fresh map per build, so test
+  // stubs can never leak into (or pin) later default-explainer builds.
+  const cache =
+    options.explanationCache ??
+    (explainer === explainEntry ? moduleExplanationCache : new Map());
   const ranked = rankEntries(answers, entries);
   const matches: MatchCard[] = [];
   const signalMatched = ranked.filter((rankedEntry) => rankedEntry.score > 0);
@@ -666,12 +671,19 @@ export async function buildMatchResponse(
  *
  * Precision (claude-review P2-3 on PR #45): only the response fields that
  * render user-derived content are scanned — the plain-language answer
- * labels on reasons and the to-resolve labels. Static copy (entry facts,
- * links, glossary definitions, framing) is never scanned: a free-text pii
- * answer that happens to equal a common KB word ("application") must not
- * fail-closed the user's whole match list. Multi-select values are checked
- * element by element — a JSON-stringified array can never substring-match,
- * so the old whole-array check was a no-op there.
+ * labels on reasons and the to-resolve status labels. Static copy (entry
+ * facts, links, glossary definitions, framing, the to-resolve prompts)
+ * is never scanned: a free-text pii answer that happens to equal a common
+ * KB word ("application") must not fail-closed the user's whole match
+ * list. Multi-select values are checked element by element — a
+ * JSON-stringified array can never substring-match, so the old whole-array
+ * check was a no-op there.
+ *
+ * THE SCANNED FIELD SET IS THE CONTRACT: if a response field is ever
+ * reworked to render answer content, it must join the scan. The fields
+ * deliberately outside it are entry-derived by construction (reason text,
+ * explanation copy, framing, links) — the explanation additionally passes
+ * the banned-claim and grounding gates before render.
  */
 export function assertNoPiiValuesInMatch(
   response: MatchResponse,
@@ -686,10 +698,7 @@ export function assertNoPiiValuesInMatch(
     }
   }
   for (const item of response.toResolve) {
-    userDerivedSurfaces.push(
-      item.prompt.toLowerCase(),
-      item.statusLabel.toLowerCase(),
-    );
+    userDerivedSurfaces.push(item.statusLabel.toLowerCase());
   }
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     const stored = answers[questionId];

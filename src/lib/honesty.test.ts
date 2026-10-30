@@ -64,6 +64,7 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "modal meet determination", text: "You should meet the income rules with that household size." },
   { label: "negated meet determination", text: "You do not meet the income rules." },
   { label: "future negated meet determination", text: "You will not meet the requirements without a verified ID." },
+  { label: "contraction meet promise", text: "You'll meet the income rules once you apply." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty
@@ -80,6 +81,11 @@ const HONEST_SENTENCES: string[] = [
   "You may meet the income rules for this program.",
   "You would need to meet the income rules the official source lists.",
   "You may not meet the income rules yet; the official rules decide.",
+  // Conditionals are not determinations: the hedge lives in the consequent,
+  // and any assertion there is still caught by the eligible/qualify/approved
+  // patterns.
+  "If you meet the income limits, you may be eligible.",
+  "The checklist shows whether you meet the requirements.",
 ];
 
 // Parsed from the repo's spec and migration files at test time — the literals

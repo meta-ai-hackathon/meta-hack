@@ -798,6 +798,41 @@ describe("assertNoPiiValuesInMatch", () => {
     ).toThrow();
   });
 
+  it("does not scan KB-derived fields — the scanned set is the contract", async () => {
+    // Reason text, explanation copy, framing, and links are built from the
+    // entry (KB data), never from answers — a value appearing there cannot
+    // be a leak path, and scanning them would resurrect the false-500
+    // class this gate fix removes (claude-review P2-1 on PR #46 proposes
+    // the opposite trade-off; the field-scoped rule is the mandated
+    // design). If any of these fields is EVER reworked to render answer
+    // content, it must join the scan — and this test pins today's
+    // contract so that change is deliberate.
+    const answers: AnswerMap = {
+      date_of_birth: { status: "known", value: "1980-02-03" },
+    };
+    const clean = await buildMatchResponse(known("main_goal", "food"), {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    const cleanCard = clean.matches[0]!;
+    const kbDerivedPoisoned = {
+      ...clean,
+      matches: [
+        {
+          ...cleanCard,
+          reasons: cleanCard.reasons.map((reason, index) =>
+            index === 0 ? { ...reason, text: "Dated 1980-02-03." } : reason,
+          ),
+          explanation: { text: "Dated 1980-02-03.", source: "facts" as const },
+        },
+        ...clean.matches.slice(1),
+      ],
+    };
+    expect(() =>
+      assertNoPiiValuesInMatch(kbDerivedPoisoned, answers),
+    ).not.toThrow();
+  });
+
   it("bites exactly when a specific pii value reaches a user-derived field (property)", async () => {
     await fc.assert(
       fc.asyncProperty(
