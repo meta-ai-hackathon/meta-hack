@@ -1,3 +1,4 @@
+import type { KbAgeRange } from "../kb";
 import {
   addMonthsClamped,
   compareDates,
@@ -16,11 +17,14 @@ import {
  * client-safe.
  */
 
-/** An inclusive age range a published schedule names. */
-export interface AgeRange {
-  readonly min: number;
-  readonly max: number;
-}
+/**
+ * An inclusive age range a published schedule names: the knowledge base's
+ * own type, so the schedule data and the age answer it is compared with
+ * cannot drift apart (third review: this was a field-for-field twin).
+ * A type-only import, erased at build time, so this module stays
+ * client-safe.
+ */
+export type AgeRange = KbAgeRange;
 
 /** One published schedule, as plain serializable data. */
 export interface RenewalSchedule {

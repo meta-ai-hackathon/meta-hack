@@ -1,5 +1,6 @@
 import fc from "fast-check";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import type { KbAgeRange, KbCadenceFact } from "../kb";
 import {
   addMonthsClamped,
   compareDates,
@@ -15,9 +16,18 @@ import {
   estimateRenewals,
   excludedByAge,
   type AgeAnswer,
+  type AgeRange,
   type RenewalSchedule,
 } from "./estimate";
 import { PILOT_RENEWAL_FACTS } from "./renewal-facts";
+
+describe("one age range type for the knowledge base and the estimates (third review)", () => {
+  it("is the knowledge base's own type, so the two layers cannot drift", () => {
+    expectTypeOf<AgeRange>().toEqualTypeOf<KbAgeRange>();
+    expectTypeOf<NonNullable<RenewalSchedule["ages"]>>().toEqualTypeOf<NonNullable<KbCadenceFact["ages"]>>();
+    expectTypeOf<Pick<AgeAnswer, "min" | "max">>().toEqualTypeOf<Pick<KbAgeRange, "min" | "max">>();
+  });
+});
 
 // Renewal estimates (HACK-50): the reported date plus each published
 // schedule, kept only when the schedule has started by then. The cutover
