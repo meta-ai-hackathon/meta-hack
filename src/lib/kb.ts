@@ -12,6 +12,7 @@ import sampleBEntryJson from "../../kb/entries/pilot-program-sample-b.json";
 import sampleCEntryJson from "../../kb/entries/pilot-program-sample-c.json";
 import realEntryJson from "../../kb/entries/nc-medicaid.json";
 import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
+import { PILOT_CONFIG } from "./pilot";
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -632,16 +633,46 @@ export function citeFactGroup(
 // ---------------------------------------------------------------------------
 
 /**
- * The shipped knowledge base: the REAL pilot entry (mission v2.1 M6 — the
- * HACK-16 lock landed; official sources + retrieval dates + HACK-17
- * claim-verification notes) plus the three pilot-agnostic sample entries
- * (mission v2 M3 — matching needs more than one entry to rank) which stay
- * available for tests. Every entry is validated at module load, so invalid
- * KB data fails fast instead of leaking unverified facts.
+ * The three pilot-agnostic sample entries (mission v2 M3 — matching needs
+ * more than one entry to rank). TEST-ONLY fixtures: they never ship in the
+ * production dataset, so a placeholder-program card cannot rank for real
+ * users (VAL-PILOTREAL-004). Every entry is validated at module load, so
+ * invalid KB data fails fast instead of leaking unverified facts.
  */
-export const KB_ENTRIES: readonly KbEntry[] = [
-  parseKbEntry(sampleEntryJson as unknown),
-  parseKbEntry(sampleBEntryJson as unknown),
-  parseKbEntry(sampleCEntryJson as unknown),
-  parseKbEntry(realEntryJson as unknown),
-];
+export const SAMPLE_KB_ENTRIES: readonly KbEntry[] = [
+  sampleEntryJson,
+  sampleBEntryJson,
+  sampleCEntryJson,
+].map((json) => parseKbEntry(json as unknown));
+
+// Every shipped entry (the samples plus the real pilot entry), parsed once
+// and validated at module load. The production export below is derived from
+// this index by the pilot seam.
+const SHIPPED_ENTRIES_BY_ID = new Map<string, KbEntry>(
+  [
+    ...SAMPLE_KB_ENTRIES,
+    parseKbEntry(realEntryJson as unknown),
+  ].map((entry) => [entry.id, entry]),
+);
+
+/**
+ * The PRODUCTION knowledge base (mission v2.1 M7 — VAL-PILOTREAL-004):
+ * exactly the entries the pilot-config seam references
+ * (PILOT_CONFIG.kbEntryIds — the real pilot entry from the HACK-16 lock,
+ * official sources + retrieval dates + HACK-17 claim-verification notes).
+ * The synthetic samples live only in SAMPLE_KB_ENTRIES above, so a
+ * placeholder-program card can never rank beside — or instead of — the
+ * real entry in production. An unknown id in the seam fails fast at
+ * module load.
+ */
+export const KB_ENTRIES: readonly KbEntry[] = PILOT_CONFIG.kbEntryIds.map(
+  (id) => {
+    const entry = SHIPPED_ENTRIES_BY_ID.get(id);
+    if (entry === undefined) {
+      throw new Error(
+        `PILOT_CONFIG.kbEntryIds references an unknown KB entry: "${id}"`,
+      );
+    }
+    return entry;
+  },
+);

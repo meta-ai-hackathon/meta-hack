@@ -192,7 +192,10 @@ describe("grounded prompt builders", () => {
 
   it("grounds the reply prompt on active KB entries only (BN-29)", () => {
     const active = activeKbGrounding();
-    expect(active).toContain("pilot_program_sample");
+    // The production dataset is the seam-driven real pilot entry only
+    // (VAL-PILOTREAL-004): the synthetic samples never ground a reply.
+    expect(active).toContain("nc_medicaid");
+    expect(active).not.toContain("pilot_program_sample");
     const stale = makeEntry("stale", "only-the-stale-entry-has-this-phrase");
     expect(activeKbGrounding([stale])).not.toContain(
       "only-the-stale-entry-has-this-phrase",

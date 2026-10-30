@@ -9,6 +9,7 @@ import {
   resetModuleExplanationCache,
 } from "../../../lib/match";
 import { KB_ENTRIES } from "../../../lib/kb";
+import { PILOT_CONFIG } from "../../../lib/pilot";
 import { CONSENT_HEADER } from "../../../lib/consent";
 import {
   loadAnswers,
@@ -76,7 +77,8 @@ afterEach(() => {
   setLogSink(() => undefined);
 });
 
-// Seeded answers: a known benefit-relevant core plus explicit unknowns.
+// Seeded answers: the demo persona (the pilot state ranks the real KB
+// entry) plus a known benefit-relevant core and explicit unknowns.
 async function seedAnswers(): Promise<void> {
   await saveAnswer(sessionId, "main_goal", "known", "food", "user_supplied");
   await saveAnswer(sessionId, "housing_status", "known", "shelter", "user_supplied");
@@ -84,13 +86,18 @@ async function seedAnswers(): Promise<void> {
   await saveAnswer(sessionId, "household_size", "known", 3, "user_supplied");
   await saveAnswer(sessionId, "id_status", "unknown", null, "user_supplied");
   await saveAnswer(sessionId, "citizenship_status", "unverified", "us_citizen", "ai_drafted");
+  await saveAnswer(sessionId, "state", "known", "NC", "user_supplied");
 }
 
-function matchRequest(method: "GET" | "POST", consent?: string | null): Request {
+function matchRequest(
+  method: "GET" | "POST",
+  consent?: string | null,
+  forSession: string = sessionId,
+): Request {
   return new Request("http://localhost:3100/api/match", {
     method,
     headers: {
-      cookie: sessionCookieHeader(sessionId),
+      cookie: sessionCookieHeader(forSession),
       // No consent header unless the test passes one: the default is the
       // fail-closed, zero-model-call path under the consent gate.
       ...(consent ? { [CONSENT_HEADER]: consent } : {}),
@@ -152,21 +159,18 @@ describe("GET /api/match — ranked match for the session (VAL-MATCH-001)", () =
     expect(await first.text()).toBe(await second.clone().text());
   });
 
-  it("ranks the food-focused sample first for a food goal with no income", async () => {
+  it("ranks the real pilot entry first for the demo persona (state=NC)", async () => {
     await seedAnswers();
     const body = await bodyOf(await GET(matchRequest("GET")));
     expect(body.hasSession).toBe(true);
-    expect(body.matches[0]!.entryId).toBe("pilot_program_sample_b");
+    expect(body.matches[0]!.entryId).toBe("nc_medicaid");
     expect(body.matches[0]!.score).toBeGreaterThan(0);
-    // Zero-signal honesty: an entry no signal matched is never presented as
-    // a card — the seeded answers score the housing and food samples only,
-    // so the citizenship/disability sample stays out of the payload.
+    // VAL-PILOTREAL-004: no synthetic sample entry can rank in production —
+    // every card is an entry the pilot seam references.
     for (const card of body.matches) {
+      expect(PILOT_CONFIG.kbEntryIds, card.entryId).toContain(card.entryId);
       expect(card.score, card.entryId).toBeGreaterThan(0);
     }
-    expect(body.matches.map((card) => card.entryId)).not.toContain(
-      "pilot_program_sample_c",
-    );
     // Descending scores; ties broken by entry id.
     for (let index = 1; index < body.matches.length; index += 1) {
       const previous = body.matches[index - 1]!.score;
@@ -178,6 +182,34 @@ describe("GET /api/match — ranked match for the session (VAL-MATCH-001)", () =
         );
       }
     }
+  });
+
+  it("renders the honest empty state when nothing ranks in production (VAL-PILOTREAL-004)", async () => {
+    // A second session answers the questions that scored the synthetic
+    // samples before the dataset split (food goal, shelter, no income) but
+    // NOT the state question. The production dataset carries no sample
+    // entries, so nothing ranks and the honest empty state renders — the
+    // exact payload a placeholder card hijacked before the split.
+    const personRows = await testDb`
+      INSERT INTO person DEFAULT VALUES RETURNING id
+    `;
+    const sessionRows = await testDb`
+      INSERT INTO session (person_id, caseworker_assisted, status)
+      VALUES (${String(personRows[0].id)}, false, 'draft') RETURNING id
+    `;
+    const sampleScoringSession = String(sessionRows[0].id);
+    await saveAnswer(sampleScoringSession, "main_goal", "known", "food", "user_supplied");
+    await saveAnswer(sampleScoringSession, "housing_status", "known", "shelter", "user_supplied");
+    await saveAnswer(sampleScoringSession, "income_sources", "known", ["none"], "user_supplied");
+    await saveAnswer(sampleScoringSession, "id_status", "unknown", null, "user_supplied");
+    const body = await bodyOf(await GET(matchRequest("GET", null, sampleScoringSession)));
+    expect(body.hasSession).toBe(true);
+    // Nothing ranks: the empty state, not a placeholder card.
+    expect(body.matches).toEqual([]);
+    // No sample entry appears anywhere in the payload.
+    expect(JSON.stringify(body)).not.toContain("pilot_program_sample");
+    // The empty state is honest, not silent: the unknown still surfaces.
+    expect(body.toResolve.map((item) => item.questionId)).toEqual(["id_status"]);
   });
 
   it("accepts POST the same as GET", async () => {
