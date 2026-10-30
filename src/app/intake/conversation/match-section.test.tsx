@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../../../lib/honesty";
 import type { AnswerMap } from "../../../lib/intake/flow";
 import { buildMatchResponse, matchCardText } from "../../../lib/match";
-import { MatchSectionContent } from "./match-section";
+import { MatchSectionContent, MatchUnavailableNotice } from "./match-section";
 
 // Match section tests (Mission v2 M3, VAL-MATCH-002/003 client surface):
 // the rendered card population — one card set per shipped KB entry plus
@@ -171,5 +171,17 @@ describe("zero banned claims on the rendered card population (VAL-MATCH-003)", (
       renderToStaticMarkup(<MatchSectionContent data={poisoned} />),
     );
     expect(findBannedClaims(html).length).toBeGreaterThan(0);
+  });
+});
+
+describe("MatchSection failure state (a11y convention)", () => {
+  it("announces the match-unavailable notice through StatusRegion", () => {
+    // droid-review P2 on PR #45: the fetch-failure state must render
+    // through the StatusRegion convention (role="status", polite live
+    // region) like every other status change in the conversation flow.
+    const html = renderToStaticMarkup(<MatchUnavailableNotice />);
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain("The match list is unavailable right now.");
   });
 });

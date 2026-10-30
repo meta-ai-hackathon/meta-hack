@@ -1,5 +1,7 @@
 import glossaryJson from "../../kb/glossary.json";
 
+import { isIsoCalendarDate } from "./kb";
+
 // Plain-language glossary (BN-30): benefits terms explained from official
 // sources. The assistant's prompt grounding and the match card both consume
 // this module, so every definition carries an official https source URL and
@@ -40,7 +42,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseTerm(raw: unknown): GlossaryTerm {
+/**
+ * Validate and build one glossary term. Exported for tests and future
+ * loaders; the shipped dataset runs through this at module load. The
+ * retrieval-date check is the sibling kb.ts loader's REAL-calendar check
+ * (isIsoCalendarDate), not just the YYYY-MM-DD shape — an impossible date
+ * like 2026-02-30 must fail fast, not surface in card copy (droid-review
+ * P3 on PR #45).
+ */
+export function parseGlossaryTerm(raw: unknown): GlossaryTerm {
   const problems: string[] = [];
   if (!isPlainObject(raw)) {
     throw new GlossaryValidationError(["each glossary term must be an object"]);
@@ -66,9 +76,11 @@ function parseTerm(raw: unknown): GlossaryTerm {
     }
     if (
       typeof source.retrieved_at !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(source.retrieved_at)
+      !isIsoCalendarDate(source.retrieved_at)
     ) {
-      problems.push("source.retrieved_at must be a YYYY-MM-DD retrieval date");
+      problems.push(
+        "source.retrieved_at must be a real YYYY-MM-DD retrieval date",
+      );
     }
   }
   if (problems.length > 0) {
@@ -93,7 +105,7 @@ function parseTerm(raw: unknown): GlossaryTerm {
  */
 export const GLOSSARY_TERMS: readonly GlossaryTerm[] = (
   glossaryJson as { terms: readonly unknown[] }
-).terms.map(parseTerm);
+).terms.map(parseGlossaryTerm);
 
 const TERM_BY_ID: Readonly<Record<string, GlossaryTerm>> = Object.fromEntries(
   GLOSSARY_TERMS.map((term) => [term.id, term]),

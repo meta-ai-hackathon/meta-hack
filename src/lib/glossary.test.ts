@@ -4,8 +4,10 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   GLOSSARY_TERMS,
+  GlossaryValidationError,
   glossaryTermById,
   glossaryTermsForText,
+  parseGlossaryTerm,
 } from "./glossary";
 
 // Plain-language glossary (BN-30): benefits terms explained from official
@@ -54,6 +56,38 @@ describe("glossary data (BN-30)", () => {
     // Word-bounded like the repo's KB blocklist scan: "assistance" must not
     // trip "ssi".
     expect(text).not.toMatch(/\b(medicaid|medicare|snap|tanf|ssi|ssdi|wic)\b/i);
+  });
+
+  it("rejects an impossible calendar date the shape regex alone accepts", () => {
+    // The sibling kb.ts loader rejects 2026-02-30 (right shape, not a real
+    // date); the glossary loader must match that discipline (droid-review
+    // P3 on PR #45).
+    expect(() =>
+      parseGlossaryTerm({
+        id: "calendar_date_fixture",
+        term: "Calendar fixture",
+        definition: "Fixture definition.",
+        source: {
+          title: "Fixture source",
+          url: "https://example.gov/fixture",
+          retrieved_at: "2026-02-30",
+        },
+      }),
+    ).toThrow(GlossaryValidationError);
+  });
+
+  it("still accepts a real retrieval date through the same check", () => {
+    const term = parseGlossaryTerm({
+      id: "calendar_date_fixture",
+      term: "Calendar fixture",
+      definition: "Fixture definition.",
+      source: {
+        title: "Fixture source",
+        url: "https://example.gov/fixture",
+        retrieved_at: "2026-10-29",
+      },
+    });
+    expect(term.source.retrievedAt).toBe("2026-10-29");
   });
 });
 
