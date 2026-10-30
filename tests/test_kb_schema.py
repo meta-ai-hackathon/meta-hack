@@ -144,6 +144,34 @@ class TestSchemaAndSample(KbSchemaTestCase):
         # explicitly so the property has a named home.
         self.assertTrue(hasattr(self.validator, "iter_errors"))
 
+    def test_nothing_sits_beside_a_ref(self):
+        # Draft-07 ignores every keyword next to a $ref, so a description or
+        # a constraint written there reads as contract but never applies
+        # (HACK-50 third review). Notes about a referenced field go on a
+        # definition object or in kb/README.md instead.
+        def beside_ref(node: object, path: str) -> list[str]:
+            found: list[str] = []
+            if isinstance(node, dict):
+                if "$ref" in node and len(node) > 1:
+                    found.append(f"{path}: {sorted(set(node) - {'$ref'})}")
+                for key, value in node.items():
+                    found += beside_ref(value, f"{path}/{key}")
+            elif isinstance(node, list):
+                for index, value in enumerate(node):
+                    found += beside_ref(value, f"{path}/{index}")
+            return found
+
+        self.assertEqual(beside_ref(self.schema, "#"), [])
+        # The check bites, and the validator really does drop such a
+        # keyword: maxProperties 0 beside a $ref lets any group through.
+        probe = copy.deepcopy(self.schema)
+        target = probe["definitions"]["facts"]["properties"]["steps"]
+        target["maxProperties"] = 0
+        self.assertEqual(beside_ref(probe, "#"), ["#/definitions/facts/properties/steps: ['maxProperties']"])
+        entry = copy.deepcopy(self.sample)
+        entry["facts"]["steps"] = {"items": ["One step."], "source_id": entry["sources"][0]["id"], "retrieved_at": "2026-10-01"}
+        self.assertEqual(list(Draft7Validator(probe).iter_errors(entry)), [])
+
     def test_sample_entry_exists_and_validates(self):
         self.assertTrue(SAMPLE_PATH.is_file(), f"missing {SAMPLE_PATH}")
         self.assertValid(self.sample, "shipped sample entry")

@@ -100,10 +100,7 @@
         "steps": { "$ref": "#/definitions/text_fact_group" },
         "match_signals": { "$ref": "#/definitions/signal_fact_group" },
         "renewal_cadence": { "$ref": "#/definitions/cadence_fact_group" },
-        "if_coverage_ends": {
-          "$ref": "#/definitions/text_fact_group",
-          "description": "Optional group (BN-22 renewal tracker): what the source says happens and what a person can do if their coverage ends, such as the letter, the appeal window, and free help. The tracker shows it, labeled and sourced, once a renewal date has passed."
-        }
+        "if_coverage_ends": { "$ref": "#/definitions/text_fact_group" }
       }
     },
     "text_fact_group": {
@@ -246,14 +243,8 @@
                 "minLength": 1,
                 "description": "Who the schedule's source says this schedule covers, in plain language."
               },
-              "source_id": {
-                "$ref": "#/definitions/source_id",
-                "description": "The entry source that states this schedule, when it is not the group's source: a group can draw its schedules from different pages, and each schedule renders with the page that states it. Omitted: the group's source_id."
-              },
-              "starts_on": {
-                "$ref": "#/definitions/iso_date",
-                "description": "First date a renewal under this schedule can fall on. Omitted: the schedule is already in effect."
-              },
+              "source_id": { "$ref": "#/definitions/source_id" },
+              "starts_on": { "$ref": "#/definitions/iso_date" },
               "ages": {
                 "type": "object",
                 "additionalProperties": false,

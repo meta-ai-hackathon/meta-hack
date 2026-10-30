@@ -61,18 +61,26 @@ Two more optional groups (BN-22 / HACK-50) follow the same rules:
   renewal tracker can estimate a next renewal date from a date the person
   reports. Items carry `id` (snake_case, unique in the group),
   `interval_months` (integer 1-24), the plain-language `label` and
-  `applies_to` the source states, an optional `starts_on` date before
-  which the schedule cannot set a renewal, an optional `ages` range
-  (`min` and `max`, integers 0-130, inclusive) when the source limits the
-  schedule to certain ages, and an optional `source_id` when the schedule
-  comes from a different listed source than the group's. Each schedule
-  renders with its own source (`citeCadenceSchedule` in `src/lib/kb.ts`),
-  and an estimate built from it is always shown as an estimate with that
-  source, never as an official date.
-- `if_coverage_ends` — statement strings on what happens and where to get
-  help if coverage ends (the letter, the appeal window, free help). The
-  renewal tracker shows them, labeled and sourced, once a renewal date has
-  passed.
+  `applies_to` the source states, an optional `starts_on` date, the first
+  date a renewal under the schedule can fall on (omitted when the schedule
+  is already in effect), an optional `ages` range (`min` and `max`,
+  integers 0-130, inclusive) when the source limits the schedule to
+  certain ages, and an optional `source_id` naming the listed source that
+  states the schedule when it is not the group's source (omitted, the
+  group's source applies). A group can draw its schedules from different
+  pages: each schedule renders with the page that states it
+  (`citeCadenceSchedule` in `src/lib/kb.ts`), and an estimate built from
+  it is always shown as an estimate with that source, never as an
+  official date.
+- `if_coverage_ends` — statement strings on what the source says happens
+  and what a person can do if their coverage ends (the letter, the appeal
+  window, free help). It has the same shape as `rules`. The renewal
+  tracker shows it, labeled and sourced, once a renewal date has passed.
+
+`kb/schema.json` declares draft-07, which ignores any keyword written next
+to a `$ref`, so the schema keeps its descriptions on definition objects or
+on objects without a `$ref`, and notes about a referenced field live here.
+The pytest suite checks that nothing sits beside a `$ref`.
 
 ## Status rules
 
