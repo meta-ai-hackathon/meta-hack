@@ -212,6 +212,25 @@ def status_error(status: int, error_type: str) -> anthropic.APIStatusError:
 # one reported for approving, and the one documented for creating a PR.
 REFUSAL = "GitHub Actions is not permitted to approve pull requests."
 CREATE_REFUSAL = "GitHub Actions is not permitted to create or approve pull requests."
+# Where a refusal's reason sits in GitHub's reply: in the errors list under
+# the status's name, as GitHub sends a 422 (octokit prints it as
+# 'Unprocessable Entity: "GitHub Actions is not permitted to approve pull
+# requests."'), or as the message itself.
+REFUSAL_SHAPES = ("errors", "message")
+
+
+def refusal_reply(reason: str, shape: str = "errors") -> bytes:
+    """The body of GitHub's reply when it refuses a request for reason."""
+    if shape == "errors":
+        body: dict[str, object] = {
+            "message": "Unprocessable Entity",
+            "errors": [reason],
+            "documentation_url": "https://docs.github.com/rest/pulls/reviews#create-a-review-for-a-pull-request",
+            "status": "422",
+        }
+    else:
+        body = {"message": reason}
+    return json.dumps(body).encode()
 
 
 class FakeGitHub:
@@ -233,6 +252,7 @@ class FakeGitHub:
         reviews: list[review.PullReview] | None = None,
         refuse_approval: int | None = None,
         refusal: str = REFUSAL,
+        refusal_shape: str = "errors",
         events: list[review.LabelEvent] | None = None,
     ) -> None:
         self.pr = pr
@@ -243,9 +263,11 @@ class FakeGitHub:
         self.reads: list[str] = []
         self.writes: list[tuple[str, int, str]] = []
         self.reviews = list(reviews or [])
-        # The HTTP status and message GitHub refuses approvals with (the org setting is off, by default).
+        # The HTTP status GitHub refuses approvals with (the org setting is
+        # off, by default), the reason it gives, and where its reply puts it.
         self.refuse_approval = refuse_approval
         self.refusal = refusal
+        self.refusal_shape = refusal_shape
         self.events = events
         self.review_calls: list[tuple[str, str | int, str]] = []
         self._pull_reads = 0
@@ -308,8 +330,10 @@ class FakeGitHub:
     def approve_pull_request(self, number: int, commit_id: str, body: str) -> None:
         self.review_calls.append(("APPROVE", commit_id, body))
         if self.refuse_approval is not None:
+            # The error the real client raises for GitHub's reply.
+            said = review._api_message(refusal_reply(self.refusal, self.refusal_shape))
             raise review.GitHubError(
-                f"GitHub POST /repos/{REPO}/pulls/{number}/reviews returned HTTP {self.refuse_approval}: {self.refusal}",
+                f"GitHub POST /repos/{REPO}/pulls/{number}/reviews returned HTTP {self.refuse_approval}{said}",
                 status=self.refuse_approval,
             )
         self._maybe_fail("approve")
@@ -2103,27 +2127,65 @@ class ApprovalPlanProperties(unittest.TestCase):
         for text in texts:
             self.assertEqual(review.clean(text), text)  # no mention, issue reference or markup to break
 
+    OTHER_REASONS = (
+        "Can not approve your own pull request",
+        "Resource not accessible by integration",
+        "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+        review.APPROVAL_SETTING,  # GitHub never says this; the bot's own notice does
+    )
+    # What else an errors list can hold: other reasons, as text or as an
+    # object's message, and entries of any other shape.
+    ERROR_ENTRIES = st.lists(
+        st.sampled_from(OTHER_REASONS) | st.sampled_from(OTHER_REASONS).map(lambda text: {"message": text}) | JSON_VALUES,
+        max_size=3,
+    )
+
     @PBT
-    @given(st.integers(min_value=100, max_value=599) | st.none(), st.sampled_from([REFUSAL, CREATE_REFUSAL]))
-    def test_only_the_settings_refusal_names_the_setting(self, status: int | None, refusal: str) -> None:
+    @given(
+        st.integers(min_value=100, max_value=599) | st.none(),
+        st.sampled_from([REFUSAL, CREATE_REFUSAL]),
+        st.sampled_from(["message", "errors", "error object"]),
+        ERROR_ENTRIES,
+        ERROR_ENTRIES,
+    )
+    def test_only_the_settings_refusal_names_the_setting(
+        self, status: int | None, refusal: str, where: str, before: list[object], after: list[object]
+    ) -> None:
         """GitHub's refusal while the setting is off is a notice that names
-        it. The same status for any other cause (approving its own PR, a
-        rate limit, a missing permission) is a warning, as is that text with
-        another status."""
+        it, wherever the reply puts the reason: in its message, or in its
+        errors list as text or as an object's message, among other entries.
+        The same status for any other cause (approving its own PR, a rate
+        limit, a missing permission) is a warning, as is that text with
+        another status. Each error goes through the real client's reading of
+        the reply."""
 
-        def error(text: str) -> review.GitHubError:
-            return review.GitHubError(f"GitHub POST /repos/{REPO}/pulls/7/reviews returned HTTP {status}: {text}", status=status)
+        def error(body: Mapping[str, object]) -> review.GitHubError:
+            said = review._api_message(json.dumps(body).encode())
+            return review.GitHubError(f"GitHub POST /repos/{REPO}/pulls/7/reviews returned HTTP {status}{said}", status=status)
 
-        self.assertEqual(review.refused_by_setting(error(refusal)), status in review.APPROVAL_REFUSED_STATUSES)
-        for other in (
-            "Unprocessable Entity",
-            "Can not approve your own pull request",
-            "Resource not accessible by integration",
-            "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
-            review.APPROVAL_SETTING,  # GitHub never says this; the bot's own notice does
-        ):
-            self.assertFalse(review.refused_by_setting(error(other)), other)
+        entry: object = {"message": refusal} if where == "error object" else refusal
+        refused = (
+            {"message": refusal, "errors": before + after}
+            if where == "message"
+            else {"message": "Unprocessable Entity", "errors": [*before, entry, *after]}
+        )
+        self.assertEqual(review.refused_by_setting(error(refused)), status in review.APPROVAL_REFUSED_STATUSES)
+        self.assertIn(refusal, str(error(refused)))
+        for other in self.OTHER_REASONS:
+            for body in ({"message": other}, {"message": "Unprocessable Entity", "errors": [*before, other, *after]}):
+                self.assertFalse(review.refused_by_setting(error(body)), body)
+        self.assertFalse(review.refused_by_setting(error({"message": "Unprocessable Entity", "errors": before + after})))
         self.assertFalse(review.refused_by_setting(review.ReviewError(REFUSAL)))  # not an answer from GitHub
+
+    @PBT
+    @given(st.binary(max_size=300) | JSON_VALUES.map(lambda value: json.dumps(value).encode()))
+    def test_any_error_reply_reads_as_one_line_of_text(self, body: bytes) -> None:
+        # Whatever an error reply holds, the client's error message gets one
+        # line of text from it, or nothing, and never raises.
+        said = review._api_message(body)
+        self.assertTrue(said == "" or said.startswith(": "))
+        self.assertEqual(len(said.splitlines()), 1 if said else 0)
+        self.assertLessEqual(len(said), 402)
 
 
 # One event on the PR and the run it starts: what happens to the PR, what
@@ -2650,20 +2712,22 @@ class ApprovalTests(unittest.TestCase):
         self.assertIn("Approval step: could not list the PR's reviews", unlisted.output)
 
     def test_a_refused_approval_logs_one_notice_and_changes_nothing_else(self) -> None:
+        said = {"errors": f"Unprocessable Entity: {REFUSAL}", "message": REFUSAL}
         for status in sorted(review.APPROVAL_REFUSED_STATUSES):
-            allowed = FakeGitHub(make_pr(), FILES)
-            base = Run(allowed, FakeModel(reply_with([finding("P3")])))
-            refused = FakeGitHub(make_pr(), FILES, refuse_approval=status)
-            run = Run(refused, FakeModel(reply_with([finding("P3")])))
-            self.assertEqual(run.code, base.code)
-            self.assertEqual((refused.writes, refused.comments), (allowed.writes, allowed.comments))
-            self.assertEqual([call[0] for call in refused.review_calls], ["APPROVE"])  # one try, no retry
-            annotations = [line for line in run.output.splitlines() if line.startswith("::")]
-            self.assertEqual(len(annotations), 1, annotations)
-            self.assertTrue(annotations[0].startswith("::notice::Claude review: GitHub did not let the bot approve"))
-            self.assertIn(f'an org owner has to turn on "{review.APPROVAL_SETTING}"', annotations[0])
-            self.assertIn(f"HTTP {status}: {REFUSAL}", annotations[0])
-            self.assertEqual(approved_commits(refused), [])
+            for shape in REFUSAL_SHAPES:
+                allowed = FakeGitHub(make_pr(), FILES)
+                base = Run(allowed, FakeModel(reply_with([finding("P3")])))
+                refused = FakeGitHub(make_pr(), FILES, refuse_approval=status, refusal_shape=shape)
+                run = Run(refused, FakeModel(reply_with([finding("P3")])))
+                self.assertEqual(run.code, base.code)
+                self.assertEqual((refused.writes, refused.comments), (allowed.writes, allowed.comments))
+                self.assertEqual([call[0] for call in refused.review_calls], ["APPROVE"])  # one try, no retry
+                annotations = [line for line in run.output.splitlines() if line.startswith("::")]
+                self.assertEqual(len(annotations), 1, annotations)
+                self.assertTrue(annotations[0].startswith("::notice::Claude review: GitHub did not let the bot approve"))
+                self.assertIn(f'an org owner has to turn on "{review.APPROVAL_SETTING}"', annotations[0])
+                self.assertIn(f"HTTP {status}: {said[shape]}", annotations[0])
+                self.assertEqual(approved_commits(refused), [])
         # Any other failure is a warning, and changes nothing else either. So
         # is the same status for another cause, since the setting is not it.
         broken = FakeGitHub(make_pr(), FILES, fail=("approve",))
@@ -3269,21 +3333,25 @@ class GitHubApiTests(unittest.TestCase):
         self.assertEqual(read_only.calls, [])
 
     def test_githubs_refusal_is_one_notice_through_the_real_client(self) -> None:
-        refusal = review.HttpResponse(422, {}, json.dumps({"message": REFUSAL}).encode())
-        routes = {**self.routes(), ("GET", f"{API}/pulls/7/reviews?per_page=100"): ok([]), ("POST", f"{API}/pulls/7/reviews"): refusal}
-        transport = FakeTransport(routes)
-        api = review.GitHubApi("o/r", "t0ken", allow_writes=True, transport=transport)
-        out = io.StringIO()
-        runtime = review.Runtime(
-            github=api, model_factory=lambda _k: FakeModel(reply_with([])), env=LIVE_ENV, out=out, clock=FakeClock()
-        )
-        self.assertEqual(review.run(review.Options(repo="o/r", pr=7), runtime), 0)
-        annotations = [line for line in out.getvalue().splitlines() if line.startswith("::")]
-        self.assertEqual(len(annotations), 1, annotations)
-        self.assertTrue(annotations[0].startswith("::notice::"))
-        self.assertIn(f"returned HTTP 422: {REFUSAL}", annotations[0])
-        self.assertIn(review.APPROVAL_SETTING, annotations[0])
-        self.assertEqual([url for method, url, _h, _b in transport.calls if method == "POST"], [f"{API}/pulls/7/reviews"])
+        # GitHub's 422 puts the reason in its errors list; a reply with the
+        # reason as its message reads the same way.
+        said = {"errors": f"Unprocessable Entity: {REFUSAL}", "message": REFUSAL}
+        for shape in REFUSAL_SHAPES:
+            refusal = review.HttpResponse(422, {}, refusal_reply(REFUSAL, shape))
+            routes = {**self.routes(), ("GET", f"{API}/pulls/7/reviews?per_page=100"): ok([]), ("POST", f"{API}/pulls/7/reviews"): refusal}
+            transport = FakeTransport(routes)
+            api = review.GitHubApi("o/r", "t0ken", allow_writes=True, transport=transport)
+            out = io.StringIO()
+            runtime = review.Runtime(
+                github=api, model_factory=lambda _k: FakeModel(reply_with([])), env=LIVE_ENV, out=out, clock=FakeClock()
+            )
+            self.assertEqual(review.run(review.Options(repo="o/r", pr=7), runtime), 0)
+            annotations = [line for line in out.getvalue().splitlines() if line.startswith("::")]
+            self.assertEqual(len(annotations), 1, annotations)
+            self.assertTrue(annotations[0].startswith("::notice::"), shape)
+            self.assertIn(f"returned HTTP 422: {said[shape]}", annotations[0])
+            self.assertIn(review.APPROVAL_SETTING, annotations[0])
+            self.assertEqual([url for method, url, _h, _b in transport.calls if method == "POST"], [f"{API}/pulls/7/reviews"])
 
 
 # --- the real urllib transport against a raw-socket server -------------------------------------

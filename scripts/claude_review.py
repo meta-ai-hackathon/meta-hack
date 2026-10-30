@@ -1640,10 +1640,12 @@ WITHDRAWN_UNCONFIRMED = (
     "approval. Its workflow run says why."
 )
 # GitHub's answer when the org or repo setting does not let the workflow's
-# token approve: HTTP 403 or 422 with a message like "GitHub Actions is not
-# permitted to approve pull requests." (or "... to create or approve ...").
-# Other refusals (approving its own PR, a rate limit, a missing permission)
-# have other causes, so they are warnings.
+# token approve: HTTP 403 or 422 that says "GitHub Actions is not permitted
+# to approve pull requests." (or "... to create or approve ..."). A 422 says
+# it in the reply's errors list, under the message "Unprocessable Entity",
+# which _api_message carries into the GitHubError. Other refusals
+# (approving its own PR, a rate limit, a missing permission) have other
+# causes, so they are warnings.
 APPROVAL_REFUSED_STATUSES = frozenset({403, 422})
 _NOT_PERMITTED = re.compile(r"\bnot permitted to (?:create or )?approve\b", re.IGNORECASE)
 
@@ -1774,13 +1776,30 @@ def next_page_url(link_header: str | None) -> str | None:
     return None
 
 
+def _api_text(value: object) -> str:
+    """One line of text GitHub sent, or "" when value is not text."""
+    return clip(" ".join(value.split()), 160) if isinstance(value, str) else ""
+
+
 def _api_message(body: bytes) -> str:
+    """What an error reply says, for the GitHubError message: its message,
+    then the text of each entry in its errors list (a string, or an object's
+    message). GitHub gives some reasons only there: refusing an approval
+    while Actions may not approve is a 422 whose message is "Unprocessable
+    Entity" and whose errors say why. Empty when the body says neither."""
     try:
         data = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return ""
-    message = data.get("message") if isinstance(data, dict) else None
-    return f": {clip(message, 160)}" if isinstance(message, str) else ""
+    if not isinstance(data, dict):
+        return ""
+    errors = data.get("errors")
+    reasons = [
+        _api_text(item.get("message") if isinstance(item, dict) else item)
+        for item in (errors if isinstance(errors, list) else [])
+    ]
+    parts = [part for part in (_api_text(data.get("message")), "; ".join(filter(None, reasons))) if part]
+    return f": {clip(': '.join(parts), 400)}" if parts else ""
 
 
 def _as_dict(value: object, what: str) -> dict[str, Any]:
