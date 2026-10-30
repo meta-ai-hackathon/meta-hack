@@ -974,11 +974,13 @@ class RedactionProperties(unittest.TestCase):
         # quotes), at its end (quotes, commas, string concatenation, escaped
         # line breaks, continuations), or between lines (real or escaped
         # line breaks, list items, spaces, nothing), header to footer becomes
-        # one marker and nothing around it changes.
+        # one marker and nothing around it changes, and no less is held back
+        # than main's old pattern held back.
         lead, block, trail = form.key(kind, lines)
         out, count = review.redact_sensitive(before + lead + block + trail + after)
         self.assertEqual((out, count), (before + lead + review.redaction_marker("private key") + trail + after, 1))
         self.assertEqual(review.redact_sensitive(out), (out, 0))
+        self.assert_holds_back_what_main_did(before + lead + block + trail + after)
 
     @PBT
     @given(
@@ -1009,8 +1011,12 @@ class RedactionProperties(unittest.TestCase):
     @PBT
     @given(keys_with_no_code_inside())
     def test_nothing_main_held_back_reaches_the_model(self, text: str) -> None:
-        # With nothing but key material from a key's header on, every span
-        # main's pattern redacted lies inside one the redactor redacts.
+        # With nothing but key material from a key's header on, in one of
+        # the nine embeddings, any written form, or cut short.
+        self.assert_holds_back_what_main_did(text)
+
+    def assert_holds_back_what_main_did(self, text: str) -> None:
+        """Every span main's old pattern redacted in text lies inside one the redactor redacts."""
         spans = review.private_key_spans(text)
         for match in MAIN_KEY_PATTERN.finditer(text):
             self.assertTrue(any(start <= match.start() and match.end() <= end for start, end in spans), (match.span(), spans))
