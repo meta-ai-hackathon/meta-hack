@@ -483,6 +483,8 @@ export function ConversationChat() {
         >
           Use the wizard instead
         </Link>
+        . It keeps answers only on this device and doesn&apos;t see what you
+        tell the chat.
       </p>
 
       {panelOpen ? (
