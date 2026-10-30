@@ -66,8 +66,36 @@ describe("buildReminderCalendar", () => {
     expect(lines).toContain("CLASS:PRIVATE");
     expect(lines.find((line) => line.startsWith("DESCRIPTION:You told us"))).toBeDefined();
     expect(lines.filter((line) => line.startsWith("TRIGGER:"))).toHaveLength(3);
-    expect(lines).toContain("URL:https://medicaid.ncdhhs.gov/beneficiaries/medicaid-is-changing");
+    // Third review: no link to the program's pages, and notes that point
+    // back to the tracker instead.
+    expect(lines.filter((line) => line.startsWith("URL"))).toEqual([]);
+    expect(lines.find((line) => line.startsWith("DESCRIPTION:"))).toMatch(/has the official steps\.$/);
     expect(lines).toContain(`UID:${calendarEventUid(CALENDAR_ID, DUE_DATE_EVENT_KEY)}`);
+  });
+
+  it("never names the program or links to its pages anywhere in the file (third review, property)", () => {
+    // A calendar that syncs keeps a copy of every event, so the file must
+    // carry only the neutral title, the date, and a pointer to the tracker.
+    const day = fc
+      .integer({ min: toEpochDay(d("2024-01-01")), max: toEpochDay(d("2030-12-31")) })
+      .map((epochDay) => formatIsoDate(fromEpochDay(epochDay)));
+    const answer = fc.option(fc.constantFrom("yes" as const, "no" as const, "unsure" as const), { nil: undefined });
+    fc.assert(
+      fc.property(fc.constantFrom("renewal_due" as const, "approval" as const), day, answer, (kind, reported, value) => {
+        const file = build(kind, reported, {
+          today: "2024-01-01",
+          ...(value !== undefined ? { ageAnswer: { min: 19, max: 64, answer: value } } : {}),
+        });
+        if (file === null) {
+          return;
+        }
+        const text = unfold(file.text).join("\n");
+        expect(text).not.toContain(PILOT_RENEWAL_FACTS.programName);
+        expect(text).not.toMatch(/medicaid|https?:|ncdhhs|\.gov\b/i);
+        expect(text).not.toMatch(/^URL[;:]/m);
+      }),
+      { numRuns: 200 },
+    );
   });
 
   it("makes one event per estimate for an approval date, each labeled as an estimate", () => {

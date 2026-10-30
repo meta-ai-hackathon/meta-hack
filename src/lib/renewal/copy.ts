@@ -16,8 +16,10 @@ import {
  * - Nothing about staying covered, staying eligible, or being approved.
  * - Program specifics (offices, portals, phone lines) are never written
  *   here: they come from knowledge-base facts, rendered with their source.
- * - Calendar titles and alerts never name the program: they show on lock
- *   screens and shared calendars.
+ * - The calendar file never names the program or links to its pages, in
+ *   its title, notes, or alerts: titles and alerts show on lock screens
+ *   and shared calendars, and a calendar that syncs keeps its own copy of
+ *   the notes (third review).
  * - Plain language, short sentences.
  */
 
@@ -87,17 +89,18 @@ export const UNKNOWN_DATE_NOTE =
   "time.";
 
 /**
- * Second review fix: the calendar file is a plain copy the person chooses
- * to make, and its notes name the program and link to the official page,
- * so the note says what leaves with it.
+ * The calendar file is a plain copy of the date the person chooses to make
+ * (second review fix), so the note says what leaves with it. Since the
+ * third review the file names no program and links nowhere, so a synced
+ * event carries only the neutral title, the date, and a pointer back here.
  */
 export const PRIVACY_NOTE =
   "This site keeps your date only on this device. It is saved encrypted in " +
   "this browser and is never sent to us. Anyone who uses this browser could " +
   "see the reminder, so remove it if you share this device. The calendar " +
-  "file is marked private and its title does not name the program, but its " +
-  "notes do, with a link to the official page. A calendar that syncs or " +
-  "that others can see keeps its own copy of the date and the notes.";
+  "file is marked private, and its title, notes, and alerts do not name " +
+  "the program or link to it. A calendar that syncs or that others can see " +
+  "keeps its own copy of the date.";
 
 /** Review fix: browsers can clear site data on their own, Safari after about a week. */
 export const BROWSER_CAN_CLEAR_NOTE =
@@ -138,8 +141,9 @@ export const REMOVED_NOTICE = "The reminder is removed from this device.";
 export const DOWNLOADED_NOTICE =
   "Your calendar file is ready. Open it to add the date to your calendar " +
   "app, then check that the event has a reminder alert, because some " +
-  "calendar apps drop them. If you added a file before, delete any old " +
-  "event it left.";
+  "calendar apps drop them. The event does not name the program, so the " +
+  "official steps stay on this page. If you added a file before, delete " +
+  "any old event it left.";
 /** Third review fix: a failed download used to say nothing. */
 export const DOWNLOAD_FAILED_NOTICE =
   "The calendar file could not be made in this browser. You can add the " +
@@ -349,18 +353,21 @@ export function calendarSummary(fromEstimate: boolean): string {
   return fromEstimate ? "Check on your renewal (estimate)" : "Check on your renewal";
 }
 
-export function calendarDescription(
-  programName: string,
-  date: CalendarDate,
-  fromEstimate: boolean,
-  stepsUrl: string | undefined,
-): string {
+/** Where the calendar notes send the person for the official steps. */
+export const CALENDAR_TRACKER_POINTER =
+  "The renewal tracker on the device where you made this file has the official steps.";
+
+/**
+ * Calendar-file text: DESCRIPTION. Like the title and the alerts, it names
+ * no program and carries no link (third review: a calendar that syncs
+ * keeps a copy of the notes), only the date and a pointer to the tracker.
+ */
+export function calendarDescription(date: CalendarDate, fromEstimate: boolean): string {
   const what = fromEstimate
-    ? `Estimate, not an official date: your ${programName} renewal may be due around ${formatLongDate(date)}. A letter about your renewal has the real date.`
-    : `You told us your ${programName} renewal is due on ${formatLongDate(date)}.`;
+    ? `Estimate, not an official date: your renewal may be due around ${formatLongDate(date)}. A letter about your renewal has the real date.`
+    : `You told us your renewal is due on ${formatLongDate(date)}.`;
   const next = "Check your mail for letters about your renewal and answer them right away.";
-  const link = stepsUrl ? ` Official steps: ${stepsUrl}` : "";
-  return `${what}\n${next}${link}`;
+  return `${what}\n${next} ${CALENDAR_TRACKER_POINTER}`;
 }
 
 /** The alert line (no program name: alerts show on lock screens). */
@@ -417,5 +424,6 @@ export const STATIC_RENEWAL_COPY: readonly string[] = [
   PAGE_TITLE,
   calendarSummary(false),
   calendarSummary(true),
+  CALENDAR_TRACKER_POINTER,
   ...Object.values(FACTS_SUBHEADINGS),
 ];

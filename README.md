@@ -109,10 +109,11 @@ tracker, which shows the same status, says so. A saved reminder that cannot
 be read is announced, never dropped silently. Browsers can clear site data
 on their own, so the page also builds a calendar file (`.ics`) in the
 browser, the reminder that lasts: alerts at 9 AM 30, 7, and 1 days before,
-marked private, and no program name in the title (the event notes name it
-and link to the official page, and the privacy note says so). The file is a
-plain copy of the date that the person chooses to download, and their
-calendar app may sync it. Each event keeps one UID with a SEQUENCE that
+marked private, and no program name or link in its title, notes, or alerts,
+so a synced event carries only the neutral title, the date, and a pointer
+to the tracker on the device where the file was made. The file is a plain
+copy of the date that the person chooses to download, and their calendar
+app may sync it. Each event keeps one UID with a SEQUENCE that
 rises with every file, so a calendar app that honors UIDs can update it;
 events a newer file leaves out are not removed, so the download notice asks
 people to delete old ones. No route, log, analytics call, or model call

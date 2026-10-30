@@ -1,10 +1,12 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../honesty";
-import { addDays, fromEpochDay, parseIsoDate, toEpochDay, type CalendarDate } from "./calendar-date";
+import { addDays, formatLongDate, fromEpochDay, parseIsoDate, toEpochDay, type CalendarDate } from "./calendar-date";
 import {
   DATE_CHOICE_HELP,
+  CALENDAR_TRACKER_POINTER,
   DATE_CHOICE_LABELS,
+  DOWNLOADED_NOTICE,
   DOWNLOAD_FAILED_NOTICE,
   NO_DATE_INTRO,
   PRIVACY_NOTE,
@@ -77,8 +79,8 @@ function generatedCopy(name: string, date: CalendarDate, days: number, which: Re
     reminderMessage(passedWithNext, name, true),
     calendarSummary(true),
     calendarSummary(false),
-    calendarDescription(name, date, true, "https://medicaid.ncdhhs.gov/medicaid-recertification"),
-    calendarDescription(name, date, false, undefined),
+    calendarDescription(date, true),
+    calendarDescription(date, false),
     calendarAlarmText(date, true),
     calendarAlarmText(date, false),
     pageIntro(name),
@@ -193,14 +195,19 @@ describe("renewal copy stays hedged and labeled", () => {
     expect(DATE_CHOICE_HELP).toMatch(/Choose the first option and enter the deadline/);
   });
 
-  it("never names the program in a calendar title or alert, and marks estimates (review fix)", () => {
+  it("never names the program or links to it in a calendar title, alert, or note, and marks estimates (review fixes)", () => {
     fc.assert(
       fc.property(anyDay, (date) => {
         for (const fromEstimate of [true, false]) {
-          for (const text of [calendarSummary(fromEstimate), calendarAlarmText(date, fromEstimate)]) {
+          const texts = [calendarSummary(fromEstimate), calendarAlarmText(date, fromEstimate), calendarDescription(date, fromEstimate)];
+          for (const text of texts) {
             expect(text).not.toContain(PROGRAM);
-            expect(text).not.toMatch(/medicaid/i);
+            expect(text).not.toMatch(/medicaid|https?:|www\.|\.gov/i);
           }
+          // Third review: the notes carry the date and a pointer back to
+          // the tracker, nothing else that names where the person is enrolled.
+          expect(calendarDescription(date, fromEstimate)).toContain(formatLongDate(date));
+          expect(calendarDescription(date, fromEstimate)).toMatch(new RegExp(`${CALENDAR_TRACKER_POINTER}$`));
         }
         expect(calendarSummary(true)).toMatch(/\(estimate\)$/);
         expect(calendarAlarmText(date, true)).toMatch(/around .*\(estimate\)\.$/);
@@ -227,12 +234,15 @@ describe("renewal copy stays hedged and labeled", () => {
     }
     expect(NO_DATE_INTRO).toMatch(/Saving here sends nothing anywhere\.$/);
     expect(PRIVACY_NOTE).toMatch(/^This site keeps your date only on this device\./);
-    // The note's claim about the file's notes matches what the file holds.
-    expect(PRIVACY_NOTE).toMatch(/its notes do, with a link to the official page/);
-    expect(PRIVACY_NOTE).toMatch(/keeps its own copy of the date and the notes/);
-    const description = calendarDescription(PROGRAM, d("2027-04-30"), false, "https://medicaid.ncdhhs.gov/medicaid-recertification");
-    expect(description).toContain(PROGRAM);
-    expect(description).toContain("https://medicaid.ncdhhs.gov/");
+    // The note's claim about the file matches what the file holds: since
+    // the third review its notes name no program and link nowhere.
+    expect(PRIVACY_NOTE).toMatch(/its title, notes, and alerts do not name the program or link to it\./);
+    expect(PRIVACY_NOTE).toMatch(/keeps its own copy of the date\.$/);
+    expect(PRIVACY_NOTE).not.toMatch(/notes do/);
+    const description = calendarDescription(d("2027-04-30"), false);
+    expect(description).not.toContain(PROGRAM);
+    expect(description).not.toMatch(/https?:/);
+    expect(DOWNLOADED_NOTICE).toMatch(/The event does not name the program, so the official steps stay on this page\./);
   });
 
   it("says when removing the reminder fails, and how to remove it by hand (second review fix)", () => {

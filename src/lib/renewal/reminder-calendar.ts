@@ -12,13 +12,18 @@ import {
   parseReportedDate,
   type ReportedDateKind,
 } from "./reminder";
-import type { RenewalBannerFacts, RenewalFactsView } from "./renewal-facts";
+import type { RenewalBannerFacts } from "./renewal-facts";
 
 /**
  * The calendar file for a reported date (BN-22 / HACK-50): one all-day
  * event for a reported due date, or one per schedule estimate for an
  * approval date, each with alerts 30, 7, and 1 days before. Pure: the
  * caller supplies the clock and the device's local moment.
+ *
+ * The event names no program and carries no link, in its title, notes, or
+ * alerts (third review): a calendar that syncs keeps its own copy, so a
+ * synced event carries only the neutral title, the date, and a pointer to
+ * the tracker on the device where the file was made.
  *
  * Every event's UID comes from the reminder's calendar id plus a fixed key
  * (the due date, or the schedule an estimate assumes), so each event keeps
@@ -57,8 +62,8 @@ export function calendarSequence(now: Date): number {
 export const DUE_DATE_EVENT_KEY = "due";
 
 export interface ReminderCalendarInput {
-  readonly facts: Pick<RenewalFactsView, "programName" | "steps" | "links"> &
-    Pick<RenewalBannerFacts, "schedules">;
+  /** Only the schedules: nothing else from the facts reaches the file. */
+  readonly facts: Pick<RenewalBannerFacts, "schedules">;
   readonly kind: ReportedDateKind;
   readonly reportedDate: string;
   /** Approval dates only: shapes which estimates become events. */
@@ -111,16 +116,12 @@ export function buildReminderCalendar(
   if (planned.length === 0) {
     return null;
   }
-  const stepsUrl = input.facts.steps[0]?.source.sourceUrl ?? input.facts.links[0]?.url;
-  const officialUrl =
-    stepsUrl !== undefined && stepsUrl.startsWith("https://") ? stepsUrl : undefined;
   const events: IcsAllDayEvent[] = planned.map(({ date, key }) => ({
     uid: calendarEventUid(input.calendarId, key),
     sequence,
     date,
     summary: calendarSummary(fromEstimate),
-    description: calendarDescription(input.facts.programName, date, fromEstimate, officialUrl),
-    ...(officialUrl !== undefined ? { url: officialUrl } : {}),
+    description: calendarDescription(date, fromEstimate),
     alarmDaysBefore: CALENDAR_ALARM_DAYS_BEFORE,
     alarmDescription: calendarAlarmText(date, fromEstimate),
   }));
