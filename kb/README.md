@@ -62,10 +62,13 @@ Two more optional groups (BN-22 / HACK-50) follow the same rules:
   reports. Items carry `id` (snake_case, unique in the group),
   `interval_months` (integer 1-24), the plain-language `label` and
   `applies_to` the source states, an optional `starts_on` date before
-  which the schedule cannot set a renewal, and an optional `ages` range
+  which the schedule cannot set a renewal, an optional `ages` range
   (`min` and `max`, integers 0-130, inclusive) when the source limits the
-  schedule to certain ages. An estimate built from it is always shown as
-  an estimate with the group's source, never as an official date.
+  schedule to certain ages, and an optional `source_id` when the schedule
+  comes from a different listed source than the group's. Each schedule
+  renders with its own source (`citeCadenceSchedule` in `src/lib/kb.ts`),
+  and an estimate built from it is always shown as an estimate with that
+  source, never as an official date.
 - `if_coverage_ends` — statement strings on what happens and where to get
   help if coverage ends (the letter, the appeal window, free help). The
   renewal tracker shows them, labeled and sourced, once a renewal date has

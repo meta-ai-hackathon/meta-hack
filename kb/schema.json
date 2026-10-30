@@ -215,7 +215,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["items", "source_id", "retrieved_at"],
-      "description": "Optional group (BN-22 renewal tracker): how often the program renews coverage, machine-readable so the app can estimate a next renewal date from a date the person reports. Every estimate cites this group's source and is labeled as an estimate, never as an official date. Item ids must be unique within the group (cross-checked in code and tests; JSON Schema cannot express it).",
+      "description": "Optional group (BN-22 renewal tracker): how often the program renews coverage, machine-readable so the app can estimate a next renewal date from a date the person reports. Every estimate cites its schedule's source (the item's source_id when it has one, else this group's) and is labeled as an estimate, never as an official date. Item ids must be unique within the group, and an item's source_id must name one of the entry's sources (both cross-checked in code and tests; JSON Schema cannot express them).",
       "properties": {
         "items": {
           "type": "array",
@@ -239,12 +239,16 @@
               "label": {
                 "type": "string",
                 "minLength": 1,
-                "description": "The schedule in plain language, as the group's source states it."
+                "description": "The schedule in plain language, as the schedule's source states it."
               },
               "applies_to": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Who the group's source says this schedule covers, in plain language."
+                "description": "Who the schedule's source says this schedule covers, in plain language."
+              },
+              "source_id": {
+                "$ref": "#/definitions/source_id",
+                "description": "The entry source that states this schedule, when it is not the group's source: a group can draw its schedules from different pages, and each schedule renders with the page that states it. Omitted: the group's source_id."
               },
               "starts_on": {
                 "$ref": "#/definitions/iso_date",

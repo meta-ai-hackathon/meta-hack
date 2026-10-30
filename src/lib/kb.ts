@@ -119,6 +119,11 @@ export interface KbCadenceFact {
   readonly startsOn?: string;
   /** The ages the source says the schedule covers, inclusive, when it names a range. */
   readonly ages?: KbAgeRange;
+  /**
+   * The entry source that states this schedule, when it is not the group's
+   * source. Cite a schedule through citeCadenceSchedule, which applies it.
+   */
+  readonly sourceId?: string;
 }
 
 /** An inclusive age range (0-130 by the schema, min never above max). */
@@ -221,6 +226,7 @@ const CADENCE_KEYS: ReadonlySet<string> = new Set([
   "applies_to",
   "starts_on",
   "ages",
+  "source_id",
 ]);
 
 /** Exactly the keys kb/schema.json allows on a renewal_cadence age range. */
@@ -507,7 +513,7 @@ export function validateKbEntry(raw: unknown): readonly string[] {
         }
       }
     } else if (name === "renewal_cadence") {
-      validateCadenceItems(group.items, problems);
+      validateCadenceItems(group.items, problems, sourceIds);
     } else {
       for (const item of group.items) {
         if (typeof item !== "string" || item.length === 0) {
@@ -523,11 +529,16 @@ export function validateKbEntry(raw: unknown): readonly string[] {
 /**
  * renewal_cadence items (BN-22): the schema's shape plus what JSON Schema
  * cannot express — ids unique within the group, starts_on a real calendar
- * date the renewal tracker's date math accepts (year 0001 or later), and an
+ * date the renewal tracker's date math accepts (year 0001 or later), an
  * age range whose min does not exceed its max, so an estimate can never be
- * computed from a malformed schedule.
+ * computed from a malformed schedule, and a schedule's own source_id naming
+ * one of the entry's sources, so it never renders without its source.
  */
-function validateCadenceItems(items: readonly unknown[], problems: string[]): void {
+function validateCadenceItems(
+  items: readonly unknown[],
+  problems: string[],
+  sourceIds: ReadonlySet<string>,
+): void {
   const seenIds = new Set<string>();
   items.forEach((item, index) => {
     const label = `facts.renewal_cadence.items[${index}]`;
@@ -583,6 +594,13 @@ function validateCadenceItems(items: readonly unknown[], problems: string[]): vo
         } else if (ages.min > ages.max) {
           problems.push(`${label}.ages.min must not be greater than ${label}.ages.max`);
         }
+      }
+    }
+    if (item.source_id !== undefined) {
+      if (typeof item.source_id !== "string" || !SOURCE_ID_RE.test(item.source_id)) {
+        problems.push(`${label}.source_id must name one of the entry's sources`);
+      } else if (!sourceIds.has(item.source_id)) {
+        problems.push(`${label}.source_id "${item.source_id}" does not match a listed source`);
       }
     }
   });
@@ -677,6 +695,7 @@ function buildEntry(raw: Record<string, unknown>): KbEntry {
                   ...(isPlainObject(item.ages)
                     ? { ages: { min: item.ages.min as number, max: item.ages.max as number } }
                     : {}),
+                  ...(typeof item.source_id === "string" ? { sourceId: item.source_id } : {}),
                 }),
               ),
               sourceId: rawFacts.renewal_cadence.source_id as string,
@@ -785,6 +804,36 @@ export function citeFactGroup(
     retrievedAt: facts.retrievedAt,
     items: facts.items,
   };
+}
+
+/**
+ * The citation for one renewal schedule (BN-22): the renewal_cadence
+ * group's citation, with the schedule's own source when the item names one,
+ * so each schedule renders with the page that states it. Same refusal as
+ * citeFactGroup for a stale or withdrawn entry without acknowledgment.
+ */
+export function citeCadenceSchedule(
+  entry: KbEntry,
+  scheduleId: string,
+  options: CiteOptions = {},
+): KbCitation {
+  const citation = citeFactGroup(entry, "renewal_cadence", options);
+  const schedule = entry.facts.renewal_cadence?.items.find((item) => item.id === scheduleId);
+  if (!schedule) {
+    throw new KbValidationError([
+      `entry "${entry.id}" has no renewal_cadence schedule "${scheduleId}" to cite`,
+    ]);
+  }
+  if (schedule.sourceId === undefined) {
+    return { ...citation, items: [schedule] };
+  }
+  const source = entry.sources.find((candidate) => candidate.id === schedule.sourceId);
+  if (!source) {
+    throw new KbValidationError([
+      `facts.renewal_cadence schedule "${scheduleId}" source_id "${schedule.sourceId}" does not match a listed source`,
+    ]);
+  }
+  return { ...citation, sourceId: source.id, sourceUrl: source.url, items: [schedule] };
 }
 
 // ---------------------------------------------------------------------------

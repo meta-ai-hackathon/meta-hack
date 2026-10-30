@@ -380,6 +380,17 @@ class TestOptionalGroups(KbSchemaTestCase):
             bad["facts"]["renewal_cadence"]["items"][0]["ages"] = ages
             self.assertInvalid(bad, f"cadence ages {ages!r}")
 
+    def test_cadence_item_may_name_its_own_source(self):
+        # A group can draw its schedules from different pages; each schedule
+        # then renders with the page that states it (HACK-50 review fix).
+        entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+        entry["facts"]["renewal_cadence"]["items"][0]["source_id"] = "official_application_portal"
+        self.assertValid(entry, "cadence item with its own source")
+        for value in ["Not A Source", "", 7, None]:
+            bad = self.entry_with_group("renewal_cadence", self.cadence_group())
+            bad["facts"]["renewal_cadence"]["items"][0]["source_id"] = value
+            self.assertInvalid(bad, f"cadence item source_id {value!r}")
+
     def test_cadence_missing_any_required_key_fails(self):
         for key in ["id", "interval_months", "label", "applies_to"]:
             entry = self.entry_with_group("renewal_cadence", self.cadence_group())
@@ -458,6 +469,14 @@ class TestOptionalGroups(KbSchemaTestCase):
                         entry["facts"][group]["source_id"],
                         source_ids,
                         f"{path.name} facts.{group}",
+                    )
+            # A schedule's own source_id must resolve too.
+            for item in entry["facts"].get("renewal_cadence", {}).get("items", []):
+                if "source_id" in item:
+                    self.assertIn(
+                        item["source_id"],
+                        source_ids,
+                        f"{path.name} facts.renewal_cadence schedule {item['id']}",
                     )
 
     def test_signal_question_ids_resolve_in_the_spec(self):
@@ -596,6 +615,9 @@ class TestPilotEntries(KbSchemaTestCase):
             source_ids = {source["id"] for source in entry["sources"]}
             for group, facts in entry["facts"].items():
                 self.assertIn(facts["source_id"], source_ids, f"{path.name} facts.{group}")
+            for item in entry["facts"].get("renewal_cadence", {}).get("items", []):
+                if "source_id" in item:
+                    self.assertIn(item["source_id"], source_ids, f"{path.name} schedule {item['id']}")
 
     def test_sources_and_links_are_official_nc_https(self):
         for path, entry in self.pilot_entries():

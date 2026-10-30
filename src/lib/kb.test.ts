@@ -9,6 +9,7 @@ import {
   KB_FACT_GROUPS,
   KbValidationError,
   SilentCitationError,
+  citeCadenceSchedule,
   citeFactGroup,
   parseKbEntry,
   validateKbEntry,
@@ -483,6 +484,42 @@ describe("optional fact group: renewal_cadence (BN-22)", () => {
     expect(citation.status).toBe("active");
     expect(citation.group).toBe("renewal_cadence");
     expect(citation.retrievedAt).toBe("2026-10-29");
+  });
+
+  it("lets a schedule name its own source, and cites each schedule with the page that states it", () => {
+    const raw = rawWithCadence();
+    cadenceItems(raw)[0]!.source_id = "official_application_portal";
+    expect(validateKbEntry(raw)).toEqual([]);
+    const entry = parseKbEntry(raw);
+    expect(entry.facts.renewal_cadence?.items[0]?.sourceId).toBe("official_application_portal");
+    expect(entry.facts.renewal_cadence?.items[1]).not.toHaveProperty("sourceId");
+    const portal = entry.sources.find((source) => source.id === "official_application_portal")!;
+    const rules = entry.sources.find((source) => source.id === "official_rules_source")!;
+    const own = citeCadenceSchedule(entry, "every_6_months");
+    expect(own).toMatchObject({ sourceId: portal.id, sourceUrl: portal.url, group: "renewal_cadence", status: "active" });
+    expect(own.items).toEqual([entry.facts.renewal_cadence?.items[0]]);
+    // A schedule without its own source falls back to the group's.
+    expect(citeCadenceSchedule(entry, "once_a_year")).toMatchObject({ sourceId: rules.id, sourceUrl: rules.url });
+    expect(() => citeCadenceSchedule(entry, "every_2_years")).toThrow(KbValidationError);
+  });
+
+  it("refuses a schedule source that is malformed or not listed, and a silent stale citation", () => {
+    for (const sourceId of ["nope", "Not A Source", 7, ""]) {
+      const raw = rawWithCadence();
+      cadenceItems(raw)[0]!.source_id = sourceId;
+      expect(() => parseKbEntry(raw), String(sourceId)).toThrow(/renewal_cadence\.items\[0\]\.source_id/);
+    }
+    const stale = rawWithCadence();
+    stale.status = "stale";
+    stale.status_reason = "Test fixture: entry marked stale";
+    cadenceItems(stale)[0]!.source_id = "official_application_portal";
+    const entry = parseKbEntry(stale);
+    expect(() => citeCadenceSchedule(entry, "every_6_months")).toThrow(SilentCitationError);
+    expect(citeCadenceSchedule(entry, "every_6_months", { acknowledgeNonActive: true })).toMatchObject({
+      status: "stale",
+      statusReason: "Test fixture: entry marked stale",
+      sourceId: "official_application_portal",
+    });
   });
 
   it("rejects repeated schedule ids, which JSON Schema cannot catch", () => {
