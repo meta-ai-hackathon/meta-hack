@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, afterEach, describe, expect, it } from "vitest";
@@ -221,10 +221,18 @@ describe("filled PDFs are never persisted server-side (VAL-PDF-005)", () => {
     for (const name of tmpFiles) {
       const candidate = path.join(os.tmpdir(), name);
       try {
+        // Only REGULAR files are read: open()ing a FIFO for read blocks
+        // until a writer appears (a synchronous freeze — this hung the CI
+        // runner), and directories/sockets are not candidate stores. Size
+        // is bounded so no giant pre-existing file dominates the run.
+        const stat = statSync(candidate, { throwIfNoEntry: false });
+        if (!stat?.isFile() || stat.size > 64 * 1024 * 1024) {
+          continue;
+        }
         const content = readFileSync(candidate);
         expect(content.includes(SENTINEL)).toBe(false);
       } catch {
-        // unreadable (fifo/dir) — skip
+        // unreadable (permissions) — skip
       }
     }
 
