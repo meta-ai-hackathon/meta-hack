@@ -79,6 +79,8 @@ const BANNED_FIXTURES = [
   "You\u2019re eligible.",
   "Once you answer the letter, you will stay covered.",
   "Your Medicaid is renewed.",
+  // Third review: a promise after a negated question is still caught.
+  "Won't you stay covered? Yes, you will keep your Medicaid.",
 ];
 
 // Honest sentences that must pass untouched. Hedged uncertainty stays
@@ -108,6 +110,13 @@ const CLEAN_TEXT_FIXTURES = [
   "When you are covered by Medicare too, other rules apply.",
   "Unless you are covered by other insurance, keep your Medicaid letter.",
   "You told us you are enrolled in NC Medicaid.",
+  // Third review: negated direct questions pass like the positive ones,
+  // typed with either apostrophe.
+  "Won't you stay covered if you answer the letter?",
+  "Don't you keep your Medicaid if you move?",
+  "Won't you be renewed automatically?",
+  "Won\u2019t you stay covered if you answer the letter?",
+  "Doesn\u2019t your coverage continue after you move?",
 ];
 
 // A client-state fixture: the shape /api/intake/* and /api/session return.

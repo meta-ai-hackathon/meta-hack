@@ -1,3 +1,4 @@
+import fc from "fast-check";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, expectTypeOf, it } from "vitest";
@@ -165,6 +166,7 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   // after a condition or a question, and "is renewed" with no schedule.
   { label: "promise after a condition", text: "Once you answer the letter, you will stay covered." },
   { label: "promise after a question", text: "Will you stay covered? Yes, you will keep your Medicaid." },
+  { label: "promise after a negated question", text: "Won't you stay covered? Yes, you will keep your Medicaid." },
   { label: "promise after how-to", text: "Here is how it works: you keep your coverage." },
   { label: "is renewed with no schedule", text: "Your Medicaid is renewed." },
   { label: "is renewed, then a promise", text: "Your coverage is renewed, so nothing changes." },
@@ -243,6 +245,13 @@ const HONEST_SENTENCES: string[] = [
   "Until you are enrolled, keep every letter.",
   "You told us you are enrolled in NC Medicaid.",
   "You said your coverage was renewed in July.",
+  // Negated direct questions (third review) are as honest as the positive
+  // ones above, typed with either apostrophe.
+  "Won't you stay covered if you answer the letter?",
+  "Don't you keep your Medicaid if you move?",
+  "Won't you be renewed automatically?",
+  "Won\u2019t you stay covered if you answer the letter?",
+  "Doesn\u2019t your coverage continue after you move?",
 ];
 
 // Parsed from the repo's spec and migration files at test time — the literals
@@ -285,6 +294,41 @@ describe("banned-claims detector", () => {
     for (const sentence of HONEST_SENTENCES) {
       expect(findBannedClaims(sentence), sentence).toEqual([]);
     }
+  });
+
+  it("spares a negated direct question the way it spares the positive one (third review)", () => {
+    const negated = fc.constantFrom(
+      "don't",
+      "doesn't",
+      "didn't",
+      "won't",
+      "wouldn't",
+      "can't",
+      "couldn't",
+      "shouldn't",
+      "aren't",
+      "isn't",
+    );
+    const apostrophe = fc.constantFrom("'", "\u2019", "\u2018", "\u201b", "\u02bc");
+    const question = fc.constantFrom(
+      "you stay covered if you answer the letter?",
+      "you keep your Medicaid if you move?",
+      "you be renewed automatically?",
+      "your coverage continue after you move?",
+      "you still have coverage after a move?",
+      "they stay covered if you move?",
+    );
+    fc.assert(
+      fc.property(negated, apostrophe, question, fc.boolean(), (word, mark, rest, capital) => {
+        const auxiliary = (capital ? `${word[0]!.toUpperCase()}${word.slice(1)}` : word).replace("'", mark);
+        const asked = `${auxiliary} ${rest}`;
+        expect(findBannedClaims(asked), asked).toEqual([]);
+        // The lookbehind looks one word back, so a promise after the
+        // question is still caught.
+        const answered = `${asked} Yes, you will keep your Medicaid.`;
+        expect(findBannedClaims(answered).length, answered).toBeGreaterThan(0);
+      }),
+    );
   });
 
   it("throws BannedClaimError from assertNoBannedClaims", () => {
