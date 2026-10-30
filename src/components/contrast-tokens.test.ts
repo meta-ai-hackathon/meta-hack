@@ -71,11 +71,14 @@ const LIGHT_PAIRS: ReadonlyArray<[string, string, number, string]> = [
   ["--amber-ink", "--surface", 7.81, "warning label text on cards"],
   ["--teal-contrast", "--teal-deep", 12, "primary button label"],
   ["--teal-contrast", "--danger", 9, "destructive button label"],
+  ["--danger-contrast", "--danger", 9, "destructive button label (purge surface, HACK-80)"],
+  ["--danger", "--surface", 9, "danger erase marks on the erased card (purge surface, HACK-80)"],
 ];
 
 const DARK_PAIRS: ReadonlyArray<[string, string, number, string]> = [
   ["--foreground", "--background", 16.91, "default text >= pre-polish dark default (#ededed/#0a0a0a)"],
   ["--foreground", "--surface", 15, "default text on dark cards"],
+  ["--foreground", "--danger-soft", 15, "default text on the destructive tint, dark (purge surface, HACK-80)"],
   ["--muted", "--background", 7.72, "muted text >= pre-polish dark muted (zinc-400/#0a0a0a)"],
   ["--muted", "--surface", 7.3, "muted text on dark cards"],
   ["--teal", "--background", 11, "teal accent text on the dark page"],
@@ -84,6 +87,8 @@ const DARK_PAIRS: ReadonlyArray<[string, string, number, string]> = [
   ["--danger", "--danger-soft", 9, "destructive label text, dark"],
   ["--teal-contrast", "--teal-deep", 15, "primary button label, dark"],
   ["--teal-contrast", "--danger", 9, "destructive button label, dark"],
+  ["--danger-contrast", "--danger", 9, "destructive button label (purge surface, HACK-80)"],
+  ["--danger", "--surface", 9, "danger erase marks on the erased card (purge surface, HACK-80)"],
 ];
 
 /** Status-badge chips are mode-invariant (light chips in both schemes). */
