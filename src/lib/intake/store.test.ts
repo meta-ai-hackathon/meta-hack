@@ -244,7 +244,12 @@ describe("saveAnswer routing (non-pii → answer table, pii → vault)", () => {
     const vault = await vaultRows(sessionId);
     expect(vault).toHaveLength(1);
     expect(vault[0].field).toBe("county");
-    expect(vault[0].value).toBe("Franklin");
+    // Encrypted at rest (VAL-VAULTENC-001): the stored row is an AES-GCM
+    // envelope, never the plaintext (round-trip identity is proven in
+    // vault.test.ts through the sanctioned read paths).
+    const storedValue = String(vault[0].value);
+    expect(storedValue).not.toBe("Franklin");
+    expect(storedValue).toMatch(/^enc1\./);
   });
 
   it("stores an unknown answer as status only — no value anywhere", async () => {
@@ -290,7 +295,10 @@ describe("saveAnswer routing (non-pii → answer table, pii → vault)", () => {
     const vault = await vaultRows(sessionId);
     expect(vault).toHaveLength(1);
     expect(vault[0].field).toBe("housing_status");
-    expect(vault[0].value).toBe("car");
+    // Encrypted at rest (VAL-VAULTENC-001): envelope, never the plaintext.
+    const storedValue = String(vault[0].value);
+    expect(storedValue).not.toBe("car");
+    expect(storedValue).toMatch(/^enc1\./);
   });
 });
 
