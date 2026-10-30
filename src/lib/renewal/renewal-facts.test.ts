@@ -148,9 +148,9 @@ describe("the pilot renewal entry", () => {
 
   it("is plain data that survives the trip from server to client", () => {
     expect(JSON.parse(JSON.stringify(PILOT_RENEWAL_FACTS))).toEqual(PILOT_RENEWAL_FACTS);
+    // The banner gets no program name: it never names the program (third review).
     expect(bannerFacts(PILOT_RENEWAL_FACTS)).toEqual({
       entryId: "nc_medicaid_renewal",
-      programName: "NC Medicaid",
       entryStatus: "active",
       schedules: PILOT_RENEWAL_FACTS.schedules,
     });

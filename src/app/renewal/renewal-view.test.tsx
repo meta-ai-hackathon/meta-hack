@@ -173,7 +173,8 @@ describe("the person's date: labeled as theirs, in every state", () => {
   it("within 30 days: the reminder speaks", () => {
     const html = renderReported("renewal_due", "2027-04-30", "2027-04-18");
     expect(html).toContain('data-reminder-phase="soon"');
-    expect(html).toContain("Reminder: you told us your NC Medicaid renewal is due in 12 days, on April 30, 2027.");
+    // The tracker shares the banner's line, which names no program (third review).
+    expect(html).toContain("Reminder: you told us your renewal is due in 12 days, on April 30, 2027.");
   });
 
   it("on the day", () => {
@@ -185,7 +186,7 @@ describe("the person's date: labeled as theirs, in every state", () => {
   it("past due: says so and points to the official steps", () => {
     const html = renderReported("renewal_due", "2027-04-30", "2027-05-03");
     expect(html).toContain('data-reminder-phase="passed"');
-    expect(html).toContain("The NC Medicaid renewal date you told us, April 30, 2027, has passed.");
+    expect(html).toContain("The renewal date you told us, April 30, 2027, has passed.");
     expect(html).toContain(PASSED_ADVICE);
   });
 
@@ -266,7 +267,7 @@ describe("approval dates after an estimate passes (review fix: the reminder must
     const html = renderReported("approval", "2026-08-01", "2027-02-02");
     expect(html).toContain('data-reminder-phase="passed"');
     expect(html).toContain(
-      "An estimated NC Medicaid renewal date, February 1, 2027, has passed. The next estimate is August 1, 2027.",
+      "An estimated renewal date, February 1, 2027, has passed. The next estimate is August 1, 2027.",
     );
     expect(html).toContain(PASSED_ESTIMATE_ADVICE);
     expect(html).not.toMatch(/earliest/i);

@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../lib/honesty";
 import { parseIsoDate } from "../lib/renewal/calendar-date";
-import { STALE_ESTIMATE_NOTE, UNREADABLE_BANNER_MESSAGE, reminderMessage } from "../lib/renewal/copy";
+import { PASSED_BANNER_NOTE, STALE_ESTIMATE_NOTE, UNREADABLE_BANNER_MESSAGE, bannerMessage } from "../lib/renewal/copy";
 import { reminderStatus } from "../lib/renewal/reminder";
 import { PILOT_RENEWAL_FACTS, bannerFacts } from "../lib/renewal/renewal-facts";
 import { RenewalBannerView, RenewalReminderBanner } from "./renewal-reminder-banner";
@@ -23,13 +23,25 @@ describe("RenewalBannerView", () => {
     expect(html).not.toContain("<a ");
   });
 
-  it("speaks and links to the tracker when a reminder is due", () => {
+  it("speaks and links to the tracker when a reminder is due, without naming the program", () => {
     const status = reminderStatus(parseIsoDate("2027-04-18")!, [parseIsoDate("2027-04-30")!])!;
-    const message = reminderMessage(status, "NC Medicaid", false);
+    const message = bannerMessage(status, false);
     const html = renderToStaticMarkup(<RenewalBannerView banner={{ phase: "soon", message }} />);
     expect(html).toContain('data-renewal-banner="soon"');
-    expect(html).toContain("Reminder: you told us your NC Medicaid renewal is due in 12 days, on April 30, 2027.");
+    // Third review: the banner shows on every page of a device others may
+    // use, so it says "your renewal", like the calendar title.
+    expect(html).toContain("Reminder: you told us your renewal is due in 12 days, on April 30, 2027.");
+    expect(html).not.toMatch(/medicaid/i);
     expect(html).toContain('href="/renewal"');
+    expect(findBannedClaims(html)).toEqual([]);
+  });
+
+  it("keeps a passed date's banner until the person acts, and says how to stop it (third review fix)", () => {
+    const status = reminderStatus(parseIsoDate("2027-05-03")!, [parseIsoDate("2027-04-30")!])!;
+    const html = renderToStaticMarkup(<RenewalBannerView banner={{ phase: "passed", message: bannerMessage(status, false) }} />);
+    expect(html).toContain('data-renewal-banner="passed"');
+    expect(html).toContain(`The renewal date you told us, April 30, 2027, has passed. ${PASSED_BANNER_NOTE}`);
+    expect(html).not.toMatch(/medicaid/i);
     expect(findBannedClaims(html)).toEqual([]);
   });
 
@@ -44,7 +56,7 @@ describe("RenewalBannerView", () => {
 
   it("carries the stale flag with an estimate from a stale entry (review fix, BN-29)", () => {
     const status = reminderStatus(parseIsoDate("2027-04-01")!, [parseIsoDate("2027-04-15")!])!;
-    const message = reminderMessage(status, "NC Medicaid", true);
+    const message = bannerMessage(status, true);
     const html = renderToStaticMarkup(
       <RenewalBannerView banner={{ phase: "soon", message, note: STALE_ESTIMATE_NOTE }} />,
     );

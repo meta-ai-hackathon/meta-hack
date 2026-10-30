@@ -11,10 +11,12 @@ import {
   NO_DATE_INTRO,
   PRIVACY_NOTE,
   REMOVE_FAILED_NOTICE,
+  PASSED_BANNER_NOTE,
   STATIC_RENEWAL_COPY,
   ageAnswerSentence,
   ageChoiceLabels,
   ageLeftOutNote,
+  bannerMessage,
   calendarAlarmText,
   calendarDescription,
   calendarSummary,
@@ -74,9 +76,12 @@ function generatedCopy(name: string, date: CalendarDate, days: number, which: Re
     reportedDateSentence("approval", date),
     estimateSentence("Every 6 months", date),
     estimateSentence("Once a year", date),
-    reminderMessage(status, name, true),
-    reminderMessage(status, name, false),
-    reminderMessage(passedWithNext, name, true),
+    reminderMessage(status, true),
+    reminderMessage(status, false),
+    reminderMessage(passedWithNext, true),
+    bannerMessage(status, true),
+    bannerMessage(status, false),
+    bannerMessage(passedWithNext, true),
     calendarSummary(true),
     calendarSummary(false),
     calendarDescription(date, true),
@@ -160,8 +165,8 @@ describe("renewal copy stays hedged and labeled", () => {
       fc.property(anyDay, fc.integer({ min: 1, max: 400 }), phase, (date, days, which) => {
         const daysUntil = which === "today" ? 0 : which === "passed" ? -days : days;
         const status = { phase: which, target: date, daysUntil };
-        const estimate = reminderMessage(status, PROGRAM, true);
-        const reported = reminderMessage(status, PROGRAM, false);
+        const estimate = reminderMessage(status, true);
+        const reported = reminderMessage(status, false);
         expect(/estimate|may be due/i.test(estimate), estimate).toBe(true);
         expect(/\bis due\b/i.test(estimate), estimate).toBe(false);
         if (which === "later") {
@@ -265,13 +270,41 @@ describe("renewal copy stays hedged and labeled", () => {
     }
   });
 
+  it("never names the program in a reminder line, and says how to stop a passed banner (third review, property)", () => {
+    // The banner shows on every page, to anyone who uses the device, so
+    // it names no program, like the calendar title. A passed date keeps it
+    // speaking until the person acts, so its line says how.
+    fc.assert(
+      fc.property(anyDay, fc.integer({ min: 1, max: 400 }), phase, fc.boolean(), fc.boolean(), (date, days, which, fromEstimate, withNext) => {
+        const daysUntil = which === "today" ? 0 : which === "passed" ? -days : days;
+        const status = {
+          phase: which,
+          target: date,
+          daysUntil,
+          ...(which === "passed" && withNext ? { next: addDays(date, days + 31) } : {}),
+        };
+        const banner = bannerMessage(status, fromEstimate);
+        for (const text of [banner, reminderMessage(status, fromEstimate)]) {
+          expect(text).not.toContain(PROGRAM);
+          expect(text).not.toMatch(/medicaid/i);
+        }
+        expect(banner.startsWith(reminderMessage(status, fromEstimate))).toBe(true);
+        expect(banner.endsWith(` ${PASSED_BANNER_NOTE}`)).toBe(which === "passed");
+      }),
+    );
+    expect(PASSED_BANNER_NOTE).toBe(
+      "If your renewal is done, you can change the date or remove this reminder in your renewal tracker.",
+    );
+    expect(STATIC_RENEWAL_COPY).toContain(PASSED_BANNER_NOTE);
+  });
+
   it("names the next estimate once an earlier one has passed, and never calls it the earliest", () => {
     fc.assert(
       fc.property(anyDay, fc.integer({ min: 1, max: 400 }), fc.integer({ min: 31, max: 400 }), (date, ago, ahead) => {
         const next = addDays(date, ago + ahead);
-        const message = reminderMessage({ phase: "passed", target: date, daysUntil: -ago, next }, PROGRAM, true);
+        const message = reminderMessage({ phase: "passed", target: date, daysUntil: -ago, next }, true);
         expect(message).toMatch(/has passed\. The next estimate is /);
-        const later = reminderMessage({ phase: "later", target: next, daysUntil: ahead }, PROGRAM, true);
+        const later = reminderMessage({ phase: "later", target: next, daysUntil: ahead }, true);
         expect(later).toMatch(/^The next estimate is/);
         expect(`${message} ${later}`).not.toMatch(/earliest/i);
       }),

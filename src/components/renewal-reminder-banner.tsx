@@ -7,7 +7,7 @@ import {
   OPEN_TRACKER_LINK,
   STALE_ESTIMATE_NOTE,
   UNREADABLE_BANNER_MESSAGE,
-  reminderMessage,
+  bannerMessage,
 } from "../lib/renewal/copy";
 import {
   DEVICE_STORAGE_TIMEOUT_MS,
@@ -33,8 +33,11 @@ import { StatusRegion } from "./status-region";
 // midnight), and speaks up from 30 days before, on the day, and once a date
 // has passed. A reminder it cannot read gets a line that sends the person
 // to the tracker, which removes it and says so. It never sends the date
-// anywhere: no fetch, no route, no log. The tracker page shows the same
-// status itself, so the banner stays quiet there.
+// anywhere: no fetch, no route, no log, and it never names the program,
+// since anyone who uses the device sees it (third review). A passed date
+// keeps it speaking until the person changes the date or removes the
+// reminder, and the line says so. The tracker page shows the same status
+// itself, so the banner stays quiet there.
 
 const RENEWAL_TRACKER_PATH = "/renewal";
 
@@ -83,7 +86,7 @@ export function RenewalReminderBanner({ facts }: { facts: RenewalBannerFacts }) 
   const pathname = usePathname();
   const today = useDeviceToday();
   const [banner, setBanner] = useState<RenewalBannerState | null>(null);
-  const { entryId, programName, entryStatus, schedules } = facts;
+  const { entryId, entryStatus, schedules } = facts;
 
   useEffect(() => {
     let cancelled = false;
@@ -113,7 +116,7 @@ export function RenewalReminderBanner({ facts }: { facts: RenewalBannerFacts }) 
       const fromEstimate = result.reminder.kind === "approval";
       return {
         phase: status.phase,
-        message: reminderMessage(status, programName, fromEstimate),
+        message: bannerMessage(status, fromEstimate),
         ...(fromEstimate && entryStatus === "stale" ? { note: STALE_ESTIMATE_NOTE } : {}),
       };
     }
@@ -127,7 +130,7 @@ export function RenewalReminderBanner({ facts }: { facts: RenewalBannerFacts }) 
     return () => {
       cancelled = true;
     };
-  }, [pathname, today, entryId, programName, entryStatus, schedules]);
+  }, [pathname, today, entryId, entryStatus, schedules]);
 
   return <RenewalBannerView banner={banner} />;
 }

@@ -20,6 +20,8 @@ import {
  *   its title, notes, or alerts: titles and alerts show on lock screens
  *   and shared calendars, and a calendar that syncs keeps its own copy of
  *   the notes (third review).
+ * - The reminder line never names the program either: the banner shows it
+ *   on every page, to anyone who uses the device (third review).
  * - Plain language, short sentences.
  */
 
@@ -217,6 +219,14 @@ export const IF_COVERAGE_ENDS_HEADING = "If your coverage ends";
 
 export const OPEN_TRACKER_LINK = "Open your renewal tracker";
 
+/**
+ * Third review fix: a passed date keeps the banner on every page until the
+ * person acts, so it says how to stop it once the renewal is done.
+ */
+export const PASSED_BANNER_NOTE =
+  "If your renewal is done, you can change the date or remove this " +
+  "reminder in your renewal tracker.";
+
 /** Review fix: people who are only applying have no coverage to renew yet. */
 export const TRACKER_LINK_HEADING = "Already have coverage? Keep track of your renewal";
 
@@ -315,12 +325,10 @@ export function estimateSentence(scheduleLabel: string, date: CalendarDate): str
 /**
  * The reminder line for a status: for the banner, the tracker, and the
  * live announcement. `fromEstimate` marks dates worked out from schedules.
+ * It never names the program (third review): the banner shows it on every
+ * page of a device others may use, like the calendar title.
  */
-export function reminderMessage(
-  status: ReminderStatus,
-  programName: string,
-  fromEstimate: boolean,
-): string {
+export function reminderMessage(status: ReminderStatus, fromEstimate: boolean): string {
   const when = formatLongDate(status.target);
   const estimate = fromEstimate ? " This is an estimate." : "";
   switch (status.phase) {
@@ -332,20 +340,29 @@ export function reminderMessage(
         : `That is ${dayCount(status.daysUntil)} from today. A reminder shows on this site starting ${REMINDER_WINDOW_DAYS} days before.`;
     case "soon":
       return fromEstimate
-        ? `Reminder: your ${programName} renewal may be due in about ${dayCount(status.daysUntil)}, around ${when}.${estimate}`
-        : `Reminder: you told us your ${programName} renewal is due in ${dayCount(status.daysUntil)}, on ${when}.`;
+        ? `Reminder: your renewal may be due in about ${dayCount(status.daysUntil)}, around ${when}.${estimate}`
+        : `Reminder: you told us your renewal is due in ${dayCount(status.daysUntil)}, on ${when}.`;
     case "today":
       return fromEstimate
-        ? `Reminder: your ${programName} renewal may be due around today, ${when}.${estimate}`
-        : `Reminder: you told us your ${programName} renewal is due today, ${when}.`;
+        ? `Reminder: your renewal may be due around today, ${when}.${estimate}`
+        : `Reminder: you told us your renewal is due today, ${when}.`;
     case "passed":
       if (!fromEstimate) {
-        return `The ${programName} renewal date you told us, ${when}, has passed.`;
+        return `The renewal date you told us, ${when}, has passed.`;
       }
       return status.next
-        ? `An estimated ${programName} renewal date, ${when}, has passed. The next estimate is ${formatLongDate(status.next)}.`
-        : `The estimated ${programName} renewal date, ${when}, has passed.`;
+        ? `An estimated renewal date, ${when}, has passed. The next estimate is ${formatLongDate(status.next)}.`
+        : `The estimated renewal date, ${when}, has passed.`;
   }
+}
+
+/**
+ * The banner's line for a status: the reminder line, plus, once a date has
+ * passed, how to stop the banner when the renewal is done (third review).
+ */
+export function bannerMessage(status: ReminderStatus, fromEstimate: boolean): string {
+  const message = reminderMessage(status, fromEstimate);
+  return status.phase === "passed" ? `${message} ${PASSED_BANNER_NOTE}` : message;
 }
 
 /** Calendar-file text: SUMMARY (no program name: titles show on shared calendars). */
@@ -419,6 +436,7 @@ export const STATIC_RENEWAL_COPY: readonly string[] = [
   PASSED_ESTIMATE_ADVICE,
   IF_COVERAGE_ENDS_HEADING,
   OPEN_TRACKER_LINK,
+  PASSED_BANNER_NOTE,
   TRACKER_LINK_HEADING,
   TRACKER_LINK_TEXT,
   PAGE_TITLE,

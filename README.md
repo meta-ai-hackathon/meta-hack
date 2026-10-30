@@ -105,8 +105,11 @@ only after every layer validates; key and reminder are always read and
 written together, so several open tabs cannot corrupt each other. From 30
 days before a date, on the day, and from the moment any date has passed
 until the person changes it, a banner at the top of every page except the
-tracker, which shows the same status, says so. A saved reminder that cannot
-be read is announced, never dropped silently. Browsers can clear site data
+tracker, which shows the same status, says so. The banner does not name the
+program, since anyone who uses the device can see it, and once a date has
+passed it says the person can change the date or remove the reminder in the
+tracker if their renewal is done. A saved reminder that cannot be read is
+announced, never dropped silently. Browsers can clear site data
 on their own, so the page also builds a calendar file (`.ics`) in the
 browser, the reminder that lasts: alerts at 9 AM 30, 7, and 1 days before,
 marked private, and no program name or link in its title, notes, or alerts,

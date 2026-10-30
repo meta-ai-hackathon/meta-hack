@@ -261,7 +261,7 @@ export function ReminderCallout({
   fromEstimate: boolean;
   ifCoverageEnds?: readonly RenewalFactItem[];
 }) {
-  const message = reminderMessage(status, programName, fromEstimate);
+  const message = reminderMessage(status, fromEstimate);
   if (status.phase === "later") {
     return (
       <p data-reminder-phase="later" className="text-zinc-700 dark:text-zinc-300">

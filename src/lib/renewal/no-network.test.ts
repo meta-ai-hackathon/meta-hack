@@ -8,7 +8,7 @@ import { RenewalFactsSection, ReportedDateView } from "../../app/renewal/renewal
 import { RenewalTracker } from "../../app/renewal/renewal-tracker";
 import { RenewalBannerView } from "../../components/renewal-reminder-banner";
 import { parseIsoDate } from "./calendar-date";
-import { reminderMessage } from "./copy";
+import { bannerMessage } from "./copy";
 import { requestPersistentStorage } from "./device-kv";
 import {
   newCalendarId,
@@ -184,7 +184,7 @@ describe("runtime: the whole client path with the network trapped", () => {
       expect((await loadReminder(deps, [facts.entryId], { readOnly: true })).status).toBe("ok");
       const today = parseIsoDate("2027-04-10")!;
       const status = reminderStatus(today, reminderDates(reminder, facts.schedules))!;
-      const message = reminderMessage(status, facts.programName, kind === "approval");
+      const message = bannerMessage(status, kind === "approval");
       const markup = [
         renderToStaticMarkup(createElement(ReportedDateView, { facts, reminder, today })),
         renderToStaticMarkup(createElement(RenewalBannerView, { banner: { phase: "soon", message } })),

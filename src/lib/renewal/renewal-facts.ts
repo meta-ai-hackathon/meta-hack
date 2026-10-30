@@ -84,11 +84,12 @@ export interface RenewalFactsView {
   readonly links: readonly RenewalLinkView[];
 }
 
-/** What the reminder banner needs: no prose facts, just the schedules. */
-export type RenewalBannerFacts = Pick<
-  RenewalFactsView,
-  "entryId" | "programName" | "entryStatus" | "schedules"
->;
+/**
+ * What the reminder banner needs: no prose facts, just the schedules. No
+ * program name either, since the banner never names the program (third
+ * review: anyone who uses the device sees it).
+ */
+export type RenewalBannerFacts = Pick<RenewalFactsView, "entryId" | "entryStatus" | "schedules">;
 
 function sourceView(entry: KbEntry, citation: KbCitation): RenewalSourceView {
   const source = entry.sources.find((candidate) => candidate.id === citation.sourceId);
@@ -224,7 +225,6 @@ function assertPlainUrls(view: RenewalFactsView): void {
 export function bannerFacts(view: RenewalFactsView): RenewalBannerFacts {
   return {
     entryId: view.entryId,
-    programName: view.programName,
     entryStatus: view.entryStatus,
     schedules: view.schedules,
   };
