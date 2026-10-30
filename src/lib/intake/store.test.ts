@@ -339,6 +339,32 @@ describe("loadAnswers round-trip", () => {
     const { sessionId } = await ensureSession(null);
     expect(await loadAnswers(sessionId)).toEqual({});
   });
+
+  it("skips a hand-inserted row with an unrecognizable provenance (fail-closed, pinned)", async () => {
+    // The write path's CHECK constraint makes an invalid provenance
+    // unreachable for rows this app wrote. To pin the read-side behavior
+    // anyway, the constraint is lifted in this scratch database only, a
+    // violating row is inserted by hand, and loadAnswerRecords SKIPS it
+    // rather than guessing a provenance — deliberate fail-closed behavior.
+    const { sessionId } = await ensureSession(null);
+    await saveAnswer(sessionId, "household_size", "known", 3);
+    await testDb`ALTER TABLE answer DROP CONSTRAINT answer_provenance_check`;
+    try {
+      await testDb`
+        INSERT INTO answer (session_id, question_id, value, status, provenance)
+        VALUES (${sessionId}, 'application_role', NULL, 'known', 'forged')
+      `;
+      const answers = await loadAnswers(sessionId);
+      expect(answers.household_size).toEqual({ status: "known", value: 3 });
+      expect(Object.hasOwn(answers, "application_role")).toBe(false);
+    } finally {
+      await testDb`
+        DELETE FROM answer
+        WHERE session_id = ${sessionId} AND question_id = 'application_role'
+      `;
+      await testDb`ALTER TABLE answer ADD CONSTRAINT answer_provenance_check CHECK (provenance IN ('user_supplied', 'ai_drafted', 'source_verified'))`;
+    }
+  });
 });
 
 describe("saveAnswer validation", () => {

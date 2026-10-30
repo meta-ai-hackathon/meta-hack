@@ -1,8 +1,12 @@
 import {
   isAnswerStatus,
+  isAppSettableSessionStatus,
   isSessionStatus,
+  isUserReportedSessionStatus,
   type AnswerStatus,
+  type AppSettableSessionStatus,
   type SessionStatus,
+  type UserReportedSessionStatus,
 } from "../honesty";
 import { AppError, logInfo, userMessageFor } from "../telemetry";
 import { getDb } from "../db";
@@ -237,27 +241,166 @@ export async function recordCaseworkerAssist(
 }
 
 /**
+ * The forward lifecycle order (BN-25), enforced SERVER-side: a status may
+ * only be set from its immediate predecessor. `draft` is the initial state
+ * (null predecessor: it can never be set or re-entered); the
+ * user_reported_* states come only after handed_off, on the person's
+ * explicit report.
+ */
+const ALLOWED_STATUS_TRANSITIONS: Readonly<
+  Record<AppSettableSessionStatus, AppSettableSessionStatus | null>
+> = {
+  draft: null,
+  prepared: "draft",
+  handed_off: "prepared",
+};
+
+const ALLOWED_REPORT_TRANSITIONS: Readonly<
+  Record<UserReportedSessionStatus, SessionStatus>
+> = {
+  user_reported_submitted: "handed_off",
+  user_reported_decided: "handed_off",
+};
+
+/**
+ * Advance a session through the app-settable BN-25 states (draft → prepared
+ * → handed_off) in lifecycle order only. The type keeps every
+ * user_reported_* value out of bounds — no code path can set a
+ * submitted-like state (BN-25: prepared ≠ submitted); those ride
+ * reportUserReportedStatus below, on the person's explicit report only.
+ * Out-of-order requests (skipping a state, moving backwards) fail with a
+ * taxonomy error. Unknown sessions fail with not_found.
+ */
+export async function setSessionStatus(
+  sessionId: string,
+  status: AppSettableSessionStatus,
+): Promise<SessionStateView> {
+  if (!isAppSettableSessionStatus(status)) {
+    throw validationError();
+  }
+  const requiredBefore = ALLOWED_STATUS_TRANSITIONS[status];
+  const sql = getDb();
+  const current = await sql`SELECT status FROM session WHERE id = ${sessionId}`;
+  if (current.length === 0) {
+    throw new AppError("not_found", userMessageFor("not_found"));
+  }
+  const currentStatus = isSessionStatus(current[0].status)
+    ? current[0].status
+    : "draft";
+  if (currentStatus !== requiredBefore) {
+    throw validationError();
+  }
+  await sql`
+    UPDATE session
+    SET status = ${status}, updated_at = now()
+    WHERE id = ${sessionId}
+  `;
+  logInfo("session_status_advanced");
+  const state = await loadSessionState(sessionId);
+  if (!state) {
+    throw new AppError("not_found", userMessageFor("not_found"));
+  }
+  return state;
+}
+
+/**
+ * Record what the person told us happened OUTSIDE the app, after handoff
+ * (submitted / decided). Only the user_reported_* values are accepted here,
+ * and only from a handed-off session — the app's own transitions go through
+ * setSessionStatus and can never reach these states. The report is the
+ * person's word, not a verified fact; the status vocabulary keeps that
+ * distinction type-level, and the lifecycle order keeps it flow-level.
+ */
+export async function reportUserReportedStatus(
+  sessionId: string,
+  status: UserReportedSessionStatus,
+): Promise<SessionStateView> {
+  if (!isUserReportedSessionStatus(status)) {
+    throw validationError();
+  }
+  const requiredBefore = ALLOWED_REPORT_TRANSITIONS[status];
+  const sql = getDb();
+  const current = await sql`SELECT status FROM session WHERE id = ${sessionId}`;
+  if (current.length === 0) {
+    throw new AppError("not_found", userMessageFor("not_found"));
+  }
+  const currentStatus = isSessionStatus(current[0].status)
+    ? current[0].status
+    : "draft";
+  if (currentStatus !== requiredBefore) {
+    throw validationError();
+  }
+  await sql`
+    UPDATE session
+    SET status = ${status}, updated_at = now()
+    WHERE id = ${sessionId}
+  `;
+  logInfo("session_status_user_reported");
+  const state = await loadSessionState(sessionId);
+  if (!state) {
+    throw new AppError("not_found", userMessageFor("not_found"));
+  }
+  return state;
+}
+
+
+/**
+ * One stored answer row: tri-state status, the jsonb value (NULL for
+ * pii:true questions — their values live in the vault), and the provenance.
+ */
+export interface AnswerRecord {
+  readonly status: AnswerStatus;
+  readonly value: unknown;
+  readonly provenance: AnswerProvenance;
+}
+
+/**
+ * Read the raw answer rows for a session — statuses, values (NULL for pii
+ * questions), and provenance — WITHOUT any vault merge. The forms pipeline
+ * (Mission v2 M4) consumes this for non-pii fill values and for the
+ * provenance labels; the vault-side reads stay in the vault module with the
+ * per-form allowlist.
+ *
+ * A row whose status or provenance fails validation is SKIPPED, never
+ * guessed at: the write path's CHECK constraint makes that unreachable for
+ * rows this app wrote, so a violating row is out-of-band data, and
+ * fabricating a provenance for it (or trusting it) would both lie. Pinned
+ * by a test so the fail-closed behavior stays deliberate.
+ */
+export async function loadAnswerRecords(
+  sessionId: string,
+): Promise<Readonly<Record<string, AnswerRecord>>> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT question_id, value, status, provenance
+    FROM answer
+    WHERE session_id = ${sessionId}
+  `;
+  const records: Record<string, AnswerRecord> = {};
+  for (const row of rows) {
+    if (!isAnswerStatus(row.status) || !isAnswerProvenance(row.provenance)) {
+      continue;
+    }
+    records[String(row.question_id)] = {
+      status: row.status,
+      value: row.value ?? null,
+      provenance: row.provenance,
+    };
+  }
+  return records;
+}
+
+/**
  * Load every stored answer for a session as the flow engine's answer map.
  * pii:true values come back from the vault read path (server-side only —
  * the serialization boundary strips them from anything client-visible);
  * the answer table keeps their value NULL.
  */
 export async function loadAnswers(sessionId: string): Promise<AnswerMap> {
-  const sql = getDb();
-  const rows = await sql`
-    SELECT question_id, value, status
-    FROM answer
-    WHERE session_id = ${sessionId}
-  `;
+  const records = await loadAnswerRecords(sessionId);
   const answers: Record<string, StoredAnswer> = {};
-  for (const row of rows) {
-    if (!isAnswerStatus(row.status)) {
-      continue;
-    }
-    answers[String(row.question_id)] = {
-      status: row.status,
-      value: row.value ?? null,
-    };
+  for (const [questionId, record] of Object.entries(records)) {
+    answers[questionId] = { status: record.status, value: record.value };
   }
 
   // Merge vault-stored pii values so the flow engine can evaluate skip

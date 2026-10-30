@@ -12,6 +12,7 @@ import {
 } from "../../../lib/audio/capture";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { MatchSection } from "./match-section";
+import { ReviewSection } from "./review-section";
 
 // The wizard fallback path — kept in step with the server's
 // conversationErrorResponse payload (VAL-CONV-008). Defined locally: the
@@ -496,6 +497,7 @@ export function ConversationChat() {
       ) : null}
 
       {state ? <MatchSection refreshKey={turns.length} /> : null}
+      {state ? <ReviewSection refreshKey={turns.length} /> : null}
     </div>
   );
 }

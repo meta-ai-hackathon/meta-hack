@@ -7,11 +7,15 @@ import { AppError, redactFields, setLogSink } from "./telemetry";
 import {
   CROSSING_ALLOWLIST,
   readVaultFields,
+  readVaultFieldsForFill,
   vaultCrossingDecision,
   vaultDelete,
   vaultFlowValues,
   vaultPut,
 } from "./vault";
+import { getFormRegistryEntry } from "./forms/registry";
+
+const FILL_ENTRY = getFormRegistryEntry("sample-application-form");
 
 // Integration suite for the BN-03/HACK-31 PII vault (VAL-PII-001..003). Runs
 // against the real Docker Postgres on its own scratch database (independent
@@ -21,9 +25,12 @@ import {
 // The vault contract under test:
 // - vault_entry is structurally separate from answer/person.
 // - vaultPut accepts ONLY pii:true spec fields; everything else is rejected.
-// - readVaultFields is the boundary future prompt builders must consume: it
-//   serves ONLY explicitly allowlisted fields and rejects everything else
-//   loudly with a taxonomy error.
+// - readVaultFields is the boundary a prompt builder must consume: it serves
+//   ONLY fields on the (empty) CROSSING_ALLOWLIST and rejects everything
+//   else loudly with a taxonomy error.
+// - The forms fill reads through readVaultFieldsForFill, whose permit is
+//   derived from the committed form-registry entry — no caller-supplied
+//   list can widen it.
 // - No vault content (field id or value) ever reaches a log line.
 
 const LOCAL_DATABASE_URL =
@@ -346,6 +353,76 @@ describe("boundary readVaultFields (VAL-PII-002)", () => {
   it("serves an empty result for an empty request (fail-closed today)", async () => {
     const sessionId = await createSession();
     await expect(readVaultFields(sessionId, [])).resolves.toEqual({});
+  });
+});
+
+describe("the fill's entry-derived permit (Mission v2 M4, VAL-PDF-006)", () => {
+  // The forms pipeline is the SECOND sanctioned vault accessor: a form fill
+  // reads pii values ONLY through readVaultFieldsForFill, whose permit is
+  // derived HERE from the committed form-registry entry — a caller cannot
+  // hand it an arbitrary field list. The global CROSSING_ALLOWLIST stays
+  // empty; the per-form allowlist is per-entry and committed for review.
+
+  it("serves exactly the fields on the entry's allowlist", async () => {
+    const sessionId = await createSession();
+    await vaultPut(sessionId, "date_of_birth", "1990-01-01");
+    await vaultPut(sessionId, "phone_contact", "555-0100");
+    const values = await readVaultFieldsForFill(sessionId, FILL_ENTRY);
+    expect(values.date_of_birth).toBe("1990-01-01");
+    expect(values.phone_contact).toBe("555-0100");
+  });
+
+  it("a mapped pii question missing from the entry's allowlist fails closed", async () => {
+    const sessionId = await createSession();
+    await vaultPut(sessionId, "phone_contact", "555-0100");
+    // The narrowed entry's allowlist drops phone_contact: the value stays
+    // in the vault and the fill sees nothing (fail-closed, not an error —
+    // the field degrades to to-resolve).
+    const narrowEntry = {
+      ...FILL_ENTRY,
+      vaultFieldAllowlist: FILL_ENTRY.vaultFieldAllowlist.filter(
+        (field) => field !== "phone_contact",
+      ),
+    };
+    const values = await readVaultFieldsForFill(sessionId, narrowEntry);
+    expect(values.phone_contact).toBeUndefined();
+  });
+
+  it("an entry allowlist naming a non-vault field is rejected loudly", async () => {
+    const sessionId = await createSession();
+    // A registry entry can never widen its permit to a field the vault
+    // does not hold — even one that sounds like pii.
+    const badEntry = {
+      ...FILL_ENTRY,
+      vaultFieldAllowlist: [...FILL_ENTRY.vaultFieldAllowlist, "application_role"],
+    };
+    const request = readVaultFieldsForFill(sessionId, badEntry);
+    const error = (await rejectionOf(request)) as AppError;
+    expect(error).toBeInstanceOf(AppError);
+    expect(error.code).toBe("validation_error");
+    expect(error.safeMessage).not.toContain("application_role");
+    const cause = error.cause as { rejectedFields?: string[] };
+    expect(cause.rejectedFields).toEqual(["application_role"]);
+  });
+
+  it("the prompt-facing read path has no permit parameter and stays fail-closed", async () => {
+    const sessionId = await createSession();
+    await vaultPut(sessionId, "date_of_birth", "1990-01-01");
+    // CROSSING_ALLOWLIST is empty: even a valid vault field cannot cross
+    // into model context through the prompt-facing path.
+    const request = readVaultFields(sessionId, ["date_of_birth"]);
+    const error = (await rejectionOf(request)) as AppError;
+    expect(error).toBeInstanceOf(AppError);
+    expect(error.code).toBe("validation_error");
+  });
+
+  it("decides purely with an explicit permit: allowed ⊆ CROSSING ∪ explicit", () => {
+    const { allowed, rejected } = vaultCrossingDecision(
+      ["date_of_birth", "phone_contact", "made_up_field"],
+      ["date_of_birth"],
+    );
+    expect(allowed).toEqual(["date_of_birth"]);
+    expect(rejected).toEqual(["phone_contact", "made_up_field"]);
   });
 });
 

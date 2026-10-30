@@ -1,0 +1,240 @@
+import fc from "fast-check";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { findBannedClaims } from "../../../lib/honesty";
+import { getFormRegistryEntry } from "../../../lib/forms/registry";
+import { buildFormFlow } from "../../../lib/forms/flow";
+import {
+  REVIEW_UNAVAILABLE_NOTICE,
+  ReviewSection,
+  ReviewSectionContent,
+} from "./review-section";
+
+// Review + handoff section tests (Mission v2 M4, BN-21/23/24/25): every
+// field renders its state + provenance; pii-likely values are structurally
+// absent from the markup; the handoff steps and portal links render; the
+// session-status vocabulary stays inside BN-25; and the rendered population
+// carries zero banned claims.
+
+function headingLevels(html: string): number[] {
+  return [...html.matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
+}
+
+function decodeEntities(html: string): string {
+  // `&amp;` decodes LAST: decoding it first would turn an original
+  // "&amp;lt;" into "<" — the double-escape CodeQL flags.
+  return html
+    .replace(/&#x27;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+const ENTRY = getFormRegistryEntry("sample-application-form");
+
+function reviewData(overrides?: Partial<Parameters<typeof buildFormFlow>[1]>) {
+  const answers = {
+    household_size: { status: "known" as const, value: 3 },
+    date_of_birth: { status: "known" as const, value: "1990-01-01" },
+    housing_status: { status: "known" as const, value: "shelter" },
+    ...(overrides ?? {}),
+  };
+  const view = buildFormFlow(ENTRY, answers);
+  return {
+    hasSession: true,
+    form: {
+      id: ENTRY.id,
+      title: ENTRY.title,
+      version: ENTRY.version,
+      sourceUrl: ENTRY.source.url,
+      retrievedAt: ENTRY.source.retrievedAt,
+    },
+    fields: view.fields,
+    toResolve: view.toResolve,
+    counts: view.counts,
+    sessionStatus: "draft",
+    portalLinks: [
+      { label: "Official application portal", url: "{{PILOT_PORTAL_URL}}" },
+    ],
+    steps: [
+      { title: "Review every field", detail: "Check each answer below." },
+      { title: "Download your application", detail: "Generated on download." },
+      { title: "Submit it yourself", detail: "The app never submits for you." },
+    ],
+  } as const;
+}
+
+describe("ReviewSectionContent structure", () => {
+  it("renders provenance, to-resolve, steps, and portal links", () => {
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
+    );
+    expect(html).toContain("data-review-section");
+    expect(html).toContain(
+      "We already know this from what you told us",
+    );
+    expect(html).toContain("Still needed");
+    expect(html).toContain("Not needed for you");
+    // Provenance labels render (user-supplied vs drafted).
+    expect(html).toContain("(You told us)");
+    // The pii-likely value never renders; the non-pii one does.
+    expect(html).not.toContain("1990-01-01");
+    expect(html).not.toContain("Jane Tester");
+    expect(html).toContain(">3<");
+    // Handoff: ordered steps + portal links + BN-25 status copy.
+    expect(html).toContain('data-handoff-steps');
+    expect(html).toContain("Submit it yourself");
+    expect(html).toContain('data-portal-links');
+    expect(html).toContain("Official application portal");
+    expect(html).toContain('data-session-status="draft"');
+    expect(html).toContain("In progress");
+  });
+
+  it("never reads an unverified answer as confirmed", () => {
+    const html = decodeEntities(
+      renderToStaticMarkup(
+        <ReviewSectionContent
+          data={reviewData({
+            date_of_birth: { status: "unverified", value: "1990-01-01" },
+          })}
+        />,
+      ),
+    );
+    // The unverified field gets its own state copy, not the "we already
+    // know this" confirmation — and the status badge repeats it.
+    expect(html).toContain(
+      "You answered this, but haven't verified it — please check it",
+    );
+    expect(html).toContain("Answered but not verified");
+    // The confirmed copy still renders for the verified answers.
+    expect(html).toContain("We already know this from what you told us");
+    // The pii-likely value still never renders.
+    expect(html).not.toContain("1990-01-01");
+  });
+
+  it("labels the sample form as a demonstration, not a real application", () => {
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
+    );
+    expect(html).toContain("data-sample-form-note");
+    expect(html).toContain("This is the demonstration form");
+    expect(html).toContain("do not submit the sample anywhere");
+  });
+
+  it("keeps a hierarchical heading outline", () => {
+    const levels = headingLevels(
+      renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
+    );
+    expect(levels.length).toBeGreaterThan(0);
+    expect(levels[0]).toBe(2);
+    for (let index = 1; index < levels.length; index += 1) {
+      expect(
+        levels[index]!,
+        `heading ${index + 1} skips a level`,
+      ).toBeLessThanOrEqual(levels[index - 1]! + 1);
+    }
+  });
+
+  it("renders every BN-25 lifecycle status in plain, non-promissory language", () => {
+    for (const status of [
+      "draft",
+      "prepared",
+      "handed_off",
+      "user_reported_submitted",
+      "user_reported_decided",
+    ]) {
+      const data = { ...reviewData(), sessionStatus: status };
+      const html = decodeEntities(
+        renderToStaticMarkup(<ReviewSectionContent data={data} />),
+      );
+      expect(html).toContain(`data-session-status="${status}"`);
+    }
+    // The vocabulary never includes a bare "submitted" app state.
+    expect(Object.keys(SESSION_STATUS_COPY_FOR_TEST)).not.toContain("submitted");
+  });
+
+  it("scans clean of banned claims across randomized review payloads", async () => {
+    const statuses = fc.constantFrom("known", "unknown", "unverified");
+    await fc.assert(
+      fc.asyncProperty(
+        fc.record({
+          household_size: fc.option(
+            fc.record({ status: statuses, value: fc.integer({ min: 1, max: 8 }) }),
+            { nil: undefined },
+          ),
+          housing_status: fc.option(
+            fc.record({
+              status: statuses,
+              value: fc.constantFrom("shelter", "car", "rental_or_own"),
+            }),
+            { nil: undefined },
+          ),
+        }),
+        async (answers) => {
+          const view = buildFormFlow(ENTRY, answers as never);
+          const data = {
+            ...reviewData(),
+            fields: view.fields,
+            toResolve: view.toResolve,
+          };
+          const html = decodeEntities(
+            renderToStaticMarkup(<ReviewSectionContent data={data} />),
+          );
+          expect(findBannedClaims(html)).toEqual([]);
+        },
+      ),
+      { numRuns: 25 },
+    );
+  });
+
+  it("bites: the scan flags a poisoned review fixture", () => {
+    const poisoned = {
+      ...reviewData(),
+      counts: { ...reviewData().counts, prefilled: 0 },
+    };
+    const html = decodeEntities(
+      renderToStaticMarkup(
+        <ReviewSectionContent
+          data={{
+            ...poisoned,
+            fields: poisoned.fields.map((field, index) =>
+              index === 0
+                ? {
+                    ...field,
+                    question: "Good news — you qualify, and you will be approved.",
+                  }
+                : field,
+            ),
+          }}
+        />,
+      ),
+    );
+    expect(findBannedClaims(html).length).toBeGreaterThan(0);
+  });
+});
+
+const SESSION_STATUS_COPY_FOR_TEST: Record<string, string> = {
+  draft: "In progress",
+  prepared: "Prepared and ready to hand off",
+  handed_off: "Handed off",
+  user_reported_submitted: "You told us it was submitted",
+  user_reported_decided: "You told us a decision was made",
+};
+
+describe("ReviewSection failure state (a11y convention)", () => {
+  it("mounts the status region before any state change, silent at first", () => {
+    const html = renderToStaticMarkup(<ReviewSection refreshKey={0} />);
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('aria-atomic="true"');
+    expect(html).not.toContain("review is unavailable");
+  });
+
+  it("keeps the failure copy honest and non-promissory", () => {
+    expect(REVIEW_UNAVAILABLE_NOTICE).toContain(
+      "The application review is unavailable right now.",
+    );
+    expect(findBannedClaims(REVIEW_UNAVAILABLE_NOTICE)).toEqual([]);
+  });
+});
