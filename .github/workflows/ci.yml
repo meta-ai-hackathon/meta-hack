@@ -81,6 +81,6 @@ jobs:
       # serially with hard timeouts so any stall fails with a name instead
       # of hanging the job.
       - run: >-
-          pnpm vitest run --no-file-parallelism
-          --test-timeout=20000 --hook-timeout=20000 --teardown-timeout=20000
+          pnpm vitest run --no-file-parallelism --reporter=verbose
+          --test-timeout=5000 --hook-timeout=5000 --teardown-timeout=5000
       - run: pnpm build
