@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Form registry entry",
+  "description": "One reviewed application form the PDF pipeline can fill (Mission v2 M4). Every entry is versioned and source-linked (BN-27 discipline), stays pilot-agnostic until the HACK-16 lock, and records the explicit per-form vault fill allowlist the boundary enforces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "title",
+    "version",
+    "kind",
+    "program",
+    "source",
+    "pdf_path",
+    "vault_field_allowlist",
+    "fields"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "kind": {
+      "description": "acroform = fill the interactive fields; flat = drawText coordinate fallback.",
+      "enum": ["acroform", "flat"]
+    },
+    "program": {
+      "description": "The benefits program this form serves — a committed placeholder until the pilot decision lands (HACK-16).",
+      "type": "string"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "retrieved_at", "origin"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "retrieved_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "origin": {
+          "description": "generated_fixture = the committed synthetic sample; official_source = a real application form.",
+          "enum": ["generated_fixture", "official_source"]
+        },
+        "generator": {
+          "description": "For generated fixtures: the committed script that produced the PDF.",
+          "type": "string"
+        }
+      }
+    },
+    "pdf_path": {
+      "description": "Repo-relative path of the template PDF this entry describes.",
+      "type": "string",
+      "pattern": "\\.pdf$"
+    },
+    "vault_field_allowlist": {
+      "description": "The ONLY vault fields a fill of this form may read, via readVaultFields (VAL-PDF-006): the pii fields it fills from plus any pii value its conditional fields' skip logic needs. Every id must be pii:true in the question spec.",
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "fields": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "type",
+          "label",
+          "question",
+          "spec_question_id",
+          "pii_likely",
+          "required",
+          "pages"
+        ],
+        "properties": {
+          "name": {
+            "description": "The AcroForm field name exactly as discovered in the PDF.",
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "enum": ["text", "checkbox", "dropdown", "radio", "optionlist"]
+          },
+          "label": {
+            "description": "Nearby label text as printed on the form (pdfjs extraction).",
+            "type": "string",
+            "minLength": 1
+          },
+          "question": {
+            "description": "Plain-language question for the conversation flow — the reviewed LLM-assisted mapping of the field name + nearby label.",
+            "type": "string",
+            "minLength": 1
+          },
+          "spec_question_id": {
+            "description": "Question-spec id this field pre-fills from, or null when the form collects something the spec does not ask (asked in the flow, stored as a form answer).",
+            "type": ["string", "null"]
+          },
+          "pii_likely": {
+            "description": "True when the field collects identity-like data: its value is sensitive-by-default and is omitted from client review/flow payloads.",
+            "type": "boolean"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "pages": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "minItems": 1
+          },
+          "answer_box": {
+            "description": "Flat-variant only: where the answer is drawn (page, baseline x/y) and the max width before shrinking.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["page", "x", "y"],
+            "properties": {
+              "page": { "type": "integer", "minimum": 1 },
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "max_width": { "type": "number" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

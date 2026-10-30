@@ -1,0 +1,125 @@
+{
+  "id": "sample-application-form",
+  "title": "Sample application form (synthetic fixture, interactive)",
+  "version": "1.0.0",
+  "kind": "acroform",
+  "program": "{{PILOT_PROGRAM}}",
+  "source": {
+    "url": "https://example.org/fixtures/sample-application-form.pdf",
+    "retrieved_at": "2026-10-29",
+    "origin": "generated_fixture",
+    "generator": "scripts/generate-sample-forms.mjs"
+  },
+  "pdf_path": "src/lib/forms/fixtures/sample-form-acroform.pdf",
+  "vault_field_allowlist": [
+    "date_of_birth",
+    "housing_status",
+    "mailing_situation",
+    "phone_contact",
+    "email_contact",
+    "shelter_mail_consent",
+    "id_issue_detail"
+  ],
+  "fields": [
+    {
+      "name": "applicant_name",
+      "type": "text",
+      "label": "Your full name",
+      "question": "What is your full name?",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": true,
+      "pages": [1]
+    },
+    {
+      "name": "applicant_date_of_birth",
+      "type": "text",
+      "label": "Date of birth",
+      "question": "What is your date of birth?",
+      "spec_question_id": "date_of_birth",
+      "pii_likely": true,
+      "required": true,
+      "pages": [1]
+    },
+    {
+      "name": "household_size_count",
+      "type": "text",
+      "label": "How many people live in your household?",
+      "question": "How many people live in your household?",
+      "spec_question_id": "household_size",
+      "pii_likely": false,
+      "required": true,
+      "pages": [1]
+    },
+    {
+      "name": "housing_situation",
+      "type": "dropdown",
+      "label": "What is your current housing situation?",
+      "question": "What is your current housing situation?",
+      "spec_question_id": "housing_status",
+      "pii_likely": true,
+      "required": true,
+      "pages": [1]
+    },
+    {
+      "name": "monthly_rent_amount",
+      "type": "text",
+      "label": "Monthly rent or housing cost",
+      "question": "About how much is your monthly rent or housing cost?",
+      "spec_question_id": "housing_cost",
+      "pii_likely": false,
+      "required": false,
+      "pages": [1]
+    },
+    {
+      "name": "contact_phone",
+      "type": "text",
+      "label": "Phone number",
+      "question": "What phone number can we use to reach you?",
+      "spec_question_id": "phone_contact",
+      "pii_likely": true,
+      "required": false,
+      "pages": [1]
+    },
+    {
+      "name": "contact_email",
+      "type": "text",
+      "label": "Email address",
+      "question": "What email address can we use to reach you?",
+      "spec_question_id": "email_contact",
+      "pii_likely": true,
+      "required": false,
+      "pages": [1]
+    },
+    {
+      "name": "mail_consent",
+      "type": "checkbox",
+      "label": "May we send mail to a shelter address?",
+      "question": "May we send mail to a shelter address?",
+      "spec_question_id": "shelter_mail_consent",
+      "pii_likely": true,
+      "required": false,
+      "pages": [1]
+    },
+    {
+      "name": "id_problem_explanation",
+      "type": "text",
+      "label": "If you have trouble getting an ID, tell us what the problem is",
+      "question": "If you have trouble getting an ID, what is the problem?",
+      "spec_question_id": "id_issue_detail",
+      "pii_likely": true,
+      "required": false,
+      "pages": [1]
+    },
+    {
+      "name": "case_number",
+      "type": "text",
+      "label": "Case number, if you already have one (optional)",
+      "question": "What is your case number, if you already have one?",
+      "spec_question_id": null,
+      "pii_likely": false,
+      "required": false,
+      "pages": [1]
+    }
+  ]
+}
