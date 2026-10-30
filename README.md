@@ -2,13 +2,13 @@
 
 Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to Nov 4, 2026. $1M prize pool, solo entry, indie track.
 
-**Status: exploring phase. No idea locked.**
+**Status: Benefits Navigator build in progress. Submission due Wed Nov 4, 9 PM ET (internal target 6 PM ET).**
 
 ## Where we stand
 
-- **Frontrunner:** footage search + the rescue vertical (merged) — "Google for your cameras" gains its mission and demo spine: the real Luna rescue in Yellowstone, with two new pillars landing with the build (reference-photo re-ID, next-search planning). Weighted ≈8.3 on the rubric, civilian framing. See `ideas/footage search.md` and `ideas/find my dog.md`
-- **Evaluation rules:** every new idea goes through `info/idea judge workflow.md` before any build talk
-- **Hard context:** the anti-projects list killed the military framing (OVERWATCH), sports analyst, and boxing judge. Read `info/restrictions.md` before proposing anything
+- **Product:** Benefits Navigator (app contract in `architecture.md`; feature map in `feature.md`) — a guided North Carolina **initial MAGI Medicaid** application journey. One persona anchors the demo: a North Carolina resident with current self-employment (LLC) income and no tax return showing it yet, plus stale prior-year internship W-2 income. Earlier footage-search and rescue-vertical ideas (`ideas/`) are historical, not the build.
+- **Two problems, one product:** applicants face high-stakes, paperwork-heavy applications; state offices face H.R. 1 six-month redeterminations with income verification funded at roughly $200M across all 50 states. At that budget neither a legacy system nor manual caseworker review is affordable, so the product automates consented income verification and form preparation instead.
+- **Privacy rules that shape every build decision** (recorded as agent rules in the Legal section of `AGENTS.md`): answers live on the user's device and fill forms from an on-device vault; the only way form data leaves the device is the user-consented fax at the end; PII goes to an API only with explicit informed consent (voice and the fax); the app never acts as the applicant's authorized representative; after the fax confirmation, the app shows it purging the user's answers. Current work queue: HACK-17 (verified NC Medicaid facts), HACK-74 (PDF pipeline), HACK-75–76 (fax and income-verification lines), HACK-80–82 (purge, consent gate, on-device store), HACK-86 (rules engine) in Linear.
 
 ## Timeline
 
