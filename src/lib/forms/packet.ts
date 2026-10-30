@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts } from "@cantoo/pdf-lib";
 import { AppError, logInfo } from "../telemetry";
 import type { FillOutcome } from "./fill";
+import { assertLoadablePdf } from "./parse";
 
 // Auditable fax packet assembly (HACK-90, under HACK-75): turns the filled,
 // user-reviewed application PDF into the complete packet a fax carries —
@@ -308,7 +309,10 @@ export async function assemblePacket(
     coverPages += 1;
   }
 
-  const application = await PDFDocument.load(applicationBytes);
+  // Both the application and every statement enter through the shared
+  // load gate (XFA/encrypted/corrupt reject with person-readable copy),
+  // never a bare PDFDocument.load (PR #61 droid review).
+  const application = await assertLoadablePdf(applicationBytes);
   const copied = await packet.copyPages(
     application,
     application.getPageIndices(),
@@ -318,7 +322,7 @@ export async function assemblePacket(
   }
 
   for (const statement of manifest.statements) {
-    const statementPdf = await PDFDocument.load(statement.pdfBytes);
+    const statementPdf = await assertLoadablePdf(statement.pdfBytes);
     const pages = await packet.copyPages(
       statementPdf,
       statementPdf.getPageIndices(),

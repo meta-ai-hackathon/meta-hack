@@ -183,6 +183,22 @@ describe("packet assembly", () => {
     }
   });
 
+  it("rejects encrypted or non-PDF statement bytes through the shared load gate", async () => {
+    const manifest: PacketManifest = {
+      ...(await fc.sample(manifestArb, 1))[0],
+      statements: [
+        {
+          label: "Statement",
+          origin: "User download",
+          pdfBytes: new Uint8Array([37, 80, 68, 70, 45, 120]), // "%PDF-x" garbage
+        },
+      ],
+    };
+    await expect(
+      assemblePacket(await blankPdf(1, "application"), manifest),
+    ).rejects.toThrow();
+  });
+
   it("non-WinAnsi manifest text assembles instead of throwing (PR #61 P2)", async () => {
     const manifest: PacketManifest = {
       ...(await fc.sample(manifestArb, 1))[0],
