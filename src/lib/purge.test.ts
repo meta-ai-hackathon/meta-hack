@@ -153,6 +153,25 @@ describe("purgeSessionData", () => {
     });
   });
 
+  it("purges EVERY session-scoped table that exists (structural completeness)", async () => {
+    // The confirmation states that everything is gone except the bare
+    // receipt. That claim is enforced HERE structurally: the set of
+    // tables carrying a session_id, read from the schema itself, must be
+    // exactly the set the purge wipes. A future session-scoped table
+    // fails this test until the purge covers it — the exact retention
+    // statement can never silently rot as the schema grows.
+    const sessionTables = (
+      await testDb`
+        SELECT table_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND column_name = 'session_id'
+      `
+    ).map((row) => String(row.table_name));
+    expect(new Set(sessionTables)).toEqual(
+      new Set(["answer", "vault_entry", "conversation_turn", "session_audit_note"]),
+    );
+  });
+
   it("wipes every row for arbitrary seeded mixes — pii or not, any question set", async () => {
     const questionIds = QUESTIONS.map((question) => question.id);
     // Text pii questions accept a free-form known value through the store:

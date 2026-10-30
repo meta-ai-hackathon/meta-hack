@@ -140,16 +140,18 @@ describe("requestPurge wiring", () => {
   });
 
   it("separates a definite refusal from an unknown outcome", async () => {
-    // A refusal (4xx/5xx answer) is definite: the server's purge deletes
-    // nothing on those paths, so the notice may say "nothing was removed".
+    // A 4xx refusal is definite: the server's purge deletes nothing on
+    // those paths, so the notice may say "nothing was removed".
     const refusing = (async () =>
       new Response("no", { status: 400 })) as unknown as typeof fetch;
     expect(await requestPurge(refusing)).toBe("refused");
+    // A 5xx is UNKNOWN, not refused: this route's own 500s roll the
+    // transaction back, but a proxy or platform timeout can arrive after
+    // a commit — the copy must not claim either way.
     const serverError = (async () =>
-      new Response("boom", { status: 500 })) as unknown as typeof fetch;
-    expect(await requestPurge(serverError)).toBe("refused");
-    // No answer at all is UNKNOWN: the request may have landed, so the
-    // notice must not claim either way.
+      new Response("boom", { status: 502 })) as unknown as typeof fetch;
+    expect(await requestPurge(serverError)).toBe("unknown");
+    // No answer at all is unknown for the same reason.
     const failing = (async () => {
       throw new Error("network down");
     }) as unknown as typeof fetch;

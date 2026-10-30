@@ -55,11 +55,12 @@ export const PURGE_UNKNOWN_NOTICE =
  * manual control always sends the explicit confirmation. The three
  * outcomes separate what the honesty spine may claim:
  * - "purged": the server confirmed — the transaction committed.
- * - "refused": a definite HTTP refusal — the server deletes nothing on
+ * - "refused": a definite 4xx refusal — the server deletes nothing on
  *   those paths, so "nothing was removed" is exact.
- * - "unknown": no answer (network error, or the connection dropped after
- *   the request may have landed) — the purge may or may not have
- *   happened, and the copy must not claim either way.
+ * - "unknown": no answer, or a 5xx (this route's own 500s roll the
+ *   transaction back, but a proxy or platform timeout can produce a 5xx
+ *   AFTER a commit) — the purge may or may not have happened, and the
+ *   copy must not claim either way.
  */
 export type PurgeRequestOutcome = "purged" | "refused" | "unknown";
 
@@ -72,7 +73,10 @@ export async function requestPurge(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ confirmed: true }),
     });
-    return response.ok ? "purged" : "refused";
+    if (response.ok) {
+      return "purged";
+    }
+    return response.status < 500 ? "refused" : "unknown";
   } catch {
     return "unknown";
   }
@@ -174,14 +178,25 @@ export function PurgeSurface({
 
 /**
  * The done phase: the exact retention statement. Exported for tests.
+ * The heading takes focus when it replaces the delete button (BN-07:
+ * keyboard and screen-reader users stay anchored to the change they
+ * caused instead of dropping to the top of the document).
  */
-export function PurgeConfirmation() {
+export function PurgeConfirmation({
+  headingRef,
+}: {
+  headingRef?: (heading: HTMLHeadingElement | null) => void;
+}) {
   return (
     <div
       data-purge-confirmation
       className="flex flex-col gap-5 rounded-2xl border border-surface-border bg-surface p-6"
     >
-      <h2 className="font-display text-3xl font-bold tracking-tight">
+      <h2
+        ref={headingRef}
+        tabIndex={-1}
+        className="font-display text-3xl font-bold tracking-tight focus:outline-none"
+      >
         Your answers are gone
       </h2>
       <p className="text-muted">
@@ -234,6 +249,7 @@ export function PurgeSection({ onPurged }: { onPurged: () => void }) {
   const [done, setDone] = useState(false);
   const [notice, setNotice] = useState("");
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const confirmationHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
   useEffect(
     () => () => {
@@ -243,6 +259,15 @@ export function PurgeSection({ onPurged }: { onPurged: () => void }) {
     },
     [],
   );
+
+  // Move focus to the confirmation heading once the purge completes — the
+  // button that carried focus is gone, and the person's context must move
+  // WITH the confirmation, not fall to the document body.
+  useEffect(() => {
+    if (done) {
+      confirmationHeadingRef.current?.focus();
+    }
+  }, [done]);
 
   const announce = useCallback((message: string) => {
     setNotice("");
@@ -279,7 +304,11 @@ export function PurgeSection({ onPurged }: { onPurged: () => void }) {
     <div data-purge-wrapper className="flex flex-col gap-3">
       <StatusRegion message={notice} className="text-sm text-muted" />
       {done ? (
-        <PurgeConfirmation />
+        <PurgeConfirmation
+          headingRef={(heading) => {
+            confirmationHeadingRef.current = heading;
+          }}
+        />
       ) : (
         <PurgeSurface
           busy={busy}
