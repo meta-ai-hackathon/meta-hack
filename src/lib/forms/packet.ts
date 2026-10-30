@@ -83,7 +83,7 @@ export interface SignatureAttestation {
 export interface PacketManifest {
   /** Printed ONLY on the cover sheet, e.g. "PKT-2026-0001". */
   readonly packetId: string;
-  /** Program + jurisdiction, e.g. "NC Medicaid (MAGI)". */
+  /** Program + jurisdiction label as the caller supplies it (the pilot seam owns the real name). */
   readonly programLabel: string;
   /** Destination fax number as the user confirmed it (test destinations for rehearsal). */
   readonly destinationFax: string;

@@ -100,7 +100,7 @@ const manifestArb: fc.Arbitrary<Omit<PacketManifest, "statements">> = fc.record(
   packetId: fc
     .string({ minLength: 1, maxLength: 20 })
     .filter((value) => value.trim() !== ""),
-  programLabel: fc.constant("NC Medicaid (MAGI)"),
+  programLabel: fc.constant("{{PILOT_PROGRAM}}"),
   destinationFax: fc.constant("+1-555-0100"),
   provenance: fc.array(provenanceArb, { maxLength: 8 }),
   missing: fc.array(
@@ -111,9 +111,9 @@ const manifestArb: fc.Arbitrary<Omit<PacketManifest, "statements">> = fc.record(
     { maxLength: 4 },
   ),
   sourceCards: fc.constant([
-    { id: "nc-renewal", title: "NC Medicaid page", url: "https://example.invalid/nc", retrievedAt: "2026-10-29" },
+    { id: "pilot-renewal", title: "Pilot program page", url: "https://example.invalid/pilot", retrievedAt: "2026-10-29" },
   ]),
-  claimSourceIds: fc.constant(["nc-renewal"]),
+  claimSourceIds: fc.constant(["pilot-renewal"]),
   signature: fc.record({
     text: fc.constant("I sign under my own name."),
     signedOn: fc.constant("2026-10-30"),
@@ -205,7 +205,7 @@ describe("packet assembly", () => {
         const manifest: PacketManifest = {
           ...base,
           statements: [],
-          claimSourceIds: [bogus === "nc-renewal" ? "other-card" : bogus],
+          claimSourceIds: [bogus === "pilot-renewal" ? "other-card" : bogus],
         };
         expect(() => validateManifest(manifest)).toThrow();
         await expect(
@@ -218,7 +218,7 @@ describe("packet assembly", () => {
   it("rejects unknown provenance vocabulary and empty signatures", () => {
     const base = {
       packetId: "PKT-1",
-      programLabel: "NC Medicaid (MAGI)",
+      programLabel: "{{PILOT_PROGRAM}}",
       destinationFax: "+1-555-0100",
       provenance: [],
       missing: [],
