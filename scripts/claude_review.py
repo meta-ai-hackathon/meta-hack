@@ -22,17 +22,28 @@ the sticky already holds a finished review of the head commit by this same
 reviewer (script, rules and AGENTS.md), the run re-checks that stored
 verdict against the current labels instead of calling the model again.
 
-Exit codes: 1 only when the review found a P1 and the PR does not carry the
-claude-review-override label, and never for a manual (workflow_dispatch)
-run, whose check lands on the default branch. Every infrastructure failure
+Exit codes: 1 only when the review found a P1 and the claude-review-override
+label does not count, and never for a manual (workflow_dispatch) run, whose
+check lands on the default branch. The label counts only when its latest
+application, in the PR's issue events, was by a person's account (GitHub's
+type User, not a bot) other than the PR's author's. Agents act under their
+owner's account, so a label added by the author's account may be the
+author's agent. When those events, or who opened the PR, cannot be read the
+label does not count either, so a real P1 keeps failing the check, and the
+comment says why the label did not count.
+
+Every infrastructure failure
 (GitHub or Anthropic errors, timeouts, refusals, malformed output, a bug in
 this script) prints a ::warning:: and marks the sticky comment NOT reviewed
 (posting it if the PR has none yet). The failure never fails the check by
 itself, but a P1 the comment still shows does: one from the bot's file
-rules, or one in a finished review of the same commit, which is kept. When
-GitHub cannot return the PR, a PR event run uses the event's own copy of it
-($GITHUB_EVENT_PATH), so the comment and the check still follow the event's
-head commit. 2 is a usage error.
+rules, or one in a finished review of the same commit, which is kept. The
+one exception is a failure to read the PR's issue events. Those only say
+whether the override label counts, so the run prints a ::warning:: and the
+label does not count, but the review stands as reviewed and a P1 in it
+fails the check. When GitHub cannot return the PR, a PR event run uses the
+event's own copy of it ($GITHUB_EVENT_PATH), so the comment and the check
+still follow the event's head commit. 2 is a usage error.
 
 Approvals: when a live PR-event run settles its verdict for the head commit
 (a fresh review, or a re-check of a stored verdict by this same reviewer),
@@ -231,6 +242,7 @@ class PullRequest:
     base_ref: str
     labels: tuple[str, ...]
     changed_files: int
+    author: str = ""  # the PR's user.login, or "" when GitHub gave none
 
 
 @dataclass(frozen=True)
@@ -257,6 +269,61 @@ class PullReview:
     author: str
     state: str  # "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", or "PENDING"
     commit_id: str | None  # None when GitHub no longer has the commit
+
+
+@dataclass(frozen=True)
+class LabelEvent:
+    """A 'labeled' or 'unlabeled' entry in a PR's issue events."""
+
+    action: str  # "labeled" or "unlabeled"
+    label: str  # the label's name when it happened
+    actor: str  # the login that added or removed the label, or "" when GitHub named none
+    actor_type: str  # the account type ("User", "Bot", ...), or "" when GitHub gave none
+    created_at: str = ""  # as GitHub reports it, for the run log
+
+
+# Whether the override label counts on a run (see decide_override).
+OVERRIDE_ABSENT = "absent"  # the PR does not carry the label
+OVERRIDE_HONORED = "honored"  # it counts: a person other than the PR's author added it last
+OVERRIDE_BY_AUTHOR = "author"  # the PR's author added it last
+OVERRIDE_BY_BOT = "bot"  # a bot account added it last
+OVERRIDE_UNTRACED = "untraced"  # the events do not show a person other than the author adding it
+OVERRIDE_UNREAD = "unread"  # the PR's events could not be read
+OVERRIDE_NO_AUTHOR = "no_author"  # a person added it last, but GitHub did not name the PR's author to tell them apart
+OVERRIDE_STATUSES = (
+    OVERRIDE_ABSENT,
+    OVERRIDE_HONORED,
+    OVERRIDE_BY_AUTHOR,
+    OVERRIDE_BY_BOT,
+    OVERRIDE_UNTRACED,
+    OVERRIDE_UNREAD,
+    OVERRIDE_NO_AUTHOR,
+)
+# The statuses a re-run can change without anyone touching the label, since
+# the run could not read what it needed.
+OVERRIDE_RETRYABLE = (OVERRIDE_UNREAD, OVERRIDE_NO_AUTHOR)
+
+
+@dataclass(frozen=True)
+class Override:
+    """Whether the override label counts on this run, and why not when it is
+    on the PR but does not."""
+
+    status: str  # one of OVERRIDE_STATUSES
+    actor: str | None = None  # the login that added the label last, when the events name one
+    added_at: str | None = None  # when it did, as GitHub reports it
+
+    @property
+    def counts(self) -> bool:
+        return self.status == OVERRIDE_HONORED
+
+    @property
+    def ignored(self) -> bool:
+        """The label is on the PR, but it does not count."""
+        return self.status not in (OVERRIDE_ABSENT, OVERRIDE_HONORED)
+
+
+NO_OVERRIDE = Override(OVERRIDE_ABSENT)
 
 
 @dataclass(frozen=True)
@@ -342,7 +409,7 @@ class CommentInputs:
     unlisted_files: int
     redactions: int
     usage: tuple[Usage, ...]
-    override: bool
+    override: bool  # the override label counts
     served_by: str
     fallback_served: bool = False
     run_url: str | None = None
@@ -352,6 +419,7 @@ class CommentInputs:
     fingerprint: str | None = None  # the reviewer that produced this review
     model_ran: bool = True  # False when no changed file could be sent
     base_ref: str | None = None  # the base branch the review was made against
+    ignored_override: Override | None = None  # an override label on the PR that does not count
 
     @property
     def complete(self) -> bool:
@@ -378,6 +446,7 @@ class StickyWrite:
 
     landed: bool  # the body is now the sticky's text
     kept: StickyState | None = None  # a finished review of the same commit, left in place instead
+    comment: IssueComment | None = None  # the sticky that holds it, with kept
 
 
 # --- text safety (pure) -----------------------------------------------------------
@@ -1060,10 +1129,139 @@ def has_override(labels: Iterable[str]) -> bool:
     return any(label.lower() == OVERRIDE_LABEL for label in labels)
 
 
-def decide_exit(findings: Iterable[Finding], labels: Iterable[str]) -> int:
-    """1 only for a P1 on a PR without the override label."""
+# A GitHub login: letters, digits, hyphens (and underscores for enterprise
+# managed users), with "[bot]" after an app's name.
+_LOGIN = re.compile(r"[A-Za-z0-9_-]{1,100}(?:\[bot\])?")
+
+
+# GitHub's account type for a person's account. Bots are "Bot", and an
+# organization or a mannequin (an imported user's placeholder) is no person.
+PERSON_TYPE = "User"
+
+
+def is_bot(login: str, account_type: str) -> bool:
+    """Whether an account is a bot: GitHub gives apps (github-actions among
+    them) the type Bot and a login that ends in [bot]."""
+    return account_type == "Bot" or login.lower().endswith("[bot]")
+
+
+def decide_override(labels: Iterable[str], author: str, events: Sequence[LabelEvent] | None) -> Override:
+    """Whether the override label counts for a PR with these labels, opened
+    by author: the PR carries the label, and its latest application in the
+    PR's issue events (the last 'labeled' event for it, in any case, after
+    its last 'unlabeled' one) was by a person's account (GitHub's type User,
+    with no [bot] login) other than the author's. Agents act under their
+    owner's account, so "a person added it" cannot be told apart from "an
+    agent added it", while "someone other than the author added it" can.
+    events is None when they could not be read; the label then does not
+    count, so a real P1 keeps failing. Logins compare without case, as
+    GitHub's do. Anything GitHub did not name plainly never counts: an actor
+    that is not a login, an account type other than User (none at all
+    included), or an author that is not a login."""
+    if not has_override(labels):
+        return NO_OVERRIDE
+    if events is None:
+        return Override(OVERRIDE_UNREAD)
+    latest: LabelEvent | None = None
+    for event in events:
+        if event.label.lower() != OVERRIDE_LABEL:
+            continue
+        if event.action == "labeled":
+            latest = event
+        elif event.action == "unlabeled":
+            latest = None
+    if latest is None:
+        return Override(OVERRIDE_UNTRACED)
+    found = Override(OVERRIDE_UNTRACED, latest.actor or None, latest.created_at or None)
+    # What the account is comes first: an actor GitHub did not name as a login, or as a person, is no one to count.
+    if not _LOGIN.fullmatch(latest.actor):
+        return found
+    if is_bot(latest.actor, latest.actor_type):
+        return replace(found, status=OVERRIDE_BY_BOT)
+    if latest.actor_type != PERSON_TYPE:
+        return found
+    # A person, then, who counts only when they are not the author.
+    if not _LOGIN.fullmatch(author):
+        return replace(found, status=OVERRIDE_NO_AUTHOR)
+    if latest.actor.lower() == author.lower():
+        return replace(found, status=OVERRIDE_BY_AUTHOR)
+    return replace(found, status=OVERRIDE_HONORED)
+
+
+def decide_exit(findings: Iterable[Finding], override: Override) -> int:
+    """1 only for a P1 when the override label does not count."""
     has_p1 = any(finding.severity == "P1" for finding in findings)
-    return 1 if has_p1 and not has_override(labels) else 0
+    return 1 if has_p1 and not override.counts else 0
+
+
+def display_login(login: str) -> str:
+    """A login for the comment's prose: '@' and the login with the mention
+    broken, the way neutralize() breaks every handle. Text that is not a
+    login's shape is shown as code, where markdown does nothing."""
+    if _LOGIN.fullmatch(login):
+        return neutralize_mentions("@" + login)
+    flat = " ".join(login.split())
+    return f"`{display_path(clip(flat, 100))}`" if flat else "an account GitHub did not name"
+
+
+def plain_login(login: str) -> str:
+    """A login for the run log and the job summary, on one line."""
+    return clip(" ".join(login.split()), 100) or "an account GitHub did not name"
+
+
+def override_why(override: Override, name: Callable[[str], str] = plain_login) -> str:
+    """Why an override label on the PR does not count, as a clause, with
+    each login written by name."""
+    if override.status == OVERRIDE_BY_AUTHOR:
+        return f"the PR's author, {name(override.actor or '')}, added it"
+    if override.status == OVERRIDE_BY_BOT:
+        return f"a bot account, {name(override.actor or '')}, added it"
+    if override.status == OVERRIDE_UNREAD:
+        return "the bot could not read the PR's events to see who added it"
+    if override.status == OVERRIDE_NO_AUTHOR:
+        return "the bot could not read who opened the PR, so it cannot tell whether the PR's author added it"
+    return "the PR's events do not show that a person other than the PR's author added it"
+
+
+def ignored_override_text(override: Override) -> str:
+    """The comment's sentences for an override label that is on the PR but
+    does not count: fixed text plus the login that added it, with the
+    mention broken. One line, so it fits in the comment's verdict line.
+    When the run could not read what it needed, a re-run is the way out,
+    and otherwise someone other than the author adding the label again."""
+    label = f"`{OVERRIDE_LABEL}`"
+    if override.status in OVERRIDE_RETRYABLE:
+        text = (
+            f"The {label} label is on this PR, but it does not count on this run, because "
+            f"{override_why(override, display_login)}. Push a fix, or re-run the workflow to check the label again."
+        )
+    else:
+        text = (
+            f"The {label} label is on this PR, but it does not count, because {override_why(override, display_login)}. "
+            "Push a fix, or have a person other than the PR's author remove the label and add it again once they "
+            "decide the PR can merge anyway."
+        )
+    return neutralize(text)
+
+
+def describe_override(labels: Iterable[str], override: Override | None) -> str:
+    """The override label's part in a verdict, for the run log and the job
+    summary (which GitHub renders as markdown, so no handle in it is live).
+    override is None when the run did not need to check it, and then the
+    labels say whether the label is on the PR."""
+    if override is None:
+        return f"the {OVERRIDE_LABEL} label is {'on' if has_override(labels) else 'not on'} the PR"
+    if override.status == OVERRIDE_ABSENT:
+        return f"the {OVERRIDE_LABEL} label is not on the PR"
+    at = f" at {clip(' '.join(override.added_at.split()), 40)}" if override.added_at else ""
+    if override.counts:
+        text = (
+            f"the {OVERRIDE_LABEL} label is on the PR and counts, since {plain_login(override.actor or '')} added "
+            f"it last{at} and is neither the PR's author nor a bot"
+        )
+    else:
+        text = f"the {OVERRIDE_LABEL} label is on the PR but does not count, because {override_why(override)}{at}"
+    return neutralize(text)
 
 
 def price_for(model: str) -> tuple[Price, bool]:
@@ -1160,18 +1358,23 @@ def parse_state(body: str) -> StickyState | None:
     )
 
 
-def status_paragraph(counts: Mapping[str, int], override: bool, *, model_ran: bool = True) -> str:
-    """The bold verdict line under the comment heading."""
+def status_paragraph(
+    counts: Mapping[str, int], override: bool, *, model_ran: bool = True, ignored: Override | None = None
+) -> str:
+    """The bold verdict line under the comment heading. override says the
+    override label counts; ignored is a label on the PR that does not."""
     tally = f"{counts['P1']} P1, {counts['P2']} P2, {counts['P3']} P3"
     if counts["P1"] and override:
         return (
             f"**{tally}.** The `{OVERRIDE_LABEL}` label is on this PR, so the `{CHECK_NAME}` check "
             "passes anyway."
         )
+    if counts["P1"] and ignored is not None and ignored.ignored:
+        return f"**{tally}.** A P1 fails the `{CHECK_NAME}` check. {ignored_override_text(ignored)}"
     if counts["P1"]:
         return (
-            f"**{tally}.** A P1 fails the `{CHECK_NAME}` check. Push a fix, or add the "
-            f"`{OVERRIDE_LABEL}` label once a person decides it can merge anyway."
+            f"**{tally}.** A P1 fails the `{CHECK_NAME}` check. Push a fix, or have a person other than the "
+            f"PR's author add the `{OVERRIDE_LABEL}` label once they decide it can merge anyway."
         )
     if any(counts.values()):
         return f"**{tally}.** Nothing here blocks the merge."
@@ -1278,7 +1481,7 @@ def render_footer(inputs: CommentInputs) -> str:
 def render_review_comment(inputs: CommentInputs, limit: int = COMMENT_BUDGET) -> str:
     findings = sort_findings(inputs.findings)
     counts = severity_counts(findings)
-    status = status_paragraph(counts, inputs.override, model_ran=inputs.model_ran)
+    status = status_paragraph(counts, inputs.override, model_ran=inputs.model_ran, ignored=inputs.ignored_override)
     state = state_line(
         inputs.head_sha,
         "reviewed",
@@ -1342,8 +1545,11 @@ def render_status_comment(
     repo: str = "",
     run_url: str | None = None,
     server_url: str = SERVER_URL,
+    override: Override | None = None,
 ) -> str:
-    """The sticky for a push that is being reviewed, or that was NOT reviewed."""
+    """The sticky for a push that is being reviewed, or that was NOT reviewed.
+    override, when it is an ignored label, is explained under the file-rule
+    P1s, since those then fail the check."""
     sha = short_sha(head_sha)
     if pending:
         lines = [
@@ -1366,6 +1572,8 @@ def render_status_comment(
     if rule_findings:
         lines += ["", f"#### {SEVERITY_HEADINGS['P1']}", ""]
         lines += ["These come from the bot's file rules, which do not need the model.", ""]
+        if override is not None and override.ignored:
+            lines += [f"A P1 fails the `{CHECK_NAME}` check. {ignored_override_text(override)}", ""]
         lines += [render_finding(i, f, repo, head_sha, server_url) for i, f in enumerate(rule_findings, start=1)]
     if run_url:
         lines += ["", f"<sub>[Run log]({run_url}).</sub>"]
@@ -1571,6 +1779,8 @@ def parse_pull(data: object) -> PullRequest:
         labels = tuple(
             str(label["name"]) for label in (pull.get("labels") or []) if isinstance(label, dict) and "name" in label
         )
+        user = pull.get("user")
+        login = user.get("login") if isinstance(user, dict) else None
         return PullRequest(
             number=int(pull["number"]),
             title=str(pull.get("title") or ""),
@@ -1583,6 +1793,7 @@ def parse_pull(data: object) -> PullRequest:
             base_ref=str(base.get("ref") or ""),
             labels=labels,
             changed_files=int(pull.get("changed_files") or 0),
+            author=login if isinstance(login, str) else "",
         )
     except (KeyError, TypeError, ValueError, OverflowError) as exc:  # OverflowError: int() of an infinity
         raise GitHubError(f"GitHub returned an unexpected pull request ({type(exc).__name__})") from None
@@ -1634,12 +1845,43 @@ def parse_pull_review(data: object) -> PullReview:
         raise GitHubError(f"GitHub returned an unexpected review ({type(exc).__name__})") from None
 
 
+LABEL_ACTIONS = ("labeled", "unlabeled")
+
+
+def parse_issue_event(data: object) -> LabelEvent | None:
+    """A 'labeled' or 'unlabeled' entry of a PR's issue events, or None for
+    any other kind of event. An entry that is not an object, or a label event
+    without a label name, raises GitHubError, so a listing the bot cannot
+    read never passes for one in which nobody added the override label."""
+    item = _as_dict(data, "issue event")
+    action = item.get("event")
+    if not isinstance(action, str) or action not in LABEL_ACTIONS:
+        return None
+    label = item.get("label")
+    name = label.get("name") if isinstance(label, dict) else None
+    if not isinstance(name, str):
+        raise GitHubError(f"GitHub returned {'an' if action == 'unlabeled' else 'a'} {action} event without a label name")
+    actor = item.get("actor")
+    login = actor.get("login") if isinstance(actor, dict) else None
+    kind = actor.get("type") if isinstance(actor, dict) else None
+    created = item.get("created_at")
+    return LabelEvent(
+        action=action,
+        label=name,
+        actor=login if isinstance(login, str) else "",
+        actor_type=kind if isinstance(kind, str) else "",
+        created_at=created if isinstance(created, str) else "",
+    )
+
+
 class GitHub(Protocol):
     def get_pull(self, number: int) -> PullRequest: ...
 
     def list_pull_files(self, number: int) -> list[ChangedFile]: ...
 
     def list_issue_comments(self, number: int) -> list[IssueComment]: ...
+
+    def list_issue_events(self, number: int) -> list[LabelEvent]: ...
 
     def create_issue_comment(self, number: int, body: str) -> None: ...
 
@@ -1734,6 +1976,13 @@ class GitHubApi:
 
     def list_issue_comments(self, number: int) -> list[IssueComment]:
         return [parse_comment(item) for item in self._get_all(f"issues/{number}/comments")]
+
+    def list_issue_events(self, number: int) -> list[LabelEvent]:
+        """The PR's label events, oldest first (GitHub lists issue events in
+        order). The workflow's token reads them with its pull-requests
+        permission, which GitHub accepts for this endpoint as it does Issues."""
+        events = (parse_issue_event(item) for item in self._get_all(f"issues/{number}/events"))
+        return [event for event in events if event is not None]
 
     def create_issue_comment(self, number: int, body: str) -> None:
         self._send("POST", self._url(f"issues/{number}/comments"), {"body": body})
@@ -2081,7 +2330,7 @@ class Reviewer:
                 state = parse_state(stickies[0].body)
                 if state is not None and state.sha == keep_review_of and state.status == "reviewed":
                     self.notice(f"kept the finished review of {short_sha(keep_review_of)}, which is the same commit")
-                    return StickyWrite(landed=False, kept=state)
+                    return StickyWrite(landed=False, kept=state, comment=stickies[0])
             if not stickies:
                 if create:
                     self.rt.github.create_issue_comment(self.options.pr, body)
@@ -2132,6 +2381,9 @@ class Reviewer:
         """Mark the sticky NOT reviewed (posting it when create is set and the
         PR has none) and return the exit code the comment then shows."""
         self.warn(f"{short_sha(pr.head_sha)} was not reviewed because {reason}")
+        rule_p1 = any(finding.severity == "P1" for finding in rule_findings)
+        # The label decides nothing without a P1, so who added it is read only then.
+        override = self.override_for(pr) if rule_p1 else None
         body = render_status_comment(
             pr.head_sha,
             pending=False,
@@ -2141,16 +2393,24 @@ class Reviewer:
             repo=self.options.repo,
             run_url=self.run_url,
             server_url=self.server_url,
+            override=override,
         )
         self.step_summary(body)
-        kept = self.write_sticky(body, create=create, keep_review_of=pr.head_sha).kept
+        written = self.write_sticky(body, create=create, keep_review_of=pr.head_sha)
+        kept = written.kept
         # The check follows the comment: a finished review of this same commit
         # was kept, so its P1s still count, and so do the file-rule P1s.
         kept_p1 = kept is not None and kept.counts is not None and kept.counts[0] > 0
-        rule_p1 = any(finding.severity == "P1" for finding in rule_findings)
         # This run settled nothing, so the bot never approves from here.
         self.approval = WITHDRAW_FOR_P1 if kept_p1 or rule_p1 else WITHDRAW_UNREVIEWED
-        return 1 if (kept_p1 or rule_p1) and not has_override(pr.labels) else 0
+        if not (kept_p1 or rule_p1):
+            return 0
+        if override is None:
+            override = self.override_for(pr)
+        if kept is not None and kept_p1 and written.comment is not None:
+            # The kept review's verdict line says whether the label counts, as a re-check's does.
+            self.sync_verdict(written.comment, kept, override)
+        return 0 if override.counts else 1
 
     def finished_review(self, head_sha: str) -> tuple[IssueComment, StickyState] | None:
         """The sticky and its state when it holds a finished review of
@@ -2177,11 +2437,13 @@ class Reviewer:
     def replay(self, pr: PullRequest, sticky: IssueComment, state: StickyState, *, unread: bool) -> int:
         """Re-check a finished review's verdict against the current labels
         without calling the model, and keep the comment's verdict line in
-        step with the override label. With unread, pr is the event's copy."""
+        step with whether the override label counts. With unread, pr is the
+        event's copy."""
         assert state.counts is not None  # finished_review checked it
         p1, p2, p3 = state.counts
-        override = has_override(pr.labels)
-        code = 1 if p1 and not override else 0
+        # The label decides nothing without a P1, so who added it is read only then.
+        override = self.override_for(pr) if p1 else None
+        code = 1 if p1 and not (override is not None and override.counts) else 0
         problem = None
         if unread:
             # The event's copy can be behind the PR, so it proves nothing about the head.
@@ -2194,19 +2456,53 @@ class Reviewer:
             f"{short_sha(pr.head_sha)} already has a finished review by this reviewer ({p1} P1, {p2} P2, "
             f"{p3} P3), so this run re-checks that verdict without calling the model"
         )
-        if p1:
-            paragraph = status_paragraph({"P1": p1, "P2": p2, "P3": p3}, override)
-            updated = with_status_paragraph(sticky.body, paragraph)
-            if updated is not None and updated != sticky.body and self._guard_write(updated):
-                try:
-                    self.rt.github.update_issue_comment(sticky.id, updated)
-                except ReviewError as exc:
-                    self.warn(f"could not update the review comment ({exc})")
+        if override is not None:
+            self.sync_verdict(sticky, state, override)
         self.step_summary(
             f"Claude review: re-checked the finished review of `{pr.head_sha}` without calling the model: "
-            f"{p1} P1, {p2} P2, {p3} P3, override label {'on' if override else 'off'}, exit {code}."
+            f"{p1} P1, {p2} P2, {p3} P3, {describe_override(pr.labels, override)}, exit {code}."
         )
         return code
+
+    def sync_verdict(self, sticky: IssueComment, state: StickyState, override: Override) -> None:
+        """Keep a finished review's verdict line in step with whether the
+        override label counts, so the comment says what the check does."""
+        assert state.counts is not None  # only finished reviews have a verdict line
+        p1, p2, p3 = state.counts
+        paragraph = status_paragraph({"P1": p1, "P2": p2, "P3": p3}, override.counts, ignored=override)
+        updated = with_status_paragraph(sticky.body, paragraph)
+        if updated is not None and updated != sticky.body and self._guard_write(updated):
+            try:
+                self.rt.github.update_issue_comment(sticky.id, updated)
+            except ReviewError as exc:
+                self.warn(f"could not update the review comment ({exc})")
+
+    # the override label ------------------------------------------------------------
+    def override_for(self, pr: PullRequest) -> Override:
+        """Whether the override label counts for pr (see decide_override).
+        Who added it is read from the PR's issue events, and only when the
+        label is on the PR. When they cannot be read the label does not count
+        on this run: that is not an outage to fail open on, since the failure
+        is the P1 it would have passed."""
+        if not has_override(pr.labels):
+            return NO_OVERRIDE
+        events: list[LabelEvent] | None = None
+        try:
+            events = self.rt.github.list_issue_events(self.options.pr)
+        except ReadOnlyViolation:
+            raise
+        except Exception as exc:  # GitHub errors, and any bug here, leave the label not counting
+            detail = str(exc) if isinstance(exc, ReviewError) else f"unexpected {type(exc).__name__}"
+            self.warn(
+                f"could not read the PR's events to see who added the {OVERRIDE_LABEL} label ({detail}), so the "
+                "label does not count on this run and a P1 still fails the check"
+            )
+        override = decide_override(pr.labels, pr.author, events)
+        if override.counts:
+            self.say(f"claude review: {describe_override(pr.labels, override)}")
+        elif override.status != OVERRIDE_UNREAD:
+            self.notice(describe_override(pr.labels, override))
+        return override
 
     # the bot's approval ------------------------------------------------------------
     def sync_approval(self, pr: PullRequest) -> None:
@@ -2434,7 +2730,10 @@ class Reviewer:
             latest = self.rt.github.get_pull(self.options.pr)
         except ReviewError as exc:
             self.warn(f"could not re-read the PR after the review ({exc})")
-        inputs = self.comment_inputs(pr, plan, summary, findings, reply, latest.labels)
+        has_p1 = any(f.severity == "P1" for f in findings)
+        # The label decides nothing without a P1, so who added it is read only then.
+        override = self.override_for(latest) if has_p1 else NO_OVERRIDE
+        inputs = self.comment_inputs(pr, plan, summary, findings, reply, override)
         tally = ", ".join(f"{count} {severity}" for severity, count in severity_counts(findings).items())
         self.say(f"claude review: {short_sha(pr.head_sha)} has {tally}")
         self.step_summary(render_review_comment(inputs, limit=STEP_SUMMARY_BUDGET))
@@ -2452,9 +2751,10 @@ class Reviewer:
                 problem = "this run could not update its comment"
             elif latest.base_ref != pr.base_ref:
                 problem = "the PR's base branch changed during the review"
-            step = approval_for(any(f.severity == "P1" for f in findings), reply is not None, inputs.complete)
+            # The override label plays no part here (see approval_for).
+            step = approval_for(has_p1, reply is not None, inputs.complete)
             self.approval = confirmed(step, problem)
-        return decide_exit(findings, latest.labels)
+        return decide_exit(findings, override)
 
     def comment_inputs(
         self,
@@ -2463,7 +2763,7 @@ class Reviewer:
         summary: str,
         findings: tuple[Finding, ...],
         reply: ModelReply | None,
-        labels: Iterable[str],
+        override: Override,
     ) -> CommentInputs:
         return CommentInputs(
             repo=self.options.repo,
@@ -2474,7 +2774,7 @@ class Reviewer:
             unlisted_files=plan.unlisted_files,
             redactions=plan.redactions,
             usage=reply.usage if reply is not None else (),
-            override=has_override(labels),
+            override=override.counts,
             served_by=reply.model if reply is not None else MODEL,
             fallback_served=reply.fallback_served if reply is not None else False,
             run_url=self.run_url,
@@ -2484,6 +2784,7 @@ class Reviewer:
             fingerprint=self.fingerprint,
             model_ran=reply is not None,
             base_ref=pr.base_ref,
+            ignored_override=override if override.ignored else None,
         )
 
     def dry_run(self, pr: PullRequest) -> int:
@@ -2499,6 +2800,8 @@ class Reviewer:
         self.fingerprint = reviewer_fingerprint(docs)
         plan = plan_review(pr, files, options.budget_tokens)
         request = build_request(options.repo, pr, plan, docs)
+        # Read only (a GET of the PR's events, when the label is on it).
+        override = self.override_for(pr)
         if not plan.reviewed:
             findings = sort_findings(plan.rule_findings)
             say(
@@ -2507,11 +2810,12 @@ class Reviewer:
             )
             for item in plan.skipped:
                 say(f"  not reviewed: {item.path}, {item.reason}")
-            inputs = self.comment_inputs(pr, plan, NOTHING_REVIEWABLE_SUMMARY, findings, None, pr.labels)
+            inputs = self.comment_inputs(pr, plan, NOTHING_REVIEWABLE_SUMMARY, findings, None, override)
             say("----- comment a live run would post -----")
             say(render_review_comment(inputs))
             say("----- end of comment -----")
-            say(f"A live run would exit {decide_exit(findings, pr.labels)}.")
+            say(f"Override: {describe_override(pr.labels, override)}.")
+            say(f"A live run would exit {decide_exit(findings, override)}.")
             self.preview_approval(pr, approval_for(any(f.severity == "P1" for f in findings), False, inputs.complete))
             return 0
         if options.canned_response is not None:
@@ -2567,12 +2871,13 @@ class Reviewer:
             usage=(Usage(model=MODEL, input_tokens=input_tokens, output_tokens=ASSUMED_OUTPUT_TOKENS),),
         )
         findings = sort_findings(plan.rule_findings + result.findings)
-        inputs = self.comment_inputs(pr, plan, result.summary, findings, reply, pr.labels)
+        inputs = self.comment_inputs(pr, plan, result.summary, findings, reply, override)
         body = render_review_comment(inputs)
         say("----- comment a live run would post (canned model response) -----")
         say(body)
         say(f"----- end of comment ({len(body):,} characters; GitHub's limit is {COMMENT_LIMIT:,}) -----")
-        code = decide_exit(findings, pr.labels)
+        say(f"Override: {describe_override(pr.labels, override)}.")
+        code = decide_exit(findings, override)
         say(f"With these canned findings a live run would exit {code}.")
         self.preview_approval(pr, approval_for(any(f.severity == "P1" for f in findings), True, inputs.complete))
         return 0
