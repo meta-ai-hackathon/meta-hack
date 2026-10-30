@@ -8,7 +8,6 @@ import {
   type GlossaryTerm,
 } from "./glossary";
 import {
-  ANSWER_STATUS_LABELS,
   answerStatusLabel,
   type AnswerStatus,
 } from "./honesty";
@@ -680,11 +679,10 @@ function escapeRegExpValue(text: string): string {
 }
 
 /**
- * The public copy the response's static sources can legitimately contain:
- * the matched entries' own text, the glossary, the spec's question prompts
- * and option labels, and the committed framing/label copy. Computed from
- * the data sources — never from the response being scanned, so a leak
- * cannot excuse itself.
+ * The static copy THIS response renders from its own sources: the matched
+ * cards' entry text, the glossary, and the to-resolve prompts (verbatim
+ * spec questions). Computed from the data sources — never from the
+ * user-derived fields being gated — so a leak cannot excuse itself.
  */
 function responseStaticCopy(response: MatchResponse): string {
   const parts: string[] = [MATCH_FRAMING, EXPLANATION_FRAMING];
@@ -716,13 +714,9 @@ function responseStaticCopy(response: MatchResponse): string {
   for (const term of GLOSSARY_TERMS) {
     parts.push(`${term.term} ${term.definition}`);
   }
-  for (const question of QUESTIONS) {
-    parts.push(question.prompt);
-    for (const option of question.options ?? []) {
-      parts.push(option.label);
-    }
+  for (const item of response.toResolve) {
+    parts.push(item.prompt);
   }
-  parts.push(...Object.values(ANSWER_STATUS_LABELS));
   return parts.join(" ").toLowerCase();
 }
 
@@ -732,14 +726,20 @@ function responseStaticCopy(response: MatchResponse): string {
  * or question id is echoed back. Mirrors the intake serializer's check.
  *
  * The WHOLE outgoing payload is scanned (reason text, model explanations,
- * labels, framing — anything that serializes), but a value is excused when
- * it is an exact word of the response's static copy (entry facts, glossary,
- * spec prompts and option labels, framing): a free-text pii answer that
- * happens to equal a common KB word ("application") must not fail-closed
- * the user's whole match list (claude-review P2-3 on PR #45), while any
- * other appearance — a leaked label, a private value echoed in model
- * output — still throws. Multi-select values are checked element by
- * element (the old whole-array JSON check could never substring-match).
+ * labels, framing — anything that serializes), with two tiers:
+ *
+ * - USER-DERIVED fields (reason answer labels, to-resolve status labels)
+ *   never get an exemption: a specific pii value there is a leak by
+ *   construction, so it always throws.
+ * - Every other occurrence is excused only when the value is an exact word
+ *   of the response's static copy (the matched entries' facts, glossary,
+ *   to-resolve prompts, framing): a free-text pii answer that happens to
+ *   equal a common KB word ("application") must not fail-closed the user's
+ *   whole match list (claude-review P2-3 on PR #45), while a private value
+ *   echoed anywhere else — model output included — still throws.
+ *
+ * Multi-select values are checked element by element (the old whole-array
+ * JSON check could never substring-match).
  */
 export function assertNoPiiValuesInMatch(
   response: MatchResponse,
@@ -761,14 +761,26 @@ export function assertNoPiiValuesInMatch(
       if (raw === "" || !isSpecificValue(raw)) {
         continue;
       }
-      if (!serialized.includes(raw.toLowerCase())) {
+      const lowered = raw.toLowerCase();
+      if (!serialized.includes(lowered)) {
         continue;
       }
+      const inUserDerivedField =
+        response.matches.some((card) =>
+          card.reasons.some(
+            (reason) =>
+              reason.answerLabel !== undefined &&
+              reason.answerLabel.toLowerCase().includes(lowered),
+          ),
+        ) ||
+        response.toResolve.some((item) =>
+          item.statusLabel.toLowerCase().includes(lowered),
+        );
       const inStaticCopy = new RegExp(
         `\\b${escapeRegExpValue(raw)}\\b`,
         "i",
       ).test(staticCopy);
-      if (!inStaticCopy) {
+      if (inUserDerivedField || !inStaticCopy) {
         throw new AppError(
           "internal",
           "A match response attempted to include a private answer value.",

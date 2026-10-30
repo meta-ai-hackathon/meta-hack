@@ -67,6 +67,11 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "contraction meet promise", text: "You'll meet the income rules once you apply." },
   { label: "that-clause meet determination", text: "Your answers show that you meet the requirements." },
   { label: "documentation meet determination", text: "She meets the documentation rules for the program." },
+  { label: "of-form meet determination", text: "You meet all of the income rules." },
+  { label: "past-tense meet determination", text: "You've met the requirements for assistance." },
+  { label: "have met determination", text: "You have not met the requirements without a verified ID." },
+  { label: "satisfy determination", text: "You satisfy the eligibility criteria." },
+  { label: "third-person satisfy determination", text: "She satisfies the income rules." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty

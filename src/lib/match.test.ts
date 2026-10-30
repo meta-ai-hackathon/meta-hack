@@ -515,7 +515,9 @@ describe("explanation cache", () => {
   it("does not cache a degraded fallback — the next turn retries the model", async () => {
     // A transient failure (outage, gate block, truncation) must not pin the
     // entry to fallback copy until process restart: only model-sourced
-    // explanations are cached (claude-review P2 on PR #46).
+    // explanations are cached (claude-review P2 on PR #46). ONE shared
+    // cache across both builds proves the failed explanation never enters
+    // it.
     process.env.MODEL_API_KEY = "sentinel-test-key-never-log";
     let attempts = 0;
     setModelTransport(async () => {
@@ -524,16 +526,14 @@ describe("explanation cache", () => {
         status: 500,
       });
     });
+    const cache = new Map<string, MatchExplanation>();
     try {
       const answers = known("main_goal", "food");
-      const first = await buildMatchResponse(answers, {
-        explanationCache: new Map(),
-      });
-      const second = await buildMatchResponse(answers, {
-        explanationCache: new Map(),
-      });
+      const first = await buildMatchResponse(answers, { explanationCache: cache });
+      const second = await buildMatchResponse(answers, { explanationCache: cache });
       expect(first.matches[0]?.explanation.source).toBe("facts");
       expect(second.matches[0]?.explanation.source).toBe("facts");
+      expect(cache.size).toBe(0);
       expect(attempts).toBe(2 * CHAT_MAX_ATTEMPTS);
     } finally {
       resetModelTransport();
@@ -916,6 +916,24 @@ describe("assertNoPiiValuesInMatch", () => {
         { goal_detail: { status: "known", value: sentinel } },
       ),
     ).toThrow();
+  });
+
+  it("excuses a pii value that matches a word of a to-resolve prompt", async () => {
+    // The to-resolve prompts are verbatim spec questions — static copy this
+    // response renders. A free-text pii answer that happens to equal a
+    // prompt word ("messages" in the phone prompt) must not fail the
+    // user's match list; only user-derived fields and non-static copy
+    // throw.
+    const answers: AnswerMap = {
+      goal_detail: { status: "known", value: "messages" },
+      phone_contact: { status: "unknown" },
+    };
+    const response = await buildMatchResponse(answers, {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    expect(JSON.stringify(response).toLowerCase()).toContain("messages");
+    expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
   });
 
   it("bites exactly when a specific pii value reaches a user-derived field (property)", async () => {
