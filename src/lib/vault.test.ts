@@ -60,6 +60,7 @@ const SPEC_ALL_FIELDS: readonly string[] = spec.questions.map(
 const CORE_TABLES = [
   "answer",
   "conversation_turn",
+  "form_answer",
   "person",
   "schema_migrations",
   "session",
@@ -87,6 +88,7 @@ beforeAll(async () => {
     "0001_core.sql",
     "0002_vault_entry.sql",
     "0003_conversation_turn.sql",
+    "0004_form_answer.sql",
   ]);
 });
 
@@ -346,6 +348,80 @@ describe("boundary readVaultFields (VAL-PII-002)", () => {
   it("serves an empty result for an empty request (fail-closed today)", async () => {
     const sessionId = await createSession();
     await expect(readVaultFields(sessionId, [])).resolves.toEqual({});
+  });
+});
+
+describe("explicit per-form fill allowlist (Mission v2 M4, VAL-PDF-006)", () => {
+  // The forms pipeline is the SECOND sanctioned vault accessor: a form fill
+  // reads pii values ONLY through readVaultFields with the form-registry
+  // entry's explicit per-form allowlist in hand. The global CROSSING_ALLOWLIST
+  // stays empty; the explicit allowlist is per-request, per-form, and
+  // committed for review in the registry entry.
+
+  it("serves exactly the fields on the explicit per-form allowlist", async () => {
+    const sessionId = await createSession();
+    await vaultPut(sessionId, "date_of_birth", "1990-01-01");
+    await vaultPut(sessionId, "phone_contact", "555-0100");
+    const values = await readVaultFields(
+      sessionId,
+      ["date_of_birth"],
+      ["date_of_birth"],
+    );
+    expect(values.date_of_birth).toBe("1990-01-01");
+    expect(values.phone_contact).toBeUndefined();
+  });
+
+  it("rejects a vault field off the per-form allowlist even though it is pii:true", async () => {
+    const sessionId = await createSession();
+    await vaultPut(sessionId, "phone_contact", "555-0100");
+    // The form's allowlist names date_of_birth only: asking for phone_contact
+    // is rejected despite phone_contact being a perfectly valid vault field.
+    const request = readVaultFields(
+      sessionId,
+      ["phone_contact"],
+      ["date_of_birth"],
+    );
+    const error = (await rejectionOf(request)) as AppError;
+    expect(error).toBeInstanceOf(AppError);
+    expect(error.code).toBe("validation_error");
+    expect(error.safeMessage).not.toContain("phone_contact");
+    const cause = error.cause as { rejectedFields?: string[] };
+    expect(cause.rejectedFields).toEqual(["phone_contact"]);
+  });
+
+  it("an explicit allowlist cannot smuggle non-vault fields across", async () => {
+    const sessionId = await createSession();
+    const request = readVaultFields(
+      sessionId,
+      ["application_role"],
+      ["application_role"],
+    );
+    await expect(request).rejects.toBeInstanceOf(AppError);
+    await expect(request).rejects.toMatchObject({ code: "validation_error" });
+  });
+
+  it("decides purely with an explicit allowlist: allowed ⊆ CROSSING ∪ explicit", () => {
+    const { allowed, rejected } = vaultCrossingDecision(
+      ["date_of_birth", "phone_contact", "made_up_field"],
+      ["date_of_birth"],
+    );
+    expect(allowed).toEqual(["date_of_birth"]);
+    expect(rejected).toEqual(["phone_contact", "made_up_field"]);
+  });
+
+  it("the explicit allowlist only admits vault fields", async () => {
+    const sessionId = await createSession();
+    await vaultPut(sessionId, "date_of_birth", "1990-01-01");
+    // A form cannot widen its allowlist to a field the vault does not hold.
+    const request = readVaultFields(
+      sessionId,
+      ["application_role", "date_of_birth"],
+      ["application_role", "date_of_birth"],
+    );
+    const error = (await rejectionOf(request)) as AppError;
+    expect(error.code).toBe("validation_error");
+    const cause = error.cause as { rejectedFields?: string[] };
+    expect(cause.rejectedFields).toEqual(["application_role"]);
   });
 });
 

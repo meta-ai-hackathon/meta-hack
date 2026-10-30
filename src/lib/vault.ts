@@ -45,16 +45,32 @@ export interface VaultCrossingDecision {
 
 /**
  * Pure boundary decision: split a requested field list into fields the
- * allowlist permits across and fields it must reject. Exposed separately so
+ * allowlists permit across and fields they must reject. Exposed separately so
  * the decision logic is testable without a database.
+ *
+ * Two allowlists, both deliberate product decisions recorded in code:
+ * - CROSSING_ALLOWLIST — the global set of fields permitted into model
+ *   context (empty today, and test-enforced never to hold a pii:true field).
+ * - explicitAllowlist — an optional per-request list a SANCTIONED accessor
+ *   passes with its request. The forms pipeline (the second sanctioned
+ *   accessor, Mission v2 M4) passes the fill allowlist from the committed
+ *   form-registry entry: a form may read exactly the vault fields its
+ *   reviewed registry entry names, and nothing else. The allowlist only ever
+ *   ADMITS vault fields — a non-vault field is rejected even if a form
+ *   allowlist names it.
  */
 export function vaultCrossingDecision(
   requestedFields: readonly string[],
+  explicitAllowlist: readonly string[] = [],
 ): VaultCrossingDecision {
+  const permitted = new Set([
+    ...CROSSING_ALLOWLIST,
+    ...explicitAllowlist.filter((field) => VAULT_FIELDS.includes(field)),
+  ]);
   const allowed: string[] = [];
   const rejected: string[] = [];
   for (const field of requestedFields) {
-    if (CROSSING_ALLOWLIST.includes(field)) {
+    if (permitted.has(field)) {
       allowed.push(field);
     } else {
       rejected.push(field);
@@ -165,17 +181,29 @@ export async function vaultFlowValues(
 }
 
 /**
- * The vault read path, consumed by future prompt builders. Accepts ONLY
- * explicitly allowlisted fields (CROSSING_ALLOWLIST) and rejects every
- * other request — including any pii:true field — loudly with a taxonomy
- * error. The surfaced message stays generic; rejected field ids go only
- * into `cause`, which is never serialized to logs or responses.
+ * The vault read path. Accepts ONLY explicitly allowlisted fields and rejects
+ * every other request — including any pii:true field off the allowlist —
+ * loudly with a taxonomy error. The surfaced message stays generic; rejected
+ * field ids go only into `cause`, which is never serialized to logs or
+ * responses.
+ *
+ * The optional `explicitAllowlist` is how a sanctioned accessor presents its
+ * per-form permit (Mission v2 M4): the forms pipeline passes the fill
+ * allowlist committed in the form-registry entry, so a fill reads exactly the
+ * vault fields its reviewed entry names and nothing else. Without an explicit
+ * allowlist the decision is the historical fail-closed one (CROSSING_ALLOWLIST
+ * only). The explicit list only ever ADMITS vault fields — it cannot smuggle
+ * a non-vault field across.
  */
 export async function readVaultFields(
   sessionId: string,
   requestedFields: readonly string[],
+  explicitAllowlist?: readonly string[],
 ): Promise<Record<string, string>> {
-  const { allowed, rejected } = vaultCrossingDecision(requestedFields);
+  const { allowed, rejected } = vaultCrossingDecision(
+    requestedFields,
+    explicitAllowlist,
+  );
   if (rejected.length > 0) {
     throw new AppError(
       "validation_error",

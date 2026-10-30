@@ -44,6 +44,16 @@ const EXEMPT_FILES = new Set([
   // the serialization boundary (lib/intake/serialize.ts) strips every pii
   // value before anything reaches a page, payload, or log.
   "lib/intake/store.ts",
+  // The forms pipeline (Mission v2 M4) is the SECOND sanctioned vault
+  // accessor (VAL-PDF-006): the fill reads pii values ONLY via
+  // readVaultFields with the committed form-registry entry's explicit
+  // per-form fill allowlist — a form may read exactly the vault fields its
+  // reviewed registry entry names, nothing more. Filled values flow into the
+  // returned PDF bytes only: never into prompts, logs, or any client payload
+  // other than the person's own downloaded application. Only the fill module
+  // is admitted — every other forms file (parse/flow/registry/answers) stays
+  // outside the boundary exactly like the rest of src/.
+  "lib/forms/fill.ts",
 ]);
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
@@ -146,6 +156,25 @@ describe("import boundary (VAL-PII-001)", () => {
       expect(scanned).toContain(exempt);
     }
     expect(violations).toEqual([]);
+  });
+
+  it("admits only the fill module among the forms files, and scanned them", () => {
+    // The forms admission is scoped: exactly one forms file is exempt, and
+    // the scan provably walked every other forms module so a stray vault
+    // import in parse/flow/registry/answers cannot slip through unscanned.
+    const { scanned } = scanForVaultImports(SRC_ROOT);
+    expect(EXEMPT_FILES.has("lib/forms/fill.ts")).toBe(true);
+    // The fill module itself exists in the tree and was scanned.
+    expect(scanned).toContain("lib/forms/fill.ts");
+    for (const relative of scanned) {
+      if (
+        relative.startsWith("lib/forms/") &&
+        relative !== "lib/forms/fill.ts" &&
+        !relative.endsWith(".test.ts")
+      ) {
+        expect(EXEMPT_FILES.has(relative)).toBe(false);
+      }
+    }
   });
 
   it("fails when violated: a fixture importing vaultPut is reported", () => {
