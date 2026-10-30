@@ -3,6 +3,13 @@ import postgres from "postgres";
 import { closeDb } from "../../../lib/db";
 import { runMigrations } from "../../../lib/migrate";
 import { setLogSink } from "../../../lib/telemetry";
+import { setModelTransport } from "../../../lib/model";
+import {
+  composeFallbackExplanation,
+  resetModuleExplanationCache,
+} from "../../../lib/match";
+import { KB_ENTRIES } from "../../../lib/kb";
+import { CONSENT_HEADER } from "../../../lib/consent";
 import {
   loadAnswers,
   readSessionCookie,
@@ -79,10 +86,15 @@ async function seedAnswers(): Promise<void> {
   await saveAnswer(sessionId, "citizenship_status", "unverified", "us_citizen", "ai_drafted");
 }
 
-function matchRequest(method: "GET" | "POST"): Request {
+function matchRequest(method: "GET" | "POST", consent?: string | null): Request {
   return new Request("http://localhost:3100/api/match", {
     method,
-    headers: { cookie: sessionCookieHeader(sessionId) },
+    headers: {
+      cookie: sessionCookieHeader(sessionId),
+      // No consent header unless the test passes one: the default is the
+      // fail-closed, zero-model-call path under the consent gate.
+      ...(consent ? { [CONSENT_HEADER]: consent } : {}),
+    },
   });
 }
 
@@ -320,5 +332,98 @@ describe("banned claims and privacy at the route (VAL-MATCH-003)", () => {
 
   it("keeps the session cookie parsing aligned with the store", () => {
     expect(readSessionCookie(sessionCookieHeader(sessionId))).toBe(sessionId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Consent gate (Mission v2.1 M5, HACK-81, VAL-CONSENT-001): the match
+// explanation is the one model call on the match surface. Without an
+// AI-consent receipt the route spends ZERO model calls and the cards carry
+// the deterministic entry-fact explanation — a declined session completes
+// the match with no provider traffic at all.
+// ---------------------------------------------------------------------------
+
+const CONSENTED_AI = JSON.stringify({
+  v: 1,
+  ai: true,
+  voice: false,
+  at: "2026-10-30T12:00:00.000Z",
+});
+
+describe("match consent gate (Mission v2.1 M5, VAL-CONSENT-001)", () => {
+  afterEach(() => {
+    setModelTransport(undefined);
+  });
+
+  it("makes zero model calls without a consent receipt and explains from entry facts", async () => {
+    await seedAnswers();
+    let called = 0;
+    setModelTransport(async () => {
+      called += 1;
+      return new Response(JSON.stringify({ error: { message: "must not be used" } }), {
+        status: 200,
+      });
+    });
+    const body = await bodyOf(await GET(matchRequest("GET")));
+    expect(called).toBe(0);
+    expect(body.matches.length).toBeGreaterThan(0);
+    for (const card of body.matches) {
+      expect(card.explanation.source, card.entryId).toBe("facts");
+      // The deterministic explanation is not an empty shrug.
+      expect(card.explanation.text.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("spends the gated model explainer only when the receipt allows AI sharing", async () => {
+    // Earlier tests in this file cached a facts explanation (their turns
+    // ran without a transport); clear it so this test exercises the real
+    // consented path.
+    resetModuleExplanationCache();
+    await seedAnswers();
+    // The client checks the key BEFORE the transport; without it the call
+    // would degrade to the fallback before the scripted transport ran.
+    process.env.MODEL_API_KEY = "sentinel-test-key-never-log";
+    let called = 0;
+    setModelTransport(async (_url, init) => {
+      called += 1;
+      // A reply that quotes the PROMPTED entry's own facts passes the
+      // banned-claim and grounding gates by construction, so the scripted
+      // call proves the consented happy path.
+      const prompt = String(init.body);
+      const entryId = /knowledge-base entry (\S+) version \d+/.exec(prompt)?.[1];
+      const entry = KB_ENTRIES.find((candidate) => candidate.id === entryId);
+      if (!entry) {
+        return new Response(JSON.stringify({ error: { message: "unknown entry" } }), {
+          status: 500,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl-test",
+          model: "muse-spark-1.3",
+          choices: [
+            {
+              index: 0,
+              finish_reason: "stop",
+              message: {
+                role: "assistant",
+                content: composeFallbackExplanation(entry),
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 20,
+            completion_tokens: 30,
+            total_tokens: 50,
+            completion_tokens_details: { reasoning_tokens: 10 },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const body = await bodyOf(await GET(matchRequest("GET", CONSENTED_AI)));
+    expect(called).toBe(1);
+    expect(body.matches.length).toBeGreaterThan(0);
+    expect(body.matches[0]!.explanation.source).toBe("model");
   });
 });

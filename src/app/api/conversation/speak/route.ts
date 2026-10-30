@@ -1,5 +1,10 @@
 import { loadTurnText } from "../../../../lib/conversation";
 import {
+  consentPathEnabled,
+  parseConsentReceipt,
+  CONSENT_HEADER,
+} from "../../../../lib/consent";
+import {
   loadSession,
   readSessionCookie,
 } from "../../../../lib/intake/store";
@@ -53,11 +58,23 @@ function rememberAudio(turnId: string, audio: Uint8Array): void {
 // banned-claim and pii-echo gates before it was persisted. No arbitrary
 // text ever reaches the TTS provider. On any failure the client falls back
 // to browser speechSynthesis — the route never blocks the conversation.
+//
+// CONSENT GATE (Mission v2.1 M5, HACK-81, VAL-CONSENT-003): the reply text
+// goes to Gemini TTS only for a client whose receipt has the voice toggle
+// on — checked BEFORE the body is read. Without it, the client's browser
+// speechSynthesis (local, no send) is the path.
 
 export async function POST(request: Request): Promise<Response> {
   const requestId = requestIdFromHeaders(request.headers);
   return runWithRequestId(requestId, async () => {
     try {
+      // Consent FIRST — a refused speak never reads the request at all.
+      const receipt = parseConsentReceipt(
+        request.headers.get(CONSENT_HEADER),
+      );
+      if (!consentPathEnabled("voice", receipt)) {
+        throw new AppError("consent_required", userMessageFor("consent_required"));
+      }
       let body: unknown;
       try {
         body = await request.json();
@@ -119,9 +136,11 @@ export async function POST(request: Request): Promise<Response> {
             ? 404
             : code === "rate_limited"
               ? 429
-              : code === "model_unavailable"
-                ? 503
-                : 500;
+              : code === "consent_required"
+                ? 403
+                : code === "model_unavailable"
+                  ? 503
+                  : 500;
       return Response.json(
         { error: { code, message: userMessageFor(code) } },
         { status },

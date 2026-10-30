@@ -17,6 +17,7 @@ import {
   QUESTION_BY_ID,
 } from "../../../../lib/intake/spec";
 import { SESSION_COOKIE } from "../../../../lib/intake/store";
+import { CONSENT_HEADER } from "../../../../lib/consent";
 import { GET as historyGet } from "../history/route";
 import { POST } from "./route";
 
@@ -142,12 +143,46 @@ type ModelTransportLike = Parameters<typeof setModelTransport>[0];
 // Request helpers
 // ---------------------------------------------------------------------------
 
-function turnRequest(text: string, cookie?: string): Request {
+// Consent receipts (Mission v2.1 M5): since the consent gate, every send
+// must carry the per-device receipt. The helpers default to a CONSENTED
+// receipt so the existing suites keep exercising the conversation flow;
+// the gate describe passes explicit receipts (or null) to prove the gate.
+const CONSENTED_AI = JSON.stringify({
+  v: 1,
+  ai: true,
+  voice: false,
+  at: "2026-10-30T12:00:00.000Z",
+});
+const CONSENTED_VOICE = JSON.stringify({
+  v: 1,
+  ai: true,
+  voice: true,
+  at: "2026-10-30T12:00:00.000Z",
+});
+const DECLINED = JSON.stringify({
+  v: 1,
+  ai: false,
+  voice: false,
+  at: "2026-10-30T12:00:00.000Z",
+});
+
+function consentHeaders(consent: string | null | undefined): Record<string, string> {
+  return consent === undefined || consent === null
+    ? {}
+    : { [CONSENT_HEADER]: consent };
+}
+
+function turnRequest(
+  text: string,
+  cookie?: string,
+  consent: string | null = CONSENTED_AI,
+): Request {
   return new Request("http://localhost:3100/api/conversation/turn", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       ...(cookie ? { cookie } : {}),
+      ...consentHeaders(consent),
     },
     body: JSON.stringify({ text }),
   });
@@ -660,7 +695,10 @@ describe("POST /api/conversation/turn — validation hygiene", () => {
       const response = await POST(
         new Request("http://localhost:3100/api/conversation/turn", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...consentHeaders(CONSENTED_AI),
+          },
           body: JSON.stringify(body),
         }),
       );
@@ -1196,7 +1234,11 @@ const {
 } = await import("../../../../lib/model");
 const { encodeWavPcm16Mono } = await import("../../../../lib/audio/wav");
 
-function voiceRequest(wav: Uint8Array, cookie?: string): Request {
+function voiceRequest(
+  wav: Uint8Array,
+  cookie?: string,
+  consent: string | null = CONSENTED_VOICE,
+): Request {
   const form = new FormData();
   form.append(
     "audio",
@@ -1205,7 +1247,10 @@ function voiceRequest(wav: Uint8Array, cookie?: string): Request {
   );
   return new Request("http://localhost:3100/api/conversation/turn", {
     method: "POST",
-    headers: { ...(cookie ? { cookie } : {}) },
+    headers: {
+      ...(cookie ? { cookie } : {}),
+      ...consentHeaders(consent),
+    },
     body: form,
   });
 }
@@ -1445,10 +1490,86 @@ describe("POST /api/conversation/turn — voice failure modes (VAL-VOICE-006)", 
     const response = await POST(
       new Request("http://localhost:3100/api/conversation/turn", {
         method: "POST",
+        headers: consentHeaders(CONSENTED_VOICE),
         body: form,
       }),
     );
     expect(response.status).toBe(400);
     expect((await response.json() as ErrorResponse).error.code).toBe("validation_error");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Consent gate (Mission v2.1 M5, HACK-81, VAL-CONSENT-001/003): the route
+// refuses ANY send before the per-device receipt allows it. The scripted
+// transport doubles as the network-capture witness: it is the app's ONLY
+// egress path to the providers, so zero recorded calls = zero API requests
+// carrying user content, at the network level.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/conversation/turn — consent gate (VAL-CONSENT-001/003)", () => {
+  it("refuses a typed turn with no receipt before any model call", async () => {
+    const { calls } = installVoiceScript([], []);
+    const response = await POST(turnRequest("I am 34 years old.", undefined, null));
+    expect(response.status).toBe(403);
+    expect((await response.json() as ErrorResponse).error.code).toBe(
+      "consent_required",
+    );
+    // ZERO provider API requests: nothing read the user's words.
+    expect(calls).toHaveLength(0);
+    expect(await countOf("person")).toBe(0);
+    expect(await countOf("session")).toBe(0);
+  });
+
+  it("refuses a declined receipt the same way — declining never reaches a provider", async () => {
+    const { calls } = installVoiceScript([], []);
+    const response = await POST(turnRequest("I am 34 years old.", undefined, DECLINED));
+    expect(response.status).toBe(403);
+    expect((await response.json() as ErrorResponse).error.code).toBe(
+      "consent_required",
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("treats a malformed receipt as no consent", async () => {
+    const { calls } = installVoiceScript([], []);
+    const response = await POST(turnRequest("garbage receipt", undefined, "not-json"));
+    expect(response.status).toBe(403);
+    expect((await response.json() as ErrorResponse).error.code).toBe(
+      "consent_required",
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("refuses a voice turn whose receipt lacks the voice toggle before any STT call", async () => {
+    const { calls } = installVoiceScript([], []);
+    const response = await POST(
+      voiceRequest(SIXTEEN_K_MONO_WAV, undefined, CONSENTED_AI),
+    );
+    expect(response.status).toBe(403);
+    expect((await response.json() as ErrorResponse).error.code).toBe(
+      "consent_required",
+    );
+    // No STT request, no chat request: the audio never left.
+    expect(calls).toHaveLength(0);
+    expect(await countOf("session")).toBe(0);
+  });
+
+  it("refuses a voice turn with no receipt at all", async () => {
+    const { calls } = installVoiceScript([], []);
+    const response = await POST(voiceRequest(SIXTEEN_K_MONO_WAV, undefined, null));
+    expect(response.status).toBe(403);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("never blocks the read-only journey: history still answers after refusals", async () => {
+    installVoiceScript([], []);
+    await POST(turnRequest("I am 34 years old.", undefined, DECLINED));
+    const history = await historyGet(
+      new Request("http://localhost:3100/api/conversation/history"),
+    );
+    expect(history.status).toBe(200);
+    const data = (await history.json()) as { turns: unknown[] };
+    expect(data.turns).toEqual([]);
   });
 });
