@@ -32,7 +32,10 @@ export const BANNED_CLAIM_PATTERNS = [
   // Criteria-satisfaction determinations ("meets the income rules" phrasing,
   // droid-review P3-2 on PR #45). Identical source to src/lib/honesty.ts —
   // the drift test below pins the two lists together.
-  /(?<!\b(?:if|whether|once|when)\s+)\b(?:you|he|she|they)\s*(?:(?:will|'ll|shall|should|do|did|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?meets?\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|documentation|disability|citizenship|application)\w*\s+)*(?:rules|requirements|criteria|guidelines|limits|thresholds|conditions|standards)\b/i,
+  // "documentation" is deliberately absent: "document" + \w* already covers
+  // it, and the redundant alternative makes the repetition ambiguous
+  // (exponential backtracking — the CodeQL js/redos alert).
+  /(?<!\b(?:if|whether|once|when)\s+)\b(?:you|he|she|they)\s*(?:(?:will|'ll|shall|should|do|did|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?meets?\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|disability|citizenship|application)\w*\s+)*(?:rules|requirements|criteria|guidelines|limits|thresholds|conditions|standards)\b/i,
 ];
 
 /**

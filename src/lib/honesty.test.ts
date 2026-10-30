@@ -66,6 +66,7 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "future negated meet determination", text: "You will not meet the requirements without a verified ID." },
   { label: "contraction meet promise", text: "You'll meet the income rules once you apply." },
   { label: "that-clause meet determination", text: "Your answers show that you meet the requirements." },
+  { label: "documentation meet determination", text: "She meets the documentation rules for the program." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty
