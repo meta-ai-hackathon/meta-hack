@@ -1,3 +1,4 @@
+import type postgres from "postgres";
 import { getDb } from "./db";
 import { AppError, logInfo, PII_QUESTION_IDS } from "./telemetry";
 import {
@@ -212,6 +213,32 @@ export async function vaultDelete(
     WHERE session_id = ${sessionId} AND field = ${field}
   `;
   logInfo("vault_delete");
+}
+
+/**
+ * Remove EVERY stored value for one session — the session purge's vault
+ * half (HACK-80 / VAL-DEMOEXP-006): the person's delete-my-answers control
+ * (and the confirmed post-submission purge) must leave nothing in the
+ * vault. Session-scoped by design: every field for THIS session goes, so
+ * the per-field allowlist the other accessors enforce does not apply.
+ * Idempotent — an empty session deletes nothing. Runs on the caller's
+ * executor when one is passed (the purge runs inside one transaction, so a
+ * half-finished purge can never happen); defaults to the shared pool.
+ * Returns the number of rows removed. Logs a count only — field ids are
+ * themselves identifying content (VAL-TEL-002), values never logged.
+ */
+export async function purgeSessionVault(
+  sessionId: string,
+  executor: postgres.Sql | postgres.TransactionSql = getDb(),
+): Promise<number> {
+  const sql = executor;
+  const deleted = await sql`
+    DELETE FROM vault_entry
+    WHERE session_id = ${sessionId}
+    RETURNING 1
+  `;
+  logInfo("vault_purged", { fieldCount: deleted.length });
+  return deleted.length;
 }
 
 /**
