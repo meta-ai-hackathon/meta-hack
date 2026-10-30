@@ -5,7 +5,11 @@ import {
   runWithRequestId,
   userMessageFor,
 } from "../../../lib/telemetry";
-import { errorResponse, optionalJsonBody } from "../../../lib/intake/api";
+import {
+  isAppSettableSessionStatus,
+  isUserReportedSessionStatus,
+} from "../../../lib/honesty";
+import { errorResponse, optionalJsonBody, parseJsonBody } from "../../../lib/intake/api";
 import {
   ensureSession,
   isSecureRequest,
@@ -14,7 +18,9 @@ import {
   loadSessionState,
   readSessionCookie,
   recordCaseworkerAssist,
+  reportUserReportedStatus,
   sessionCookieHeader,
+  setSessionStatus,
   validateAssistNote,
 } from "../../../lib/intake/store";
 import {
@@ -133,6 +139,64 @@ export async function GET(request: Request): Promise<Response> {
       assertNoPiiValues(state);
       logInfo("session_resumed");
       return Response.json({ session, state });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+}
+
+interface SessionStatusBody {
+  status?: unknown;
+  userReportedStatus?: unknown;
+}
+
+// PATCH /api/session (Mission v2 M4, BN-25): the session's lifecycle
+// transitions. Exactly one of two fields, each with its own vocabulary:
+// - `status` — an app-settable state only (draft / prepared / handed_off).
+//   The type excludes every user_reported_* value, so no code path through
+//   this route can set a submitted state: prepared ≠ submitted.
+// - `userReportedStatus` — what the person TOLD us happened outside the app
+//   (user_reported_submitted / user_reported_decided). Recorded as a report,
+//   never as an app-set state.
+export async function PATCH(request: Request): Promise<Response> {
+  const requestId = requestIdFromHeaders(request.headers);
+  return runWithRequestId(requestId, async () => {
+    try {
+      const body = await parseJsonBody(request);
+      const { status, userReportedStatus } =
+        typeof body === "object" && body !== null && !Array.isArray(body)
+          ? (body as SessionStatusBody)
+          : { status: undefined, userReportedStatus: undefined };
+      if (
+        (status === undefined) === (userReportedStatus === undefined)
+      ) {
+        // Exactly one of the two fields — anything else is a bad request.
+        return errorResponse(validationError());
+      }
+      const cookieValue = readSessionCookie(request.headers.get("cookie"));
+      const sessionId = await loadSession(cookieValue);
+      if (!sessionId) {
+        return errorResponse(
+          new AppError("not_found", userMessageFor("not_found")),
+        );
+      }
+      let session;
+      if (status !== undefined) {
+        if (!isAppSettableSessionStatus(status)) {
+          return errorResponse(validationError());
+        }
+        session = await setSessionStatus(sessionId, status);
+      } else {
+        if (!isUserReportedSessionStatus(userReportedStatus)) {
+          return errorResponse(validationError());
+        }
+        session = await reportUserReportedStatus(
+          sessionId,
+          userReportedStatus,
+        );
+      }
+      logInfo("session_status_changed");
+      return Response.json({ session });
     } catch (error) {
       return errorResponse(error);
     }

@@ -6,7 +6,7 @@ import { runMigrations } from "../../../lib/migrate";
 import { saveAnswer } from "../../../lib/intake/store";
 import { SESSION_COOKIE } from "../../../lib/intake/store";
 import { POST as answerPost } from "../intake/answer/route";
-import { GET, POST } from "./route";
+import { GET, PATCH, POST } from "./route";
 import { QUESTIONS, type Question } from "../../../lib/intake/spec";
 
 // /api/session route tests (BN-13 / HACK-40): create + resume. Runs against
@@ -445,5 +445,81 @@ describe("properties (fast-check)", () => {
       },
     );
     await fc.assert(attempts, { numRuns: 20 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/session — the BN-25 lifecycle transitions (Mission v2 M4)
+// ---------------------------------------------------------------------------
+
+function patchRequest(body: unknown, cookie?: string): Request {
+  return new Request("http://localhost:3100/api/session", {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+      ...(cookie ? { cookie } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("PATCH /api/session (BN-25 vocabulary)", () => {
+  it("advances app-settable states: draft → prepared → handed_off", async () => {
+    const created = await POST(postRequest({}));
+    const cookie = sessionCookieOf(created);
+    for (const status of ["prepared", "handed_off"]) {
+      const response = await PATCH(patchRequest({ status }, cookie));
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        session: { status: string };
+      };
+      expect(body.session.status).toBe(status);
+    }
+  });
+
+  it("refuses to set a submitted-like state — the app cannot submit (BN-25)", async () => {
+    const created = await POST(postRequest({}));
+    const cookie = sessionCookieOf(created);
+    for (const status of [
+      "user_reported_submitted",
+      "user_reported_decided",
+      "submitted",
+      "handed-off",
+    ]) {
+      const response = await PATCH(patchRequest({ status }, cookie));
+      expect(response.status).toBe(400);
+    }
+  });
+
+  it("records a user-reported status on the person's explicit report", async () => {
+    const created = await POST(postRequest({}));
+    const cookie = sessionCookieOf(created);
+    const response = await PATCH(
+      patchRequest({ userReportedStatus: "user_reported_submitted" }, cookie),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      session: { status: string };
+    };
+    expect(body.session.status).toBe("user_reported_submitted");
+  });
+
+  it("requires exactly one of status / userReportedStatus", async () => {
+    const created = await POST(postRequest({}));
+    const cookie = sessionCookieOf(created);
+    const both = await PATCH(
+      patchRequest(
+        { status: "prepared", userReportedStatus: "user_reported_submitted" },
+        cookie,
+      ),
+    );
+    expect(both.status).toBe(400);
+    const neither = await PATCH(patchRequest({}, cookie));
+    expect(neither.status).toBe(400);
+  });
+
+  it("a session-less PATCH is a 404", async () => {
+    const response = await PATCH(patchRequest({ status: "prepared" }));
+    expect(response.status).toBe(404);
   });
 });

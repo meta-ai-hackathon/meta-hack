@@ -1,8 +1,12 @@
 import {
   isAnswerStatus,
+  isAppSettableSessionStatus,
   isSessionStatus,
+  isUserReportedSessionStatus,
   type AnswerStatus,
+  type AppSettableSessionStatus,
   type SessionStatus,
+  type UserReportedSessionStatus,
 } from "../honesty";
 import { AppError, logInfo, userMessageFor } from "../telemetry";
 import { getDb } from "../db";
@@ -237,27 +241,121 @@ export async function recordCaseworkerAssist(
 }
 
 /**
+ * Advance a session through the app-settable BN-25 states (draft → prepared
+ * → handed_off). The type keeps every user_reported_* value out of bounds —
+ * no code path can set a submitted-like state (BN-25: prepared ≠ submitted);
+ * those ride reportUserReportedStatus below, on the person's explicit
+ * report only. Unknown sessions fail with not_found.
+ */
+export async function setSessionStatus(
+  sessionId: string,
+  status: AppSettableSessionStatus,
+): Promise<SessionStateView> {
+  if (!isAppSettableSessionStatus(status)) {
+    throw validationError();
+  }
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE session
+    SET status = ${status}, updated_at = now()
+    WHERE id = ${sessionId}
+    RETURNING id
+  `;
+  if (rows.length === 0) {
+    throw new AppError("not_found", userMessageFor("not_found"));
+  }
+  logInfo("session_status_advanced");
+  const state = await loadSessionState(sessionId);
+  if (!state) {
+    throw new AppError("not_found", userMessageFor("not_found"));
+  }
+  return state;
+}
+
+/**
+ * Record what the person told us happened OUTSIDE the app, after handoff
+ * (submitted / decided). Only the user_reported_* values are accepted here —
+ * the app's own transitions go through setSessionStatus and can never reach
+ * these states. The report is the person's word, not a verified fact; the
+ * status vocabulary keeps that distinction type-level.
+ */
+export async function reportUserReportedStatus(
+  sessionId: string,
+  status: UserReportedSessionStatus,
+): Promise<SessionStateView> {
+  if (!isUserReportedSessionStatus(status)) {
+    throw validationError();
+  }
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE session
+    SET status = ${status}, updated_at = now()
+    WHERE id = ${sessionId}
+    RETURNING id
+  `;
+  if (rows.length === 0) {
+    throw new AppError("not_found", userMessageFor("not_found"));
+  }
+  logInfo("session_status_user_reported");
+  const state = await loadSessionState(sessionId);
+  if (!state) {
+    throw new AppError("not_found", userMessageFor("not_found"));
+  }
+  return state;
+}
+
+
+/**
+ * One stored answer row: tri-state status, the jsonb value (NULL for
+ * pii:true questions — their values live in the vault), and the provenance.
+ */
+export interface AnswerRecord {
+  readonly status: AnswerStatus;
+  readonly value: unknown;
+  readonly provenance: AnswerProvenance;
+}
+
+/**
+ * Read the raw answer rows for a session — statuses, values (NULL for pii
+ * questions), and provenance — WITHOUT any vault merge. The forms pipeline
+// (Mission v2 M4) consumes this for non-pii fill values and for the
+ * provenance labels; the vault-side reads stay in the vault module with the
+ * per-form allowlist.
+ */
+export async function loadAnswerRecords(
+  sessionId: string,
+): Promise<Readonly<Record<string, AnswerRecord>>> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT question_id, value, status, provenance
+    FROM answer
+    WHERE session_id = ${sessionId}
+  `;
+  const records: Record<string, AnswerRecord> = {};
+  for (const row of rows) {
+    if (!isAnswerStatus(row.status) || !isAnswerProvenance(row.provenance)) {
+      continue;
+    }
+    records[String(row.question_id)] = {
+      status: row.status,
+      value: row.value ?? null,
+      provenance: row.provenance,
+    };
+  }
+  return records;
+}
+
+/**
  * Load every stored answer for a session as the flow engine's answer map.
  * pii:true values come back from the vault read path (server-side only —
  * the serialization boundary strips them from anything client-visible);
  * the answer table keeps their value NULL.
  */
 export async function loadAnswers(sessionId: string): Promise<AnswerMap> {
-  const sql = getDb();
-  const rows = await sql`
-    SELECT question_id, value, status
-    FROM answer
-    WHERE session_id = ${sessionId}
-  `;
+  const records = await loadAnswerRecords(sessionId);
   const answers: Record<string, StoredAnswer> = {};
-  for (const row of rows) {
-    if (!isAnswerStatus(row.status)) {
-      continue;
-    }
-    answers[String(row.question_id)] = {
-      status: row.status,
-      value: row.value ?? null,
-    };
+  for (const [questionId, record] of Object.entries(records)) {
+    answers[questionId] = { status: record.status, value: record.value };
   }
 
   // Merge vault-stored pii values so the flow engine can evaluate skip
