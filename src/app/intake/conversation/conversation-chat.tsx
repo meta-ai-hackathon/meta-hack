@@ -78,6 +78,30 @@ function nextLocalTurnId(): string {
   return `local-turn-${localTurnId}`;
 }
 
+/**
+ * The voice send (VAL-CONSENT-006): the recorded blob is transcoded to the
+ * Meta-accepted WAV and POSTed as multipart to the same turn route the
+ * typed path uses — WITH the consent header attached, exactly as the typed
+ * and speak paths attach theirs (the server refuses every voice turn
+ * without it, and a 403 then wipes the receipt). No manual content-type:
+ * the browser's multipart boundary must describe the FormData body.
+ * fetchImpl is injectable so the client wiring is unit-testable (the same
+ * seam idiom as pickRecorderMimeType/queueSpeech).
+ */
+export async function sendVoiceTurn(
+  recorded: Blob,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Response> {
+  const wav = await recordedBlobToWav(recorded);
+  const form = new FormData();
+  form.append("audio", wav, "turn.wav");
+  return fetchImpl("/api/conversation/turn", {
+    method: "POST",
+    headers: attachConsentHeader(new Headers()),
+    body: form,
+  });
+}
+
 export function ConversationChat() {
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [state, setState] = useState<IntakeClientState | null>(null);
@@ -364,13 +388,7 @@ export function ConversationChat() {
     setError(null);
     setNotice("Processing your recording…");
     try {
-      const wav = await recordedBlobToWav(recorded);
-      const form = new FormData();
-      form.append("audio", wav, "turn.wav");
-      const response = await fetch("/api/conversation/turn", {
-        method: "POST",
-        body: form,
-      });
+      const response = await sendVoiceTurn(recorded);
       await handleTurnResponse(response, true);
     } catch {
       setNotice(
