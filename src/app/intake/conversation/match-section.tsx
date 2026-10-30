@@ -233,24 +233,13 @@ export const MATCH_UNAVAILABLE_NOTICE =
   "again after your next message.";
 
 /**
- * The match-unavailable state, rendered through the StatusRegion a11y
- * convention (droid-review P2 on PR #45): a status change is announced, not
- * swapped in silently. Exported for tests.
- */
-export function MatchUnavailableNotice() {
-  return (
-    <StatusRegion
-      message={MATCH_UNAVAILABLE_NOTICE}
-      className="text-sm text-zinc-600 dark:text-zinc-400"
-    />
-  );
-}
-
-/**
  * The live section: fetches the match for the session and re-fetches when
  * the conversation moves (refreshKey = turn count). A fetch failure stays
  * quiet and honest — the cards are not the conversation's core path — and
- * its notice is announced through the StatusRegion convention.
+ * its notice is announced through the StatusRegion convention: the region
+ * is mounted for the section's whole life and the failure message CHANGES
+ * into it, so screen readers announce the update (a region inserted with
+ * its text already present may stay silent).
  */
 export function MatchSection({ refreshKey }: { refreshKey: number }) {
   const [data, setData] = useState<MatchDataView | null>(null);
@@ -281,11 +270,13 @@ export function MatchSection({ refreshKey }: { refreshKey: number }) {
     };
   }, [refreshKey]);
 
-  if (failed) {
-    return <MatchUnavailableNotice />;
-  }
-  if (!data) {
-    return null;
-  }
-  return <MatchSectionContent data={data} />;
+  return (
+    <>
+      {data && !failed ? <MatchSectionContent data={data} /> : null}
+      <StatusRegion
+        message={failed ? MATCH_UNAVAILABLE_NOTICE : ""}
+        className="text-sm text-zinc-600 dark:text-zinc-400"
+      />
+    </>
+  );
 }

@@ -2,8 +2,13 @@ import {
   assertNoBannedClaimsEverySentence,
   isSpecificValue,
 } from "./conversation";
-import { glossaryTermsForText, type GlossaryTerm } from "./glossary";
 import {
+  GLOSSARY_TERMS,
+  glossaryTermsForText,
+  type GlossaryTerm,
+} from "./glossary";
+import {
+  ANSWER_STATUS_LABELS,
   answerStatusLabel,
   type AnswerStatus,
 } from "./honesty";
@@ -646,7 +651,13 @@ export async function buildMatchResponse(
     let explanation = cache.get(key);
     if (explanation === undefined && index === 0) {
       explanation = await explainer(rankedEntry.entry);
-      cache.set(key, explanation);
+      // Only a model-sourced explanation is cached: a degraded fallback
+      // (model unavailable, gate failure, truncation) must not pin the
+      // entry to fallback copy until process restart — the next turn
+      // retries the model (claude-review P2 on PR #46).
+      if (explanation.source === "model") {
+        cache.set(key, explanation);
+      }
     }
     if (explanation === undefined) {
       explanation = {
@@ -664,42 +675,78 @@ export async function buildMatchResponse(
 // PII defense in depth (the serialization-boundary pattern, for match)
 // ---------------------------------------------------------------------------
 
+function escapeRegExpValue(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The public copy the response's static sources can legitimately contain:
+ * the matched entries' own text, the glossary, the spec's question prompts
+ * and option labels, and the committed framing/label copy. Computed from
+ * the data sources — never from the response being scanned, so a leak
+ * cannot excuse itself.
+ */
+function responseStaticCopy(response: MatchResponse): string {
+  const parts: string[] = [MATCH_FRAMING, EXPLANATION_FRAMING];
+  for (const card of response.matches) {
+    const entry = KB_ENTRIES.find((candidate) => candidate.id === card.entryId);
+    if (!entry) {
+      continue;
+    }
+    parts.push(entry.title);
+    for (const source of entry.sources) {
+      parts.push(`${source.title} ${source.supports}`);
+    }
+    for (const name of ALL_KB_FACT_GROUPS) {
+      const group = entry.facts[name];
+      if (!group) {
+        continue;
+      }
+      for (const item of group.items) {
+        if (typeof item === "string") {
+          parts.push(item);
+        } else if ("questionId" in item) {
+          parts.push(item.reason);
+        } else {
+          parts.push(`${item.label} ${"due" in item ? item.due : item.url}`);
+        }
+      }
+    }
+  }
+  for (const term of GLOSSARY_TERMS) {
+    parts.push(`${term.term} ${term.definition}`);
+  }
+  for (const question of QUESTIONS) {
+    parts.push(question.prompt);
+    for (const option of question.options ?? []) {
+      parts.push(option.label);
+    }
+  }
+  parts.push(...Object.values(ANSWER_STATUS_LABELS));
+  return parts.join(" ").toLowerCase();
+}
+
 /**
  * Throw loudly if a match response about to leave the server carries any
- * stored value of a pii:true question in a USER-DERIVED field. The message
- * stays generic; no value or question id is echoed back.
+ * stored value of a pii:true question. The message stays generic; no value
+ * or question id is echoed back. Mirrors the intake serializer's check.
  *
- * Precision (claude-review P2-3 on PR #45): only the response fields that
- * render user-derived content are scanned — the plain-language answer
- * labels on reasons and the to-resolve status labels. Static copy (entry
- * facts, links, glossary definitions, framing, the to-resolve prompts)
- * is never scanned: a free-text pii answer that happens to equal a common
- * KB word ("application") must not fail-closed the user's whole match
- * list. Multi-select values are checked element by element — a
- * JSON-stringified array can never substring-match, so the old whole-array
- * check was a no-op there.
- *
- * THE SCANNED FIELD SET IS THE CONTRACT: if a response field is ever
- * reworked to render answer content, it must join the scan. The fields
- * deliberately outside it are entry-derived by construction (reason text,
- * explanation copy, framing, links) — the explanation additionally passes
- * the banned-claim and grounding gates before render.
+ * The WHOLE outgoing payload is scanned (reason text, model explanations,
+ * labels, framing — anything that serializes), but a value is excused when
+ * it is an exact word of the response's static copy (entry facts, glossary,
+ * spec prompts and option labels, framing): a free-text pii answer that
+ * happens to equal a common KB word ("application") must not fail-closed
+ * the user's whole match list (claude-review P2-3 on PR #45), while any
+ * other appearance — a leaked label, a private value echoed in model
+ * output — still throws. Multi-select values are checked element by
+ * element (the old whole-array JSON check could never substring-match).
  */
 export function assertNoPiiValuesInMatch(
   response: MatchResponse,
   answers: AnswerMap,
 ): void {
-  const userDerivedSurfaces: string[] = [];
-  for (const card of response.matches) {
-    for (const reason of card.reasons) {
-      if (reason.answerLabel !== undefined) {
-        userDerivedSurfaces.push(reason.answerLabel.toLowerCase());
-      }
-    }
-  }
-  for (const item of response.toResolve) {
-    userDerivedSurfaces.push(item.statusLabel.toLowerCase());
-  }
+  const serialized = JSON.stringify(response).toLowerCase();
+  const staticCopy = responseStaticCopy(response);
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     const stored = answers[questionId];
     if (!stored || stored.value === null || stored.value === undefined) {
@@ -711,11 +758,17 @@ export function assertNoPiiValuesInMatch(
     for (const raw of elements) {
       // Generic one-word answers ("yes") would over-match ordinary copy; the
       // same specificity rule the conversation redactor uses applies here.
-      if (
-        raw !== "" &&
-        isSpecificValue(raw) &&
-        userDerivedSurfaces.some((surface) => surface.includes(raw.toLowerCase()))
-      ) {
+      if (raw === "" || !isSpecificValue(raw)) {
+        continue;
+      }
+      if (!serialized.includes(raw.toLowerCase())) {
+        continue;
+      }
+      const inStaticCopy = new RegExp(
+        `\\b${escapeRegExpValue(raw)}\\b`,
+        "i",
+      ).test(staticCopy);
+      if (!inStaticCopy) {
         throw new AppError(
           "internal",
           "A match response attempted to include a private answer value.",

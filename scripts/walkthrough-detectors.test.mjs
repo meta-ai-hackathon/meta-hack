@@ -34,6 +34,7 @@ const BANNED_FIXTURES = [
   "She meets the program's requirements.",
   "You do not meet the income rules.",
   "You'll meet the income rules once you apply.",
+  "Your answers show that you meet the requirements.",
 ];
 
 // Honest sentences that must pass untouched. Hedged uncertainty stays

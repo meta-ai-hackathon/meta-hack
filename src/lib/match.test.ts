@@ -9,7 +9,11 @@ import {
 } from "./kb";
 import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID } from "./intake/spec";
 import type { AnswerMap } from "./intake/flow";
-import { resetModelTransport, setModelTransport } from "./model";
+import {
+  CHAT_MAX_ATTEMPTS,
+  resetModelTransport,
+  setModelTransport,
+} from "./model";
 import { setLogSink } from "./telemetry";
 import {
   EXPLANATION_FRAMING,
@@ -508,8 +512,35 @@ describe("explanation cache", () => {
     expect(response.matches[0]!.explanation.text).toContain("v2");
   });
 
-  it("never exceeds one explainer call per entry id+version (property)", async () => {
-    const cache = new Map<string, MatchExplanation>();
+  it("does not cache a degraded fallback — the next turn retries the model", async () => {
+    // A transient failure (outage, gate block, truncation) must not pin the
+    // entry to fallback copy until process restart: only model-sourced
+    // explanations are cached (claude-review P2 on PR #46).
+    process.env.MODEL_API_KEY = "sentinel-test-key-never-log";
+    let attempts = 0;
+    setModelTransport(async () => {
+      attempts += 1;
+      return new Response(JSON.stringify({ error: { message: "down" } }), {
+        status: 500,
+      });
+    });
+    try {
+      const answers = known("main_goal", "food");
+      const first = await buildMatchResponse(answers, {
+        explanationCache: new Map(),
+      });
+      const second = await buildMatchResponse(answers, {
+        explanationCache: new Map(),
+      });
+      expect(first.matches[0]?.explanation.source).toBe("facts");
+      expect(second.matches[0]?.explanation.source).toBe("facts");
+      expect(attempts).toBe(2 * CHAT_MAX_ATTEMPTS);
+    } finally {
+      resetModelTransport();
+    }
+  });
+
+  it("never exceeds one explainer call per entry id+version (property)", async () => {    const cache = new Map<string, MatchExplanation>();
     const calls: string[] = [];
     const explainer = async (entry: KbEntry): Promise<MatchExplanation> => {
       calls.push(`${entry.id}:v${entry.version}`);
@@ -798,15 +829,7 @@ describe("assertNoPiiValuesInMatch", () => {
     ).toThrow();
   });
 
-  it("does not scan KB-derived fields — the scanned set is the contract", async () => {
-    // Reason text, explanation copy, framing, and links are built from the
-    // entry (KB data), never from answers — a value appearing there cannot
-    // be a leak path, and scanning them would resurrect the false-500
-    // class this gate fix removes (claude-review P2-1 on PR #46 proposes
-    // the opposite trade-off; the field-scoped rule is the mandated
-    // design). If any of these fields is EVER reworked to render answer
-    // content, it must join the scan — and this test pins today's
-    // contract so that change is deliberate.
+  it("bites on a private value in reason text", async () => {
     const answers: AnswerMap = {
       date_of_birth: { status: "known", value: "1980-02-03" },
     };
@@ -815,22 +838,84 @@ describe("assertNoPiiValuesInMatch", () => {
       explanationCache: new Map(),
     });
     const cleanCard = clean.matches[0]!;
-    const kbDerivedPoisoned = {
+    const poisoned = {
       ...clean,
       matches: [
         {
           ...cleanCard,
           reasons: cleanCard.reasons.map((reason, index) =>
-            index === 0 ? { ...reason, text: "Dated 1980-02-03." } : reason,
+            index === 0
+              ? { ...reason, text: "You told us your date of birth is 1980-02-03." }
+              : reason,
           ),
-          explanation: { text: "Dated 1980-02-03.", source: "facts" as const },
         },
         ...clean.matches.slice(1),
       ],
     };
+    expect(() => assertNoPiiValuesInMatch(poisoned, answers)).toThrow();
+  });
+
+  it("bites on a private value in model-sourced explanation text", async () => {
+    const answers: AnswerMap = {
+      date_of_birth: { status: "known", value: "1980-02-03" },
+    };
+    const clean = await buildMatchResponse(known("main_goal", "food"), {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    const cleanCard = clean.matches[0]!;
+    const poisoned = {
+      ...clean,
+      matches: [
+        {
+          ...cleanCard,
+          explanation: {
+            text: "You told us your date of birth is 1980-02-03.",
+            source: "model" as const,
+          },
+        },
+        ...clean.matches.slice(1),
+      ],
+    };
+    expect(() => assertNoPiiValuesInMatch(poisoned, answers)).toThrow();
+  });
+
+  it("excuses a pii value that is an exact word of the static copy", async () => {
+    // A glossary term legitimately contains "assistance"; a free-text pii
+    // answer equal to that word must not fail the user's match list even
+    // when the word renders in explanation copy. A value OUTSIDE the static
+    // sources still throws.
+    const clean = await buildMatchResponse(known("main_goal", "food"), {
+      explainer: async () => ({ text: "stub", source: "facts" }),
+      explanationCache: new Map(),
+    });
+    const cleanCard = clean.matches[0]!;
+    const withExplanation = (text: string) => ({
+      ...clean,
+      matches: [
+        {
+          ...cleanCard,
+          explanation: { text, source: "model" as const },
+        },
+        ...clean.matches.slice(1),
+      ],
+    });
+    const commonWordAnswers: AnswerMap = {
+      goal_detail: { status: "known", value: "assistance" },
+    };
     expect(() =>
-      assertNoPiiValuesInMatch(kbDerivedPoisoned, answers),
+      assertNoPiiValuesInMatch(
+        withExplanation("Assistance may be worth pursuing."),
+        commonWordAnswers,
+      ),
     ).not.toThrow();
+    const sentinel = "sentinel-private-narrative-9182";
+    expect(() =>
+      assertNoPiiValuesInMatch(
+        withExplanation(sentinel),
+        { goal_detail: { status: "known", value: sentinel } },
+      ),
+    ).toThrow();
   });
 
   it("bites exactly when a specific pii value reaches a user-derived field (property)", async () => {
