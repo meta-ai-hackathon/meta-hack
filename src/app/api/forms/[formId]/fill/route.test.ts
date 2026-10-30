@@ -162,6 +162,30 @@ describe("POST /api/forms/<formId>/fill", () => {
     expect(body.error.code).toBe("validation_error");
   });
 
+  it("rejects an oversized upload before parsing it", async () => {
+    const cookie = await createSessionAndGetCookie();
+    const form = new FormData();
+    // Just over the 32 MiB cap: the declared length is checked before the
+    // body is materialized, and the part's own size before its bytes are
+    // read — either way nothing large reaches PDFDocument.load.
+    form.append(
+      "file",
+      new Blob([new Uint8Array(32 * 1024 * 1024 + 1)]),
+      "template.pdf",
+    );
+    const response = await POST(
+      new Request("http://localhost:3100/api/forms/sample-application-form/fill", {
+        method: "POST",
+        headers: { cookie },
+        body: form,
+      }),
+      { params: Promise.resolve({ formId: "sample-application-form" }) },
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("validation_error");
+  });
+
   it("rejects an unknown form id with a 404", async () => {
     const cookie = await createSessionAndGetCookie();
     const response = await POST(

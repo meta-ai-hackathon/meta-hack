@@ -73,14 +73,26 @@ export async function POST(
  * The OPTIONAL uploaded template part of the multipart fill request. A
  * non-multipart request (the UI download path) or a multipart request
  * without a file part yields undefined — the route falls back to the
- * registry's committed template.
+ * registry's committed template. Uploads are capped BEFORE parsing: the
+ * cap check on the declared length runs before formData() materializes the
+ * body, and the part's own size is re-checked before its bytes are read,
+ * so an arbitrarily large untrusted upload never reaches PDFDocument.load.
  */
+const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
+
 async function optionalTemplateBytes(
   request: Request,
 ): Promise<Uint8Array | undefined> {
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.includes("multipart/form-data")) {
     return undefined;
+  }
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > MAX_UPLOAD_BYTES) {
+    throw new AppError(
+      "validation_error",
+      userMessageFor("validation_error"),
+    );
   }
   let form: FormData;
   try {
@@ -94,6 +106,12 @@ async function optionalTemplateBytes(
   const part = form.get("file");
   if (!part || typeof part === "string") {
     return undefined;
+  }
+  if (part.size > MAX_UPLOAD_BYTES) {
+    throw new AppError(
+      "validation_error",
+      userMessageFor("validation_error"),
+    );
   }
   return new Uint8Array(await part.arrayBuffer());
 }
