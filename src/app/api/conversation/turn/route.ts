@@ -6,6 +6,12 @@ import {
   validateTurnText,
 } from "../../../../lib/conversation";
 import {
+  consentPathEnabled,
+  parseConsentReceipt,
+  CONSENT_HEADER,
+  type ConsentPathId,
+} from "../../../../lib/consent";
+import {
   isSecureRequest,
   loadAnswers,
   readSessionCookie,
@@ -35,6 +41,23 @@ import { parseJsonBody } from "../../../../lib/intake/api";
 // question id, and the fresh client state (pii values structurally omitted).
 // Model failures map to the taxonomy error with the wizard fallback link
 // (VAL-CONV-007).
+//
+// CONSENT GATE (Mission v2.1 M5, HACK-81, VAL-CONSENT-001/003): the FIRST
+// thing this route does is check the per-device consent receipt the client
+// sends with every request. HONEST FRAMING: downstream, the extraction call
+// sees the raw typed sentence before classification — redaction protects
+// storage and the screen, not that send. This gate therefore runs before
+// the body is even read: a refused turn is never parsed, never persisted,
+// and never forwarded to any provider. Typed turns require the AI consent;
+// voice turns additionally require the voice toggle (their own gate).
+
+/** Refuse the request unless the receipt allows this path. */
+function requireConsent(request: Request, pathId: ConsentPathId): void {
+  const receipt = parseConsentReceipt(request.headers.get(CONSENT_HEADER));
+  if (!consentPathEnabled(pathId, receipt)) {
+    throw new AppError("consent_required", userMessageFor("consent_required"));
+  }
+}
 
 export async function POST(request: Request): Promise<Response> {
   const requestId = requestIdFromHeaders(request.headers);
@@ -42,6 +65,12 @@ export async function POST(request: Request): Promise<Response> {
     try {
       const contentType = request.headers.get("content-type") ?? "";
       const cookieValue = readSessionCookie(request.headers.get("cookie"));
+      // Consent FIRST — a refused turn never reads user content.
+      if (contentType.includes("multipart/form-data")) {
+        requireConsent(request, "voice");
+      } else {
+        requireConsent(request, "ai-conversation");
+      }
       // Voice turns arrive as multipart audio; typed turns as JSON. Both
       // produce the turn text and share everything downstream.
       const userText = contentType.includes("multipart/form-data")

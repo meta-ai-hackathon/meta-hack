@@ -6,6 +6,7 @@ import { persistTurn } from "../../../../lib/conversation";
 import { resetTtsTransport, setTtsTransport, type TtsTransport } from "../../../../lib/tts";
 import { parseWavHeader } from "../../../../lib/audio/wav";
 import { setLogSink, type LogLine } from "../../../../lib/telemetry";
+import { CONSENT_HEADER } from "../../../../lib/consent";
 import { POST } from "./route";
 
 // Spoken-reply route tests (Mission v2 M2): the server proxies Gemini TTS
@@ -67,12 +68,17 @@ async function seedTurns(): Promise<{ sessionId: string; turnIds: string[] }> {
   return { sessionId: String(session.id), turnIds: [first, second] };
 }
 
-function speakRequest(turnId: string | null, cookie?: string): Request {
+function speakRequest(
+  turnId: string | null,
+  cookie?: string,
+  consent: string | null = CONSENTED_VOICE,
+): Request {
   return new Request("http://localhost:3100/api/conversation/speak", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       ...(cookie ? { cookie } : {}),
+      ...(consent === null ? {} : { [CONSENT_HEADER]: consent }),
     },
     body: JSON.stringify({ turnId }),
   });
@@ -177,7 +183,10 @@ describe("POST /api/conversation/speak — turn-id contract", () => {
     const malformed = await POST(
       new Request("http://localhost:3100/api/conversation/speak", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          [CONSENT_HEADER]: CONSENTED_VOICE,
+        },
         body: "not json",
       }),
     );
@@ -259,5 +268,64 @@ describe("POST /api/conversation/speak — turn-id contract", () => {
     const serialized = JSON.stringify(logs);
     expect(serialized).not.toContain("What kind of help are you looking");
     expect(serialized).not.toContain(SENTINEL_KEY);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Consent gate (Mission v2.1 M5, HACK-81, VAL-CONSENT-003): spoken replies
+// via Gemini TTS are a send — they ride behind the voice toggle, and a
+// request without the voice consent never reaches the TTS provider. The
+// client falls back to browser speechSynthesis (local, no send).
+// ---------------------------------------------------------------------------
+
+const CONSENTED_VOICE = JSON.stringify({
+  v: 1,
+  ai: true,
+  voice: true,
+  at: "2026-10-30T12:00:00.000Z",
+});
+const CONSENTED_AI_ONLY = JSON.stringify({
+  v: 1,
+  ai: true,
+  voice: false,
+  at: "2026-10-30T12:00:00.000Z",
+});
+
+describe("POST /api/conversation/speak — consent gate (VAL-CONSENT-003)", () => {
+  it("refuses a speak request with no receipt before any provider call", async () => {
+    const { sessionId, turnIds } = await seedTurns();
+    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    let called = false;
+    setTtsTransport((async () => {
+      called = true;
+      return new Response("{}", { status: 200 });
+    }) as TtsTransport);
+
+    const response = await POST(
+      speakRequest(turnIds[0], cookieFor(sessionId), null),
+    );
+    expect(response.status).toBe(403);
+    const data = (await response.json()) as { error: { code: string } };
+    expect(data.error.code).toBe("consent_required");
+    expect(called).toBe(false);
+  });
+
+  it("refuses a speak request whose receipt lacks the voice toggle", async () => {
+    const { sessionId, turnIds } = await seedTurns();
+    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    let called = false;
+    setTtsTransport((async () => {
+      called = true;
+      return new Response("{}", { status: 200 });
+    }) as TtsTransport);
+
+    const response = await POST(
+      speakRequest(turnIds[0], cookieFor(sessionId), CONSENTED_AI_ONLY),
+    );
+    expect(response.status).toBe(403);
+    expect((await response.json() as { error: { code: string } }).error.code).toBe(
+      "consent_required",
+    );
+    expect(called).toBe(false);
   });
 });

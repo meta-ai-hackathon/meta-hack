@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
 import { StatusRegion } from "../../../components/status-region";
+import { attachConsentHeader } from "../../../lib/consent";
 
 // The match section (Mission v2 M3): the ranked benefit match under the
 // conversation, fetched from /api/match after turns change. Every claim on
@@ -249,7 +250,12 @@ export function MatchSection({ refreshKey }: { refreshKey: number }) {
     let cancelled = false;
     async function loadMatch() {
       try {
-        const response = await fetch("/api/match");
+        // The consent receipt rides along: with sharing declined the route
+        // spends zero model calls and explains from the entry facts
+        // (Mission v2.1 M5, VAL-CONSENT-001).
+        const response = await fetch("/api/match", {
+          headers: attachConsentHeader(new Headers()),
+        });
         if (!response.ok) {
           throw new Error("match unavailable");
         }

@@ -451,7 +451,7 @@ describe("PII redaction (VAL-TEL-002)", () => {
 // ---------------------------------------------------------------------------
 
 describe("closed error taxonomy (VAL-TEL-003)", () => {
-  it("is exactly the six-code closed set including model_unavailable", () => {
+  it("is exactly the seven-code closed set including model_unavailable and consent_required", () => {
     expect([...ERROR_TAXONOMY].sort()).toEqual(
       [
         "validation_error",
@@ -459,10 +459,14 @@ describe("closed error taxonomy (VAL-TEL-003)", () => {
         "db_error",
         "model_unavailable",
         "rate_limited",
+        "consent_required",
         "internal",
       ].sort(),
     );
     expect(ERROR_TAXONOMY).toContain("model_unavailable");
+    // Mission v2.1 M5 (HACK-81): consent refusals are their own honest
+    // failure class — never disguised as a validation error.
+    expect(ERROR_TAXONOMY).toContain("consent_required");
   });
 
   it("maps each taxonomy code to itself and isErrorCode guards it", () => {

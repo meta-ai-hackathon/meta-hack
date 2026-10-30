@@ -1134,8 +1134,9 @@ export async function transcribeTurnAudio(
 /**
  * Map any thrown value to the conversation error response: the taxonomy
  * code, the canonical plain-language copy, and the wizard fallback link
- * (VAL-CONV-007). Validation problems are 400, rate limits 429, an
- * unavailable model 503, not-found 404, anything unknown a generic 500.
+ * (VAL-CONV-007). Validation problems are 400, a consent refusal 403
+ * (Mission v2.1 M5), rate limits 429, an unavailable model 503, not-found
+ * 404, anything unknown a generic 500.
  */
 export function conversationErrorResponse(error: unknown): Response {
   reportError(error, { event: "conversation.request_failed" });
@@ -1147,9 +1148,11 @@ export function conversationErrorResponse(error: unknown): Response {
         ? 404
         : code === "rate_limited"
           ? 429
-          : code === "model_unavailable"
-            ? 503
-            : 500;
+          : code === "consent_required"
+            ? 403
+            : code === "model_unavailable"
+              ? 503
+              : 500;
   return Response.json(
     {
       error: {

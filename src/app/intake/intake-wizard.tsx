@@ -74,7 +74,14 @@ function SaveForLater(props: { onSave: () => void; busy: boolean }) {
   );
 }
 
-export function IntakeWizard() {
+export function IntakeWizard(props: {
+  /**
+   * Optional callback fired after each successful answer save — lets an
+   * embedding surface (the consent-declined conversation page) refresh
+   * match/review sections that read the stored answers.
+   */
+  readonly onAnswersChanged?: () => void;
+} = {}) {
   const [wizard, setWizard] = useState<Wizard>({ phase: "loading" });
   const [current, setCurrent] = useState(0);
   const [draftValue, setDraftValue] = useState<unknown>(undefined);
@@ -161,6 +168,7 @@ export function IntakeWizard() {
         return;
       }
       setWizard({ phase: "ready", state: data });
+      props.onAnswersChanged?.();
       // Continue semantics: the first unanswered question AFTER the one just
       // answered in the fresh visible list (skips may have changed it); if
       // none, the review screen. Landing on the global first-unanswered

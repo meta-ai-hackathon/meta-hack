@@ -619,6 +619,11 @@ export interface MatchBuildOptions {
  */
 const moduleExplanationCache = new Map<string, MatchExplanation>();
 
+/** Test seam: clear the module-level explanation cache. */
+export function resetModuleExplanationCache(): void {
+  moduleExplanationCache.clear();
+}
+
 function explanationCacheKey(entry: KbEntry): string {
   return `${entry.id}:v${entry.version}`;
 }

@@ -6,6 +6,16 @@ import { runMigrations } from "../../../../lib/migrate";
 import { persistTurn } from "../../../../lib/conversation";
 import { POST } from "./route";
 import { parseWavHeader } from "../../../../lib/audio/wav";
+import { CONSENT_HEADER } from "../../../../lib/consent";
+
+// The live speak requests carry a voice-consent receipt: the consent gate
+// sits in front of the TTS provider for live traffic too.
+const CONSENTED_VOICE = JSON.stringify({
+  v: 1,
+  ai: true,
+  voice: true,
+  at: "2026-10-30T12:00:00.000Z",
+});
 
 // Live spoken-reply check (Mission v2 M2, user-steered Gemini TTS): proves
 // the turn-id route, the prompt-prefix contract, and the L16→WAV wrapping
@@ -97,6 +107,7 @@ describe("POST /api/conversation/speak — live (skipped without GEMINI_API_KEY)
           headers: {
             "content-type": "application/json",
             cookie: `bn_session=${session.id}`,
+            [CONSENT_HEADER]: CONSENTED_VOICE,
           },
           body: JSON.stringify({ turnId }),
         }),
@@ -135,6 +146,7 @@ describe("POST /api/conversation/speak — live (skipped without GEMINI_API_KEY)
           headers: {
             "content-type": "application/json",
             cookie: `bn_session=${session.id}`,
+            [CONSENT_HEADER]: CONSENTED_VOICE,
           },
           body: JSON.stringify({ turnId }),
         }),

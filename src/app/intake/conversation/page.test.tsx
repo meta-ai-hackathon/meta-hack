@@ -20,6 +20,15 @@ describe("Conversation page shell", () => {
     expect(html).toContain('id="conversation-input"');
   });
 
+  it("shows the consent surface before any send, sends disabled until decided (VAL-CONSENT-002)", () => {
+    const html = renderToStaticMarkup(<ConversationPage />);
+    expect(html).toContain("data-consent-surface");
+    // The honest first paint: nothing can be sent before a choice exists.
+    expect(html).toMatch(/<textarea[^>]*disabled/);
+    expect(html).toMatch(/data-voice-toggle[^>]*disabled/);
+    expect(html).not.toMatch(/data-mic-blocked-guidance/);
+  });
+
   it("keeps a hierarchical heading outline", () => {
     const levels = headingLevels(renderToStaticMarkup(<ConversationPage />));
     expect(levels.length).toBeGreaterThan(0);
