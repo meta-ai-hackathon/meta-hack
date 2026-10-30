@@ -156,6 +156,10 @@ export const DISCARDED_NOTICE =
 export const UNSUPPORTED_NOTICE =
   "A reminder on this device was saved by a newer version of this site, " +
   "so it is not shown here.";
+/** Third review fix: a save that raced a change in another tab used to undo it silently. */
+export const SAVE_CHANGED_NOTICE =
+  "The reminder was removed or changed in another tab while this date was " +
+  "being saved, so this date was not saved. Save again to keep this date.";
 export const SAVE_FAILED_NOTICE =
   "The reminder could not be saved on this device. You can still download " +
   "a calendar file.";
@@ -422,6 +426,7 @@ export const STATIC_RENEWAL_COPY: readonly string[] = [
   DOWNLOAD_FAILED_NOTICE,
   DISCARDED_NOTICE,
   UNSUPPORTED_NOTICE,
+  SAVE_CHANGED_NOTICE,
   SAVE_FAILED_NOTICE,
   REMOVE_FAILED_NOTICE,
   UNREADABLE_BANNER_MESSAGE,

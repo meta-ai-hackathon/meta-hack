@@ -26,6 +26,7 @@ import {
   REMOVE_BUTTON,
   REMOVE_FAILED_NOTICE,
   SAVE_BUTTON,
+  SAVE_CHANGED_NOTICE,
   SAVE_FAILED_NOTICE,
   SECTION_HEADING,
   STORAGE_UNAVAILABLE_NOTE,
@@ -213,7 +214,14 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
     };
     setBusy(true);
     try {
-      await saveReminder(reminder, storage.deps);
+      const outcome = await saveReminder(reminder, storage.deps);
+      if (outcome.status === "changed") {
+        // Third review fix: another tab removed or changed the reminder
+        // while this save ran, so nothing was written. The form keeps this
+        // date, and saving again writes it.
+        setNotice(SAVE_CHANGED_NOTICE);
+        return;
+      }
       setSaved(reminder);
       setEditing(false);
       setNotice(savedNotice(reminder.kind));

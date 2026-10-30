@@ -49,10 +49,14 @@ function memoryKv(
       await hooks.beforeDeliver?.(keys);
       return snapshot;
     },
-    setMany: async (pairs) => {
+    setMany: async (pairs, guard) => {
+      if (guard !== undefined && guard.keep(structuredClone(entries.get(guard.key)))) {
+        return false;
+      }
       for (const [key, value] of pairs) {
         entries.set(key, structuredClone(value));
       }
+      return true;
     },
     deleteMany: async (keys, guard) => {
       if (guard !== undefined && guard.keep(structuredClone(entries.get(guard.key)))) {
@@ -369,13 +373,125 @@ describe("several tabs at once (review fix: a slow read in one tab never wipes a
     expect((db.get(REMINDER_ENVELOPE_KEY) as { version: number }).version).toBe(2);
   });
 
+  it("a save that another tab's remove overtakes does not bring the reminder back (third review)", async () => {
+    // The review's sequence: tab A's save has read the store, tab B's Remove
+    // commits and deletes both keys, then tab A's write lands.
+    const db = new Map<string, unknown>();
+    const tabB = deviceDeps(memoryKv(db));
+    await saveReminder(reminder({ reportedDate: "2027-04-30" }), tabB);
+    const gate = pause();
+    let first = true;
+    const tabA = deviceDeps(
+      memoryKv(db, {
+        beforeDeliver: async () => {
+          if (first) {
+            first = false;
+            await gate.paused;
+          }
+        },
+      }),
+    );
+    const mine = reminder({ reportedDate: "2027-06-30", revision: 1 });
+    const aSave = saveReminder(mine, tabA);
+    await new Promise((done) => setTimeout(done, 0));
+    await clearReminder(tabB);
+    gate.resume();
+    // Tab B told the person the reminder is removed; it stays removed, and
+    // tab A hears that its save did not land.
+    expect(await aSave).toEqual({ status: "changed" });
+    expect(db.size).toBe(0);
+    // Saving again keeps tab A's date, as its notice says.
+    expect(await saveReminder(mine, tabA)).toEqual({ status: "saved" });
+    expect(await loadReminder(deviceDeps(memoryKv(db)), [ENTRY_ID])).toEqual({ status: "ok", reminder: mine });
+  });
+
+  it("a save that another tab's save overtakes leaves that save in place (third review)", async () => {
+    const db = new Map<string, unknown>();
+    const tabB = deviceDeps(memoryKv(db));
+    await saveReminder(reminder({ reportedDate: "2027-04-30" }), tabB);
+    const gate = pause();
+    let first = true;
+    const tabA = deviceDeps(
+      memoryKv(db, {
+        beforeDeliver: async () => {
+          if (first) {
+            first = false;
+            await gate.paused;
+          }
+        },
+      }),
+    );
+    const aSave = saveReminder(reminder({ reportedDate: "2027-06-30", revision: 1 }), tabA);
+    await new Promise((done) => setTimeout(done, 0));
+    const theirs = reminder({ reportedDate: "2027-05-15", revision: 1 });
+    expect(await saveReminder(theirs, tabB)).toEqual({ status: "saved" });
+    gate.resume();
+    expect(await aSave).toEqual({ status: "changed" });
+    expect(await loadReminder(deviceDeps(memoryKv(db)), [ENTRY_ID])).toEqual({ status: "ok", reminder: theirs });
+  });
+
+  it("a save lands or says it did not, whatever another tab does between its read and its write (property)", async () => {
+    const day = fc
+      .integer({ min: toEpochDay(parseIsoDate("2026-01-01")!), max: toEpochDay(parseIsoDate("2030-12-31")!) })
+      .map((epochDay) => formatIsoDate(fromEpochDay(epochDay)));
+    const meanwhile = fc.constantFrom("nothing" as const, "remove" as const, "save" as const, "remove then save" as const);
+    await fc.assert(
+      fc.asyncProperty(fc.boolean(), meanwhile, day, day, async (savedBefore, other, mineDay, theirDay) => {
+        const db = new Map<string, unknown>();
+        const tabB = deviceDeps(memoryKv(db));
+        if (savedBefore) {
+          await saveReminder(reminder({ reportedDate: "2027-04-30" }), tabB);
+        }
+        const gate = pause();
+        let first = true;
+        const tabA = deviceDeps(
+          memoryKv(db, {
+            beforeDeliver: async () => {
+              if (first) {
+                first = false;
+                await gate.paused;
+              }
+            },
+          }),
+        );
+        const mine = reminder({ reportedDate: mineDay, revision: 2 });
+        const theirs = reminder({ reportedDate: theirDay, revision: 3, calendarId: "f".repeat(32) });
+        const aSave = saveReminder(mine, tabA);
+        await new Promise((done) => setTimeout(done, 0));
+        if (other === "remove" || other === "remove then save") {
+          await clearReminder(tabB);
+        }
+        if (other === "save" || other === "remove then save") {
+          await saveReminder(theirs, tabB);
+        }
+        gate.resume();
+        const outcome = await aSave;
+        const stored = await loadReminder(deviceDeps(memoryKv(db)), [ENTRY_ID]);
+        // The other tab changed the store exactly when it did something
+        // that left a different envelope (or none) than tab A read.
+        const changed = other === "save" || other === "remove then save" || (other === "remove" && savedBefore);
+        if (changed) {
+          expect(outcome).toEqual({ status: "changed" });
+          expect(stored).toEqual(other === "remove" ? { status: "none" } : { status: "ok", reminder: theirs });
+        } else {
+          expect(outcome).toEqual({ status: "saved" });
+          expect(stored).toEqual({ status: "ok", reminder: mine });
+        }
+      }),
+      { numRuns: 80 },
+    );
+  });
+
   it("two tabs making the first save at once leave a matching key and envelope", async () => {
     const db = new Map<string, unknown>();
     let reads = 0;
     const bothRead = pause();
     const hooks = {
       beforeDeliver: async (keys: readonly string[]) => {
-        if (keys.length === 1 && keys[0] === REMINDER_CRYPTO_KEY_KEY) {
+        // A save's read starts with the key (third review: it reads the
+        // envelope too, to compare before it writes); a load starts with
+        // the envelope.
+        if (keys[0] === REMINDER_CRYPTO_KEY_KEY) {
           reads += 1;
           if (reads === 2) {
             bothRead.resume();
@@ -386,14 +502,19 @@ describe("several tabs at once (review fix: a slow read in one tab never wipes a
     };
     const first = reminder({ reportedDate: "2027-04-30" });
     const second = reminder({ reportedDate: "2027-06-30" });
-    await Promise.all([
+    const outcomes = await Promise.all([
       saveReminder(first, deviceDeps(memoryKv(db, hooks))),
       saveReminder(second, deviceDeps(memoryKv(db, hooks))),
     ]);
+    // Both saves read before either wrote, so the race really ran.
+    expect(reads).toBe(2);
     // Before the review fix this ended with one tab's envelope and the
     // other tab's key, so the next read discarded both.
     const result = await loadReminder(deviceDeps(memoryKv(db)), [ENTRY_ID]);
     expect(result.status).toBe("ok");
     expect([first, second]).toContainEqual(result.status === "ok" ? result.reminder : null);
+    // Third review: the save that lost is told so, and the one that won is the one stored.
+    expect(outcomes.map((outcome) => outcome.status).sort()).toEqual(["changed", "saved"]);
+    expect(result.status === "ok" ? result.reminder : null).toEqual(outcomes[0]!.status === "saved" ? first : second);
   });
 });

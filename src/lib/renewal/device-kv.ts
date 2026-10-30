@@ -96,12 +96,28 @@ function kvFromDatabase(db: IDBDatabase): DeviceKv {
         const requests = keys.map((key) => store.get(key));
         return () => requests.map((request) => request.result as unknown);
       }),
-    setMany: (entries) =>
+    setMany: (entries, guard?: KvGuard) =>
       transact("readwrite", (store) => {
-        for (const [key, value] of entries) {
-          store.put(value, key);
+        let written = false;
+        const write = () => {
+          for (const [key, value] of entries) {
+            store.put(value, key);
+          }
+          written = true;
+        };
+        if (guard === undefined) {
+          write();
+        } else {
+          // Read and decide inside this transaction, as deleteMany does, so
+          // no other tab's delete or write can land between the two.
+          const request = store.get(guard.key);
+          request.onsuccess = () => {
+            if (!guard.keep(request.result)) {
+              write();
+            }
+          };
         }
-        return () => undefined;
+        return () => written;
       }),
     deleteMany: (keys, guard?: KvGuard) =>
       transact("readwrite", (store) => {

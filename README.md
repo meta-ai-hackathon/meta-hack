@@ -102,7 +102,10 @@ and leaves out the 6 month estimate when the answer is no.
 The saved reminder never leaves the device. The date is sealed with AES-GCM
 in the browser under a non-extractable key kept in IndexedDB, and read back
 only after every layer validates; key and reminder are always read and
-written together, so several open tabs cannot corrupt each other. From 30
+written together, so several open tabs cannot corrupt each other, and a save
+writes only if the reminder is still the one it read, so it never brings
+back a reminder another tab removed (the tracker says so and saving again
+keeps the date). From 30
 days before a date, on the day, and from the moment any date has passed
 until the person changes it, a banner at the top of every page except the
 tracker, which shows the same status, says so. The banner does not name the

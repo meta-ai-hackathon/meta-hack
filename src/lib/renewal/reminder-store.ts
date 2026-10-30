@@ -24,17 +24,23 @@ import {
  * always read together in one transaction and written together in one
  * transaction, and a reminder that fails its checks is deleted only if it
  * is still the one that was read (review fix: a tab finishing a slow read
- * could otherwise wipe a reminder another tab had just saved). Only the
- * tracker deletes; the banner reads without deleting, so the person is
+ * could otherwise wipe a reminder another tab had just saved). A save
+ * writes only if the sealed reminder is still the one the save read (third
+ * review: a save racing Remove in another tab put the removed reminder
+ * back), and otherwise says so, so the tracker can tell the person. Only
+ * the tracker deletes; the banner reads without deleting, so the person is
  * always told when a reminder is dropped. One written by a newer version is
  * left alone.
  */
 
-/** Tells deleteMany to keep everything: decided inside the delete's own transaction. */
+/**
+ * Tells deleteMany or setMany to leave the store as it is: decided inside
+ * the call's own transaction.
+ */
 export interface KvGuard {
   /** The key whose current value decides. */
   readonly key: string;
-  /** True when that value means the keys must stay (it changed since it was read). */
+  /** True when that value means the store must stay as it is (it changed since it was read). */
   readonly keep: (current: unknown) => boolean;
 }
 
@@ -42,8 +48,12 @@ export interface KvGuard {
 export interface DeviceKv {
   /** Read several keys from one consistent snapshot. Missing keys read as undefined. */
   getMany(keys: readonly string[]): Promise<readonly unknown[]>;
-  /** Write several entries together: all of them land, or none do. */
-  setMany(entries: readonly (readonly [string, unknown])[]): Promise<void>;
+  /**
+   * Write several entries together: all of them land, or none do. With a
+   * guard, the guard key is read in the same transaction and nothing is
+   * written when `keep` returns true. Resolves to whether they were written.
+   */
+  setMany(entries: readonly (readonly [string, unknown])[], guard?: KvGuard): Promise<boolean>;
   /**
    * Delete several keys together. With a guard, the guard key is read in
    * the same transaction and nothing is deleted when `keep` returns true.
@@ -79,6 +89,14 @@ interface ReminderEnvelope {
   readonly iv: Uint8Array<ArrayBuffer>;
   readonly ciphertext: ArrayBuffer;
 }
+
+export type SaveReminderResult =
+  | { readonly status: "saved" }
+  /**
+   * Another tab removed or replaced the reminder after this save read the
+   * store, so nothing was written. Saving again writes this one.
+   */
+  | { readonly status: "changed" };
 
 export type LoadReminderResult =
   | { readonly status: "none" }
@@ -177,15 +195,34 @@ function replacedSince(current: unknown, readIv: Uint8Array | null): boolean {
   return check.kind === "valid" && (readIv === null || !sameBytes(check.envelope.iv, readIv));
 }
 
-/** Seal and store a reminder, replacing any earlier one. */
+/**
+ * What is stored under the envelope key, for telling whether it changed
+ * between a save's read and its write: nothing, a sealed reminder (told
+ * apart by its IV, which every save draws fresh), or something this
+ * version cannot open, which a save may replace as before.
+ */
+function envelopeIdentity(raw: unknown): string {
+  if (raw === undefined || raw === null) {
+    return "none";
+  }
+  const check = checkEnvelope(raw);
+  return check.kind === "valid" ? `sealed:${check.envelope.iv.join(",")}` : "other";
+}
+
+/**
+ * Seal and store a reminder, replacing the one the save read. When another
+ * tab removed or replaced the reminder after that read, nothing is written
+ * and the result says so (third review).
+ */
 export async function saveReminder(
   reminder: RenewalReminder,
   deps: ReminderStoreDeps,
-): Promise<void> {
+): Promise<SaveReminderResult> {
   if (reminder.version !== RENEWAL_REMINDER_VERSION) {
     throw new RangeError("only current-version reminders can be saved");
   }
-  const [existing] = await deps.kv.getMany([REMINDER_CRYPTO_KEY_KEY]);
+  const [existing, readEnvelope] = await deps.kv.getMany([REMINDER_CRYPTO_KEY_KEY, REMINDER_ENVELOPE_KEY]);
+  const readIdentity = envelopeIdentity(readEnvelope);
   const key = isSealingKey(existing)
     ? existing
     : await deps.crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
@@ -224,11 +261,17 @@ export async function saveReminder(
     ciphertext,
   };
   // The key is written with the envelope it sealed, so the pair on the
-  // device always matches, whichever tab saved last.
-  await deps.kv.setMany([
-    [REMINDER_CRYPTO_KEY_KEY, key],
-    [REMINDER_ENVELOPE_KEY, envelope],
-  ]);
+  // device always matches, whichever tab saved last. The write checks, in
+  // its own transaction, that the envelope is still the one read above, so
+  // a Remove or a save in another tab since then is never undone.
+  const written = await deps.kv.setMany(
+    [
+      [REMINDER_CRYPTO_KEY_KEY, key],
+      [REMINDER_ENVELOPE_KEY, envelope],
+    ],
+    { key: REMINDER_ENVELOPE_KEY, keep: (current) => envelopeIdentity(current) !== readIdentity },
+  );
+  return written ? { status: "saved" } : { status: "changed" };
 }
 
 /** Delete the sealed reminder and its key from the device. */

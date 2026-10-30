@@ -12,6 +12,7 @@ import {
   PRIVACY_NOTE,
   REMOVE_FAILED_NOTICE,
   PASSED_BANNER_NOTE,
+  SAVE_CHANGED_NOTICE,
   STATIC_RENEWAL_COPY,
   ageAnswerSentence,
   ageChoiceLabels,
@@ -256,7 +257,13 @@ describe("renewal copy stays hedged and labeled", () => {
     expect(REMOVE_FAILED_NOTICE).toMatch(/clear this site's data/);
   });
 
-  it("says when the calendar file cannot be made, and what to do instead (third review fix)", () => {
+  it("says when another tab changed the reminder during a save, and that saving again keeps the date (third review fix)", () => {
+    expect(STATIC_RENEWAL_COPY).toContain(SAVE_CHANGED_NOTICE);
+    expect(SAVE_CHANGED_NOTICE).toMatch(/^The reminder was removed or changed in another tab/);
+    expect(SAVE_CHANGED_NOTICE).toMatch(/Save again to keep this date\.$/);
+  });
+
+    it("says when the calendar file cannot be made, and what to do instead (third review fix)", () => {
     expect(STATIC_RENEWAL_COPY).toContain(DOWNLOAD_FAILED_NOTICE);
     expect(DOWNLOAD_FAILED_NOTICE).toMatch(/^The calendar file could not be made in this browser\./);
     expect(DOWNLOAD_FAILED_NOTICE).toMatch(/add the date to your calendar by hand/);

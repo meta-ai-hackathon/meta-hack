@@ -145,10 +145,14 @@ describe("runtime: the whole client path with the network trapped", () => {
     const entries = new Map<string, unknown>();
     const kv: DeviceKv = {
       getMany: async (keys) => keys.map((key) => structuredClone(entries.get(key))),
-      setMany: async (pairs) => {
+      setMany: async (pairs, guard) => {
+        if (guard?.keep(structuredClone(entries.get(guard.key)))) {
+          return false;
+        }
         for (const [key, value] of pairs) {
           entries.set(key, structuredClone(value));
         }
+        return true;
       },
       deleteMany: async (keys, guard) => {
         if (guard?.keep(structuredClone(entries.get(guard.key)))) {

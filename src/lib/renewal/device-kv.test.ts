@@ -190,6 +190,45 @@ describe("openIndexedDbKv", () => {
     expect(await kv.getMany(["a", "b"])).toEqual(["replaced", 2]);
   });
 
+  it("writes under a guard only when the guard says the value has not changed, in one transaction (third review)", async () => {
+    const { factory, databases } = fakeIndexedDb();
+    const kv = await openIndexedDbKv(factory);
+    expect(await kv.setMany([["a", 1]])).toBe(true);
+    const before = databases.get(DEVICE_DB_NAME)!.transactions;
+    const seen: unknown[] = [];
+    expect(
+      await kv.setMany(
+        [
+          ["a", 2],
+          ["b", 3],
+        ],
+        {
+          key: "a",
+          keep: (current) => {
+            seen.push(current);
+            return current !== 1;
+          },
+        },
+      ),
+    ).toBe(true);
+    expect(databases.get(DEVICE_DB_NAME)!.transactions - before).toBe(1);
+    expect(seen).toEqual([1]);
+    expect(await kv.getMany(["a", "b"])).toEqual([2, 3]);
+
+    // The value changed since it was read (another tab removed it, say): nothing is written.
+    await kv.deleteMany(["a", "b"]);
+    expect(
+      await kv.setMany(
+        [
+          ["a", 4],
+          ["b", 5],
+        ],
+        { key: "a", keep: (current) => current !== 2 },
+      ),
+    ).toBe(false);
+    expect(await kv.getMany(["a", "b"])).toEqual([undefined, undefined]);
+  });
+
   it("rejects when the browser refuses to open storage", async () => {
     const { factory } = fakeIndexedDb({ failOpen: true });
     await expect(openIndexedDbKv(factory)).rejects.toThrow("open failed");
