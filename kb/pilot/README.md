@@ -41,14 +41,19 @@ Read these before changing the renewal schedules.
   toolkit flyer aim the 6 month renewal at adults ages 19 through 64 (the
   press release says people with Medicaid expansion; the flyer is written for
   adults in that age group without a disability). The Work and Community
-  Engagement Requirement page, which the `renewal_cadence` group cites, tells
-  everyone who is exempt from the work rule, a list that includes people
-  younger than 19 and older than 64, that they will renew every 6 months. The
-  entry follows the
-  majority reading: the 6 month schedule carries `ages` 19 through 64, the
-  tracker asks one question that stays on the device, and it leaves that
-  estimate out when the answer is outside those ages. The press release is
-  not listed because it contains political statements.
+  Engagement Requirement page tells everyone who is exempt from the work
+  rule, a list that includes people younger than 19 and older than 64, that
+  they will renew every 6 months. The entry follows the majority reading: the
+  6 month schedule carries `ages` 19 through 64 and its own `source_id`, the
+  Medicaid is Changing page, so the scope always shows with a page that
+  states it. The `renewal_cadence` group still cites the work requirement
+  page, which is the source for the once-a-year line for members eligible
+  for Indian Health Services. The tracker asks one question that stays on
+  the device and leaves the 6 month estimate out when the answer is outside
+  those ages, showing that schedule and its source in its place. The flyer
+  is listed for the record, but no fact group or schedule cites it, so it
+  does not render. The press release is not listed because it contains
+  political statements.
 - **When the 6 month schedule starts.** Mecklenburg County's Medicaid
   changes page lists December 31, 2026; the state's pages say January 1,
   2027. The entry uses the state date. No estimate can land on December 31,

@@ -354,9 +354,18 @@ export function ReportedDateView({
           ) : null}
           {leftOut.map((schedule) =>
             schedule.ages ? (
-              <p key={schedule.id} data-renewal-left-out={schedule.id} className="text-zinc-700 dark:text-zinc-300">
-                {ageLeftOutNote(schedule.label, schedule.ages)}
-              </p>
+              // The age scope that leaves this estimate out, with the
+              // official page that states it (second review: the note
+              // had no source).
+              <div key={schedule.id} data-renewal-left-out={schedule.id} className="flex flex-col gap-1">
+                <p className="text-zinc-700 dark:text-zinc-300">{ageLeftOutNote(schedule.label, schedule.ages)}</p>
+                <p className="text-sm">
+                  <OriginTag origin="official" programName={program} />
+                  {schedule.label}: {schedule.appliesTo}.
+                  <br />
+                  <SourceNote source={schedule.source} />
+                </p>
+              </div>
             ) : null,
           )}
           {estimates.length === 0 ? (

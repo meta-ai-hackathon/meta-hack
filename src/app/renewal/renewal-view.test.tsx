@@ -231,6 +231,15 @@ describe("the age answer (review fix: the 6-month schedule is for ages 19 throug
     expect(html).toContain('data-renewal-estimate="once_a_year"');
     expect(html).toContain('data-renewal-left-out="every_6_months"');
     expect(html).toContain('You said the person is younger than 19 or older than 64, so there is no "Every 6 months" estimate.');
+    // The scope that leaves it out is shown with the page that states it
+    // (second review: the note had no source, and the page it did show
+    // says exempt people of every age renew every 6 months).
+    const leftOut = html.slice(html.indexOf('data-renewal-left-out="every_6_months"'));
+    const block = leftOut.slice(0, leftOut.indexOf("</div>"));
+    expect(block).toContain('data-origin="official"');
+    expect(block).toContain("Every 6 months: Most adults ages 19 through 64, starting January 1, 2027.");
+    expect(block).toContain('Source: <a href="https://medicaid.ncdhhs.gov/beneficiaries/medicaid-is-changing"');
+    expect(block).not.toContain("work-and-community-engagement-requirement");
     expect(html).toContain(
       "You told us</span> The person this renewal is for is younger than 19 or older than 64.",
     );

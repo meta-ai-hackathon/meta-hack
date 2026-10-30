@@ -1,5 +1,6 @@
 import pilotRenewalEntryJson from "../../../kb/pilot/nc-medicaid-renewal.json";
 import {
+  citeCadenceSchedule,
   citeFactGroup,
   parseKbEntry,
   type KbCitation,
@@ -137,8 +138,14 @@ export function buildRenewalFactsView(entry: KbEntry): RenewalFactsView {
   const cadence = entry.facts.renewal_cadence;
   const schedules: RenewalScheduleView[] = [];
   if (cadence) {
-    const source = cite("renewal_cadence");
     for (const item of cadence.items) {
+      // Each schedule carries the page that states it (second review: the
+      // 6 month schedule's age scope is stated on a different page than
+      // the once-a-year line).
+      const source = sourceView(
+        entry,
+        citeCadenceSchedule(entry, item.id, { acknowledgeNonActive: true }),
+      );
       schedules.push({
         id: item.id,
         intervalMonths: item.intervalMonths,

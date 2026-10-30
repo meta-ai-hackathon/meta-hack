@@ -95,6 +95,19 @@ describe("the pilot renewal entry", () => {
     }
   });
 
+  it("cites each schedule with the page that states it (second review)", () => {
+    const sixMonths = PILOT_RENEWAL_FACTS.schedules.find((item) => item.id === "every_6_months")!;
+    const yearly = PILOT_RENEWAL_FACTS.schedules.find((item) => item.id === "once_a_year")!;
+    // The Medicaid is Changing page states the 19 through 64 scope; the work
+    // requirement page tells exempt people of every age they renew every 6
+    // months, so it must not be the source shown for that scope.
+    expect(sixMonths.source.sourceUrl).toBe("https://medicaid.ncdhhs.gov/beneficiaries/medicaid-is-changing");
+    expect(sixMonths.source.sourceTitle).toMatch(/Medicaid is Changing/);
+    // The work requirement page is the one that states the IHS once-a-year line.
+    expect(yearly.source.sourceUrl).toMatch(/work-and-community-engagement-requirement$/);
+    expect(yearly.appliesTo).toMatch(/Indian Health Services/);
+  });
+
   it("gives every fact an official https source, a real retrieval date, and the entry version", () => {
     const sources = allSources(PILOT_RENEWAL_FACTS);
     expect(sources.length).toBe(
