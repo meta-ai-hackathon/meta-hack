@@ -6,7 +6,7 @@
  * is integer math on (year, month, day), never Date objects carrying a local
  * offset, so a daylight-saving change or the device's zone can never move a
  * date by a day. The device's zone matters in exactly one place: deciding
- * which calendar date "today" is (calendarDateInTimeZone).
+ * which calendar date "today" is (localMomentInTimeZone).
  *
  * Client-safe: no server imports, no I/O.
  */
@@ -205,11 +205,6 @@ export function localMomentInTimeZone(instant: Date, timeZone: string): LocalMom
     throw new RangeError(`could not read a local time in time zone ${timeZone}`);
   }
   return { date, minutes: hour * 60 + minute };
-}
-
-/** The calendar date an instant falls on in an IANA time zone. */
-export function calendarDateInTimeZone(instant: Date, timeZone: string): CalendarDate {
-  return localMomentInTimeZone(instant, timeZone).date;
 }
 
 /** The same moment from the runtime's own local clock, which needs no zone name. */

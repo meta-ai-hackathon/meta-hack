@@ -2,11 +2,11 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   addDays,
-  calendarDateInTimeZone,
   compareDates,
   daysBetween,
   formatIsoDate,
   fromEpochDay,
+  localMomentInTimeZone,
   parseIsoDate,
   toEpochDay,
   type CalendarDate,
@@ -63,8 +63,8 @@ describe("reminderStatus: the 30-day window", () => {
   it("lets the device's zone decide the day at the window edge", () => {
     // 10 PM on March 30 in Charlotte is already March 31 in UTC.
     const instant = new Date("2027-03-31T02:00:00Z");
-    const charlotte = reminderStatus(calendarDateInTimeZone(instant, "America/New_York"), [target]);
-    const utc = reminderStatus(calendarDateInTimeZone(instant, "UTC"), [target]);
+    const charlotte = reminderStatus(localMomentInTimeZone(instant, "America/New_York").date, [target]);
+    const utc = reminderStatus(localMomentInTimeZone(instant, "UTC").date, [target]);
     expect(charlotte).toMatchObject({ phase: "later", daysUntil: 31 });
     expect(utc).toMatchObject({ phase: "soon", daysUntil: 30 });
   });

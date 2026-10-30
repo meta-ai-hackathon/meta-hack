@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   addDays,
   addMonthsClamped,
-  calendarDateInTimeZone,
   compareDates,
   daysBetween,
   daysInMonth,
@@ -206,28 +205,31 @@ describe("ISO dates", () => {
   });
 });
 
-describe("calendarDateInTimeZone: what 'today' is on the device", () => {
+describe("the local date in a zone: what 'today' is on the device", () => {
   const charlotte = "America/New_York";
   const at = (iso: string) => new Date(iso);
+  // The date part of the local moment, which is how production code reads
+  // it (third review: a wrapper export for this had no reader but tests).
+  const localDate = (instant: Date, timeZone: string) => localMomentInTimeZone(instant, timeZone).date;
 
   it("puts the New Year's Eve evening in Charlotte on December 31, whatever UTC says", () => {
-    expect(calendarDateInTimeZone(at("2027-01-01T04:59:59Z"), charlotte)).toEqual(d(2026, 12, 31));
-    expect(calendarDateInTimeZone(at("2027-01-01T05:00:00Z"), charlotte)).toEqual(d(2027, 1, 1));
-    expect(calendarDateInTimeZone(at("2027-01-01T04:59:59Z"), "UTC")).toEqual(d(2027, 1, 1));
+    expect(localDate(at("2027-01-01T04:59:59Z"), charlotte)).toEqual(d(2026, 12, 31));
+    expect(localDate(at("2027-01-01T05:00:00Z"), charlotte)).toEqual(d(2027, 1, 1));
+    expect(localDate(at("2027-01-01T04:59:59Z"), "UTC")).toEqual(d(2027, 1, 1));
   });
 
   it("rolls the date at local midnight on both sides of the DST changes", () => {
     // Spring forward 2027-03-14: local midnight after it is 04:00Z (EDT).
-    expect(calendarDateInTimeZone(at("2027-03-15T03:59:59Z"), charlotte)).toEqual(d(2027, 3, 14));
-    expect(calendarDateInTimeZone(at("2027-03-15T04:00:00Z"), charlotte)).toEqual(d(2027, 3, 15));
+    expect(localDate(at("2027-03-15T03:59:59Z"), charlotte)).toEqual(d(2027, 3, 14));
+    expect(localDate(at("2027-03-15T04:00:00Z"), charlotte)).toEqual(d(2027, 3, 15));
     // Fall back 2026-11-01: local midnight after it is 05:00Z (EST).
-    expect(calendarDateInTimeZone(at("2026-11-02T04:59:59Z"), charlotte)).toEqual(d(2026, 11, 1));
-    expect(calendarDateInTimeZone(at("2026-11-02T05:00:00Z"), charlotte)).toEqual(d(2026, 11, 2));
+    expect(localDate(at("2026-11-02T04:59:59Z"), charlotte)).toEqual(d(2026, 11, 1));
+    expect(localDate(at("2026-11-02T05:00:00Z"), charlotte)).toEqual(d(2026, 11, 2));
   });
 
   it("handles the zones furthest from UTC", () => {
-    expect(calendarDateInTimeZone(at("2026-12-31T10:00:00Z"), "Pacific/Kiritimati")).toEqual(d(2027, 1, 1));
-    expect(calendarDateInTimeZone(at("2027-01-01T10:59:59Z"), "Pacific/Pago_Pago")).toEqual(d(2026, 12, 31));
+    expect(localDate(at("2026-12-31T10:00:00Z"), "Pacific/Kiritimati")).toEqual(d(2027, 1, 1));
+    expect(localDate(at("2027-01-01T10:59:59Z"), "Pacific/Pago_Pago")).toEqual(d(2026, 12, 31));
   });
 
   it("equals the UTC date in UTC and stays within one day of it anywhere", () => {
@@ -246,7 +248,7 @@ describe("calendarDateInTimeZone: what 'today' is on the device", () => {
     fc.assert(
       fc.property(instant, zone, (moment, timeZone) => {
         const utcDate = d(moment.getUTCFullYear(), moment.getUTCMonth() + 1, moment.getUTCDate());
-        const local = calendarDateInTimeZone(moment, timeZone);
+        const local = localDate(moment, timeZone);
         if (timeZone === "UTC") {
           expect(local).toEqual(utcDate);
         }
