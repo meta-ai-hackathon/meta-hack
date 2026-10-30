@@ -643,36 +643,92 @@ class _Detector:
     accept: Callable[[str], bool] | None = None
 
 
-# What a private key's body is made of, between its header and footer:
-# runs of 16 or more base64 characters, one shorter run for the key's last
-# line right before the footer, and between them line breaks (also written
-# as \n or \r escapes in a string), indentation, diff markers, the quotes,
-# commas and + of a key split over string literals, and the two headers of
-# an encrypted PEM key. A run never starts with + and always ends where the
-# base64 ends, and a dash is a gap only when it does not start a footer, so
-# each position has one way to match and a body that is not a key fails in
+# A private key, from its header on. The redactor walks the lines after the
+# header (real line breaks, and ones written as \n or \r escapes in a
+# string). A line is key material when it holds nothing but base64 (a /
+# written \/ too) and the marks keys are written with: at its start a diff
+# marker, indentation and comment markers (#, //, *, ;, --, %, REM); around
+# and between its runs quotes (escaped ones too), commas, spaces, the + of a
+# string concatenation and a closing backslash. The two headers of an
+# encrypted PEM key and blank lines count too. Each piece is matched once,
+# where the last one ended, and its runs are possessive, so the walk takes
 # linear time.
-_KEY_GAP = r"""[\s"'`,+]|\\+[nr]|-(?!-{4})"""
-_KEY_RUN = r"[A-Za-z0-9/=][A-Za-z0-9+/=]{15,}(?![A-Za-z0-9+/=])"
-_KEY_LAST_RUN = r"[A-Za-z0-9/=][A-Za-z0-9+/=]{0,14}(?![A-Za-z0-9+/=])"
-_PEM_HEADER = r"Proc-Type: ?4,ENCRYPTED|DEK-Info: ?[A-Z0-9-]+,[0-9A-Fa-f]+(?![A-Za-z0-9+/=])"
+_KEY_HEADER = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+_KEY_PIECE = re.compile(
+    r"(?P<footer>-?-----END [A-Z ]*PRIVATE KEY-----)"
+    r"|(?P<line_break>\r\n?+|\n|\\++[nr])"
+    r"|(?P<pem_header>Proc-Type: ?4,ENCRYPTED|DEK-Info: ?[A-Z0-9-]++,[0-9A-Fa-f]++)"
+    r"""|(?P<gap>(?:[ \t"'`,]|\\++["'`t]|\\++(?=[\r\n]|\Z))++)"""
+    r"|(?P<base64>(?:[A-Za-z0-9+/=]|\\++/)++)"
+)
+# What may open a line. A line of base64 can start with + or //, so they
+# count as a diff marker and a comment marker only when no base64 follows
+# them (a PEM header may).
+_KEY_LINE_START = re.compile(
+    r"(?:[ \t]|\+(?=(?i:rem)[ \t\r\n]|Proc-Type:|DEK-Info:|[^A-Za-z0-9+=]|\Z)|-{1,3}+(?!-)|[#*;%]"
+    r"|/{2,3}+(?:!?(?![A-Za-z0-9+/=])|(?=Proc-Type:|DEK-Info:))|(?i:rem)(?=[ \t\r\n]|\Z))++"
+)
+# A key's base64 comes in lines of 64 characters (70 or 76 in some formats),
+# so a run of 16 or more is a line of a key. A shorter run is one only as the
+# key's last line, right before the footer. A run of fewer + signs than that
+# is the + of a concatenation.
+_KEY_LINE_MIN = 16
 
-# High-precision patterns only. Order matters: multi-line keys first, then
-# tokens, then personal data. No replacement text can match a later pattern.
+
+def _key_end(text: str, pos: int) -> int:
+    """Where the redaction of a key whose header ends at pos stops: at the
+    end of its footer when every line before the footer is key material, and
+    otherwise at the end of the last whole line of key material right after
+    the header (the header's own end when there is none). So the first line
+    that is not key material, such as a line of code, and everything after
+    it reach the model."""
+    end = pos  # the header and every whole line of key material after it
+    pending = False  # a short run ended a line, so only the footer may follow
+    line_end: int | None = None  # the end of the current line's last full run
+    line_short = False  # a short run came on the current line
+    line_start = False  # nothing but a line's start yet, where comment markers may stand
+    while True:
+        if line_start and (lead := _KEY_LINE_START.match(text, pos)):
+            pos = lead.end()
+        piece = _KEY_PIECE.match(text, pos)
+        if piece is None:
+            # The end of the text ends the line. Anything else is not key
+            # material, so neither its line nor anything after it is redacted.
+            return line_end if pos == len(text) and line_end is not None else end
+        pos = piece.end()
+        kind, value = piece.lastgroup, piece.group()
+        if kind == "footer":
+            return pos
+        if kind == "line_break":
+            end = end if line_end is None else line_end
+            pending, line_end, line_short, line_start = pending or line_short, None, False, True
+        elif kind == "pem_header" or (kind == "base64" and (value.strip("+") or len(value) >= _KEY_LINE_MIN)):
+            if pending or line_short:
+                return end  # a short run that was not the key's last line
+            if kind == "base64" and len(value) < _KEY_LINE_MIN:
+                line_short = True
+            else:
+                line_end = pos
+            line_start = False
+
+
+def private_key_spans(text: str) -> list[tuple[int, int]]:
+    """Where each private key in text starts and where its redaction ends
+    (see _key_end), in order. Linear in the text's length: a key's walk ends
+    at its footer or at the first piece that is not key material, which any
+    later header is, so no two walks cover the same text."""
+    spans: list[tuple[int, int]] = []
+    header = _KEY_HEADER.search(text)
+    while header is not None:
+        spans.append((header.start(), _key_end(text, header.end())))
+        header = _KEY_HEADER.search(text, spans[-1][1])
+    return spans
+
+
+# Private keys go first (private_key_spans), then these: tokens, then
+# personal data. High-precision patterns only, in this order, so that no
+# replacement text can match a later pattern.
 DETECTORS: tuple[_Detector, ...] = (
-    _Detector(
-        # Through the footer when everything before it is a key's body;
-        # otherwise the header plus any base64 lines right after it (diff
-        # markers allowed). So code between a header and a footer, or a
-        # header used as a code constant, always reaches the model.
-        "private key",
-        re.compile(
-            r"-----BEGIN [A-Z ]*PRIVATE KEY-----"
-            rf"(?:(?:{_KEY_GAP}|{_KEY_RUN}|{_PEM_HEADER})*(?:{_KEY_LAST_RUN}(?:{_KEY_GAP})*)?"
-            r"-?-----END [A-Z ]*PRIVATE KEY-----"
-            r"|(?:\s*[-+]?[A-Za-z0-9+/=]{16,})*)"
-        ),
-    ),
     _Detector(
         "api key",
         re.compile(
@@ -710,7 +766,13 @@ def redaction_marker(kind: str) -> str:
 def redact_sensitive(text: str) -> tuple[str, int]:
     """Replace values that look like secrets or personal data with a marker.
     Returns the new text and how many values were replaced. Idempotent."""
-    count = 0
+    pieces: list[str] = []
+    last = 0
+    for start, end in private_key_spans(text):
+        pieces += [text[last:start], redaction_marker("private key")]
+        last = end
+    count = len(pieces) // 2
+    text = "".join(pieces) + text[last:]
     for detector in DETECTORS:
 
         def substitute(match: re.Match[str], detector: _Detector = detector) -> str:
