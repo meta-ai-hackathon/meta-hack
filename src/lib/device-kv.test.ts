@@ -7,6 +7,14 @@ import {
   openIndexedDbKv,
   requestPersistentStorage,
 } from "./device-kv";
+import { QUESTIONS } from "./intake/spec";
+import {
+  DEVICE_ANSWERS_CRYPTO_KEY_KEY,
+  DEVICE_ANSWERS_ENVELOPE_KEY,
+  loadDeviceAnswers,
+  purgeDeviceAnswers,
+  recordDeviceAnswer,
+} from "./intake/device-answer-store";
 
 // The IndexedDB wrapper (HACK-99, the renewal tracker's pattern), driven
 // through a small fake that follows the IndexedDB event contract: requests
@@ -242,6 +250,42 @@ describe("openIndexedDbKv", () => {
     await expect(openIndexedDbKv(late.factory, 10)).rejects.toThrow(DeviceStorageTimeoutError);
     await new Promise((done) => setTimeout(done, 60));
     expect(late.databases.get(DEVICE_DB_NAME)!.closed).toBe(1);
+  });
+});
+
+describe("the sealed answer store over IndexedDB", () => {
+  it("keeps a non-extractable key and only ciphertext, survives a new connection, and purges both", async () => {
+    const { factory, databases } = fakeIndexedDb();
+    const first = { kv: await openIndexedDbKv(factory), subtle: crypto.subtle };
+    const pii = QUESTIONS.find((question) => question.pii && question.type === "text");
+    expect(pii, "the spec has a pii text question").toBeDefined();
+    const saved = await recordDeviceAnswer(
+      first,
+      { questionId: pii!.id, status: "known", provenance: "user_supplied", value: "Private Value 1234" },
+      { expectStored: false },
+    );
+    expect(saved.status).toBe("saved");
+
+    const raw = databases.get(DEVICE_DB_NAME)!.stores.get(DEVICE_DB_STORE)!;
+    expect((raw.get(DEVICE_ANSWERS_CRYPTO_KEY_KEY) as CryptoKey).extractable).toBe(false);
+    const envelope = raw.get(DEVICE_ANSWERS_ENVELOPE_KEY);
+    expect(typeof envelope).toBe("string");
+    expect(envelope as string).not.toContain("Private Value 1234");
+    expect(envelope as string).not.toContain(pii!.id);
+    await expect(
+      crypto.subtle.exportKey("raw", raw.get(DEVICE_ANSWERS_CRYPTO_KEY_KEY) as CryptoKey),
+    ).rejects.toThrow();
+
+    // A reload: a new connection to the same device storage reads it back.
+    const second = { kv: await openIndexedDbKv(factory), subtle: crypto.subtle };
+    const loaded = await loadDeviceAnswers(second);
+    expect(loaded.status).toBe("ok");
+    expect(loaded.state[pii!.id]?.value).toBe("Private Value 1234");
+
+    expect(await purgeDeviceAnswers(second)).toBe(true);
+    expect(raw.has(DEVICE_ANSWERS_ENVELOPE_KEY)).toBe(false);
+    expect(raw.has(DEVICE_ANSWERS_CRYPTO_KEY_KEY)).toBe(false);
+    expect((await loadDeviceAnswers(first)).status).toBe("none");
   });
 });
 
