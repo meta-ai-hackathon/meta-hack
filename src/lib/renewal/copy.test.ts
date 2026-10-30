@@ -5,6 +5,8 @@ import { addDays, fromEpochDay, parseIsoDate, toEpochDay, type CalendarDate } fr
 import {
   DATE_CHOICE_HELP,
   DATE_CHOICE_LABELS,
+  NO_DATE_INTRO,
+  PRIVACY_NOTE,
   STATIC_RENEWAL_COPY,
   ageAnswerSentence,
   ageChoiceLabels,
@@ -213,6 +215,22 @@ describe("renewal copy stays hedged and labeled", () => {
         }
       }),
     );
+  });
+
+  it("never says the date goes nowhere, and says what the calendar file carries (second review fix)", () => {
+    // The calendar file is a plain copy the person chooses to make, so no
+    // line may say the date is never sent or never leaves the device.
+    for (const text of [...STATIC_RENEWAL_COPY, pageIntro(PROGRAM)]) {
+      expect(text).not.toMatch(/nothing is sent anywhere|(your date|it) stays on this device/i);
+    }
+    expect(NO_DATE_INTRO).toMatch(/Saving here sends nothing anywhere\.$/);
+    expect(PRIVACY_NOTE).toMatch(/^This site keeps your date only on this device\./);
+    // The note's claim about the file's notes matches what the file holds.
+    expect(PRIVACY_NOTE).toMatch(/its notes do, with a link to the official page/);
+    expect(PRIVACY_NOTE).toMatch(/keeps its own copy of the date and the notes/);
+    const description = calendarDescription(PROGRAM, d("2027-04-30"), false, "https://medicaid.ncdhhs.gov/medicaid-recertification");
+    expect(description).toContain(PROGRAM);
+    expect(description).toContain("https://medicaid.ncdhhs.gov/");
   });
 
   it("says when the reminder starts for each kind of date (review fix: approval dates are in the past)", () => {

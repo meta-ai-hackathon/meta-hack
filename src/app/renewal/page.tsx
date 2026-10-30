@@ -7,7 +7,7 @@ import { RenewalFactsSection } from "./renewal-view";
 export const metadata: Metadata = {
   title: "Your renewal — Benefits Navigator",
   description:
-    "Official renewal facts with their sources, and a private reminder for the date on your own letter. Your date stays on this device.",
+    "Official renewal facts with their sources, and a private reminder for the date on your own letter. This site keeps your date only on this device.",
 };
 
 // The renewal tracker page (BN-22 / HACK-50). The knowledge-base facts

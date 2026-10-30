@@ -79,19 +79,25 @@ export const SECTION_HEADING = "Your renewal date";
 export const NO_DATE_INTRO =
   "Do you have a letter or notice with a date on it? Save it here to see a " +
   "reminder on this site as the date gets close, and download a calendar " +
-  "file for a reminder that lasts. Nothing is sent anywhere.";
+  "file for a reminder that lasts. Saving here sends nothing anywhere.";
 
 export const UNKNOWN_DATE_NOTE =
   "That's okay. Watch your mail for letters about your renewal, and use " +
   "the official steps on this page. You can come back and add a date any " +
   "time.";
 
+/**
+ * Second review fix: the calendar file is a plain copy the person chooses
+ * to make, and its notes name the program and link to the official page,
+ * so the note says what leaves with it.
+ */
 export const PRIVACY_NOTE =
-  "Your date stays on this device. It is saved encrypted in this browser " +
-  "and is never sent to us. Anyone who uses this browser could see the " +
-  "reminder, so remove it if you share this device. The calendar file is " +
-  "marked private and its title does not name the program, but a calendar " +
-  "that syncs or that others can see keeps its own copy of the date.";
+  "This site keeps your date only on this device. It is saved encrypted in " +
+  "this browser and is never sent to us. Anyone who uses this browser could " +
+  "see the reminder, so remove it if you share this device. The calendar " +
+  "file is marked private and its title does not name the program, but its " +
+  "notes do, with a link to the official page. A calendar that syncs or " +
+  "that others can see keeps its own copy of the date and the notes.";
 
 /** Review fix: browsers can clear site data on their own, Safari after about a week. */
 export const BROWSER_CAN_CLEAR_NOTE =
@@ -214,8 +220,8 @@ export function pageIntro(programName: string): string {
     `Renewal is when your information is checked again to decide whether ` +
     `your ${programName} continues. Facts labeled "From ${programName}" ` +
     `come from official pages. A date labeled "You told us" is one you ` +
-    `entered, and it stays on this device. Your own letters about your ` +
-    `renewal have the dates that apply to you.`
+    `entered, and this site keeps it only on this device. Your own letters ` +
+    `about your renewal have the dates that apply to you.`
   );
 }
 

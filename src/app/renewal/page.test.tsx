@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../../lib/honesty";
 import { LOADING_NOTE, NOSCRIPT_NOTE, PRIVACY_NOTE } from "../../lib/renewal/copy";
 import { checkDateForm } from "../../lib/renewal/date-form";
-import RenewalPage from "./page";
+import RenewalPage, { metadata } from "./page";
 
 // The renewal page shell (HACK-50) and the tracker's server render: the
 // facts are on the page without JavaScript, the person's date section is
@@ -58,6 +58,11 @@ describe("Renewal page", () => {
 
   it("carries no banned claims", () => {
     expect(findBannedClaims(html)).toEqual([]);
+  });
+
+  it("describes where the date is kept without saying it goes nowhere (second review fix)", () => {
+    expect(metadata.description).toMatch(/This site keeps your date only on this device\.$/);
+    expect(metadata.description).not.toMatch(/Your date stays on this device/);
   });
 });
 
