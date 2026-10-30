@@ -71,6 +71,18 @@ PROGRAM_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 
+# The Jest snapshot-file extension (".snap") is a token, not a program
+# mention (claude-review P2 on PR #60, adjudicated 2026-10-30): strip the
+# exact token before scanning so the case-insensitive SNAP word-boundary
+# pattern cannot collide with it. Every other mention — any casing —
+# still trips.
+SNAP_EXTENSION_RE = re.compile(r"\.snap\b", re.IGNORECASE)
+
+
+def find_program_name(line: str) -> "re.Match[str] | None":
+    """Scan one KB-surface line for a blocklisted program name."""
+    return PROGRAM_NAME_RE.search(SNAP_EXTENSION_RE.sub(" ", line))
+
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -387,6 +399,21 @@ class TestPilotAgnostic(KbSchemaTestCase):
         text = SAMPLE_PATH.read_text(encoding="utf-8")
         self.assertIn("{{PILOT_PROGRAM}}", text, "sample must stay a template")
 
+    def test_snap_extension_token_does_not_trip_the_blocklist(self):
+        # claude-review P2 on PR #60 (adjudicated 2026-10-30): a Jest
+        # snapshot-file reference on a KB-surface line is a file-extension
+        # token, not a program mention — the case-insensitive SNAP
+        # word-boundary pattern must not collide with it. A real mention,
+        # in any casing, still trips.
+        for line in [
+            "src/lib/match.test.ts.snap: card renders snapshot",
+            "exports[`match card renders`] = `retrieved 2026-10-29`  # .snap",
+            "see match-card.test.ts.snap and kb.test.ts.snap",
+        ]:
+            self.assertIsNone(find_program_name(line), line)
+        for line in ["SNAP", "snap benefits", "the Snap program", "food stamps"]:
+            self.assertIsNotNone(find_program_name(line), line)
+
     def test_no_real_program_names_outside_the_sanctioned_real_entry(self):
         # Post-lock grep check (VAL-KB-003 as amended by VAL-X2-004, Oct 30):
         # HACK-16 is Done, so real program/jurisdiction names are sanctioned
@@ -403,7 +430,7 @@ class TestPilotAgnostic(KbSchemaTestCase):
             for line_number, line in enumerate(
                 path.read_text(encoding="utf-8").splitlines(), start=1
             ):
-                match = PROGRAM_NAME_RE.search(line)
+                match = find_program_name(line)
                 if match is None:
                     continue
                 # The consuming module stays name-free except for the exact
