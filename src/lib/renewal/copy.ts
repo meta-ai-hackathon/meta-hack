@@ -163,6 +163,20 @@ export const ESTIMATE_EXPLAINER =
   "either date could be the one that applies. A letter about your renewal " +
   "has the real date.";
 
+/** Second review fix: with one estimate on screen there is no "either date". */
+export const ONE_ESTIMATE_EXPLAINER =
+  "This is an estimate, not an official date. It comes from the date you " +
+  "told us and the published schedule below. A letter about your renewal " +
+  "has the real date.";
+
+/** The explainer for the number of estimates shown, or null when none is (NO_ESTIMATE_NOTE says why). */
+export function estimateExplainer(count: number): string | null {
+  if (count <= 0) {
+    return null;
+  }
+  return count === 1 ? ONE_ESTIMATE_EXPLAINER : ESTIMATE_EXPLAINER;
+}
+
 export const NO_ESTIMATE_NOTE =
   "No published schedule gives an estimate from this date. Watch your mail " +
   "for letters about your renewal.";
@@ -375,6 +389,7 @@ export const STATIC_RENEWAL_COPY: readonly string[] = [
   ERROR_INVALID_DATE,
   ERROR_APPROVAL_IN_FUTURE,
   ESTIMATE_EXPLAINER,
+  ONE_ESTIMATE_EXPLAINER,
   NO_ESTIMATE_NOTE,
   STALE_ESTIMATE_NOTE,
   PASSED_ADVICE,

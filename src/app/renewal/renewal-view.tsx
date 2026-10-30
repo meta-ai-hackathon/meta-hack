@@ -5,7 +5,6 @@ import {
   type CalendarDate,
 } from "../../lib/renewal/calendar-date";
 import {
-  ESTIMATE_EXPLAINER,
   FACTS_SUBHEADINGS,
   IF_COVERAGE_ENDS_HEADING,
   NO_ESTIMATE_NOTE,
@@ -15,6 +14,7 @@ import {
   ageAnswerSentence,
   ageLeftOutNote,
   entryStatusFlag,
+  estimateExplainer,
   estimateSentence,
   factsHeading,
   factsIntro,
@@ -328,6 +328,7 @@ export function ReportedDateView({
     today,
     fromEstimate ? estimates.map((estimate) => estimate.date) : [reported],
   );
+  const explainer = estimateExplainer(estimates.length);
   return (
     <div data-renewal-reported={reminder.kind} className="flex flex-col gap-4">
       <p data-renewal-user-date={reminder.reportedDate}>
@@ -342,7 +343,7 @@ export function ReportedDateView({
       ) : null}
       {fromEstimate ? (
         <div className="flex flex-col gap-3">
-          <p className="text-zinc-700 dark:text-zinc-300">{ESTIMATE_EXPLAINER}</p>
+          {explainer !== null ? <p className="text-zinc-700 dark:text-zinc-300">{explainer}</p> : null}
           {facts.entryStatus === "stale" && estimates.length > 0 ? (
             <p
               role="note"

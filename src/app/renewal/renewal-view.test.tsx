@@ -5,6 +5,9 @@ import { findBannedClaims } from "../../lib/honesty";
 import { parseKbEntry } from "../../lib/kb";
 import { addDays, fromEpochDay, parseIsoDate, toEpochDay, type CalendarDate } from "../../lib/renewal/calendar-date";
 import {
+  ESTIMATE_EXPLAINER,
+  NO_ESTIMATE_NOTE,
+  ONE_ESTIMATE_EXPLAINER,
   PASSED_ADVICE,
   PASSED_ESTIMATE_ADVICE,
   STALE_ESTIMATE_NOTE,
@@ -184,6 +187,36 @@ describe("the person's date: labeled as theirs, in every state", () => {
     const html = renderReported("approval", "2026-03-01", "2026-10-29");
     expect(html).not.toContain('data-renewal-estimate="every_6_months"');
     expect(html).toContain('data-renewal-estimate="once_a_year"');
+  });
+
+  it("words the explainer for the number of estimates shown (second review fix)", () => {
+    // One estimate (before the cutover, or an age answer of no): no "either date".
+    for (const html of [
+      renderReported("approval", "2026-03-01", "2026-10-29"),
+      renderReported("approval", "2026-10-15", "2026-10-29", { min: 19, max: 64, answer: "no" }),
+    ]) {
+      expect(html).toContain(ONE_ESTIMATE_EXPLAINER);
+      expect(html).not.toContain(ESTIMATE_EXPLAINER);
+      expect(html).not.toMatch(/either date/);
+    }
+    // No estimate at all: only the note that says so.
+    const none = renderReported("approval", "2026-10-15", "2026-10-29", undefined, { ...FACTS, schedules: [] });
+    expect(none).toContain(NO_ESTIMATE_NOTE);
+    expect(none).not.toContain(ONE_ESTIMATE_EXPLAINER);
+    expect(none).not.toContain(ESTIMATE_EXPLAINER);
+    // Any approval date and age answer: "either date" exactly when two or more estimates show.
+    const day = fc.integer({ min: toEpochDay(d("2025-01-01")), max: toEpochDay(d("2027-12-31")) }).map(fromEpochDay);
+    const answer = fc.option(fc.constantFrom(...AGE_ANSWERS), { nil: undefined });
+    fc.assert(
+      fc.property(day, answer, (date, value) => {
+        const iso = `${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`;
+        const html = renderReported("approval", iso, "2028-06-01", value === undefined ? undefined : { min: 19, max: 64, answer: value });
+        const shown = (html.match(/data-renewal-estimate="/g) ?? []).length;
+        expect(/either date/.test(html), `${iso} ${value ?? "none"}`).toBe(shown >= 2);
+        expect(html.includes(ONE_ESTIMATE_EXPLAINER)).toBe(shown === 1);
+      }),
+      { numRuns: 200 },
+    );
   });
 
   it("renders nothing for a date it cannot read", () => {
