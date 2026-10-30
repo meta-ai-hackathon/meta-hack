@@ -3,31 +3,40 @@
 Property-based tests (Hypothesis) pin the pure helpers: mention and issue
 reference neutralizing (outside code only), redaction, delimiter escaping,
 file selection under the token budget, comment size and contents, the
-sticky state line, the exit-code rule, and the output parser. Example tests
-drive whole runs against a fake GitHub layer and a fake model (including
-re-checking a stored verdict on label, edit, and reopen events), the real
-GitHub client against a fake HTTP transport (pagination, read-only dry
-runs), and the real anthropic SDK against an httpx2 mock transport, so the
-request shape and the response parsing are checked against the SDK itself.
-A last group pins the workflow's security invariants. No network calls and
-no API key.
+sticky state line, the exit-code rule, and the output parser. More
+properties drive whole runs that cannot read the PR from every state the
+PR's comments can start in, read the Actions event file whatever it holds,
+and give the real urllib transport any reply a raw-socket server on
+127.0.0.1 can send. Example tests drive whole runs against a fake GitHub
+layer and a fake model (including re-checking a stored verdict on label,
+edit, and reopen events), the real GitHub client against a fake HTTP
+transport (pagination, read-only dry runs), and the real anthropic SDK
+against an httpx2 mock transport, so the request shape and the response
+parsing are checked against the SDK itself. A last group pins the
+workflow's security invariants. Nothing leaves the machine and no API key
+is needed.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import os
 import re
+import socket
 import string
 import sys
+import tempfile
+import threading
 import unittest
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
+from unittest import mock
 
 import anthropic
 import httpx2
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -44,6 +53,7 @@ BASE = "c" * 40
 FAKE_KEY = "fake-review-key-for-tests"
 LIVE_ENV: Mapping[str, str] = {"GITHUB_ACTIONS": "true", "ANTHROPIC_REVIEW_KEY": FAKE_KEY}
 DISPATCH_ENV: Mapping[str, str] = {**LIVE_ENV, "GITHUB_EVENT_NAME": "workflow_dispatch"}
+EVENT_ENV: Mapping[str, str] = {**LIVE_ENV, "EVENT_HEAD_SHA": HEAD}  # a PR event, as the workflow runs it
 MENTION = re.compile(r"@[A-Za-z0-9_-]")
 ISSUE_REFERENCE = re.compile(r"#\d|\bgh-\d", re.IGNORECASE)
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "claude-review.yml"
@@ -297,6 +307,37 @@ class Run:
         )
         self.code = review.run(review.Options(repo=REPO, pr=7, **options), runtime)
         self.output = self.out.getvalue()
+
+
+def event_payload(pr: review.PullRequest, action: str = "synchronize") -> dict[str, Any]:
+    """The part of a PR event's webhook payload ($GITHUB_EVENT_PATH) the bot reads."""
+    pull = {
+        "number": pr.number,
+        "title": pr.title,
+        "body": pr.body,
+        "draft": pr.draft,
+        "state": pr.state,
+        "head": {"sha": pr.head_sha, "repo": {"full_name": pr.head_repo}},
+        "base": {"sha": pr.base_sha, "ref": pr.base_ref},
+        "labels": [{"name": label} for label in pr.labels],
+        "changed_files": pr.changed_files,
+    }
+    return {"action": action, "number": pr.number, "pull_request": pull}
+
+
+def event_run(
+    github: review.GitHub, event: object = None, *, env: Mapping[str, str] = EVENT_ENV, **options: Any
+) -> tuple[Run, str]:
+    """A run as the workflow starts one, with the event payload (none when
+    event is None) at $GITHUB_EVENT_PATH and a job summary file. Returns the
+    run and the job summary it wrote."""
+    with tempfile.TemporaryDirectory() as tmp:
+        event_path, summary = Path(tmp, "event.json"), Path(tmp, "summary.md")
+        if event is not None:
+            event_path.write_text(json.dumps(event), encoding="utf-8")
+        files = {"GITHUB_EVENT_PATH": str(event_path), "GITHUB_STEP_SUMMARY": str(summary)}
+        run = Run(github, None, env={**env, **files}, **options)
+        return run, summary.read_text(encoding="utf-8") if summary.exists() else ""
 
 
 # --- strategies ---------------------------------------------------------------------
@@ -1191,6 +1232,254 @@ class EventTests(unittest.TestCase):
         self.assertEqual((run.code, github.writes), (0, []))
 
 
+# This bot's sticky in every state, for the event's head commit or an older one.
+OLDER_REVIEWERS_P1 = stored_review(HEAD, (P1_FINDING,), fingerprint="0" * 16)
+STICKY_BODIES = [
+    earlier_review(OLD_HEAD),
+    stored_review(OLD_HEAD, (P1_FINDING,)),
+    earlier_review(HEAD),
+    stored_review(HEAD, (P1_FINDING,)),
+    OLDER_REVIEWERS_P1,
+    review.render_status_comment(HEAD, pending=True),
+    review.render_status_comment(OLD_HEAD, pending=False, reason="it failed"),
+]
+ANY_BODY = st.sampled_from([*STICKY_BODIES, review.RETIRED_BODY, "Looks good to me."])
+# What a PR's comments can hold when a run starts. The bot's first live
+# sticky decides what a run does, so it is drawn on its own (or none). Before
+# it come people's comments, any body included, and bot comments that are
+# not stickies; after it, anything, including duplicates to retire. Ids follow
+# list order, so the first is oldest.
+PRIOR_COMMENTS = st.builds(
+    lambda earlier, first, later: [
+        review.IssueComment(40 + i, author, body)
+        for i, (author, body) in enumerate([*earlier, *([] if first is None else [(review.BOT_LOGIN, first)]), *later])
+    ],
+    st.lists(
+        st.tuples(st.just("mallory"), ANY_BODY)
+        | st.tuples(st.just(review.BOT_LOGIN), st.sampled_from([review.RETIRED_BODY, "Looks good to me."])),
+        max_size=2,
+    ),
+    st.sampled_from([None, *STICKY_BODIES]),
+    st.lists(st.tuples(st.sampled_from([review.BOT_LOGIN, "mallory"]), ANY_BODY), max_size=2),
+)
+# The event's copy of an open PR, a draft or not, with or without the
+# override label. A closed PR ends the run before anything else is read.
+EVENT_PRS = st.builds(
+    make_pr,
+    draft=st.booleans(),
+    labels=st.lists(st.sampled_from(["bug", review.OVERRIDE_LABEL]), unique=True).map(tuple),
+)
+# What else is down while GitHub cannot return the PR.
+ALSO_DOWN = st.sampled_from([(), ("comments",), ("write",)])
+
+
+@st.composite
+def damaged_events(draw: st.DrawFn) -> dict[str, Any]:
+    """A PR event payload with one field the bot reads, at any level,
+    removed or replaced by any JSON value."""
+    event = event_payload(draw(EVENT_PRS))
+    pull = event["pull_request"]
+    part = draw(st.sampled_from([event, pull, pull["head"], pull["base"]]))
+    key = draw(st.sampled_from(sorted(part)))
+    if draw(st.booleans()):
+        del part[key]
+    else:
+        part[key] = draw(JSON_VALUES | st.sampled_from([float("inf"), float("-inf"), float("nan"), 10**400]))
+    return event
+
+
+def with_pull_field(key: str, value: object) -> bytes:
+    """An event file whose PR copy has one field set to value."""
+    event = event_payload(make_pr())
+    event["pull_request"][key] = value
+    return json.dumps(event).encode()
+
+
+# What the Actions event file can hold, and the PR when it is an intact copy.
+EVENT_FILES = st.one_of(
+    EVENT_PRS.map(lambda pr: (json.dumps(event_payload(pr)).encode(), pr)),
+    damaged_events().map(lambda event: (json.dumps(event).encode(), None)),
+    st.binary(max_size=200).map(lambda raw: (raw, None)),
+)
+
+
+class UnreadablePrTests(unittest.TestCase):
+    """A PR event run that cannot read the PR goes on with the event's own
+    copy of it, so no earlier verdict is left standing for a new push and
+    the check still follows the comment."""
+
+    @PBT
+    @given(PRIOR_COMMENTS, EVENT_PRS, ALSO_DOWN)
+    @example([review.IssueComment(40, review.BOT_LOGIN, OLDER_REVIEWERS_P1)], make_pr(), ())  # kept, so it fails
+    def test_no_earlier_verdict_stands_and_the_check_follows_the_comment(
+        self, comments: list[review.IssueComment], copy: review.PullRequest, down: tuple[str, ...]
+    ) -> None:
+        github = FakeGitHub(copy, FILES, comments, fail=("get_pull", *down))
+        run, summary = event_run(github, event_payload(copy))
+        self.assertIn("uses the event's copy", run.output)
+        self.assertNotIn("files", github.reads)  # nor the model: Run raises if it is reached
+        stickies = review.find_stickies(comments, review.BOT_LOGIN)
+        shown = review.parse_state(stickies[0].body) if stickies and "comments" not in down else None
+        kept = shown if shown is not None and (shown.sha, shown.status) == (HEAD, "reviewed") else None
+        # A finished review of this commit stays, so its P1 still fails the
+        # check, unless the event's copy has the override label.
+        kept_p1 = kept is not None and kept.counts is not None and kept.counts[0] > 0
+        self.assertEqual(run.code, 1 if kept_p1 and not review.has_override(copy.labels) else 0)
+        people = [c for c in comments if c.author != review.BOT_LOGIN]
+        self.assertEqual([c for c in github.comments if c.author != review.BOT_LOGIN], people)
+        after = review.find_stickies(github.comments, review.BOT_LOGIN)
+        if kept is not None:
+            # Still true, so it stays; a re-check may reword its verdict line for the label.
+            self.assertEqual(review.parse_state(after[0].body), kept)
+            unchanged = [c for c in comments if c.id != stickies[0].id]
+            self.assertEqual([c for c in github.comments if c.id != stickies[0].id], unchanged)
+        elif down or (copy.draft and not stickies):
+            # Nothing could be written, or it is a draft, which never gets a new comment.
+            self.assertEqual(github.comments, comments)
+        else:
+            # Posted when there was none, duplicates retired.
+            self.assertEqual([state_of(c.body) for c in after], [(HEAD, "not_reviewed")])
+        # The job summary has the result whatever happened to the comment.
+        replayed = kept is not None and kept.reviewer == FINGERPRINT
+        self.assertIn("re-checked the finished review" if replayed else f"`{HEAD[:7]}` was NOT reviewed", summary)
+
+    @PBT
+    @given(PRIOR_COMMENTS, EVENT_PRS, ALSO_DOWN)
+    def test_it_ends_like_a_run_that_could_not_list_the_files(
+        self, comments: list[review.IssueComment], copy: review.PullRequest, down: tuple[str, ...]
+    ) -> None:
+        """Losing the PR read costs no more than losing the file list: the
+        run ends with the check, comment and job summary of a run that read
+        the PR (as the event's copy) and then could not list its files, apart
+        from naming what failed."""
+        unread_github = FakeGitHub(copy, FILES, comments, fail=("get_pull", *down))
+        unread, unread_summary = event_run(unread_github, event_payload(copy))
+        unlisted_github = FakeGitHub(copy, FILES, comments, fail=("files", *down))
+        unlisted, unlisted_summary = event_run(unlisted_github, event_payload(copy))
+
+        def as_unlisted(text: str) -> str:
+            return text.replace("reading the PR (fake get_pull failure)", "listing the changed files (fake files failure)")
+
+        self.assertEqual(unread.code, unlisted.code)
+        self.assertEqual([replace(c, body=as_unlisted(c.body)) for c in unread_github.comments], unlisted_github.comments)
+        self.assertEqual(as_unlisted(unread_summary), unlisted_summary)
+
+    @PBT
+    @given(EVENT_FILES, st.sampled_from([7, 8]))
+    @example((with_pull_field("number", float("inf")), None), 7)  # json reads Infinity, and int() overflows
+    @example((with_pull_field("changed_files", float("-inf")), None), 7)
+    def test_the_event_file_gives_this_pr_or_nothing(
+        self, case: tuple[bytes, review.PullRequest | None], number: int
+    ) -> None:
+        contents, pr = case
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "event.json")
+            path.write_bytes(contents)
+            copy = review.event_pull(str(path), number)  # never raises, whatever the file holds
+        if pr is not None:
+            self.assertEqual(copy, pr if pr.number == number else None)
+        elif copy is not None:
+            self.assertEqual(copy.number, number)
+
+    def test_an_earlier_all_clear_is_marked_not_reviewed_for_the_new_push(self) -> None:
+        # Droid's case: push HEAD arrives while the sticky shows "No findings."
+        # for OLD_HEAD, and GET /pulls/7 fails.
+        sticky = review.IssueComment(55, review.BOT_LOGIN, earlier_review(OLD_HEAD))
+        github = FakeGitHub(make_pr(), FILES, [sticky], fail=("get_pull",))
+        run, summary = event_run(github, event_payload(make_pr()))
+        self.assertEqual(run.code, 0)
+        self.assertEqual([(w[0], w[1]) for w in github.writes], [("PATCH", 55)])
+        body = github.comments[0].body
+        self.assertEqual(state_of(body), (HEAD, "not_reviewed"))
+        self.assertIn(f"`{HEAD[:7]}` was NOT reviewed", body)
+        self.assertIn("the GitHub API failed while reading the PR (fake get_pull failure)", body)
+        self.assertIn(review.RETRY_HINT, body)
+        self.assertEqual(summary, body + "\n")
+        # A first push with no sticky yet gets one, so its green check is not silent.
+        first = FakeGitHub(make_pr(), FILES, fail=("get_pull",))
+        self.assertEqual(event_run(first, event_payload(make_pr()))[0].code, 0)
+        self.assertEqual([w[0] for w in first.writes], ["POST"])
+        self.assertEqual(state_of(first.comments[0].body), (HEAD, "not_reviewed"))
+
+    def test_a_kept_p1_fails_unless_the_events_copy_has_the_override_label(self) -> None:
+        # A label event on a commit whose finished review has a P1.
+        for labels, code in (((), 1), (("bug",), 1), ((review.OVERRIDE_LABEL,), 0)):
+            for reviewer in (FINGERPRINT, "0" * 16):  # re-checked, or kept from an older reviewer
+                stored = stored_review(HEAD, (P1_FINDING,), fingerprint=reviewer)
+                copy = make_pr(labels=labels)
+                github = FakeGitHub(copy, FILES, [review.IssueComment(55, review.BOT_LOGIN, stored)], fail=("get_pull",))
+                run, _ = event_run(github, event_payload(copy, action="labeled"))
+                self.assertEqual(run.code, code, (labels, reviewer))
+                self.assertEqual(review.parse_state(github.comments[0].body), review.parse_state(stored))
+
+    def test_closed_prs_and_drafts_get_only_what_a_normal_run_posts(self) -> None:
+        older = [review.IssueComment(55, review.BOT_LOGIN, earlier_review(OLD_HEAD))]
+        # A closed PR, say one labeled after it merged, is left alone.
+        for comments in ([], older):
+            closed = FakeGitHub(make_pr(state="closed"), FILES, comments, fail=("get_pull",))
+            run, summary = event_run(closed, event_payload(make_pr(state="closed"), action="labeled"))
+            self.assertEqual((run.code, closed.writes, summary), (0, [], ""))
+        # A draft never gets a new comment, and an older review on it is
+        # marked the way any draft's is.
+        draft = make_pr(draft=True)
+        new = FakeGitHub(draft, FILES, fail=("get_pull",))
+        self.assertEqual((event_run(new, event_payload(draft))[0].code, new.writes), (0, []))
+        stale = FakeGitHub(draft, FILES, older, fail=("get_pull",))
+        event_run(stale, event_payload(draft))
+        self.assertEqual([(w[0], w[1]) for w in stale.writes], [("PATCH", 55)])
+        self.assertIn("because the PR is a draft", stale.comments[0].body)
+        self.assertIn(review.DRAFT_HINT, stale.comments[0].body)
+
+    def test_comment_failures_still_pass_with_a_warning(self) -> None:
+        for down in ("comments", "write"):
+            sticky = review.IssueComment(55, review.BOT_LOGIN, earlier_review(OLD_HEAD))
+            github = FakeGitHub(make_pr(), FILES, [sticky], fail=("get_pull", down))
+            run, summary = event_run(github, event_payload(make_pr()))
+            self.assertEqual((run.code, github.writes), (0, []), down)
+            self.assertIn("could not update the review comment", run.output, down)
+            self.assertIn(f"`{HEAD[:7]}` was NOT reviewed", summary, down)
+
+    def test_a_bug_while_marking_the_comment_still_fails_open(self) -> None:
+        # The first comment listing raises something that is not a
+        # ReviewError. The run's fail-open boundary catches it, as on every
+        # other path, and marks the comment with the second listing.
+        class FlakyComments(FakeGitHub):
+            listed = 0
+
+            def list_issue_comments(self, number: int) -> list[review.IssueComment]:
+                self.listed += 1
+                if self.listed == 1:
+                    raise RuntimeError("boom")
+                return super().list_issue_comments(number)
+
+        sticky = review.IssueComment(55, review.BOT_LOGIN, earlier_review(OLD_HEAD))
+        github = FlakyComments(make_pr(), FILES, [sticky], fail=("get_pull",))
+        run, _ = event_run(github, event_payload(make_pr()))
+        self.assertEqual(run.code, 0)
+        self.assertIn("unexpected RuntimeError: boom", run.output)
+        self.assertEqual(state_of(github.comments[0].body), (HEAD, "not_reviewed"))
+
+    def test_runs_without_a_usable_copy_leave_the_comment_alone(self) -> None:
+        sticky = [review.IssueComment(55, review.BOT_LOGIN, earlier_review(OLD_HEAD))]
+        # A dry run reads nothing more and still fails, even inside an event.
+        dry = NoWriteGitHub(make_pr(), FILES, sticky, fail=("get_pull",))
+        self.assertEqual(event_run(dry, event_payload(make_pr()), env={}, dry_run=True)[0].code, 1)
+        self.assertEqual(dry.reads, ["get_pull"])
+        # A manual run is not a PR event, and a PR event needs its own copy of this PR.
+        cases: dict[str, tuple[Mapping[str, str], object]] = {
+            "manual run": (DISPATCH_ENV, event_payload(make_pr())),
+            "no event file": (EVENT_ENV, None),
+            "another PR's event": (EVENT_ENV, event_payload(make_pr(number=8))),
+            "an event without a PR": (EVENT_ENV, {"action": "labeled"}),
+            "not an event": (EVENT_ENV, ["nope"]),
+        }
+        for name, (env, event) in cases.items():
+            github = FakeGitHub(make_pr(), FILES, sticky, fail=("get_pull",))
+            run, summary = event_run(github, event, env=env)
+            self.assertEqual((run.code, github.writes, summary), (0, [], ""), name)
+            self.assertIn("skipped, could not read PR #7", run.output, name)
+
+
 class NothingReviewableTests(unittest.TestCase):
     def test_a_lockfile_only_pr_never_calls_the_model_or_claims_an_all_clear(self) -> None:
         github = FakeGitHub(make_pr(changed_files=2), [make_file("pnpm-lock.yaml"), make_file("public/logo.png", None)])
@@ -1345,6 +1634,98 @@ class GitHubApiTests(unittest.TestCase):
         api = review.GitHubApi("o/r", None, allow_writes=False, transport=FakeTransport({}))
         with self.assertRaisesRegex(review.GitHubError, r"returned HTTP 404: Not Found"):
             api.get_pull(1)
+
+
+# --- the real urllib transport against a raw-socket server -------------------------------------
+
+
+class LoopbackServer:
+    """A raw-socket server on 127.0.0.1 that reads one request per
+    connection, answers with whatever bytes .reply holds and hangs up, so
+    the real urllib stack meets replies no real server would send."""
+
+    def __init__(self) -> None:
+        self.reply = b""
+        self.answered = 0
+        self._listener = socket.create_server(("127.0.0.1", 0))
+        self.url = f"http://127.0.0.1:{self._listener.getsockname()[1]}"
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    def _serve(self) -> None:
+        while True:
+            try:
+                conn, _ = self._listener.accept()
+            except OSError:  # closed
+                return
+            with conn:
+                conn.settimeout(10)
+                request = b""
+                try:
+                    while b"\r\n\r\n" not in request:
+                        chunk = conn.recv(65_536)
+                        if not chunk:
+                            break
+                        request += chunk
+                    self.answered += 1  # before the reply, so the client never sees it unanswered
+                    conn.sendall(self.reply)
+                except OSError:
+                    pass
+
+    def close(self) -> None:
+        self._listener.close()
+
+
+WELL_FORMED_STATUS = {b"HTTP/1.1 200 OK": 200, b"HTTP/1.1 404 Not Found": 404, b"HTTP/1.1 502 Bad Gateway": 502}
+STATUS_LINES = st.sampled_from([*WELL_FORMED_STATUS, b"HTTP/1.1 OK", b"HTTP/1.1 2000 Big", b"SSH-2.0-OpenSSH_9.6", b""])
+
+
+@st.composite
+def http_replies(draw: st.DrawFn) -> tuple[bytes, tuple[int, bytes] | None]:
+    """The bytes a server sends back, and (status, body) when they are a
+    whole, well-formed reply: a known status line and a Content-Length that
+    matches the body. Otherwise the framing is off, the status line is bad,
+    or the connection drops partway."""
+    status = draw(STATUS_LINES)
+    body = draw(st.binary(max_size=64))
+    chunked = draw(st.booleans())
+    length = draw(st.just(len(body)) | st.integers(min_value=0, max_value=128))
+    framing = b"Transfer-Encoding: chunked" if chunked else b"Content-Length: %d" % length
+    reply = status + b"\r\nContent-Type: application/json\r\n" + framing + b"\r\n\r\n" + body
+    cut = draw(st.none() | st.integers(min_value=0, max_value=len(reply)))
+    whole = status in WELL_FORMED_STATUS and not chunked and length == len(body) and cut in (None, len(reply))
+    return reply[:cut], (WELL_FORMED_STATUS[status], body) if whole else None
+
+
+class UrllibTransportTests(unittest.TestCase):
+    server: LoopbackServer
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.server = LoopbackServer()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.close()
+
+    @PBT
+    @given(http_replies())
+    def test_any_reply_is_a_response_or_a_github_error(self, case: tuple[bytes, tuple[int, bytes] | None]) -> None:
+        # http.client raises cut-off bodies and bad status lines outside
+        # OSError. They must still come out as GitHubError, which every caller
+        # handles, or they escape the run and fail the check.
+        reply, whole = case
+        self.server.reply = reply
+        answered = self.server.answered
+        url = f"{self.server.url}/repos/o/r/pulls/7"
+        response: review.HttpResponse | None = None
+        with mock.patch.dict(os.environ, {"no_proxy": "*"}):  # straight to the server, whatever proxy is set
+            try:
+                response = review.urllib_transport("GET", url, {"User-Agent": review.USER_AGENT}, None, 10.0)
+            except review.GitHubError:
+                pass
+        self.assertEqual(self.server.answered, answered + 1)  # the server really answered this request
+        if whole is not None:
+            self.assertEqual((response.status, response.body) if response else None, whole)
 
 
 # --- the real anthropic SDK against a mock HTTP transport --------------------------------------
