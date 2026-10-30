@@ -225,12 +225,14 @@ describe("match cards (VAL-MATCH-002)", () => {
   it("carries a complete source citation on every reason, requirement, and link", async () => {
     // Every shipped entry scores positive here, so every entry gets a card:
     // sample A via housing, sample B via the food goal, sample C via the
-    // disability status.
+    // disability status, and the real pilot entry via the state answer
+    // (mission v2.1 M6).
     const response = await buildMatchResponse(
       {
         ...known("main_goal", "food"),
         ...known("housing_status", "shelter"),
         ...known("disability_status", "yes"),
+        ...known("state", "NC"),
       },
       { explainer: async () => ({ text: "stub", source: "facts" }) },
     );
@@ -252,12 +254,15 @@ describe("match cards (VAL-MATCH-002)", () => {
 
   it("builds the requirements checklist from documents, steps, and deadlines", async () => {
     // Every shipped entry must score positive here so each one's checklist
-    // is exercised (a zero-signal session produces no cards at all).
+    // is exercised (a zero-signal session produces no cards at all). The
+    // real pilot entry scores via the state answer; the samples via their
+    // sample signals.
     const response = await buildMatchResponse(
       {
         ...known("main_goal", "food"),
         ...known("housing_status", "shelter"),
         ...known("disability_status", "yes"),
+        ...known("state", "NC"),
       },
       { explainer: async () => ({ text: "stub", source: "facts" }) },
     );
@@ -266,8 +271,13 @@ describe("match cards (VAL-MATCH-002)", () => {
       expect(kinds.has("document")).toBe(true);
       expect(kinds.has("step")).toBe(true);
       expect(kinds.has("deadline")).toBe(true);
-      // Every shipped sample carries the renewal placeholder deadline.
-      expect(kinds.has("renewal")).toBe(true);
+      // Renewal: the samples carry the renewal placeholder deadline; the
+      // real entry carries only deadlines its official sources state (the
+      // county page's renewal cadence is not in its deadlines group), so
+      // the renewal kind is asserted only for the samples.
+      if (card.entryId !== "nc_medicaid") {
+        expect(kinds.has("renewal")).toBe(true);
+      }
     }
   });
 

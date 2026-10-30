@@ -130,13 +130,15 @@ describe("shipped sample entry", () => {
     expect(text).not.toContain("{{PILOT_PROGRAM}}{{");
   });
 
-  it("ships the three sample entries and loads them through the dataset", () => {
-    // Mission v2 M3: matching needs more than one entry to rank (the KB
-    // stayed single-entry through milestone M1 knowledge-pii).
+  it("ships the three samples plus the real pilot entry, in load order", () => {
+    // Mission v2 M3 added matching fixtures B and C; mission v2.1 M6 added
+    // the real pilot entry (HACK-16 Done) at the end of the load order —
+    // the samples stay first so sample-keyed tests are stable.
     expect(KB_ENTRIES.map((entry) => entry.id)).toEqual([
       "pilot_program_sample",
       "pilot_program_sample_b",
       "pilot_program_sample_c",
+      "nc_medicaid",
     ]);
     expect(KB_ENTRIES[0]).toEqual(parseKbEntry(RAW_SAMPLE));
   });
