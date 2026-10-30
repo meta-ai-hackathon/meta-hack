@@ -627,17 +627,34 @@ class _Detector:
     accept: Callable[[str], bool] | None = None
 
 
+# What a private key's body is made of, between its header and footer:
+# runs of 16 or more base64 characters, one shorter run for the key's last
+# line right before the footer, and between them line breaks (also written
+# as \n or \r escapes in a string), indentation, diff markers, the quotes,
+# commas and + of a key split over string literals, and the two headers of
+# an encrypted PEM key. A run never starts with + and always ends where the
+# base64 ends, and a dash is a gap only when it does not start a footer, so
+# each position has one way to match and a body that is not a key fails in
+# linear time.
+_KEY_GAP = r"""[\s"'`,+]|\\+[nr]|-(?!-{4})"""
+_KEY_RUN = r"[A-Za-z0-9/=][A-Za-z0-9+/=]{15,}(?![A-Za-z0-9+/=])"
+_KEY_LAST_RUN = r"[A-Za-z0-9/=][A-Za-z0-9+/=]{0,14}(?![A-Za-z0-9+/=])"
+_PEM_HEADER = r"Proc-Type: ?4,ENCRYPTED|DEK-Info: ?[A-Z0-9-]+,[0-9A-Fa-f]+(?![A-Za-z0-9+/=])"
+
 # High-precision patterns only. Order matters: multi-line keys first, then
 # tokens, then personal data. No replacement text can match a later pattern.
 DETECTORS: tuple[_Detector, ...] = (
     _Detector(
-        # Through the footer when one follows within 8k characters; otherwise
-        # the header plus any base64 lines after it (diff "+" prefixes allowed),
-        # so a header used as a code constant does not swallow the whole diff.
+        # Through the footer when everything before it is a key's body;
+        # otherwise the header plus any base64 lines right after it (diff
+        # markers allowed). So code between a header and a footer, or a
+        # header used as a code constant, always reaches the model.
         "private key",
         re.compile(
             r"-----BEGIN [A-Z ]*PRIVATE KEY-----"
-            r"(?:[\s\S]{0,8000}?-----END [A-Z ]*PRIVATE KEY-----|(?:\s*\+?[A-Za-z0-9+/=]{16,})*)"
+            rf"(?:(?:{_KEY_GAP}|{_KEY_RUN}|{_PEM_HEADER})*(?:{_KEY_LAST_RUN}(?:{_KEY_GAP})*)?"
+            r"-?-----END [A-Z ]*PRIVATE KEY-----"
+            r"|(?:\s*[-+]?[A-Za-z0-9+/=]{16,})*)"
         ),
     ),
     _Detector(
