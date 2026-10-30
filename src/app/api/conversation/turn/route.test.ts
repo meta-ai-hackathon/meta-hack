@@ -500,12 +500,16 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       expect(answerRows[0].status).toBe("known");
       expect(answerRows[0].provenance).toBe("user_supplied");
 
-      // 3. The vault holds the value.
+      // 3. The vault holds the value — encrypted at rest (VAL-VAULTENC-001):
+      // an AES-GCM envelope, never the plaintext (round-trip identity is
+      // proven in vault.test.ts through the sanctioned read paths).
       const vaultRows = await testDb`
         SELECT value FROM vault_entry WHERE field = ${fixture.questionId}
       `;
       expect(vaultRows).toHaveLength(1);
-      expect(String(vaultRows[0].value)).toBe(fixture.vaultValue);
+      const storedValue = String(vaultRows[0].value);
+      expect(storedValue).not.toBe(fixture.vaultValue);
+      expect(storedValue).toMatch(/^enc1\./);
 
       // 4. No stored transcript carries the verbatim words or the value.
       for (const transcript of await userTranscripts()) {
@@ -1395,7 +1399,9 @@ describe("POST /api/conversation/turn — voice mode (VAL-VOICE-001/004)", () =>
     const vaultRows = await testDb`
       SELECT value FROM vault_entry WHERE field = 'phone_contact'
     `;
-    expect(String(vaultRows[0].value)).toBe("555-0143");
+    // Encrypted at rest (VAL-VAULTENC-001): envelope, never the plaintext.
+    expect(String(vaultRows[0].value)).not.toBe("555-0143");
+    expect(String(vaultRows[0].value)).toMatch(/^enc1\./);
     const answerRows = await testDb`
       SELECT value FROM answer WHERE question_id = 'phone_contact'
     `;

@@ -205,7 +205,12 @@ describe("POST /api/intake/answer", () => {
       SELECT value FROM vault_entry WHERE session_id = ${sessionId} AND field = 'county'
     `;
     expect(vaultRows).toHaveLength(1);
-    expect(vaultRows[0].value).toBe("Franklin County");
+    // Encrypted at rest (VAL-VAULTENC-001): the stored row is an AES-GCM
+    // envelope, never the plaintext (round-trip identity is proven in
+    // vault.test.ts through the sanctioned read paths).
+    const storedValue = String(vaultRows[0].value);
+    expect(storedValue).not.toBe("Franklin County");
+    expect(storedValue).toMatch(/^enc1\./);
     const answerRows = await testDb`
       SELECT value FROM answer WHERE session_id = ${sessionId} AND question_id = 'county'
     `;
