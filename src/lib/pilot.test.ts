@@ -56,11 +56,14 @@ describe("pilot seam: the locked real program (VAL-PILOTREAL-001)", () => {
     }
   });
 
-  it("points the KB at the real entry, which ships in the dataset", () => {
+  it("points the KB at exactly the seam's entries — the dataset is seam-driven", () => {
     expect(PILOT_CONFIG.kbEntryIds).toEqual(["nc_medicaid"]);
-    for (const id of PILOT_CONFIG.kbEntryIds) {
-      expect(KB_ENTRIES.map((entry) => entry.id)).toContain(id);
-    }
+    // VAL-PILOTREAL-004: the production export is EXACTLY the seam's set —
+    // a synthetic sample entry cannot ship beside (or rank instead of) the
+    // real pilot entry in production.
+    expect(KB_ENTRIES.map((entry) => entry.id)).toEqual([
+      ...PILOT_CONFIG.kbEntryIds,
+    ]);
   });
 
   it("keeps every seam copy string banned-claim clean", () => {

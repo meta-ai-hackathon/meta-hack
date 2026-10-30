@@ -3,10 +3,12 @@ import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
+import { PILOT_CONFIG } from "./pilot";
 import {
   KB_ENTRIES,
   KB_ENTRY_STATUSES,
   KB_FACT_GROUPS,
+  SAMPLE_KB_ENTRIES,
   KbValidationError,
   SilentCitationError,
   citeFactGroup,
@@ -130,17 +132,30 @@ describe("shipped sample entry", () => {
     expect(text).not.toContain("{{PILOT_PROGRAM}}{{");
   });
 
-  it("ships the three samples plus the real pilot entry, in load order", () => {
-    // Mission v2 M3 added matching fixtures B and C; mission v2.1 M6 added
-    // the real pilot entry (HACK-16 Done) at the end of the load order —
-    // the samples stay first so sample-keyed tests are stable.
+  it("production export is exactly the pilot-config KB set (VAL-PILOTREAL-004)", () => {
+    // The production dataset is seam-driven: every entry PILOT_CONFIG
+    // references, and nothing else. The synthetic samples never ship beside
+    // the real pilot entry, so a placeholder-program card cannot rank for
+    // real users.
     expect(KB_ENTRIES.map((entry) => entry.id)).toEqual([
+      ...PILOT_CONFIG.kbEntryIds,
+    ]);
+    expect(KB_ENTRIES.map((entry) => entry.id)).toEqual(["nc_medicaid"]);
+  });
+
+  it("the three samples ship only in the test-only export", () => {
+    // Mission v2 M3's matching fixtures stay available for tests through
+    // their own export — disjoint from the production dataset.
+    expect(SAMPLE_KB_ENTRIES.map((entry) => entry.id)).toEqual([
       "pilot_program_sample",
       "pilot_program_sample_b",
       "pilot_program_sample_c",
-      "nc_medicaid",
     ]);
-    expect(KB_ENTRIES[0]).toEqual(parseKbEntry(RAW_SAMPLE));
+    expect(SAMPLE_KB_ENTRIES[0]).toEqual(parseKbEntry(RAW_SAMPLE));
+    const productionIds = new Set(KB_ENTRIES.map((entry) => entry.id));
+    for (const sample of SAMPLE_KB_ENTRIES) {
+      expect(productionIds.has(sample.id), sample.id).toBe(false);
+    }
   });
 });
 

@@ -4,6 +4,7 @@ import { findBannedClaims } from "./honesty";
 import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
 import {
   KB_ENTRIES,
+  SAMPLE_KB_ENTRIES,
   parseKbEntry,
   type KbEntry,
 } from "./kb";
@@ -53,9 +54,16 @@ function fixtureEntry(status: "stale" | "withdrawn"): KbEntry {
   return parseKbEntry(raw);
 }
 
-const ACTIVE = KB_ENTRIES[0];
+// The production dataset is the seam-driven real entry only
+// (VAL-PILOTREAL-004); the samples are the test-only fixtures. The unit
+// suites exercise the FULL shipped population — production entries plus
+// the sample fixtures, in the pre-split load order — through the explicit
+// `entries` option, while the zero-signal/empty-state tests use the
+// production default.
+const ACTIVE = SAMPLE_KB_ENTRIES[0];
 const STALE = fixtureEntry("stale");
 const WITHDRAWN = fixtureEntry("withdrawn");
+const ALL_ENTRIES: readonly KbEntry[] = [...SAMPLE_KB_ENTRIES, ...KB_ENTRIES];
 
 // ---------------------------------------------------------------------------
 // Randomized answer maps over the questions the shipped signals evaluate
@@ -70,6 +78,7 @@ const SIGNAL_QUESTION_IDS = [
   "id_status",
   "citizenship_status",
   "disability_status",
+  "state",
 ] as const;
 
 function valueArbitraryFor(questionId: string): fc.Arbitrary<unknown> {
@@ -117,8 +126,8 @@ const answerMapArb: fc.Arbitrary<AnswerMap> = fc
 describe("rankEntries determinism (VAL-MATCH-001)", () => {
   it("produces byte-identical rankings over randomized answer sets", () => {
     const attempts = fc.property(answerMapArb, (answers) => {
-      const first = JSON.stringify(rankEntries(answers, KB_ENTRIES));
-      const second = JSON.stringify(rankEntries(answers, KB_ENTRIES));
+      const first = JSON.stringify(rankEntries(answers, ALL_ENTRIES));
+      const second = JSON.stringify(rankEntries(answers, ALL_ENTRIES));
       return first === second;
     });
     fc.assert(attempts, { numRuns: 300 });
@@ -128,8 +137,8 @@ describe("rankEntries determinism (VAL-MATCH-001)", () => {
     const attempts = fc.property(answerMapArb, (answers) => {
       const reversed = Object.fromEntries(Object.entries(answers).reverse());
       return (
-        JSON.stringify(rankEntries(answers, KB_ENTRIES)) ===
-        JSON.stringify(rankEntries(reversed, KB_ENTRIES))
+        JSON.stringify(rankEntries(answers, ALL_ENTRIES)) ===
+        JSON.stringify(rankEntries(reversed, ALL_ENTRIES))
       );
     });
     fc.assert(attempts, { numRuns: 200 });
@@ -138,14 +147,14 @@ describe("rankEntries determinism (VAL-MATCH-001)", () => {
   it("never mutates the answers it reads", () => {
     const attempts = fc.property(answerMapArb, (answers) => {
       const snapshot = JSON.stringify(answers);
-      rankEntries(answers, KB_ENTRIES);
+      rankEntries(answers, ALL_ENTRIES);
       return JSON.stringify(answers) === snapshot;
     });
     fc.assert(attempts, { numRuns: 100 });
   });
 
   it("breaks score ties deterministically by entry id", () => {
-    const ranked = rankEntries({}, KB_ENTRIES);
+    const ranked = rankEntries({}, ALL_ENTRIES);
     const scores = ranked.map((r) => r.score);
     for (let index = 1; index < ranked.length; index += 1) {
       const previous = scores[index - 1] as number;
@@ -194,7 +203,7 @@ describe("active-only presentation (VAL-MATCH-004)", () => {
 
 describe("match cards (VAL-MATCH-002)", () => {
   it("builds reasons only from matched signals of known answers", () => {
-    const ranked = rankEntries(known("main_goal", "food"), KB_ENTRIES);
+    const ranked = rankEntries(known("main_goal", "food"), ALL_ENTRIES);
     const card = ranked[0]!.entry.id === "pilot_program_sample_b"
       ? ranked[0]!
       : ranked.find((r) => r.entry.id === "pilot_program_sample_b")!;
@@ -206,7 +215,7 @@ describe("match cards (VAL-MATCH-002)", () => {
   });
 
   it("labels matched option answers in plain language, never raw values", () => {
-    const ranked = rankEntries(known("housing_status", "shelter"), KB_ENTRIES);
+    const ranked = rankEntries(known("housing_status", "shelter"), ALL_ENTRIES);
     const reasons = ranked.flatMap((r) => r.reasons);
     expect(reasons.length).toBeGreaterThan(0);
     // housing_status is pii:true: the answer label must be OMITTED entirely.
@@ -215,7 +224,7 @@ describe("match cards (VAL-MATCH-002)", () => {
         expect(reason.answerLabel).toBeUndefined();
       }
     }
-    const labeled = rankEntries(known("main_goal", "food"), KB_ENTRIES).flatMap(
+    const labeled = rankEntries(known("main_goal", "food"), ALL_ENTRIES).flatMap(
       (r) => r.reasons,
     );
     expect(labeled.some((reason) => reason.answerLabel === "Food")).toBe(true);
@@ -234,9 +243,9 @@ describe("match cards (VAL-MATCH-002)", () => {
         ...known("disability_status", "yes"),
         ...known("state", "NC"),
       },
-      { explainer: async () => ({ text: "stub", source: "facts" }) },
+      { entries: ALL_ENTRIES, explainer: async () => ({ text: "stub", source: "facts" }) },
     );
-    expect(response.matches.length).toBe(KB_ENTRIES.length);
+    expect(response.matches.length).toBe(ALL_ENTRIES.length);
     for (const card of response.matches) {
       for (const item of [
         ...card.reasons.map((reason) => reason.source),
@@ -264,7 +273,7 @@ describe("match cards (VAL-MATCH-002)", () => {
         ...known("disability_status", "yes"),
         ...known("state", "NC"),
       },
-      { explainer: async () => ({ text: "stub", source: "facts" }) },
+      { entries: ALL_ENTRIES, explainer: async () => ({ text: "stub", source: "facts" }) },
     );
     for (const card of response.matches) {
       const kinds = new Set(card.requirements.map((requirement) => requirement.kind));
@@ -320,7 +329,7 @@ describe("to-resolve list (VAL-MATCH-005)", () => {
 
   it("never builds a reason from an unknown or unverified answer (property)", () => {
     const attempts = fc.property(answerMapArb, (answers) => {
-      const ranked = rankEntries(answers, KB_ENTRIES);
+      const ranked = rankEntries(answers, ALL_ENTRIES);
       for (const rankedEntry of ranked) {
         for (const reason of rankedEntry.reasons) {
           if (!reason.questionId) {
@@ -362,6 +371,7 @@ describe("banned-claim scan over the card population (VAL-MATCH-003)", () => {
   it("finds zero banned claims across randomized-answer cards", async () => {
     const attempts = fc.asyncProperty(answerMapArb, async (answers) => {
       const response = await buildMatchResponse(answers, {
+        entries: ALL_ENTRIES,
         explainer: async () => ({
           text: composeFallbackExplanation(ACTIVE),
           source: "facts",
@@ -378,6 +388,7 @@ describe("banned-claim scan over the card population (VAL-MATCH-003)", () => {
   it("bites on a seeded banned-claim card fixture", async () => {
     // A positive-scoring session, so a card exists to poison.
     const response = await buildMatchResponse(known("main_goal", "food"), {
+      entries: ALL_ENTRIES,
       explainer: async () => ({ text: "stub", source: "facts" }),
     });
     const seeded = `${response.matches[0]!.framing} You qualify for this program.`;
@@ -431,6 +442,7 @@ describe("zero-signal honesty", () => {
     await fc.assert(
       fc.asyncProperty(answerMapArb, async (answers) => {
         const response = await buildMatchResponse(answers, {
+          entries: ALL_ENTRIES,
           explainer: async () => ({ text: "stub", source: "facts" as const }),
           explanationCache: new Map(),
         });
@@ -457,7 +469,11 @@ describe("explanation cache", () => {
     };
     const answers = known("main_goal", "food");
     // Three turns with the same answers: one call, then cache hits.
-    await buildMatchResponse(answers, { explainer, explanationCache: cache });
+    await buildMatchResponse(answers, {
+      entries: ALL_ENTRIES,
+      explainer,
+      explanationCache: cache,
+    });
     await buildMatchResponse(answers, { explainer, explanationCache: cache });
     await buildMatchResponse(answers, { explainer, explanationCache: cache });
     expect(calls).toBe(1);
@@ -472,6 +488,7 @@ describe("explanation cache", () => {
     };
     // Turn 1: the food sample is top (food goal; the other entries score 0).
     await buildMatchResponse(known("main_goal", "food"), {
+      entries: ALL_ENTRIES,
       explainer,
       explanationCache: cache,
     });
@@ -482,7 +499,7 @@ describe("explanation cache", () => {
     // back to entry-fact copy, and no second call may fire for it.
     const response = await buildMatchResponse(
       { ...known("main_goal", "food"), ...known("housing_status", "shelter") },
-      { explainer, explanationCache: cache },
+      { entries: ALL_ENTRIES, explainer, explanationCache: cache },
     );
     expect(calls).toEqual(["pilot_program_sample_b", "pilot_program_sample"]);
     const foodCard = response.matches.find(
@@ -505,8 +522,12 @@ describe("explanation cache", () => {
       };
     };
     const answers = known("main_goal", "food");
-    await buildMatchResponse(answers, { explainer, explanationCache: cache });
-    const current = KB_ENTRIES.find(
+    await buildMatchResponse(answers, {
+      entries: ALL_ENTRIES,
+      explainer,
+      explanationCache: cache,
+    });
+    const current = ALL_ENTRIES.find(
       (entry) => entry.id === "pilot_program_sample_b",
     )!;
     const bumped: KbEntry = { ...current, version: current.version + 1 };
@@ -539,8 +560,8 @@ describe("explanation cache", () => {
     const cache = new Map<string, MatchExplanation>();
     try {
       const answers = known("main_goal", "food");
-      const first = await buildMatchResponse(answers, { explanationCache: cache });
-      const second = await buildMatchResponse(answers, { explanationCache: cache });
+      const first = await buildMatchResponse(answers, { entries: ALL_ENTRIES, explanationCache: cache });
+      const second = await buildMatchResponse(answers, { entries: ALL_ENTRIES, explanationCache: cache });
       expect(first.matches[0]?.explanation.source).toBe("facts");
       expect(second.matches[0]?.explanation.source).toBe("facts");
       expect(cache.size).toBe(0);
@@ -560,6 +581,7 @@ describe("explanation cache", () => {
     await fc.assert(
       fc.asyncProperty(answerMapArb, async (answers) => {
         const response = await buildMatchResponse(answers, {
+          entries: ALL_ENTRIES,
           explainer,
           explanationCache: cache,
         });
@@ -730,7 +752,7 @@ describe("explainEntry with scripted model responses (VAL-MATCH-006)", () => {
   });
 
   it("composes fallback copy that stays grounded on every shipped entry", () => {
-    for (const entry of KB_ENTRIES) {
+    for (const entry of ALL_ENTRIES) {
       const text = composeFallbackExplanation(entry);
       expect(findBannedClaims(text)).toEqual([]);
       expect(checkExplanationGrounding(text, entry)).toEqual([]);
@@ -751,6 +773,7 @@ describe("assertNoPiiValuesInMatch", () => {
       main_goal: { status: "known", value: "food" },
     };
     const response = await buildMatchResponse(answers, {
+      entries: ALL_ENTRIES,
       explainer: async () => ({ text: "stub", source: "facts" }),
       explanationCache: new Map(),
     });
@@ -769,6 +792,7 @@ describe("assertNoPiiValuesInMatch", () => {
       main_goal: { status: "known", value: "food" },
     };
     const response = await buildMatchResponse(answers, {
+      entries: ALL_ENTRIES,
       explainer: async () => ({ text: "stub", source: "facts" }),
       explanationCache: new Map(),
     });
@@ -783,6 +807,7 @@ describe("assertNoPiiValuesInMatch", () => {
       date_of_birth: { status: "known", value: "1980-02-03" },
     };
     const clean = await buildMatchResponse(known("main_goal", "food"), {
+      entries: ALL_ENTRIES,
       explainer: async () => ({ text: "stub", source: "facts" }),
       explanationCache: new Map(),
     });
@@ -820,6 +845,7 @@ describe("assertNoPiiValuesInMatch", () => {
       main_goal: { status: "known", value: "food" },
     };
     const clean = await buildMatchResponse(answers, {
+      entries: ALL_ENTRIES,
       explainer: async () => ({ text: "stub", source: "facts" }),
       explanationCache: new Map(),
     });
@@ -846,6 +872,7 @@ describe("assertNoPiiValuesInMatch", () => {
       date_of_birth: { status: "known", value: "1980-02-03" },
     };
     const clean = await buildMatchResponse(known("main_goal", "food"), {
+      entries: ALL_ENTRIES,
       explainer: async () => ({ text: "stub", source: "facts" }),
       explanationCache: new Map(),
     });
@@ -872,6 +899,7 @@ describe("assertNoPiiValuesInMatch", () => {
       date_of_birth: { status: "known", value: "1980-02-03" },
     };
     const clean = await buildMatchResponse(known("main_goal", "food"), {
+      entries: ALL_ENTRIES,
       explainer: async () => ({ text: "stub", source: "facts" }),
       explanationCache: new Map(),
     });
@@ -902,6 +930,7 @@ describe("assertNoPiiValuesInMatch", () => {
     // production.
     const withModelExplanation = (text: string) =>
       buildMatchResponse(known("main_goal", "food"), {
+        entries: ALL_ENTRIES,
         explainer: async () => ({ text, source: "model" as const }),
         explanationCache: new Map(),
       });
@@ -946,6 +975,7 @@ describe("assertNoPiiValuesInMatch", () => {
       id_status: { status: "unverified" },
     };
     const response = await buildMatchResponse(answers, {
+      entries: ALL_ENTRIES,
       explainer: async () => ({ text: "stub", source: "facts" }),
       explanationCache: new Map(),
     });
@@ -970,6 +1000,7 @@ describe("assertNoPiiValuesInMatch", () => {
       phone_contact: { status: "unknown" },
     };
     const response = await buildMatchResponse(answers, {
+      entries: ALL_ENTRIES,
       explainer: async () => ({ text: "stub", source: "facts" }),
       explanationCache: new Map(),
     });
@@ -988,6 +1019,7 @@ describe("assertNoPiiValuesInMatch", () => {
       main_goal: { status: "known", value: "food" },
     };
     const response = await buildMatchResponse(answers, {
+      entries: ALL_ENTRIES,
       explainer: async () => ({
         text: "Applicants should gather documents early.",
         source: "model" as const,
@@ -1012,6 +1044,7 @@ describe("assertNoPiiValuesInMatch", () => {
       main_goal: { status: "known", value: "food" },
     };
     const response = await buildMatchResponse(answers, {
+      entries: ALL_ENTRIES,
       explainer: async () => ({
         text: "Applicants may need to regather their documents.",
         source: "model" as const,
@@ -1031,6 +1064,7 @@ describe("assertNoPiiValuesInMatch", () => {
       main_goal: { status: "known", value: "food" },
     };
     const response = await buildMatchResponse(answers, {
+      entries: ALL_ENTRIES,
       explainer: async () => ({
         text: "The application window stays open.",
         source: "model" as const,
@@ -1056,6 +1090,7 @@ describe("assertNoPiiValuesInMatch", () => {
       main_goal: { status: "known", value: "healthcare" },
     };
     const clean = await buildMatchResponse(answers, {
+      entries: ALL_ENTRIES,
       explainer: async () => ({ text: "stub", source: "facts" }),
       explanationCache: new Map(),
     });
@@ -1090,6 +1125,7 @@ describe("assertNoPiiValuesInMatch", () => {
             [questionId]: { status: "known", value },
           };
           const response = await buildMatchResponse(known("main_goal", "food"), {
+            entries: ALL_ENTRIES,
             explainer: async () => ({ text: "stub", source: "facts" }),
             explanationCache: new Map(),
           });
