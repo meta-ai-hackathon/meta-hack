@@ -35,6 +35,7 @@ import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
 import { MatchSection } from "./match-section";
 import { ModeChoice, type ConversationEntryMode } from "./mode-choice";
 import { PurgeSection } from "./purge-section";
+import { PresenceOrb } from "./presence-orb";
 import { ReviewSection } from "./review-section";
 import { VoiceDeck } from "./voice-deck";
 
@@ -938,9 +939,18 @@ export function ConversationChat() {
           }
         >
           <section aria-labelledby="conversation-transcript-heading" className="flex min-w-0 flex-col gap-3">
-            <h2 id="conversation-transcript-heading" className="font-display text-2xl font-bold">
-              Conversation
-            </h2>
+            <div className="flex items-center justify-between gap-4">
+              <h2 id="conversation-transcript-heading" className="font-display text-2xl font-bold">
+                Conversation
+              </h2>
+              {/* The presence orb (VAL-VJS-005): ambient decorative
+              presence floating beside the conversation, bound to the same
+              voice phase as the state bar — aria-hidden here, so the text
+              surfaces (state bar caption, StatusRegion notice) remain the
+              only announcements. On the talk stage for BOTH entry modes;
+              it idles while the mode-B deck is typed into. */}
+              <PresenceOrb phase={voicePhase} />
+            </div>
             {loaded && turns.length === 0 ? (
               <p className="max-w-xl text-muted">
                 Say hello, or answer the first question whenever you are ready.
