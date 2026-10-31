@@ -652,23 +652,28 @@ describe("redaction (VAL-CONV-004 invariant)", () => {
   });
 });
 
-describe("structural reply sweep (claude-review round-2 P1 / round-3 P2)", () => {
+describe("structural reply sweep (claude-review round-2 P1 / round-4 P2)", () => {
   it("sweeps a structural shape the model echoed from the person's own words", () => {
+    // The phone is not KB content, so the inverted allowlist sweeps it —
+    // including a REFORMATTED echo ("555 0143" in, "555-0143" out): the
+    // allowlist is verbatim-in-KB, never trace-it-back-to-the-raw-turn.
     const swept = sweepStructuralPii(
       "You mentioned 555-0143 — thanks.",
-      "my number is 555-0143",
+      "Program: pilot (entry nc_medicaid)\nRules:\n- Apply online.",
     );
     expect(swept).toBe(
       `You mentioned ${"[redacted personal detail]"} — thanks.`,
     );
   });
 
-  it("keeps KB-sourced shapes the person never said (a deadline, a hotline)", () => {
-    // The reply's date and phone come from the knowledge base grounding,
-    // not the person's words — public program facts, not PII.
+  it("keeps shapes that appear verbatim in the KB grounding (a deadline, a hotline)", () => {
+    // The reply's date and phone come from the knowledge base grounding —
+    // public program facts, not PII — so they survive the sweep.
+    const kbText =
+      "Program: pilot (entry nc_medicaid)\nRules:\n- The deadline is 2026-12-01; the hotline is 555-0100.";
     const text = "The deadline is 2026-12-01; the hotline is 555-0100.";
-    expect(sweepStructuralPii(text, "I need help with food.")).toBe(text);
-    // Without the raw turn (the old signature), every shape is swept.
+    expect(sweepStructuralPii(text, kbText)).toBe(text);
+    // Without KB grounding, every shape is swept, fail-closed.
     expect(sweepStructuralPii(text)).not.toBe(text);
   });
 });

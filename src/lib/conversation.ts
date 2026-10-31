@@ -690,24 +690,26 @@ function containsIgnoreCase(haystack: string, needle: string): boolean {
  * numbers) from assistant text. The reply-side backstop for the single-call
  * merge (claude-review P1): the reply is written by a model that saw the raw
  * user words, so a private detail extraction missed could be echoed even
- * though it was never saved anywhere. When the raw user turn is given, a
- * matched span is redacted only when the person's own words contain it —
- * a date or hotline shape that came from the KB grounding (a program
- * deadline, an agency contact line) is public content, not PII, and stays
- * (claude-review round-3 P2). Without the raw turn every shape is swept.
- * Returns the swept text; callers compare before/after and fall back to
- * honest copy on any change.
+ * though it was never saved anywhere. Allowlist INVERTED (claude-review
+ * round-4 P2): a matched shape survives only when it appears verbatim in
+ * the KB grounding text — a program deadline or agency hotline is public
+ * content — because a model can REFORMAT what it heard ("555 0143" echoed
+ * as "555-0143", "Feb 3 1980" as "1980-02-03"), so tracing a span back to
+ * the raw turn by exact substring misses reformats. Everything else is
+ * swept, fail-closed. Returns the swept text; callers compare before/after
+ * and fall back to honest copy on any change.
  */
-export function sweepStructuralPii(text: string, rawUserText?: string): string {
+export function sweepStructuralPii(
+  text: string,
+  knownPublicText?: string,
+): string {
   let output = text;
   for (const pattern of STRUCTURAL_PII_PATTERNS) {
     output = output.replace(pattern, (match) => {
-      if (rawUserText === undefined) {
-        return STRUCTURAL_MARKER;
-      }
-      return containsIgnoreCase(rawUserText, match.trim())
-        ? STRUCTURAL_MARKER
-        : match;
+      return knownPublicText !== undefined &&
+        containsIgnoreCase(knownPublicText, match.trim())
+        ? match
+        : STRUCTURAL_MARKER;
     });
   }
   return output;
@@ -1328,18 +1330,18 @@ export async function processUserTurn(
         unmappedChoiceAttempt && currentQuestion
           ? `${CHOICE_UNMAPPED_FALLBACK_PREFIX} ${currentQuestion.prompt}`
           : malformedEnvelopeFallback(currentQuestion);
-    } else if (
-      envelope.nextQuestionId !== undefined &&
-      envelope.nextQuestionId !== nextQuestion?.id
-    ) {
-      // The model declared a next question the server's post-save flow
-      // state disagrees with — a volunteered answer closed the question the
-      // model asked about, or completed the list. The server owns flow
-      // control: the spoken question is replaced with the server's
-      // (claude-review round-3 P2).
+    } else if (envelope.nextQuestionId !== nextQuestion?.id) {
+      // The model's declaration (absent, invalid, or disagreeing) does not
+      // match the server's post-save flow state — a volunteered answer can
+      // close the question the model asked about, or complete the list, and
+      // a missing declaration means the spoken question is UNVERIFIABLE.
+      // The server owns flow control: the spoken question is replaced with
+      // the server's (claude-review round-3 P2; fail-closed on a missing
+      // declaration per round-4 P2). A lost extraction stays disclosed.
+      // Only a boolean is logged: question ids can name pii fields and
+      // never enter logs (claude-review round-4 P1).
       logWarn("conversation_reply_question_mismatch", {
-        declared: envelope.nextQuestionId,
-        server: nextQuestion?.id ?? null,
+        flowComplete: nextQuestion === null,
       });
       reply = nextQuestion
         ? `${lossPrefix}${FLOW_MISMATCH_PREFIX} ${nextQuestion.prompt}`
@@ -1372,7 +1374,7 @@ export async function processUserTurn(
       logWarn("conversation_reply_pii_echo_blocked");
       reply = PII_ECHO_FALLBACK_REPLY;
     }
-    if (sweepStructuralPii(reply, userText) !== reply) {
+    if (sweepStructuralPii(reply, activeKbGrounding()) !== reply) {
       logWarn("conversation_reply_structural_pii_blocked");
       reply = PII_ECHO_FALLBACK_REPLY;
     }

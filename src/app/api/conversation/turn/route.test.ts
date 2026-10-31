@@ -257,6 +257,7 @@ describe("POST /api/conversation/turn — grounded flow (VAL-CONV-001)", () => {
       {
         extraction: JSON.stringify({ answers: [] }),
         reply: "Let's begin. Who is this application for?",
+        nextQuestionId: "application_role",
       },
       {
         extraction: JSON.stringify({
@@ -270,6 +271,7 @@ describe("POST /api/conversation/turn — grounded flow (VAL-CONV-001)", () => {
           ],
         }),
         reply: "Got it. What kind of help are you looking for right now?",
+        nextQuestionId: "main_goal",
       },
     ]);
 
@@ -627,6 +629,7 @@ describe("POST /api/conversation/turn — ungrounded topic refusal (VAL-CONV-006
       {
         extraction: JSON.stringify({ answers: [] }),
         reply: "I don't have verified info on that. Who is this application for?",
+        nextQuestionId: "application_role",
       },
     ]);
     const response = await POST(
@@ -647,6 +650,7 @@ describe("POST /api/conversation/turn — banned claims (VAL-CONV-002)", () => {
       {
         extraction: JSON.stringify({ answers: [] }),
         reply: "Great news, you qualify for benefits right away!",
+        nextQuestionId: "application_role",
       },
     ]);
     const response = await POST(turnRequest("So can you help me?"));
@@ -674,6 +678,7 @@ describe("POST /api/conversation/turn — reply privacy backstop (single call, c
       {
         extraction: JSON.stringify({ answers: [] }),
         reply: "Thanks! I noted your number 555-0143. What is your email address?",
+        nextQuestionId: "application_role",
       },
     ]);
     const response = await POST(turnRequest("Call me at 555-0143."));
@@ -1064,6 +1069,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
           ],
         }),
         reply: "Got it — food. What is your zip code?",
+        nextQuestionId: "state",
       },
     ]);
     const first = await POST(turnRequest("Hi, applying for myself."));
@@ -1118,6 +1124,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
           ],
         }),
         reply: "One answer saved. What kind of help are you looking for?",
+        nextQuestionId: "main_goal",
       },
     ]);
     const first = await POST(turnRequest("Hi, applying for myself."));
@@ -1221,6 +1228,33 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     `;
     expect(kinds).toHaveLength(0);
   });
+
+  it("replaces the spoken question when the envelope omits the declaration (fail-closed, round-4 P2)", async () => {
+    // An absent or invalid declaration leaves the spoken question
+    // UNVERIFIABLE — it may acknowledge an answer extraction returned
+    // nothing for. The server's deterministic question replaces it.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+          ],
+        }),
+        reply: "All recorded! So, how many people live with you?",
+      },
+    ]);
+    const response = await POST(turnRequest("Hi, applying for myself."));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(
+      `${FLOW_MISMATCH_PREFIX} ${QUESTION_BY_ID.main_goal.prompt}`,
+    );
+    expect(data.nextQuestionId).toBe("main_goal");
+    const rows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'application_role'
+    `;
+    expect(rows).toHaveLength(1);
+  });
 });
 
 describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () => {
@@ -1237,6 +1271,7 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
       {
         extraction: JSON.stringify({ answers: [] }),
         reply: "Let's begin. Who is this application for?",
+        nextQuestionId: "application_role",
       },
     ]);
     const first = await POST(turnRequest("Hello there."));
@@ -1306,6 +1341,7 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
           ],
         }),
         reply: "Got it. How many of those people are under 18?",
+        nextQuestionId: "application_role",
       },
     ]);
     const retried = await POST(turnRequest("I need help with food.", cookie));
