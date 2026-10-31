@@ -8,9 +8,8 @@ import {
   HANDOFF_ACTION_KINDS,
   HANDOFF_WHERE,
   HANDOFF_WHERE_LABELS,
-  PILOT_HANDOFF_COMPANION,
-  firstHandoffCompanion,
   handoffCompanion,
+  handoffCompanionForForm,
   nextHandoffAction,
   showsAfterYouApply,
   type HandoffAction,
@@ -23,6 +22,7 @@ import {
   type SessionStatus,
 } from "./honesty";
 import { KB_ENTRIES, parseKbEntry, type KbEntry } from "./kb";
+import { PILOT_CONFIG } from "./pilot";
 
 // The handoff's one next action (BN-23, HACK-49) and its sourced companion
 // steps (BN-24 and BN-26, HACK-46 and HACK-47). The properties below are
@@ -249,20 +249,23 @@ describe("nextHandoffAction: honest copy", () => {
 
 describe("handoffCompanion: the sourced steps behind the actions", () => {
   const real = parseKbEntry(realEntryJson as unknown);
+  // The form the pilot's review section shows (the real DHB-5200).
+  const FORM = PILOT_CONFIG.formRegistryId;
+  const pilotCompanion = handoffCompanionForForm(FORM);
 
-  it("builds the pilot's companion from the production KB entry, in KB order", () => {
+  it("builds the pilot form's companion from the production KB entry, in KB order", () => {
     expect(KB_ENTRIES[0]?.id).toBe(real.id);
-    expect(PILOT_HANDOFF_COMPANION).not.toBeNull();
-    expect(PILOT_HANDOFF_COMPANION?.submissionSteps.map((step) => step.id)).toEqual(
+    expect(pilotCompanion).not.toBeNull();
+    expect(pilotCompanion?.submissionSteps.map((step) => step.id)).toEqual(
       real.facts.submission_steps?.items.map((step) => step.id),
     );
-    expect(PILOT_HANDOFF_COMPANION?.afterYouApply.map((step) => step.id)).toEqual(
+    expect(pilotCompanion?.afterYouApply.map((step) => step.id)).toEqual(
       real.facts.after_you_apply?.items.map((step) => step.id),
     );
   });
 
   it("gives every step the card of the source it names, never another one", () => {
-    const companion = handoffCompanion(real)!;
+    const companion = handoffCompanion(real, FORM)!;
     const kbSteps = [
       ...(real.facts.submission_steps?.items ?? []),
       ...(real.facts.after_you_apply?.items ?? []),
@@ -294,10 +297,10 @@ describe("handoffCompanion: the sourced steps behind the actions", () => {
           expect(action.guide).toBeDefined();
         }
         if (action.guide === "submission_steps") {
-          expect(PILOT_HANDOFF_COMPANION?.submissionSteps.length).toBeGreaterThan(0);
+          expect(pilotCompanion?.submissionSteps.length).toBeGreaterThan(0);
         }
         if (action.guide === "after_you_apply") {
-          expect(PILOT_HANDOFF_COMPANION?.afterYouApply.length).toBeGreaterThan(0);
+          expect(pilotCompanion?.afterYouApply.length).toBeGreaterThan(0);
           expect(showsAfterYouApply(state.sessionStatus)).toBe(true);
         }
       }),
@@ -313,18 +316,61 @@ describe("handoffCompanion: the sourced steps behind the actions", () => {
     }
   });
 
-  function variant(changes: Record<string, unknown>, dropGroups: string[] = []): KbEntry {
+  type RawFacts = Record<string, Record<string, unknown>>;
+
+  function variant(
+    changes: Record<string, unknown>,
+    editFacts: (facts: RawFacts) => void = () => undefined,
+  ): KbEntry {
     const raw = structuredClone(realEntryJson) as Record<string, unknown>;
     Object.assign(raw, changes);
-    for (const group of dropGroups) {
-      delete (raw.facts as Record<string, unknown>)[group];
-    }
+    editFacts(raw.facts as RawFacts);
     return parseKbEntry(raw);
   }
 
+  // Form-registry-shaped ids: the pilot form, the shipped samples, and
+  // arbitrary others.
+  const formIdArb = fc.oneof(
+    fc.constantFrom(FORM, "dhb-5201", "sample-application-form", "sample-application-form-flat"),
+    fc.stringMatching(/^[a-z0-9][a-z0-9-]{0,20}$/),
+  );
+
+  it("shows the steps only beside the form they are written for", () => {
+    expect(real.facts.submission_steps?.formId).toBe(FORM);
+    expect(real.facts.after_you_apply?.formId).toBe(FORM);
+    fc.assert(
+      fc.property(formIdArb, (formId) => {
+        expect(handoffCompanionForForm(formId) !== null).toBe(formId === FORM);
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it("fits every form when neither list names one", () => {
+    const untied = variant({}, (facts) => {
+      delete facts.submission_steps!.form_id;
+      delete facts.after_you_apply!.form_id;
+    });
+    fc.assert(
+      fc.property(formIdArb, (formId) => {
+        expect(handoffCompanion(untied, formId)).toEqual(handoffCompanion(real, FORM));
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it("stays hidden when either list is written for a different form", () => {
+    for (const group of ["submission_steps", "after_you_apply"]) {
+      const mixed = variant({}, (facts) => {
+        facts[group]!.form_id = "dhb-5201";
+      });
+      expect(handoffCompanion(mixed, FORM), group).toBeNull();
+    }
+  });
+
   it("flags every step of a stale entry with the status and reason", () => {
     const stale = variant({ status: "stale", status_reason: "The county page changed." });
-    const companion = handoffCompanion(stale)!;
+    const companion = handoffCompanion(stale, FORM)!;
     for (const step of [...companion.submissionSteps, ...companion.afterYouApply]) {
       expect(step.source.entryStatus).toBe("stale");
       expect(step.source.statusReason).toBe("The county page changed.");
@@ -332,18 +378,27 @@ describe("handoffCompanion: the sourced steps behind the actions", () => {
   });
 
   it("never cites a withdrawn entry, and needs both lists to back the handoff", () => {
-    expect(handoffCompanion(variant({ status: "withdrawn", status_reason: "Retracted." }))).toBeNull();
-    expect(handoffCompanion(variant({}, ["submission_steps"]))).toBeNull();
-    expect(handoffCompanion(variant({}, ["after_you_apply"]))).toBeNull();
-    expect(handoffCompanion(parseKbEntry(sampleEntryJson as unknown))).toBeNull();
+    const withdrawn = variant({ status: "withdrawn", status_reason: "Retracted." });
+    expect(handoffCompanion(withdrawn, FORM)).toBeNull();
+    const noSubmission = variant({}, (facts) => {
+      delete facts.submission_steps;
+    });
+    expect(handoffCompanion(noSubmission, FORM)).toBeNull();
+    const noAfter = variant({}, (facts) => {
+      delete facts.after_you_apply;
+    });
+    expect(handoffCompanion(noAfter, FORM)).toBeNull();
+    expect(handoffCompanion(parseKbEntry(sampleEntryJson as unknown), FORM)).toBeNull();
   });
 
-  it("takes the first entry that can back the handoff", () => {
+  it("takes the first entry that can back the handoff beside the form", () => {
     const sample = parseKbEntry(sampleEntryJson as unknown);
     const withdrawn = variant({ status: "withdrawn", status_reason: "Retracted." });
-    expect(firstHandoffCompanion([])).toBeNull();
-    expect(firstHandoffCompanion([sample, withdrawn])).toBeNull();
-    expect(firstHandoffCompanion([sample, withdrawn, real])).toEqual(handoffCompanion(real));
+    expect(handoffCompanionForForm(FORM, [])).toBeNull();
+    expect(handoffCompanionForForm(FORM, [sample, withdrawn])).toBeNull();
+    expect(handoffCompanionForForm(FORM, [sample, withdrawn, real])).toEqual(
+      handoffCompanion(real, FORM),
+    );
   });
 });
 

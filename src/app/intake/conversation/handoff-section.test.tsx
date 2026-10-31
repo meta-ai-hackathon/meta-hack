@@ -8,8 +8,8 @@ import { buildFormFlow } from "../../../lib/forms/flow";
 import { getFormRegistryEntry } from "../../../lib/forms/registry";
 import {
   HANDOFF_WHERE_LABELS,
-  PILOT_HANDOFF_COMPANION,
   handoffCompanion,
+  handoffCompanionForForm,
   nextHandoffAction,
   showsAfterYouApply,
   type HandoffCompanion,
@@ -17,6 +17,7 @@ import {
 } from "../../../lib/handoff";
 import { SESSION_STATUSES, findBannedClaims, type SessionStatus } from "../../../lib/honesty";
 import { parseKbEntry } from "../../../lib/kb";
+import { PILOT_CONFIG } from "../../../lib/pilot";
 import { HandoffSection } from "./handoff-section";
 import { ReviewSectionContent } from "./review-section";
 
@@ -27,7 +28,9 @@ import { ReviewSectionContent } from "./review-section";
 // submits, or faxes the form.
 
 const REAL = parseKbEntry(realEntryJson as unknown);
-const COMPANION = PILOT_HANDOFF_COMPANION!;
+// The form the pilot's review section shows, which the KB steps are for.
+const FORM = PILOT_CONFIG.formRegistryId;
+const COMPANION = handoffCompanionForForm(FORM)!;
 
 const stateArb: fc.Arbitrary<HandoffState> = fc.record({
   sessionStatus: fc.constantFrom(...SESSION_STATUSES),
@@ -42,6 +45,7 @@ function render(element: ReactElement): Document {
 function renderHandoff(state: HandoffState, companion?: HandoffCompanion | null): Document {
   return render(
     <HandoffSection
+      formId={FORM}
       sessionStatus={state.sessionStatus}
       downloaded={state.downloaded}
       stillNeededCount={state.stillNeededCount}
@@ -125,13 +129,24 @@ describe("HandoffSection: one next step", () => {
 
   it("stays out of the way without sourced steps or with a status outside BN-25", () => {
     const state: HandoffState = { sessionStatus: "handed_off", downloaded: true, stillNeededCount: 0 };
-    expect(renderToStaticMarkup(<HandoffSection {...state} companion={null} />)).toBe("");
+    expect(renderToStaticMarkup(<HandoffSection formId={FORM} {...state} companion={null} />)).toBe("");
     expect(
       renderToStaticMarkup(
-        <HandoffSection sessionStatus="submitted" downloaded stillNeededCount={0} />,
+        <HandoffSection formId={FORM} sessionStatus="submitted" downloaded stillNeededCount={0} />,
       ),
     ).toBe("");
   });
+
+  it.each(["sample-application-form", "sample-application-form-flat", "dhb-5201"])(
+    "shows nothing beside a form the steps were not written for (%s)",
+    (formId) => {
+      expect(
+        renderToStaticMarkup(
+          <HandoffSection formId={formId} sessionStatus="handed_off" downloaded stillNeededCount={0} />,
+        ),
+      ).toBe("");
+    },
+  );
 });
 
 describe("HandoffSection: sourced steps", () => {
@@ -182,7 +197,7 @@ describe("HandoffSection: sourced steps", () => {
     const raw = structuredClone(realEntryJson) as Record<string, unknown>;
     raw.status = "stale";
     raw.status_reason = "The county page changed after it was checked.";
-    const companion = handoffCompanion(parseKbEntry(raw));
+    const companion = handoffCompanion(parseKbEntry(raw), FORM);
     const doc = renderHandoff({ sessionStatus: "handed_off", downloaded: true, stillNeededCount: 0 }, companion);
     const cards = [...doc.querySelectorAll("[data-source-card]")];
     expect(cards.length).toBeGreaterThan(0);
@@ -260,20 +275,19 @@ describe("HandoffSection: honest copy", () => {
 });
 
 describe("HandoffSection inside the review section", () => {
-  const ENTRY = getFormRegistryEntry("sample-application-form");
-
-  function reviewData(sessionStatus: SessionStatus) {
-    const view = buildFormFlow(ENTRY, {
+  function reviewData(formId: string, sessionStatus: SessionStatus) {
+    const entry = getFormRegistryEntry(formId);
+    const view = buildFormFlow(entry, {
       household_size: { status: "known", value: 3 },
     });
     return {
       hasSession: true,
       form: {
-        id: ENTRY.id,
-        title: ENTRY.title,
-        version: ENTRY.version,
-        sourceUrl: ENTRY.source.url,
-        retrievedAt: ENTRY.source.retrievedAt,
+        id: entry.id,
+        title: entry.title,
+        version: entry.version,
+        sourceUrl: entry.source.url,
+        retrievedAt: entry.source.retrievedAt,
       },
       fields: view.fields,
       toResolve: view.toResolve,
@@ -284,8 +298,17 @@ describe("HandoffSection inside the review section", () => {
     };
   }
 
+  it.each(SESSION_STATUSES)("leaves the sample form's review without the real form's steps (%s)", (status) => {
+    const doc = render(<ReviewSectionContent data={reviewData("sample-application-form", status)} />);
+    expect(doc.querySelector("[data-next-action]")).toBeNull();
+    expect(doc.querySelector("[data-handoff-step]")).toBeNull();
+    // The existing handoff pieces are still there, unchanged.
+    expect(doc.querySelector("[data-handoff-steps]")).not.toBeNull();
+    expect(doc.querySelector("[data-portal-links]")).not.toBeNull();
+  });
+
   it.each(SESSION_STATUSES)("mounts exactly one next step inside the handoff (%s)", (status) => {
-    const data = reviewData(status);
+    const data = reviewData(FORM, status);
     const doc = render(<ReviewSectionContent data={data} />);
     const callouts = doc.querySelectorAll("[data-next-action]");
     expect(callouts).toHaveLength(1);

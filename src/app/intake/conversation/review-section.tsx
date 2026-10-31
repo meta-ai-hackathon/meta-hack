@@ -397,6 +397,7 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
           </button>
         </div>
         <HandoffSection
+          formId={data.form.id}
           sessionStatus={sessionStatus}
           downloaded={downloaded}
           stillNeededCount={data.toResolve.length}

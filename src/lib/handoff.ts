@@ -4,6 +4,7 @@ import {
   citeSourcedSteps,
   type KbEntry,
   type KbEntryStatus,
+  type KbSourcedStepGroup,
   type KbStepCitation,
   type SourcedStepKbFactGroupName,
 } from "./kb";
@@ -241,16 +242,32 @@ function stepView(citation: KbStepCitation): HandoffStepView {
   };
 }
 
+/** A group fits a form when it is written for that form, or for none. */
+function fitsForm(group: KbSourcedStepGroup, formId: string): boolean {
+  return group.formId === undefined || group.formId === formId;
+}
+
 /**
- * The sourced steps for one KB entry, or null when it cannot back the
- * handoff. Both lists are needed, because every action outside the app
- * points at one of them. A withdrawn entry is never cited as fact, so it
+ * The sourced steps one KB entry gives the handoff beside one form, or
+ * null when it cannot back the handoff there. Both lists are needed,
+ * because every action outside the app points at one of them, and a list
+ * written for another form never shows, since its page references would
+ * not exist on this one. A withdrawn entry is never cited as fact, so it
  * yields null. A stale entry is cited with acknowledgment, and every
  * step's source carries the status and reason for its card to show.
  */
-export function handoffCompanion(entry: KbEntry): HandoffCompanion | null {
+export function handoffCompanion(
+  entry: KbEntry,
+  formId: string,
+): HandoffCompanion | null {
   const { submission_steps: submission, after_you_apply: after } = entry.facts;
-  if (entry.status === "withdrawn" || !submission || !after) {
+  if (
+    entry.status === "withdrawn" ||
+    !submission ||
+    !after ||
+    !fitsForm(submission, formId) ||
+    !fitsForm(after, formId)
+  ) {
     return null;
   }
   const options = { acknowledgeNonActive: true } as const;
@@ -261,22 +278,19 @@ export function handoffCompanion(entry: KbEntry): HandoffCompanion | null {
 }
 
 /**
- * The companion for the first entry that can back the handoff, in the
- * order given. The production list is KB_ENTRIES, which the pilot seam
- * decides (PILOT_CONFIG.kbEntryIds).
+ * The companion for the form under review: the first entry, in the order
+ * given, that can back the handoff beside it. The production list is
+ * KB_ENTRIES, which the pilot seam decides (PILOT_CONFIG.kbEntryIds).
  */
-export function firstHandoffCompanion(
-  entries: readonly KbEntry[],
+export function handoffCompanionForForm(
+  formId: string,
+  entries: readonly KbEntry[] = KB_ENTRIES,
 ): HandoffCompanion | null {
   for (const entry of entries) {
-    const companion = handoffCompanion(entry);
+    const companion = handoffCompanion(entry, formId);
     if (companion) {
       return companion;
     }
   }
   return null;
 }
-
-/** The pilot's companion steps, built once from the production entries. */
-export const PILOT_HANDOFF_COMPANION: HandoffCompanion | null =
-  firstHandoffCompanion(KB_ENTRIES);

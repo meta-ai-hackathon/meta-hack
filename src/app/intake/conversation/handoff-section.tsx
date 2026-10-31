@@ -1,7 +1,7 @@
 import { SourceCard } from "../../../components/source-card";
 import {
   HANDOFF_WHERE_LABELS,
-  PILOT_HANDOFF_COMPANION,
+  handoffCompanionForForm,
   nextHandoffAction,
   showsAfterYouApply,
   type HandoffCompanion,
@@ -19,13 +19,15 @@ import { isSessionStatus } from "../../../lib/honesty";
 // themselves, through the official channels the steps link.
 
 export interface HandoffSectionProps {
+  /** The form-registry id of the form under review. */
+  readonly formId: string;
   /** The session's BN-25 lifecycle status, as the review section holds it. */
   readonly sessionStatus: string;
   /** Whether the filled form was downloaded in this view. */
   readonly downloaded: boolean;
   /** How many items the prepared form still lists as needed. */
   readonly stillNeededCount: number;
-  /** The sourced steps. Defaults to the pilot's knowledge-base entry. */
+  /** The sourced steps. Defaults to the ones the KB writes for this form. */
   readonly companion?: HandoffCompanion | null;
 }
 
@@ -51,13 +53,15 @@ function StepItem({ step }: { step: HandoffStepView }) {
 }
 
 export function HandoffSection({
+  formId,
   sessionStatus,
   downloaded,
   stillNeededCount,
-  companion = PILOT_HANDOFF_COMPANION,
+  companion = handoffCompanionForForm(formId),
 }: HandoffSectionProps) {
-  // Without sourced steps, or with a status outside BN-25, there is
-  // nothing honest to say here, so the section stays out of the way.
+  // Without sourced steps written for this form, or with a status outside
+  // BN-25, there is nothing honest to say here, so the section stays out
+  // of the way.
   if (!companion || !isSessionStatus(sessionStatus)) {
     return null;
   }
