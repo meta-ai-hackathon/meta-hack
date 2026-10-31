@@ -280,8 +280,10 @@ both are set there, so check them in the Vercel project.
 No route or screen sends a fax yet. `transmitPacket` and `assemblePacket` are only called
 from their tests, and the fax consent path stays switched off (`termsVerified: false` in
 `src/lib/consent.ts`). The review offers the filled PDF and the official links, and the
-person submits the form themselves. The "Send my application" button on "Your results",
-where a conversation with typed and voice sharing on ends, only scrolls to the
+person submits the form themselves. Its "Signing it and sending it in yourself" steps list
+the official ways to send it, including dropping it off or faxing it in Mecklenburg County,
+and nothing on the page sends it for them. The "Send my application" button on "Your
+results", where a conversation with typed and voice sharing on ends, only scrolls to the
 typed-signature step ("Type your full name to sign"), or to "Getting it done" when there
 isn't one, and sends nothing. A name typed in that step goes to the app's server with
 "Download the filled PDF", like the review's other boxes (see the top of this page). If
