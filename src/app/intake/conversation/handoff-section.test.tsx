@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import fc from "fast-check";
-import type { ReactElement } from "react";
+import { act, type ReactElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import realEntryJson from "../../../../kb/entries/nc-medicaid.json";
 import { buildFormFlow } from "../../../lib/forms/flow";
 import { getFormRegistryEntry } from "../../../lib/forms/registry";
@@ -324,5 +325,60 @@ describe("HandoffSection inside the review section", () => {
     // The existing handoff pieces are still there, unchanged.
     expect(doc.querySelector("[data-handoff-steps]")).not.toBeNull();
     expect(doc.querySelector("[data-portal-links]")).not.toBeNull();
+  });
+
+  describe("after a real download", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      document.body.replaceChildren();
+    });
+
+    it("moves the next step from download to mark handed off", async () => {
+      (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+      // The fill route answers with the filled PDF. jsdom has no object
+      // URLs and no navigation, so the blob URL and the anchor click are
+      // stubbed for this test only and restored after it.
+      const fetchSpy = vi.fn(() =>
+        Promise.resolve(new Response(new Blob(["%PDF-1.7"]), { status: 200 })),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+      const { createObjectURL, revokeObjectURL } = URL;
+      URL.createObjectURL = () => "blob:filled-form";
+      URL.revokeObjectURL = () => undefined;
+      const clickSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => undefined);
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(<ReviewSectionContent data={reviewData(FORM, "prepared")} />);
+        });
+        const nextAction = () =>
+          container.querySelector("[data-next-action]")?.getAttribute("data-next-action");
+        expect(nextAction()).toBe("download");
+
+        const download = container.querySelector<HTMLButtonElement>('[data-action="download"]');
+        await act(async () => {
+          download?.click();
+          for (let tick = 0; tick < 10; tick += 1) {
+            await new Promise((done) => setTimeout(done, 0));
+          }
+        });
+
+        expect(fetchSpy).toHaveBeenCalledWith(`/api/forms/${FORM}/fill`, { method: "POST" });
+        expect(clickSpy).toHaveBeenCalled();
+        expect(nextAction()).toBe("mark_handed_off");
+        expect(container.querySelector("[data-where]")?.textContent).toBe("In the app");
+      } finally {
+        await act(async () => {
+          root.unmount();
+        });
+        clickSpy.mockRestore();
+        URL.createObjectURL = createObjectURL;
+        URL.revokeObjectURL = revokeObjectURL;
+      }
+    });
   });
 });
