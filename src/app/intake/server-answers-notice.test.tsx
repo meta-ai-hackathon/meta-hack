@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
+import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findBannedClaims } from "../../lib/honesty";
 import { SERVER_ANSWERS_COPY, serverAnswerCount } from "./server-answers-notice";
 
-// The notice for answers this browser saved on the server before /intake
-// kept them on the device (HACK-99). It checks with a cookie-only read,
-// shows only when answers are really there, deletes only through the
-// HACK-80 purge behind a confirming step, and says exactly what the server
-// reported. No request it makes ever carries an answer.
+// The notice for answers this browser has saved on the app's server, which
+// /intake no longer reads (HACK-99). It checks with a cookie-only read,
+// shows only when answers are really there, says the delete also takes any
+// chat without guessing where the answers came from (HACK-113), deletes
+// only through the HACK-80 purge behind a confirming step, and says exactly
+// what the server reported. No request it makes ever carries an answer.
 
 type Call = { readonly url: string; readonly method: string; readonly body: string | undefined };
 
@@ -87,7 +89,7 @@ async function render() {
     await settle();
   };
   const status = () => container.querySelector('[role="status"]')?.textContent ?? "";
-  return { container, button, click, status, unmount: () => act(async () => root.unmount()) };
+  return { container, button, click, status, settle, unmount: () => act(async () => root.unmount()) };
 }
 
 /** No request may carry an answer: only the cookie-only check and the purge's own confirmation. */
@@ -126,7 +128,7 @@ describe("the server answers notice", () => {
     });
     const page = await render();
     expect(page.container.textContent).toContain(SERVER_ANSWERS_COPY.heading);
-    expect(page.container.textContent).toContain("This browser still has 3 answers saved there.");
+    expect(page.container.textContent).toContain("This browser has 3 answers saved on the app's server.");
 
     // The first click only asks; it sends nothing and moves focus to the safe choice.
     await page.click(SERVER_ANSWERS_COPY.deleteButton);
@@ -142,7 +144,7 @@ describe("the server answers notice", () => {
     await page.click(SERVER_ANSWERS_COPY.confirmYes);
     expect(page.status()).toBe(SERVER_ANSWERS_COPY.purged);
     expect(page.button(SERVER_ANSWERS_COPY.deleteButton)).toBeUndefined();
-    expect(page.container.textContent).not.toContain("still has 3 answers");
+    expect(page.container.textContent).not.toContain(SERVER_ANSWERS_COPY.body(3));
     expect(document.activeElement?.id).toBe("server-answers-heading");
     expectNoAnswerSent();
     await page.unmount();
@@ -165,7 +167,7 @@ describe("the server answers notice", () => {
       expect(page.status()).toBe(copy);
       if (copy === SERVER_ANSWERS_COPY.refused || copy === SERVER_ANSWERS_COPY.unknown) {
         // Nothing is known to be removed, so the page still says the answers are there.
-        expect(page.container.textContent).toContain("This browser still has 2 answers saved there.");
+        expect(page.container.textContent).toContain(SERVER_ANSWERS_COPY.body(2));
       }
       expectNoAnswerSent();
       await page.unmount();
@@ -193,6 +195,139 @@ describe("the server answers notice", () => {
     await page.unmount();
   });
 
+  it("after an unknown outcome, a Check again that can't reach the app says so on every press and keeps focus there", async () => {
+    // How the state check can fail: offline, an error status, a proxy page.
+    const failedCheck = fc.constantFrom<() => Promise<Response>>(
+      () => Promise.reject(new Error("offline")),
+      () => Promise.resolve(new Response("", { status: 503 })),
+      () => Promise.resolve(new Response("oops", { status: 500 })),
+      () => Promise.resolve(new Response("<html>proxy</html>", { status: 200 })),
+    );
+    await fc.assert(
+      fc.asyncProperty(fc.array(failedCheck, { minLength: 1, maxLength: 4 }), async (failures) => {
+        // The check on load finds the answers, every press meets a failed
+        // check, and then the app is back and the delete turns out to have gone through.
+        const checks = [() => Promise.resolve(stateResponse(2)), ...failures, () => Promise.resolve(stateResponse(0))];
+        stubFetch({
+          state: () => checks.shift()!(),
+          purge: () => Promise.resolve(new Response("", { status: 502 })),
+        });
+        const page = await render();
+        await page.click(SERVER_ANSWERS_COPY.deleteButton);
+        await page.click(SERVER_ANSWERS_COPY.confirmYes);
+        expect(page.status()).toBe(SERVER_ANSWERS_COPY.unknown);
+        for (let press = 0; press < failures.length; press += 1) {
+          const before = page.status();
+          // A mouse press can leave focus off the button (Safari doesn't focus a clicked button).
+          (document.activeElement as HTMLElement | null)?.blur();
+          await page.click(SERVER_ANSWERS_COPY.checkAgain);
+          // The message changes on every failed press, so each one is
+          // announced, and every one still says the delete's outcome is unknown.
+          expect([SERVER_ANSWERS_COPY.checkFailed, SERVER_ANSWERS_COPY.checkFailedAgain]).toContain(page.status());
+          expect(page.status()).not.toBe(before);
+          expect(page.status()).toContain("whether the delete went through");
+          expect(document.activeElement?.textContent).toBe(SERVER_ANSWERS_COPY.checkAgain);
+          // Nothing is known to be removed: the count stays and no delete is offered yet.
+          expect(page.container.textContent).toContain(SERVER_ANSWERS_COPY.body(2));
+          expect(page.button(SERVER_ANSWERS_COPY.deleteButton)).toBeUndefined();
+        }
+        // A failed check leaves the next one working.
+        await page.click(SERVER_ANSWERS_COPY.checkAgain);
+        expect(page.status()).toBe(SERVER_ANSWERS_COPY.goneAfterCheck);
+        expectNoAnswerSent();
+        await page.unmount();
+        page.container.remove();
+        vi.unstubAllGlobals();
+      }),
+      { numRuns: 12 },
+    );
+  });
+
+  it("however overlapping Check again presses and their answers interleave, a check that reached the app is never overwritten by one that didn't", async () => {
+    // What one state check comes back with: a count from the app, or a failure.
+    type Answer = { readonly count: number } | { readonly failure: () => Promise<Response> };
+    const answer = fc.oneof(
+      fc.integer({ min: 0, max: 3 }).map<Answer>((count) => ({ count })),
+      fc.constantFrom<Answer>(
+        { failure: () => Promise.reject(new Error("offline")) },
+        { failure: () => Promise.resolve(new Response("", { status: 503 })) },
+        { failure: () => Promise.resolve(new Response("<html>proxy</html>", { status: 200 })) },
+      ),
+    );
+    const failedMessages: readonly string[] = [SERVER_ANSWERS_COPY.checkFailed, SERVER_ANSWERS_COPY.checkFailedAgain];
+    await fc.assert(
+      fc.asyncProperty(
+        // Presses made before any check comes back (a double-click, an impatient person).
+        fc.integer({ min: 2, max: 4 }),
+        // What each check made comes back with, in the order the checks were made.
+        fc.array(answer, { minLength: 4, maxLength: 4 }),
+        // The order the checks come back in: each pick chooses one still out.
+        fc.array(fc.nat(), { minLength: 4, maxLength: 4 }),
+        async (presses, answers, picks) => {
+          const out: { readonly index: number; readonly settle: (response: Promise<Response>) => void }[] = [];
+          let made = 0;
+          let loaded = false;
+          stubFetch({
+            state: () => {
+              if (!loaded) {
+                loaded = true;
+                return Promise.resolve(stateResponse(2));
+              }
+              const index = made;
+              made += 1;
+              return new Promise<Response>((resolve, reject) => {
+                out.push({ index, settle: (response) => void response.then(resolve, reject) });
+              });
+            },
+            purge: () => Promise.resolve(new Response("", { status: 502 })),
+          });
+          const page = await render();
+          await page.click(SERVER_ANSWERS_COPY.deleteButton);
+          await page.click(SERVER_ANSWERS_COPY.confirmYes);
+          expect(page.status()).toBe(SERVER_ANSWERS_COPY.unknown);
+          for (let press = 0; press < presses; press += 1) {
+            await page.click(SERVER_ANSWERS_COPY.checkAgain);
+          }
+          // Let the checks come back in the picked order. Once the page has
+          // shown what the app reported, nothing may turn it back into
+          // "couldn't reach the app".
+          let reached = false;
+          for (let step = 0; out.length > 0; step += 1) {
+            const [next] = out.splice((picks[step] ?? 0) % out.length, 1);
+            const response = answers[next.index];
+            next.settle("count" in response ? Promise.resolve(stateResponse(response.count)) : response.failure());
+            await page.settle();
+            const status = page.status();
+            if (status === SERVER_ANSWERS_COPY.goneAfterCheck || page.button(SERVER_ANSWERS_COPY.deleteButton)) {
+              reached = true;
+            }
+            if (reached) {
+              expect(failedMessages).not.toContain(status);
+            }
+          }
+          // Focus ends on something in the notice, never on the page body.
+          expect(page.container.contains(document.activeElement)).toBe(true);
+          // Once every check is back, the next press makes a new check.
+          if (page.button(SERVER_ANSWERS_COPY.checkAgain)) {
+            const requests = calls.length;
+            await page.click(SERVER_ANSWERS_COPY.checkAgain);
+            expect(calls).toHaveLength(requests + 1);
+            for (const check of out.splice(0)) {
+              check.settle(Promise.resolve(stateResponse(0)));
+            }
+            await page.settle();
+            expect(page.status()).toBe(SERVER_ANSWERS_COPY.goneAfterCheck);
+          }
+          expectNoAnswerSent();
+          await page.unmount();
+          page.container.remove();
+          vi.unstubAllGlobals();
+        },
+      ),
+      { numRuns: 25 },
+    );
+  }, 30_000);
+
   it("after an unknown outcome, Check again offers the delete again when the answers are still there", async () => {
     stubFetch({
       state: () => Promise.resolve(stateResponse(2)),
@@ -219,9 +354,24 @@ describe("serverAnswerCount", () => {
 });
 
 describe("the notice's copy", () => {
-  it("names the count correctly and carries no promise language", () => {
-    expect(SERVER_ANSWERS_COPY.body(1)).toContain("still has 1 answer saved there");
-    expect(SERVER_ANSWERS_COPY.body(5)).toContain("still has 5 answers saved there");
+  it("names the count, says the delete also takes the chat, and never guesses where the answers came from", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 100_000 }), (count) => {
+        const body = SERVER_ANSWERS_COPY.body(count);
+        expect(body).toContain(count === 1 ? "has 1 answer saved" : `has ${count} answers saved`);
+        // The server session may be a chat the person is still using
+        // (HACK-113), so the body says what the delete takes with it...
+        expect(body).toContain("Deleting them also deletes any chat you had with the assistant.");
+        // ...and claims neither where the answers came from nor that nothing uses them.
+        expect(body).not.toMatch(
+          /no longer use|unused|not used|doesn't use|before this page|came from|from this page|from the chat/i,
+        );
+        expect(findBannedClaims(body)).toEqual([]);
+      }),
+    );
+  });
+
+  it("carries no promise language", () => {
     const lines = Object.values(SERVER_ANSWERS_COPY).map((line) =>
       typeof line === "function" ? line(2) : line,
     );

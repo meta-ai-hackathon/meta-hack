@@ -40,27 +40,28 @@ describe("ConsentPanel copy (VAL-CONSENT-002)", () => {
     expect(html).toMatch(/Before anything is sent/);
   });
 
-  it("names the providers: Meta (chat + speech-to-text) and Gemini (text-to-speech)", () => {
+  it("names the providers: Meta (chat + speech-to-text) and ElevenLabs (text-to-speech)", () => {
     const html = panelMarkup();
     expect(html).toMatch(/Meta/);
-    expect(html).toMatch(/Gemini/);
+    expect(html).toMatch(/ElevenLabs/);
     expect(html).toMatch(/speech-to-text/);
     expect(html).toMatch(/text-to-speech/);
   });
 
-  it("renders the voice-path provider string EXACTLY as registered (VAL-VTTS-004 drift test)", () => {
-    // The spoken-reply provider naming (HACK-106) must match the
-    // CONSENT_PATHS registry verbatim: if the surface copy drifts from the
-    // enforcement registry (or the registry is edited without the surface),
-    // this fails. The registered string names Meta (STT) and Google Gemini
-    // (TTS, free tier) — verified accurate against the shipped TTS client
-    // (gemini-3.8-flash-tts on the free tier) for the natural-conversation
-    // milestone.
+  it("renders the voice-path provider string EXACTLY as registered (VAL-TTS2-003 drift test)", () => {
+    // The spoken-reply provider naming must match the CONSENT_PATHS
+    // registry verbatim: if the surface copy drifts from the enforcement
+    // registry (or the registry is edited without the surface), this
+    // fails. The registered string names Meta (STT) and ElevenLabs (TTS) —
+    // verified accurate against the shipped TTS client after the
+    // owner-directed Gemini → ElevenLabs switch (HACK-116, 2026-10-31:
+    // the Gemini free tier's 10-requests/day quota caused the silent OS-
+    // voice fallback); terms verified live at elevenlabs.io/terms.
     const voicePath = CONSENT_PATHS.find((path) => path.id === "voice");
     expect(voicePath).toBeDefined();
     expect(panelMarkup()).toContain(voicePath!.provider);
-    expect(voicePath!.provider).toContain("Google Gemini");
-    expect(voicePath!.provider).toContain("free tier");
+    expect(voicePath!.provider).toContain("ElevenLabs");
+    expect(voicePath!.provider).toContain("Meta");
   });
 
   it("names what each send is for", () => {

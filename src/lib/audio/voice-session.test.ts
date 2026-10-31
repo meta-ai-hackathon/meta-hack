@@ -90,10 +90,13 @@ function makeSession(options?: {
   phases: VoiceSessionPhase[];
   utterances: Blob[];
   recorderErrors: number;
+  endpointTimings: { speechEndToDecisionMs: number; utteranceMs: number }[];
 } {
   const harness = makeHarness();
   const phases: VoiceSessionPhase[] = [];
   const utterances: Blob[] = [];
+  const endpointTimings: { speechEndToDecisionMs: number; utteranceMs: number }[] =
+    [];
   let recorderErrors = 0;
   const session = createVoiceSession(
     {
@@ -102,11 +105,19 @@ function makeSession(options?: {
       onRecorderError: () => {
         recorderErrors += 1;
       },
+      onEndpointTiming: (timing) => endpointTimings.push(timing),
     },
     options?.config ?? DEFAULT_ENDPOINTING,
     harness.deps,
   );
-  return { session, harness, phases, utterances, recorderErrors };
+  return {
+    session,
+    harness,
+    phases,
+    utterances,
+    recorderErrors,
+    endpointTimings,
+  };
 }
 
 /** Speak for a few ticks, then fall silent until the gate endpoints. */
@@ -250,5 +261,44 @@ describe("the continuous voice session (VAL-NCF-001)", () => {
     const { session, harness } = makeSession({ config: CONFIG });
     harness.setMicError(new Error("denied"));
     await expect(session.begin()).rejects.toBeTruthy();
+  });
+
+  it("VAL-FIX-001: with the shipped tuning, the endpoint decision is reported within ~1 s of speech-energy end", async () => {
+    // The demo-day bug: the old fixed gate held every turn 1.6 s after
+    // the person stopped (plus the multi-second turn pipeline). The
+    // session must both DECIDE fast and REPORT the decision (the
+    // component instruments it into the turn evidence).
+    const { session, harness, utterances, endpointTimings } = makeSession();
+    await session.begin();
+    speakThenStop(harness);
+    expect(utterances).toHaveLength(1);
+    expect(endpointTimings).toHaveLength(1);
+    // Speech ran 6 ticks (last loud sample 600 ms), the hangover is
+    // 400 ms: the decision lands at the first quiet tick at/after 1,000
+    // ms — 400 ms after speech energy ended, far inside the ~1 s budget.
+    expect(endpointTimings[0]!.speechEndToDecisionMs).toBeGreaterThanOrEqual(
+      DEFAULT_ENDPOINTING.silenceEndpointMs,
+    );
+    expect(endpointTimings[0]!.speechEndToDecisionMs).toBeLessThanOrEqual(1_000);
+    expect(endpointTimings[0]!.speechEndToDecisionMs).toBeLessThanOrEqual(
+      DEFAULT_ENDPOINTING.silenceEndpointMs + 100,
+    );
+    expect(endpointTimings[0]!.utteranceMs).toBeGreaterThan(0);
+  });
+
+  it("VAL-FIX-001: the same harness against the old fixed gate shows the 1.6 s hold the fix removes", async () => {
+    // The BEFORE measurement, through the identical session loop: the
+    // decision cannot land before 1,600 ms of silence — the hold the PR
+    // documents as replaced.
+    const { session, harness, endpointTimings } = makeSession({
+      config: { ...CONFIG, silenceEndpointMs: 1_600 },
+    });
+    await session.begin();
+    speakThenStop(harness);
+    expect(endpointTimings).toHaveLength(1);
+    expect(endpointTimings[0]!.speechEndToDecisionMs).toBeGreaterThanOrEqual(
+      1_600,
+    );
+    expect(endpointTimings[0]!.speechEndToDecisionMs).toBeLessThanOrEqual(1_000 + 1_600);
   });
 });

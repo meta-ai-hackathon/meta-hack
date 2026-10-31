@@ -36,10 +36,11 @@ describe("consent path registry (VAL-CONSENT-002/004)", () => {
     const voice = CONSENT_PATHS.find((path) => path.id === "voice");
     expect(ai).toBeDefined();
     expect(voice).toBeDefined();
-    // Providers named in plain language: Meta for chat + STT, Gemini for TTS.
+    // Providers named in plain language: Meta for chat + STT, ElevenLabs
+    // for TTS (HACK-116 provider switch, 2026-10-31).
     expect(ai?.provider).toMatch(/Meta/);
     expect(voice?.provider).toMatch(/Meta/);
-    expect(voice?.provider).toMatch(/Gemini/);
+    expect(voice?.provider).toMatch(/ElevenLabs/);
     // What leaves the device, and why.
     expect(ai?.sends.join(" ")).toMatch(/words you type/);
     expect(voice?.sends.join(" ")).toMatch(/voice/);
@@ -61,14 +62,14 @@ describe("consent path registry (VAL-CONSENT-002/004)", () => {
         expect(terms.verifiedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       }
     }
-    // The exact pages verified live on 2026-10-30 (see mission library
-    // model.md + voice.md): Meta Model API data commitments and the Gemini
-    // API additional terms.
+    // The exact pages verified live on 2026-10-30 (Meta) / 2026-10-31
+    // (ElevenLabs, HACK-116; see mission library model.md + voice.md):
+    // Meta Model API data commitments and the ElevenLabs terms of service.
     const urls = CONSENT_PATHS.flatMap((path) =>
       path.terms.map((terms) => terms.url),
     );
     expect(urls).toContain("https://dev.meta.ai/legal/commitments");
-    expect(urls).toContain("https://ai.google.dev/gemini-api/terms");
+    expect(urls).toContain("https://elevenlabs.io/terms");
   });
 });
 

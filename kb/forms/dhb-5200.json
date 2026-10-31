@@ -1,7 +1,7 @@
 {
   "id": "dhb-5200",
   "title": "NC Medicaid application for health coverage (DHB-5200)",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "kind": "acroform",
   "program": "NC Medicaid",
   "source": {
@@ -95,6 +95,16 @@
       "pii_likely": true,
       "required": false,
       "pages": [6]
+    },
+    {
+      "name": "Signature",
+      "type": "text",
+      "label": "Signature",
+      "question": "Type your full legal name to sign this application — typing your name signs it, like an e-signature. The app never signs for you, and your signature is never filled in from anything you told us before.",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [20]
     }
   ]
 }

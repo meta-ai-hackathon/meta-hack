@@ -5,8 +5,10 @@ import type { ClientQuestion, IntakeClientState } from "../../lib/intake/client-
 import {
   DEVICE_INTAKE_COPY,
   answerOnDevice,
+  askToKeepAnswers,
   deleteDeviceIntake,
   keepingBlurb,
+  keepsAnswers,
   loadDeviceIntake,
   privateAnswerNote,
   refreshDeviceIntake,
@@ -106,21 +108,32 @@ function displayValue(question: ClientQuestion, value: unknown): string {
   return String(value);
 }
 
-/** The "no requirement to finish in one sitting" affordance (BN-13). */
+/**
+ * The "no requirement to finish in one sitting" affordance (BN-13). `note`
+ * is what pressing the button may also do; it is shown, and read as the
+ * button's description, before the press.
+ */
 function SaveForLater(props: {
   onSave: () => void;
   busy: boolean;
   saving: boolean;
   blurb: string;
+  note?: string;
   children?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-2 border-t border-surface-border pt-4">
       <p className="text-sm text-muted">{props.blurb}</p>
+      {props.note ? (
+        <p id="intake-save-note" className="text-sm text-muted">
+          {props.note}
+        </p>
+      ) : null}
       <button
         type="button"
         onClick={props.onSave}
         disabled={props.busy}
+        aria-describedby={props.note ? "intake-save-note" : undefined}
         className="self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-sm font-medium hover:bg-teal-soft disabled:opacity-50"
       >
         {props.saving ? "Saving…" : "Save and finish later"}
@@ -235,6 +248,10 @@ export function IntakeWizard(props: {
   const lastPointerAt = useRef(0);
   const deviceRef = useRef<DeviceIntake | null>(null);
   const activityRef = useRef(false);
+  // Whether this visit already asked the browser to keep the answers: Save
+  // and finish later asks at most once a visit, and the note that says it
+  // may ask goes away once it has (HACK-113).
+  const [askedToKeep, setAskedToKeep] = useState(false);
   const applyRef = useRef<
     (intake: DeviceIntake, message: string, options: { readonly keepDraft: boolean }) => void
   >(() => undefined);
@@ -595,7 +612,9 @@ export function IntakeWizard(props: {
    * Save and finish later on the device: first save the answer on screen,
    * if there is one, so "saved" covers what the person just typed; then
    * re-read the store, so a delete in another tab is never confirmed as a
-   * save; then say honestly what this browser is keeping.
+   * save; then say honestly what this browser is keeping. Only then, with
+   * the person's answers kept on this device, ask the browser to keep this
+   * site's storage. The note by the button said beforehand that it may ask.
    */
   async function saveForLaterOnDevice(): Promise<void> {
     if (wizard.phase !== "ready" || !deviceIntake || deleting) {
@@ -621,6 +640,9 @@ export function IntakeWizard(props: {
       }
       setDeviceIntake(refreshed.intake);
       setNotice(saveForLaterNotice(refreshed.intake));
+      if (!askedToKeep && askToKeepAnswers(refreshed.intake)) {
+        setAskedToKeep(true);
+      }
     } catch {
       setNotice(GENERIC_ERROR);
     } finally {
@@ -685,6 +707,11 @@ export function IntakeWizard(props: {
       busy={savingForLater || busy || deleting}
       saving={savingForLater}
       blurb={shownDevice ? keepingBlurb(shownDevice) : SERVER_SAVE_BLURB}
+      note={
+        shownDevice && keepsAnswers(shownDevice) && !askedToKeep
+          ? DEVICE_INTAKE_COPY.keepPrompt
+          : undefined
+      }
     >
       {shownDevice ? (
         <DeleteFromDevice
