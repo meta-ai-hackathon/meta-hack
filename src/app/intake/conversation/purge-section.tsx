@@ -24,9 +24,10 @@ import { removeStoredAnswers } from "../../../lib/intake/client-store";
 // journey from the server, which now shows empty: the purge is real, not
 // theater. If the request fails the honest outcome depends on what came
 // back: a definite refusal removed nothing (the server purge is
-// transactional), a missing session (404) was never there to remove, and
-// a lost connection means the outcome is unknown — each notice says
-// exactly what happened instead of guessing.
+// transactional), a missing session (404) was never there to remove —
+// the person's confirmed intent is honored by erasing the on-device
+// copies — and a lost connection means the outcome is unknown — each
+// notice says exactly what happened instead of guessing.
 
 /** The mandated on-screen beat while the purge runs. */
 export const PURGE_REMOVING_NOTICE = "Removing your answers from this device…";
@@ -49,12 +50,21 @@ export const PURGE_REFUSED_NOTICE =
  * A 404: no active session was found to delete, so the server had
  * nothing of the person's to remove. The notice states exactly that —
  * it must not claim the answers are "still saved" (there is no session
- * backing that claim), only that nothing was removed and where the
- * truth is visible.
+ * backing that claim). The person's confirmed delete intent is honored
+ * on the device instead: the on-device copies are erased, and the
+ * notice says so.
  */
 export const PURGE_NO_SESSION_NOTICE =
-  "There was no active session to delete, so nothing was removed. " +
-  "Reload the page to see where things stand.";
+  "There was no active session on the server to delete, so nothing was " +
+  "removed there. Any answers kept on this device are erased too.";
+
+/**
+ * Same 404 outcome, but the device's own erase could not be verified:
+ * the notice may not claim the on-device copies are gone.
+ */
+export const PURGE_NO_SESSION_DEVICE_KEPT_NOTICE =
+  "There was no active session on the server to delete, so nothing was " +
+  "removed there — and this device's saved copy couldn't be erased just now.";
 
 /**
  * No answer came back (the request never completed or the connection
@@ -158,21 +168,28 @@ export function PurgeSurface({
 }) {
   const confirmQuestionRef = useRef<HTMLParagraphElement | null>(null);
   const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
-  const previousPhase = useRef<{ confirming: boolean; busy: boolean } | null>(
+  const lastRenderPhase = useRef<{ confirming: boolean; busy: boolean } | null>(
     null,
   );
 
   // Focus follows the phase swap (BN-07: the person's context moves with
   // the change they caused): opening the confirm question moves focus to
   // it, cancelling returns it to the delete button, and a failed purge
-  // (busy → false) lands back on the ready button. The busy phase itself
-  // and the first mount own no move — the confirmation screen moves
-  // focus to its heading once the purge completes.
+  // (busy → false) lands back on the ready button. The first mount never
+  // steals focus, and a React Strict Mode dev remount replays the SAME
+  // render's deps, so it reads as "no change" and does not re-fire the
+  // move — only a real transition between renders acts.
   useEffect(() => {
-    const was = previousPhase.current;
-    previousPhase.current = { confirming, busy };
-    if (busy || was === null) {
-      return;
+    const was = lastRenderPhase.current;
+    lastRenderPhase.current = { confirming, busy };
+    if (was === null) {
+      return; // first mount: never steal focus
+    }
+    if (was.confirming === confirming && was.busy === busy) {
+      return; // Strict Mode replay of the same render: no move
+    }
+    if (busy) {
+      return; // the purge phase owns no move; the done screen moves next
     }
     if (confirming) {
       confirmQuestionRef.current?.focus();
@@ -236,6 +253,12 @@ export function PurgeSurface({
         data-purge-panel
         className="flex flex-col gap-3 rounded-2xl bg-danger-soft p-6"
       >
+        {/* The standing line stays visible at the decision point too: the
+            confirm question must not overstate ("everything") without the
+            download reassurance beside it (claude-review P2, PR #68). */}
+        <p>
+          Ready? Take your time — a download you&apos;ve saved stays yours.
+        </p>
         {confirming && !busy ? (
           <p
             ref={confirmQuestionRef}
@@ -245,11 +268,7 @@ export function PurgeSurface({
           >
             Are you sure? This erases everything for good.
           </p>
-        ) : (
-          <p>
-            Ready? Take your time — a download you&apos;ve saved stays yours.
-          </p>
-        )}
+        ) : null}
         {busy ? (
           <p data-purge-removing className="font-semibold">
             {PURGE_REMOVING_NOTICE}
@@ -419,14 +438,26 @@ export function PurgeSection({ onPurged }: { onPurged: () => void }) {
       setDone(true);
       setBusy(false);
       announce(PURGE_DONE_NOTICE);
+    } else if (outcome === "no_session") {
+      // The person confirmed the delete and the server reports no session
+      // at all: nothing server-side exists to lose by erasing the
+      // device's own copies, and leaving them would contradict the
+      // confirmed intent (claude-review P2, PR #68). onPurged re-reads
+      // the truth — a session-less history fails open to the empty state.
+      const deviceCleared = removeStoredAnswers();
+      onPurged();
+      setBusy(false);
+      announce(
+        deviceCleared
+          ? PURGE_NO_SESSION_NOTICE
+          : PURGE_NO_SESSION_DEVICE_KEPT_NOTICE,
+      );
     } else {
       setBusy(false);
       announce(
         outcome === "refused"
           ? PURGE_REFUSED_NOTICE
-          : outcome === "no_session"
-            ? PURGE_NO_SESSION_NOTICE
-            : PURGE_UNKNOWN_NOTICE,
+          : PURGE_UNKNOWN_NOTICE,
       );
     }
   }
