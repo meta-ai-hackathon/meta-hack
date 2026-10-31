@@ -335,8 +335,11 @@ class RepoScanTests(unittest.TestCase):
         self.assertEqual(
             unexpected,
             [],
-            "Use a fictional value instead (a number from 555-0100 to 555-0199, an address at example.com), "
-            "or, when the value has to be there, add it to ALLOWED with the reason.",
+            "Use a fictional value instead (a number from 555-0100 to 555-0199, an address at example.com), and write "
+            'a range of plain numbers with "to" (300 to 1500) so it does not read as a phone number. When a public '
+            "value has to be there, like an agency's published number, add (path, kind, digest(value)) to ALLOWED "
+            'with a reason that starts with "In " and names the test or entry it sits in. The value is the exact '
+            "text find_pii() matches on that line. Look at it on your own machine, since this message never shows it.",
         )
 
     def test_every_allowed_value_is_still_in_its_file(self) -> None:
@@ -344,7 +347,7 @@ class RepoScanTests(unittest.TestCase):
         # allowed findings' digests are kept, so a failure shown with its
         # locals (pytest -l) holds no digest of any other value.
         present = {(finding.path, finding.kind, digest(finding.value)) for finding in self.findings if allowed(finding)}
-        self.assertEqual([entry for entry in ALLOWED if entry not in present], [])
+        self.assertEqual([entry for entry in ALLOWED if entry not in present], [], "Remove each entry whose value left its file.")
         # Every reason says which test the value sits in.
         self.assertEqual([why for why in ALLOWED.values() if not why.startswith("In ")], [])
 
@@ -363,7 +366,12 @@ class RepoScanTests(unittest.TestCase):
         # looked at it.
         files = [path for path in self.paths if not skipped_by_name(path) and (REPO_ROOT / path).is_file() and not (REPO_ROOT / path).is_symlink()]
         self.assertTrue(files)
-        self.assertEqual([path for path in files if read_text(REPO_ROOT, path) is None], [])
+        self.assertEqual(
+            [path for path in files if read_text(REPO_ROOT, path) is None],
+            [],
+            "These files hold a NUL byte and no UTF-16 or UTF-32 byte order mark, so the scan can't read them. Save "
+            "a text file as UTF-8, or add its binary type to BINARY_SUFFIXES once a person has looked at it.",
+        )
 
     def test_a_listed_value_passes_only_where_it_is_listed(self) -> None:
         # The allowed findings are exactly the listed entries, which holds
