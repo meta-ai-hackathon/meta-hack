@@ -49,7 +49,7 @@ Keep implementation details out of the map. Name only user paths, planned screen
 | [Form prep](./form-prep.md) | BN-18 — one question at a time into a prepared application package; works with the model unavailable. |
 | [Mailing-address guidance](./mailing-address.md) | BN-20 — sourced options for getting mail without a fixed address; guidance links, never promises. |
 | [Package review](./package-review.md) | BN-21 — answered vs still-needed with provenance labels, editable in place, edits flow back into the session. |
-| [Deadlines tracker](./deadlines-tracker.md) | BN-22 — KB dates vs user-reported events clearly labeled; in-app reminder. |
+| [Deadlines tracker](./deadlines-tracker.md) | BN-22 — renewal facts from the knowledge base vs the person's own date, clearly labeled, plus labeled estimates; an on-device in-app reminder and calendar file. |
 | [Handoff](./handoff.md) | BN-23, BN-24, BN-25, BN-26 — one clear next action, official-site steps, prepared-is-not-submitted state machine, follow-up explainer. |
 | [Source cards](./source-cards.md) | BN-27, BN-29 — official source, retrieval date, and version on every claim; stale or withdrawn entries never cited silently. |
 

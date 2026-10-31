@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
+import { Suspense } from "react";
 import { AppShell } from "../components/app-shell";
+import { RenewalReminderBanner } from "../components/renewal-reminder-banner";
+import { PILOT_RENEWAL_FACTS, bannerFacts } from "../lib/renewal/renewal-facts";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -45,7 +48,15 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <script dangerouslySetInnerHTML={{ __html: DISPLAY_BOOTSTRAP }} />
-        <AppShell>{children}</AppShell>
+        <AppShell>
+          {/* BN-22: the on-device renewal reminder, on any page the person returns to.
+              Suspense, because it reads the pathname: without a boundary, the
+              first dynamic route would fail the build (Cache Components). */}
+          <Suspense fallback={null}>
+            <RenewalReminderBanner facts={bannerFacts(PILOT_RENEWAL_FACTS)} />
+          </Suspense>
+          {children}
+        </AppShell>
       </body>
     </html>
   );

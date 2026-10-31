@@ -2,6 +2,7 @@ import Link from "next/link";
 import { A11yDemo } from "../components/a11y-demo";
 import { AnswerStatusBadge } from "../components/answer-status-badge";
 import { ANSWER_STATUSES, type AnswerStatus } from "../lib/honesty";
+import { TRACKER_LINK_HEADING } from "../lib/renewal/copy";
 
 // Demo copy for the honest-status showcase: one plain-language explanation
 // per tri-state answer status (BN-05).
@@ -60,6 +61,12 @@ export default function Home() {
             className="text-base text-teal underline hover:opacity-80"
           >
             Prefer step-by-step questions? Use the form instead
+          </Link>
+          <Link
+            href="/renewal"
+            className="text-base text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          >
+            {TRACKER_LINK_HEADING}
           </Link>
         </div>
       </section>
