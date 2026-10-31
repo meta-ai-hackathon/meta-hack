@@ -11,7 +11,8 @@ and `pnpm walkthrough`.
 The one move to remember is to turn sharing off on the same page when the assistant stops
 answering. The step-by-step questions take over in place, keep every answer the chat
 already saved, and still end at the review and the filled DHB-5200. The "Open the wizard"
-link in the error goes somewhere else (see the first runbook).
+link in the error and the "Use the wizard instead" link at the top of the page go somewhere
+else (see the first runbook).
 
 On that path, like the chat itself, the person's answers stay in the app's server-side
 session until they delete them. AGENTS.md (Legal) says that store doesn't yet meet the
@@ -107,8 +108,9 @@ To keep going without losing anything:
    sharing typed words, then "Continue with these choices".
 
 The amber alert stays on screen after the switch. Ignore it. Don't follow "Open the
-wizard" mid-demo. `/intake` keeps answers only on the device, doesn't see what the chat
-saved, starts again at question 1, and ends at a list of answers ("All questions answered
+wizard" mid-demo, or "Use the wizard instead" at the top of the page, since both go to
+`/intake`. It keeps answers only on the device, doesn't see what the chat saved, starts
+again at question 1, and ends at a list of answers ("All questions answered
 for now") with no form review and no PDF. It also shows an "Answers saved on the app's
 server" notice offering to delete them, and those are the chat session's answers. Don't
 press "Delete them from the app's server" if the person is going back to the chat.
@@ -215,7 +217,8 @@ it show "Something went wrong on our side. Please try again." The match, review 
 sections don't appear. `/api/health` still answers `{"ok":true}`.
 
 `/intake` keeps working because it saves answers on the device, so show the intake there.
-It ends without the review or the PDF. Then check the Vercel Postgres store and the
+"Use the wizard instead" at the top of the chat page goes to it. It ends without the
+review or the PDF. Then check the Vercel Postgres store and the
 deployment's environment variables.
 
 Rehearsed on 2026-10-31 with `DATABASE_URL` pointed at a closed port. The chat page and its
