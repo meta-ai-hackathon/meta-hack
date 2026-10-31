@@ -48,6 +48,21 @@ describe("ConsentPanel copy (VAL-CONSENT-002)", () => {
     expect(html).toMatch(/text-to-speech/);
   });
 
+  it("renders the voice-path provider string EXACTLY as registered (VAL-VTTS-004 drift test)", () => {
+    // The spoken-reply provider naming (HACK-106) must match the
+    // CONSENT_PATHS registry verbatim: if the surface copy drifts from the
+    // enforcement registry (or the registry is edited without the surface),
+    // this fails. The registered string names Meta (STT) and Google Gemini
+    // (TTS, free tier) — verified accurate against the shipped TTS client
+    // (gemini-3.8-flash-tts on the free tier) for the natural-conversation
+    // milestone.
+    const voicePath = CONSENT_PATHS.find((path) => path.id === "voice");
+    expect(voicePath).toBeDefined();
+    expect(panelMarkup()).toContain(voicePath!.provider);
+    expect(voicePath!.provider).toContain("Google Gemini");
+    expect(voicePath!.provider).toContain("free tier");
+  });
+
   it("names what each send is for", () => {
     const html = panelMarkup();
     expect(html).toMatch(/understand your answer/);
