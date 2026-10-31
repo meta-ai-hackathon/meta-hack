@@ -365,10 +365,15 @@ class RepoScanTests(unittest.TestCase):
         self.assertEqual([why for why in ALLOWED.values() if not why.startswith("In ")], [])
 
     def test_every_tracked_text_file_is_read(self) -> None:
-        # Only lockfiles and binaries are skipped, so no source, test,
-        # fixture or doc goes unread.
+        # Only lockfiles, binaries and symlinks are skipped, so no source,
+        # test, fixture or doc goes unread. A symlink, like CLAUDE.md linked
+        # to AGENTS.md, is read as the file it points to.
         text_suffixes = (".md", ".ts", ".tsx", ".mjs", ".js", ".py", ".json", ".yml", ".yaml", ".sql", ".css", ".txt", ".tsv", ".sh")
-        texts = [path for path in self.paths if path.endswith(text_suffixes) and PurePosixPath(path).name.lower() not in LOCKFILE_NAMES]
+        texts = [
+            path
+            for path in self.paths
+            if path.endswith(text_suffixes) and PurePosixPath(path).name.lower() not in LOCKFILE_NAMES and not (REPO_ROOT / path).is_symlink()
+        ]
         self.assertTrue(texts)
         self.assertEqual([path for path in texts if read_text(REPO_ROOT, path) is None], [])
 
@@ -765,6 +770,27 @@ class FinderProperties(unittest.TestCase):
         checks.findings = [finding]
         with mock.patch.dict(ALLOWED, {(finding.path, finding.kind, digest(value)): "In a fixture."}, clear=True):
             checks.test_a_listed_value_passes_only_where_it_is_listed()
+
+    @PBT
+    @given(
+        st.one_of(SSNS, st.builds(phone, REAL_NUMBERS, PHONE_FORMS), st.builds("{}@{}".format, LOCAL_PARTS, REAL_DOMAINS)),
+        st.sampled_from([".md", ".ts", ".json", ".py", ".txt"]),
+    )
+    def test_a_tracked_symlink_adds_no_finding_and_fails_no_repo_check(self, value: str, suffix: str) -> None:
+        # CLAUDE.md linked to AGENTS.md, and a link whose target is gone: the
+        # value is found once, in the file itself, and both read checks pass.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = [f"AGENTS{suffix}", f"CLAUDE{suffix}", f"gone{suffix}"]
+            (root / paths[0]).write_text(f"value = '{value}'\n")
+            (root / paths[1]).symlink_to(paths[0])
+            (root / paths[2]).symlink_to("missing.md")
+            self.assertEqual({finding.path for finding in scan(root, paths)}, {paths[0]})
+            checks = RepoScanTests("test_every_tracked_text_file_is_read")
+            checks.paths = paths
+            with mock.patch.dict(globals(), {"REPO_ROOT": root}):
+                checks.test_every_tracked_text_file_is_read()
+                checks.test_only_lockfiles_and_binary_file_types_go_unread()
 
     @PBT
     @given(
