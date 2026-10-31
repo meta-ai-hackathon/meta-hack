@@ -22,14 +22,15 @@ less, but never turns sharing on or ticks a sharing box for them.
     curl -sS https://meta-hack-omega.vercel.app/api/health    # expect {"ok":true}
     ```
 
-2. Check the path that needs no model. The walkthrough answers every step-by-step
-   question over HTTP, saves, resumes, and scans every response for promise language and
-   private values. It needs the database and the vault key and makes no model call. It
-   leaves one session for the fictional walkthrough persona in that database.
-
-    ```sh
-    pnpm walkthrough --url https://meta-hack-omega.vercel.app    # expect WALKTHROUGH PASSED
-    ```
+2. Check the path that needs no model, and leave nothing behind. In a fresh private
+   window, open the chat page, press "Don't send anything", and answer the first two
+   questions. "Your answers so far" should count them, and "Your application, prepared
+   from your answers" should appear below. Then press "Delete my information" at the
+   bottom and "Yes, delete everything". The page says "Your answers are gone." This checks
+   the database and the vault key without calling the model. `pnpm walkthrough` checks the
+   same path more thoroughly, but it leaves a session for the fictional walkthrough persona
+   in the database it runs against, so run it against a local app (see below), never one
+   that holds pilot data.
 
 3. Know where "Your privacy choices" is. It appears below the conversation once the person
    has made a sharing choice, with the "Turn off sharing" and "Change your choices" buttons
@@ -53,6 +54,8 @@ MODEL_API_KEY= ELEVENLABS_API_KEY= pnpm dev --port 3301
 
 An empty variable on the command line wins over a value in `.env`, so this runs without
 the model even when `.env` holds a key. Open `http://localhost:3301/intake/conversation`.
+`pnpm walkthrough --url http://localhost:3301` should print WALKTHROUGH PASSED with no
+model at all.
 To rehearse a database outage, point `DATABASE_URL` at a port nothing listens on. To
 rehearse a vault key problem, start once with `VAULT_ENC_KEY=` and once with a new key.
 
@@ -232,6 +235,11 @@ their own channel, and rehearsal faxes go to a test destination only (AGENTS.md,
 
 ## Resetting between rehearsals
 
-"Delete my information" at the bottom of the chat page deletes this browser's answers,
-chat and private details from the server. On `/intake`, "Delete my answers from this
-device" does the same on the device. A fresh private window also starts clean.
+"Delete my information" at the bottom of the chat page, then "Yes, delete everything",
+deletes this browser's answers, chat and private details from the server. On `/intake`,
+"Delete my answers from this device", then "Yes, delete them", does the same on the
+device. A fresh private window also starts clean.
+
+Rehearsed on 2026-10-31. After two answers on the chat page, the delete left the server
+with 0 answers and the page said "Your answers are gone. This screen lists exactly what
+remains."
