@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
 import { StatusRegion } from "../../../components/status-region";
 import {
@@ -11,6 +11,7 @@ import {
 } from "../../../lib/audio/capture";
 import {
   DEFAULT_ENDPOINTING,
+  type EndpointTiming,
 } from "../../../lib/audio/endpointing";
 import {
   createVoiceSession,
@@ -62,6 +63,15 @@ import { VoiceDeck } from "./voice-deck";
 // re-checks too, and revoking mid-voice-session stops the microphone).
 
 const WIZARD_FALLBACK_URL = "/intake";
+
+/**
+ * The bounded continuation queue (VAL-FIX-001): how many utterances may
+ * wait while one turn processes. Generous for real speech (a turn lasts
+ * seconds; people finish one thought at a time), small enough that
+ * runaway noise can never chain unlimited model turns. Overflow is
+ * dropped with an honest notice, never silently.
+ */
+export const MAX_PENDING_VOICE_TURNS = 3;
 
 export type VoiceInterimPhase =
   | "listening"
@@ -200,7 +210,7 @@ export function ConversationChat() {
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [state, setState] = useState<IntakeClientState | null>(null);
   const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusyState] = useState(false);
   // The interim perceived-latency phase (VAL-VLAT-001): "listening" while
   // the session's mic is open, "transcribing" from the instant an
   // utterance ends until the turn response lands, "speaking" while the
@@ -219,7 +229,7 @@ export function ConversationChat() {
     null,
   );
   const [sessionOn, setSessionOn] = useState(false);
-  const [paused, setPaused] = useState(false);
+  const [paused, setPausedState] = useState(false);
   const [typingMode, setTypingMode] = useState(false);
   // Consent state (VAL-CONSENT-*): the receipt is an EXTERNAL store —
   // this device's localStorage, subscribed via useSyncExternalStore (SSR
@@ -255,7 +265,52 @@ export function ConversationChat() {
   // render's submit function — the busy guard, the consent re-check, and
   // the receipt header always read the current values (claude-review P2:
   // no stale closure across a long-lived session).
-  const submitVoiceTurnRef = useRef<((blob: Blob) => Promise<void>) | null>(
+  const submitVoiceTurnRef = useRef<
+    ((
+      blob: Blob,
+      queuedTiming?: { timing: EndpointTiming; decisionAt: number } | null,
+    ) => Promise<void>) | null
+  >(null);
+  // Ref mirrors of busy/paused for the VOICE path (VAL-FIX-001): its
+  // callbacks re-enter from async hops (recorder onstop, the settled
+  // turn's cleanup) where the render closures can be stale — a queued
+  // continuation submitted from the settled cleanup must see busy=false
+  // NOW, not the value from the render that started the previous turn.
+  const busyRef = useRef(false);
+  const pausedRef = useRef(false);
+  // True from the moment a reply's playback hold starts until the turn
+  // settles: while it stands, NO code path may reopen the microphone —
+  // the endpointer must never hear the assistant's own voice
+  // (claude-review round 3: the invariant is enforced here, not left to
+  // the session's internal paused check alone).
+  const playbackHoldRef = useRef(false);
+  const setBusy = useCallback((value: boolean): void => {
+    busyRef.current = value;
+    setBusyState(value);
+  }, []);
+  const setPaused = useCallback((value: boolean): void => {
+    pausedRef.current = value;
+    setPausedState(value);
+  }, []);
+  // Continuation utterances that ended while a turn was still processing
+  // (VAL-FIX-001: speech resuming after an endpoint decision re-opens
+  // cleanly): queued in ORDER — each with its own endpoint decision
+  // timing — and submitted one-by-one as each in-flight turn settles.
+  // Nothing the person said is dropped. Cleared wherever the session
+  // ends or voice consent is revoked (never send captured audio after
+  // the person withdrew it).
+  const pendingVoiceRef = useRef<
+    { blob: Blob; timing: { timing: EndpointTiming; decisionAt: number } | null }[]
+  >([]);
+  // VAL-FIX-001 instrumentation: the endpoint decision's timing, from
+  // the gate through turn submission. Timing only — no transcript, no
+  // audio, no PII. Rendered as a data attribute (no visual change) so
+  // the budget is observable in the browser too.
+  const endpointTimingRef = useRef<{
+    timing: EndpointTiming;
+    decisionAt: number;
+  } | null>(null);
+  const [endpointEvidence, setEndpointEvidence] = useState<string | null>(
     null,
   );
 
@@ -376,6 +431,7 @@ export function ConversationChat() {
     if (!voiceSharingOn && sessionRef.current !== null) {
       sessionRef.current.stop();
       sessionRef.current = null;
+      clearPendingVoice();
       setSessionOn(false);
       setPaused(false);
       setTypingMode(true);
@@ -383,7 +439,7 @@ export function ConversationChat() {
         "Voice sharing turned off, so the microphone is off. Type below — it works exactly the same way.",
       );
     }
-  }, [voiceSharingOn]);
+  }, [voiceSharingOn, setPaused]);
 
   // The journey is complete (VAL-VJS-003): the voice session ends with
   // it — no further listening once the results stage renders. Covers both
@@ -392,16 +448,18 @@ export function ConversationChat() {
     if (journeyComplete && sessionRef.current !== null) {
       sessionRef.current.stop();
       sessionRef.current = null;
+      clearPendingVoice();
       setSessionOn(false);
       setPaused(false);
     }
-  }, [journeyComplete]);
+  }, [journeyComplete, setPaused]);
 
   // Full teardown on unmount: no orphaned mic or audio context.
   useEffect(() => {
     return () => {
       sessionRef.current?.stop();
       sessionRef.current = null;
+      clearPendingVoice();
     };
   }, []);
 
@@ -413,7 +471,7 @@ export function ConversationChat() {
       sessionRef.current.hold();
       setPaused(true);
     }
-  }, [panelOpen]);
+  }, [panelOpen, setPaused]);
 
   function decideConsent(): void {
     const next: ConsentReceipt = {
@@ -578,6 +636,19 @@ export function ConversationChat() {
         : "Your conversation is complete. Your results are ready.",
     );
     if (spoken && voiceSharingOn) {
+      // The reply is about to speak: suspend capture FIRST, so the
+      // endpointer can never hear the assistant's own voice — with a
+      // 400 ms hangover, a cycle left open during playback would commit
+      // the reply audio as a user turn (self-echo). If the person
+      // resumed speaking and is mid-utterance right now, their open
+      // recording is flushed gracefully (endpointNow delivers it — it
+      // queues as a continuation) instead of being truncated silently.
+      // The settled cleanup resumes listening (VAL-FIX-001).
+      if (sessionRef.current?.isCapturing) {
+        sessionRef.current.endpointNow();
+      }
+      sessionRef.current?.hold();
+      playbackHoldRef.current = true;
       setVoicePhase("speaking");
       await speakReply(data.assistantTurnId, data.assistantReply);
     }
@@ -590,7 +661,25 @@ export function ConversationChat() {
     // journey: an ai-only typed completion never hears audio (and its
     // layout is the single-scroll one, not the results stage).
     if (data.state.complete && !wasComplete && voiceSharingOn && entryMode !== null) {
-      queueSpeech(RESULTS_WRAP_UP);
+      // Same echo-proof for the spoken wrap-up, and it is AWAITED: the
+      // turn settles only after the wrap-up finishes playing, so the
+      // settled cleanup's resume really starts after the audio (the
+      // journey-complete effect then ends the session). The wait is
+      // bounded — speechSynthesis quirks must never leave the turn
+      // unsettled (claude-review round).
+      sessionRef.current?.hold();
+      playbackHoldRef.current = true;
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          const spoke = queueSpeech(RESULTS_WRAP_UP, undefined, resolve);
+          if (!spoke) {
+            resolve();
+          }
+        }),
+        new Promise<void>((resolve) =>
+          setTimeout(resolve, Math.max(5_000, 2_000 + RESULTS_WRAP_UP.length * 80)),
+        ),
+      ]);
     }
   }
 
@@ -630,6 +719,10 @@ export function ConversationChat() {
       setNotice("The assistant could not reply just now.");
     } finally {
       setBusy(false);
+      // A typed turn can also play audio (the spoken wrap-up) and run
+      // alongside an active voice session: the same settled cleanup
+      // applies (resume + queued continuation, VAL-FIX-001).
+      settleVoiceAfterTurn();
     }
   }
 
@@ -652,15 +745,62 @@ export function ConversationChat() {
     sessionRef.current?.listen();
   }
 
-  async function submitVoiceTurn(recorded: Blob): Promise<void> {
-    if (busy) {
-      setVoicePhase(null);
-      restartListeningIfActive();
+  async function submitVoiceTurn(
+    recorded: Blob,
+    queuedTiming?: { timing: EndpointTiming; decisionAt: number } | null,
+  ): Promise<void> {
+    if (busyRef.current) {
+      // A continuation spoken while a turn is still processing
+      // (VAL-FIX-001): queued in order — WITH its own endpoint timing —
+      // and submitted when the in-flight turns settle; speech resuming
+      // after an endpoint decision re-opens the turn cleanly instead of
+      // being dropped. Capture keeps running so whatever comes next is
+      // heard too. The queue is BOUNDED (claude-review round 4: runaway
+      // noise must not chain unlimited model turns) and overflow is
+      // dropped HONESTLY — the person is told, never silently.
+      const decided = queuedTiming ?? endpointTimingRef.current;
+      endpointTimingRef.current = null;
+      if (pendingVoiceRef.current.length >= MAX_PENDING_VOICE_TURNS) {
+        setNotice(
+          "We're catching up with what you said — we may have missed some of it just now. Say it again whenever you like.",
+        );
+      } else {
+        pendingVoiceRef.current.push(
+          decided === null ? { blob: recorded, timing: null } : { blob: recorded, timing: decided },
+        );
+      }
+      // Never reopen the mic while a reply is playing (playbackHoldRef):
+      // the assistant's own voice must not be captured as a user turn.
+      if (!playbackHoldRef.current) {
+        restartListeningIfActive();
+      }
       return;
     }
     setBusy(true);
+    // Capture resumes IMMEDIATELY with the turn in flight (VAL-FIX-001's
+    // clean re-open): the next thing the person says after the endpoint
+    // decision is captured while the model works, not swallowed by dead
+    // air. Playback is separately guarded (the hold before a reply
+    // speaks), so the assistant's own voice is never captured.
+    restartListeningIfActive();
     setError(null);
     setNotice("Transcribing your recording…");
+    // VAL-FIX-001 instrumentation: the decision timing this turn's gate
+    // fire reported (attached at queue time for continuations),
+    // completed with the submission leg. Timing only — no transcript,
+    // no audio, no PII.
+    const decided = queuedTiming ?? endpointTimingRef.current;
+    endpointTimingRef.current = null;
+    if (decided !== null && decided !== undefined) {
+      const speechEndToSubmitMs =
+        decided.timing.speechEndToDecisionMs + (Date.now() - decided.decisionAt);
+      console.debug(
+        `[voice-endpointing] speech end → decision ${decided.timing.speechEndToDecisionMs} ms → turn submit ${speechEndToSubmitMs} ms (utterance ${decided.timing.utteranceMs} ms)`,
+      );
+      setEndpointEvidence(
+        `decision=${decided.timing.speechEndToDecisionMs}ms;submit=${speechEndToSubmitMs}ms;utterance=${decided.timing.utteranceMs}ms`,
+      );
+    }
     // The state bar's "thinking" refinement (VAL-VJS-002, per the
     // frames): see refineThinkingPhase above.
     const think = setTimeout(() => {
@@ -683,10 +823,48 @@ export function ConversationChat() {
       clearTimeout(escalate);
       setVoicePhase(null);
       setBusy(false);
-      // The session breathes again: the next listening cycle starts once
-      // the reply has finished playing (or the turn failed honestly).
-      restartListeningIfActive();
+      // The turn settled: end the playback hold (unless the person
+      // paused) and submit a queued continuation, if any.
+      settleVoiceAfterTurn();
     }
+  }
+
+  // The settled-turn cleanup, shared by the voice and typed flows
+  // (VAL-FIX-001): end the playback hold — resuming the listening cycle
+  // unless the PERSON paused (their pause outlives any turn) — then
+  // submit the next queued continuation, if any. Continuations submit
+  // ONLY while voice consent still stands and the session is live:
+  // revoking voice, ending the session, or a recorder failure clears
+  // the queue instead of sending captured audio without consent
+  // (claude-review round: consent hygiene). One per settle keeps the
+  // submissions strictly in spoken order.
+  function settleVoiceAfterTurn(): void {
+    // The playback window is over, whatever happened to the turn.
+    playbackHoldRef.current = false;
+    if (!pausedRef.current) {
+      sessionRef.current?.resume();
+    }
+    if (
+      !consentPathEnabled("voice", cachedConsentSnapshot()) ||
+      sessionRef.current === null ||
+      !sessionRef.current.isActive
+    ) {
+      pendingVoiceRef.current = [];
+      return;
+    }
+    const next = pendingVoiceRef.current.shift();
+    if (next !== undefined) {
+      void submitVoiceTurnRef.current?.(next.blob, next.timing);
+    }
+  }
+
+  // Wherever the voice session ENDS, captured-but-unsent audio goes with
+  // it — and the decision timing captured for it too (claude-review
+  // round: the queue must never outlive the consented session).
+  function clearPendingVoice(): void {
+    pendingVoiceRef.current = [];
+    endpointTimingRef.current = null;
+    playbackHoldRef.current = false;
   }
   // Latest-ref wiring (see the ref's comment): the session callback reads
   // the CURRENT submit function on every utterance. An effect, not a
@@ -720,6 +898,11 @@ export function ConversationChat() {
       {
         onUtterance: (blob) => void submitVoiceTurnRef.current?.(blob),
         onPhase: (phase) => setVoicePhase(phase),
+        onEndpointTiming: (timing) => {
+          // VAL-FIX-001: the gate's endpoint decision, timestamped here
+          // (the same clock the submission leg is measured with).
+          endpointTimingRef.current = { timing, decisionAt: Date.now() };
+        },
         onRecorderError: () => {
           // A mid-session recorder failure ends the session and lands the
           // person in the typed conversation (never a dead end, even in
@@ -728,6 +911,7 @@ export function ConversationChat() {
           // P2: no orphaned hardware while the UI says to type).
           sessionRef.current?.stop();
           sessionRef.current = null;
+          clearPendingVoice();
           setSessionOn(false);
           setMicBlocked(true);
           setNotice(
@@ -766,6 +950,7 @@ export function ConversationChat() {
   }
 
   function resumeSession(): void {
+    playbackHoldRef.current = false;
     setPaused(false);
     setNotice("");
     sessionRef.current?.resume();
@@ -774,6 +959,7 @@ export function ConversationChat() {
   function stopSession(): void {
     sessionRef.current?.stop();
     sessionRef.current = null;
+    clearPendingVoice();
     setSessionOn(false);
     setPaused(false);
     setVoicePhase(null);
@@ -938,7 +1124,11 @@ export function ConversationChat() {
               : undefined
           }
         >
-          <section aria-labelledby="conversation-transcript-heading" className="flex min-w-0 flex-col gap-3">
+          <section
+            aria-labelledby="conversation-transcript-heading"
+            className="flex min-w-0 flex-col gap-3"
+            data-endpoint-timing={endpointEvidence ?? undefined}
+          >
             <div className="flex items-center justify-between gap-4">
               <h2 id="conversation-transcript-heading" className="font-display text-2xl font-bold">
                 Conversation

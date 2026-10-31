@@ -1,7 +1,7 @@
 import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEVICE_STORAGE_TIMEOUT_MS, type DeviceKv, type KvGuard } from "../device-kv";
-import { findBannedClaims } from "../honesty";
+import { findBannedClaims, type AnswerStatus } from "../honesty";
 import { canonicalAnswerValue } from "./answer-input";
 import { buildClientState } from "./client-state";
 import { EMPTY_CLIENT_ANSWERS, toAnswerMap } from "./client-store";
@@ -14,6 +14,7 @@ import {
   DEVICE_INTAKE_COPY,
   answerNotice,
   answerOnDevice,
+  askToKeepAnswers,
   deleteDeviceIntake,
   keepingBlurb,
   keepsAnswers,
@@ -64,8 +65,6 @@ function opener(kv: DeviceKv): () => Promise<DeviceAnswerStoreOpen> {
 const unsupported = async (): Promise<DeviceAnswerStoreOpen> => ({ status: "unsupported" });
 const failed = async (): Promise<DeviceAnswerStoreOpen> => ({ status: "failed" });
 
-const noPersist = async () => false;
-
 /** A valid answer for any question type, as the page's controls produce it. */
 function validDraft(question: Question): unknown {
   switch (question.type) {
@@ -90,7 +89,7 @@ async function answerFirst(intake: DeviceIntake, count: number): Promise<DeviceI
   let current = intake;
   for (let i = 0; i < count; i += 1) {
     const question = current.view.questions[current.view.currentIndex ?? 0];
-    const result = await answerOnDevice(current, question.id, "known", validDraft(QUESTION_BY_ID[question.id]), noPersist);
+    const result = await answerOnDevice(current, question.id, "known", validDraft(QUESTION_BY_ID[question.id]));
     expect(result.kind).toBe("saved");
     if (result.kind !== "saved") {
       throw new Error("not saved");
@@ -127,7 +126,6 @@ describe("a whole journey on the device", () => {
         question.id,
         status,
         validDraft(QUESTION_BY_ID[question.id]),
-        noPersist,
       );
       expect(result.kind).toBe("saved");
       if (result.kind !== "saved") {
@@ -163,7 +161,7 @@ describe("a whole journey on the device", () => {
     const { kv } = memoryKv();
     let { intake } = await loadDeviceIntake(opener(kv));
     for (const question of QUESTIONS.filter((candidate) => candidate.pii)) {
-      const result = await answerOnDevice(intake, question.id, "known", validDraft(question), noPersist);
+      const result = await answerOnDevice(intake, question.id, "known", validDraft(question));
       if (result.kind === "saved") {
         intake = result.intake;
       }
@@ -194,7 +192,7 @@ describe("answers are checked as the server checks them", () => {
         async (question, draft) => {
           const { kv, store } = memoryKv();
           const { intake } = await loadDeviceIntake(opener(kv));
-          const result = await answerOnDevice(intake, question.id, "known", draft, noPersist);
+          const result = await answerOnDevice(intake, question.id, "known", draft);
           const canonical = canonicalAnswerValue(question, draft);
           if (canonical === null) {
             expect(result).toEqual({ kind: "invalid", message: DEVICE_INTAKE_COPY.invalidAnswer });
@@ -215,13 +213,13 @@ describe("answers are checked as the server checks them", () => {
     const { kv } = memoryKv();
     const { intake } = await loadDeviceIntake(opener(kv));
     const question = QUESTIONS[0];
-    const result = await answerOnDevice(intake, question.id, "unknown", "typed then disavowed", noPersist);
+    const result = await answerOnDevice(intake, question.id, "unknown", "typed then disavowed");
     expect(result.kind).toBe("saved");
     if (result.kind === "saved") {
       expect(result.intake.answers[question.id]?.value).toBeNull();
     }
     for (const id of ["nope", "constructor", "__proto__"]) {
-      expect((await answerOnDevice(intake, id, "known", "x", noPersist)).kind).toBe("invalid");
+      expect((await answerOnDevice(intake, id, "known", "x")).kind).toBe("invalid");
     }
   });
 });
@@ -299,7 +297,7 @@ describe("a save that fails mid-visit", () => {
     const saved = await answerFirst(intake, 2);
     failing.setMany = () => Promise.reject(new Error("quota exceeded"));
     const next = saved.view.questions[saved.view.currentIndex ?? 0];
-    const result = await answerOnDevice(saved, next.id, "known", validDraft(QUESTION_BY_ID[next.id]), noPersist);
+    const result = await answerOnDevice(saved, next.id, "known", validDraft(QUESTION_BY_ID[next.id]));
     expect(result).toMatchObject({ kind: "saved", notice: DEVICE_INTAKE_COPY.stoppedKeeping });
     if (result.kind !== "saved") {
       return;
@@ -308,7 +306,7 @@ describe("a save that fails mid-visit", () => {
     expect(keepingBlurb(result.intake)).toBe(DEVICE_INTAKE_COPY.stoppedBlurb);
     expect(saveForLaterNotice(result.intake)).toBe(DEVICE_INTAKE_COPY.stoppedBlurb);
     const later = result.intake.view.questions[result.intake.view.currentIndex ?? 0];
-    const after = await answerOnDevice(result.intake, later.id, "known", validDraft(QUESTION_BY_ID[later.id]), noPersist);
+    const after = await answerOnDevice(result.intake, later.id, "known", validDraft(QUESTION_BY_ID[later.id]));
     expect(after.kind).toBe("saved");
     if (after.kind === "saved") {
       expect(after.notice).toMatch(/This answer isn't saved\. Answers saved before stay on this device\./);
@@ -326,7 +324,7 @@ describe("a save that fails mid-visit", () => {
     const failing: DeviceKv = { ...kv, setMany: () => Promise.reject(new Error("quota exceeded")) };
     const { intake } = await loadDeviceIntake(opener(failing));
     const question = intake.view.questions[0];
-    const result = await answerOnDevice(intake, question.id, "known", validDraft(QUESTION_BY_ID[question.id]), noPersist);
+    const result = await answerOnDevice(intake, question.id, "known", validDraft(QUESTION_BY_ID[question.id]));
     expect(result).toMatchObject({ kind: "saved", notice: DEVICE_INTAKE_COPY.stoppedKeepingNothingStored });
     if (result.kind === "saved") {
       expect(keepingBlurb(result.intake)).toBe(DEVICE_INTAKE_COPY.stoppedBlurbNothingStored);
@@ -339,7 +337,7 @@ describe("a save that fails mid-visit", () => {
     const stalled: DeviceKv = { ...kv, setMany: () => new Promise(() => undefined) };
     const { intake } = await loadDeviceIntake(opener(stalled));
     const question = intake.view.questions[0];
-    const pending = answerOnDevice(intake, question.id, "known", validDraft(QUESTION_BY_ID[question.id]), noPersist);
+    const pending = answerOnDevice(intake, question.id, "known", validDraft(QUESTION_BY_ID[question.id]));
     await vi.advanceTimersByTimeAsync(DEVICE_STORAGE_TIMEOUT_MS + 1);
     const result = await pending;
     expect(result).toMatchObject({ kind: "saved", notice: DEVICE_INTAKE_COPY.saveTimedOut });
@@ -358,7 +356,7 @@ describe("a save that fails mid-visit", () => {
     };
     const { intake } = await loadDeviceIntake(opener(slow));
     const question = intake.view.questions[0];
-    const pending = answerOnDevice(intake, question.id, "known", validDraft(QUESTION_BY_ID[question.id]), noPersist);
+    const pending = answerOnDevice(intake, question.id, "known", validDraft(QUESTION_BY_ID[question.id]));
     // Let the save reach its write (sealing runs on real crypto), then let
     // the deadline pass while that write is still in flight.
     await vi.waitFor(() => expect(land).toBeDefined());
@@ -410,30 +408,13 @@ describe("other tabs and windows", () => {
     const intake = await answerFirst((await loadDeviceIntake(opener(disk.kv))).intake, 1);
     disk.store.clear();
     const question = intake.view.questions[intake.view.currentIndex ?? 0];
-    const result = await answerOnDevice(intake, question.id, "known", validDraft(QUESTION_BY_ID[question.id]), noPersist);
+    const result = await answerOnDevice(intake, question.id, "known", validDraft(QUESTION_BY_ID[question.id]));
     expect(result).toMatchObject({ kind: "purged", notice: DEVICE_INTAKE_COPY.purgedElsewhere });
     expect(disk.store.size).toBe(0);
   });
 });
 
 describe("honest copy", () => {
-  it("asks the browser to keep the store once, on the first answer it keeps", async () => {
-    const { kv } = memoryKv();
-    let { intake } = await loadDeviceIntake(opener(kv));
-    let asked = 0;
-    const persist = async () => {
-      asked += 1;
-      return true;
-    };
-    for (const question of intake.view.questions.slice(0, 3)) {
-      const result = await answerOnDevice(intake, question.id, "known", validDraft(QUESTION_BY_ID[question.id]), persist);
-      if (result.kind === "saved") {
-        intake = result.intake;
-      }
-    }
-    expect(asked).toBe(1);
-  });
-
   it("does not claim a delete it could not confirm, and keeps showing what is still stored", async () => {
     const { kv, store } = memoryKv();
     const saved = await answerFirst((await loadDeviceIntake(opener(kv))).intake, 1);
@@ -469,6 +450,94 @@ describe("honest copy", () => {
     for (const line of Object.values(DEVICE_INTAKE_COPY)) {
       expect(line).not.toMatch(/locked|never leaves this browser|any time/i);
     }
+  });
+});
+
+// Asking the browser to keep this site's storage can show a permission
+// prompt (Firefox does), so it is never asked silently mid-form: only when
+// the person presses Save and finish later, after the page said it may ask,
+// and only when this device holds their answers (HACK-113).
+describe("asking the browser to keep the answers", () => {
+  /** How this browser's storage behaves on a visit. */
+  type Storage = "working" | "unsupported" | "fails to open" | "refuses saves";
+
+  async function visitWith(storage: Storage): Promise<DeviceIntake> {
+    switch (storage) {
+      case "working":
+        return (await loadDeviceIntake(opener(memoryKv().kv))).intake;
+      case "unsupported":
+        return (await loadDeviceIntake(unsupported)).intake;
+      case "fails to open":
+        return (await loadDeviceIntake(failed)).intake;
+      case "refuses saves": {
+        const { kv } = memoryKv();
+        const refusing: DeviceKv = { ...kv, setMany: () => Promise.reject(new Error("quota exceeded")) };
+        return (await loadDeviceIntake(opener(refusing))).intake;
+      }
+    }
+  }
+
+  it("answering never asks, however many answers and whatever their status", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.constantFrom<AnswerStatus>("known", "unverified", "unknown"), { minLength: 1, maxLength: 8 }),
+        async (statuses) => {
+          const persist = vi.fn(async () => true);
+          vi.stubGlobal("navigator", { storage: { persist } });
+          let intake = await visitWith("working");
+          for (const status of statuses) {
+            const question = intake.view.questions[intake.view.currentIndex ?? 0];
+            const result = await answerOnDevice(intake, question.id, status, validDraft(QUESTION_BY_ID[question.id]));
+            expect(result.kind).toBe("saved");
+            if (result.kind === "saved") {
+              intake = result.intake;
+            }
+          }
+          // Every answer is kept on the device, and the browser was never asked.
+          expect(keepsAnswers(intake) && intake.stored).toBe(true);
+          expect(persist).not.toHaveBeenCalled();
+        },
+      ),
+      { numRuns: 30 },
+    );
+  });
+
+  it("asks once, and only when this device holds the person's answers", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom<Storage>("working", "unsupported", "fails to open", "refuses saves"),
+        fc.integer({ min: 0, max: 4 }),
+        async (storage, answered) => {
+          const intake = await answerFirst(await visitWith(storage), answered);
+          const persist = vi.fn(async () => true);
+          const asked = askToKeepAnswers(intake, persist);
+          // Only storage that works and saved at least one answer holds anything to keep.
+          expect(asked).toBe(storage === "working" && answered > 0);
+          expect(persist).toHaveBeenCalledTimes(asked ? 1 : 0);
+        },
+      ),
+      { numRuns: 40 },
+    );
+  });
+
+  it("asks for answers kept from an earlier visit, and not once they are deleted", async () => {
+    const disk = memoryKv();
+    await answerFirst((await loadDeviceIntake(opener(disk.kv))).intake, 2);
+    const resumed = (await loadDeviceIntake(opener(disk.kv))).intake;
+    const persist = vi.fn(async () => true);
+    expect(askToKeepAnswers(resumed, persist)).toBe(true);
+    const deleted = await deleteDeviceIntake(resumed);
+    expect(deleted.deleted).toBe(true);
+    expect(askToKeepAnswers(deleted.intake, persist)).toBe(false);
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it("a browser that refuses the request changes nothing and leaves no unhandled rejection", async () => {
+    const intake = await answerFirst(await visitWith("working"), 1);
+    expect(askToKeepAnswers(intake, () => Promise.reject(new Error("denied")))).toBe(true);
+    expect(askToKeepAnswers(intake, async () => false)).toBe(true);
+    await new Promise((done) => setTimeout(done, 0));
+    expect(saveForLaterNotice(intake)).toBe(DEVICE_INTAKE_COPY.savedForLaterKept);
   });
 });
 
