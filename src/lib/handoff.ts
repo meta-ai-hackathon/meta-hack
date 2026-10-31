@@ -121,11 +121,11 @@ const SIGN_AND_SEND: HandoffAction = {
 const FOLLOW_UP: HandoffAction = {
   kind: "follow_up",
   where: "caseworker",
-  title: "Watch for a follow-up from your county office",
+  title: "Wait to hear from your county office",
   detail:
-    "You told us you sent it in. The steps below say what the form and the " +
-    "official guidance say happens next, and who to contact if you don't " +
-    "hear back, each with its official source.",
+    "You told us you sent it in. The steps below say how long a decision " +
+    "can take and who to contact if you have questions or don't hear back, " +
+    "each with its official source.",
   guide: "after_you_apply",
 };
 

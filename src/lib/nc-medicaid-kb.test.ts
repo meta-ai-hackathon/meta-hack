@@ -284,6 +284,21 @@ describe("the real entry's handoff steps (HACK-46, HACK-47)", () => {
     }
   });
 
+  it("holds back the 2020 form's process timing until a current official page confirms it", () => {
+    // The form is the 2020 revision and its own local DSS link is dead, so
+    // its follow-up timing, help line, change-reporting window, and
+    // application-date line stay out of the steps (review P2 on PR #82).
+    // Bringing one back is a person's call, made with a current source.
+    for (const step of allSteps) {
+      const text = `${step.label}. ${step.detail}`;
+      expect(text, step.id).not.toMatch(
+        /\b1-2 weeks\b|\b10 calendar days\b|\bhelp line\b|\bdate (?:of )?your application\b/i,
+      );
+    }
+    const form = entry.sources.find((source) => source.id === "dhb_5200_form");
+    expect(form?.supports).toContain("Held back from the steps");
+  });
+
   it("records the passages it relies on in the form's verification note", () => {
     const form = entry.sources.find((source) => source.id === "dhb_5200_form");
     for (const fragment of ["HACK-46", "HACK-47", "page 1", "page 20", "page 21", "returned 404"]) {
