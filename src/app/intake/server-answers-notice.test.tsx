@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
+import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findBannedClaims } from "../../lib/honesty";
 import { SERVER_ANSWERS_COPY, serverAnswerCount } from "./server-answers-notice";
 
-// The notice for answers this browser saved on the server before /intake
-// kept them on the device (HACK-99). It checks with a cookie-only read,
-// shows only when answers are really there, deletes only through the
-// HACK-80 purge behind a confirming step, and says exactly what the server
-// reported. No request it makes ever carries an answer.
+// The notice for answers this browser has saved on the app's server, which
+// /intake no longer reads (HACK-99). It checks with a cookie-only read,
+// shows only when answers are really there, says the delete also takes any
+// chat without guessing where the answers came from (HACK-113), deletes
+// only through the HACK-80 purge behind a confirming step, and says exactly
+// what the server reported. No request it makes ever carries an answer.
 
 type Call = { readonly url: string; readonly method: string; readonly body: string | undefined };
 
@@ -126,7 +128,7 @@ describe("the server answers notice", () => {
     });
     const page = await render();
     expect(page.container.textContent).toContain(SERVER_ANSWERS_COPY.heading);
-    expect(page.container.textContent).toContain("This browser still has 3 answers saved there.");
+    expect(page.container.textContent).toContain("This browser has 3 answers saved on the app's server.");
 
     // The first click only asks; it sends nothing and moves focus to the safe choice.
     await page.click(SERVER_ANSWERS_COPY.deleteButton);
@@ -142,7 +144,7 @@ describe("the server answers notice", () => {
     await page.click(SERVER_ANSWERS_COPY.confirmYes);
     expect(page.status()).toBe(SERVER_ANSWERS_COPY.purged);
     expect(page.button(SERVER_ANSWERS_COPY.deleteButton)).toBeUndefined();
-    expect(page.container.textContent).not.toContain("still has 3 answers");
+    expect(page.container.textContent).not.toContain(SERVER_ANSWERS_COPY.body(3));
     expect(document.activeElement?.id).toBe("server-answers-heading");
     expectNoAnswerSent();
     await page.unmount();
@@ -165,7 +167,7 @@ describe("the server answers notice", () => {
       expect(page.status()).toBe(copy);
       if (copy === SERVER_ANSWERS_COPY.refused || copy === SERVER_ANSWERS_COPY.unknown) {
         // Nothing is known to be removed, so the page still says the answers are there.
-        expect(page.container.textContent).toContain("This browser still has 2 answers saved there.");
+        expect(page.container.textContent).toContain(SERVER_ANSWERS_COPY.body(2));
       }
       expectNoAnswerSent();
       await page.unmount();
@@ -219,9 +221,24 @@ describe("serverAnswerCount", () => {
 });
 
 describe("the notice's copy", () => {
-  it("names the count correctly and carries no promise language", () => {
-    expect(SERVER_ANSWERS_COPY.body(1)).toContain("still has 1 answer saved there");
-    expect(SERVER_ANSWERS_COPY.body(5)).toContain("still has 5 answers saved there");
+  it("names the count, says the delete also takes the chat, and never guesses where the answers came from", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 100_000 }), (count) => {
+        const body = SERVER_ANSWERS_COPY.body(count);
+        expect(body).toContain(count === 1 ? "has 1 answer saved" : `has ${count} answers saved`);
+        // The server session may be a chat the person is still using
+        // (HACK-113), so the body says what the delete takes with it...
+        expect(body).toContain("Deleting them also deletes any chat you had with the assistant.");
+        // ...and claims neither where the answers came from nor that nothing uses them.
+        expect(body).not.toMatch(
+          /no longer use|unused|not used|doesn't use|before this page|came from|from this page|from the chat/i,
+        );
+        expect(findBannedClaims(body)).toEqual([]);
+      }),
+    );
+  });
+
+  it("carries no promise language", () => {
     const lines = Object.values(SERVER_ANSWERS_COPY).map((line) =>
       typeof line === "function" ? line(2) : line,
     );
