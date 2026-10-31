@@ -55,7 +55,9 @@ export const DEVICE_RESULTS_COPY = {
   downloading: "Preparing your form…",
   downloadNote:
     "When you tap download, this page gets the blank form and fills it in " +
-    "this browser. None of your answers are sent anywhere.",
+    "this browser. None of your answers are sent anywhere. The file saves " +
+    "to this device, so on a shared computer, delete it once you've " +
+    "printed or sent it.",
   downloaded:
     "Your application downloaded. It was filled in this browser, and none " +
     "of your answers were sent anywhere.",
