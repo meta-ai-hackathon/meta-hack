@@ -12,7 +12,7 @@ import {
   CHOICE_UNMAPPED_FALLBACK_PREFIX,
   CHAT_CALL_MAX_TOKENS,
   COMMITTED_REFUSAL,
-  EXTRACTION_SYSTEM_PROMPT_PREFIX,
+  ENVELOPE_MALFORMED_PREFIX,
   MAX_TURN_TEXT_LENGTH,
   PII_ECHO_FALLBACK_REPLY,
   REPLY_SYSTEM_PROMPT_PREFIX,
@@ -21,14 +21,15 @@ import {
   activeKbGrounding,
   answerToSave,
   assertNoBannedClaimsEverySentence,
-  buildExtractionPrompt,
-  buildSystemPrompt,
+  buildCombinedTurnPrompt,
   findBannedClaimsEverySentence,
   findPiiEchoes,
-  parseExtraction,
+  malformedEnvelopeFallback,
+  parseCombinedEnvelope,
   redactPiiValues,
   validateTurnText,
 } from "./conversation";
+import type { AnswerMap } from "./intake/flow";
 
 // Conversation engine tests (Mission v2 M1): pure-function unit tests plus
 // fast-check property tests for the two invariants the honesty/redaction
@@ -79,6 +80,9 @@ describe("committed refusal and fallback copy", () => {
       PII_ECHO_FALLBACK_REPLY,
       CHOICE_UNMAPPED_FALLBACK_PREFIX,
       `${CHOICE_UNMAPPED_FALLBACK_PREFIX} Who is this application for?`,
+      ENVELOPE_MALFORMED_PREFIX,
+      malformedEnvelopeFallback(QUESTION_BY_ID["application_role"]),
+      malformedEnvelopeFallback(null),
     ]) {
       expect(findBannedClaims(text)).toEqual([]);
       expect(() => assertNoBannedClaimsEverySentence(text)).not.toThrow();
@@ -125,24 +129,24 @@ describe("turn text validation", () => {
 });
 
 describe("grounded prompt builders", () => {
-  it("offers plain-language option labels in the reply prompt, never raw values", () => {
+  it("offers plain-language option labels for the reply, never raw values", () => {
     // Copy hygiene (voice-mode validation suggestion, 2026-10-29): the
     // assistant must say "Pick Me, A family member, or Someone else I
-    // help" — never "Pick self, family_member, or someone_else". One
-    // assertion pass per multi-choice question in the spec. The check
-    // scopes to the prompt's options line — the copy the assistant echoes —
-    // so ordinary prompt words ("an email", "ID numbers") are not
-    // false-positived by choice values that collide with English ("email",
-    // "ID" for Idaho).
+    // help" — never "Pick self, family_member, or someone_else". The
+    // combined prompt carries BOTH vocabularies on purpose (the extraction
+    // half needs value:label pairs to map answers onto options), so the
+    // test scopes to the reply-instruction's "Acceptable answers" line —
+    // the copy the assistant speaks — exactly as the two-prompt version
+    // scoped to its options line.
     const misses: string[] = [];
     for (const question of QUESTIONS) {
       if (!question.options || question.options.length === 0) {
         continue;
       }
-      const prompt = buildSystemPrompt(question);
+      const prompt = buildCombinedTurnPrompt(question);
       const optionsLine = prompt
         .split("\n")
-        .find((line) => line.startsWith("Acceptable answers to offer"));
+        .find((line) => line.startsWith("Acceptable answers"));
       if (!optionsLine) {
         misses.push(`${question.id}: the prompt lost its options line`);
         continue;
@@ -177,9 +181,9 @@ describe("grounded prompt builders", () => {
     expect(misses).toEqual([]);
   });
 
-  it("grounds the reply prompt on the next spec question, the refusal phrase, and the injection guardrail", () => {
+  it("grounds the combined prompt on the refusal phrase, the injection guardrail, and the pilot program", () => {
     const question = QUESTION_BY_ID["application_role"];
-    const prompt = buildSystemPrompt(question);
+    const prompt = buildCombinedTurnPrompt(question);
     expect(prompt.startsWith(REPLY_SYSTEM_PROMPT_PREFIX)).toBe(true);
     expect(prompt).toContain(question.prompt);
     expect(prompt).toContain(COMMITTED_REFUSAL);
@@ -190,7 +194,44 @@ describe("grounded prompt builders", () => {
     expect(prompt).toContain(PILOT_CONFIG.programName);
   });
 
-  it("grounds the reply prompt on active KB entries only (BN-29)", () => {
+  it("marks each visible question's answered state so the model asks the first unanswered one", () => {
+    // The single call decides what to ask BEFORE the server has saved
+    // anything, so the prompt must carry the stored answers' state (as of
+    // turn start) — the deterministic engine still owns nextQuestionId
+    // after the saves; the model mirrors the spec's order.
+    const answers: AnswerMap = {
+      application_role: { status: "known", value: "self" },
+    };
+    const prompt = buildCombinedTurnPrompt(
+      QUESTION_BY_ID["main_goal"],
+      answers,
+    );
+    expect(prompt).toContain('"Who is this application for?" (already answered)');
+    expect(prompt).toContain(
+      '"What kind of help are you looking for right now?" (the question just asked, not yet answered)',
+    );
+    expect(prompt).toContain(
+      '"In your own words, what would help the most?" (not yet answered)',
+    );
+  });
+
+  it("carries option value:label pairs for extraction mapping in the question list", () => {
+    // The extraction half maps phrasings onto option values; the list must
+    // carry the machine vocabulary even though the reply speaks labels.
+    const prompt = buildCombinedTurnPrompt(QUESTION_BY_ID["application_role"]);
+    expect(prompt).toContain("(self: Me)");
+  });
+
+  it("renders skip conditions as plain-language hints so a multi-answer turn skips what no longer applies", () => {
+    const prompt = buildCombinedTurnPrompt(
+      QUESTION_BY_ID["application_role"],
+      {},
+    );
+    // A spec question carrying a skip condition shows its gating hint.
+    expect(prompt).toMatch(/asked only when: .+includes .+/);
+  });
+
+  it("grounds the combined prompt on active KB entries only (BN-29)", () => {
     const active = activeKbGrounding();
     // The production dataset is the seam-driven real pilot entry only
     // (VAL-PILOTREAL-004): the synthetic samples never ground a reply.
@@ -200,28 +241,12 @@ describe("grounded prompt builders", () => {
     expect(activeKbGrounding([stale])).not.toContain(
       "only-the-stale-entry-has-this-phrase",
     );
-    expect(buildSystemPrompt(null, [stale])).not.toContain(
+    expect(buildCombinedTurnPrompt(null, {}, QUESTIONS, [stale])).not.toContain(
       "only-the-stale-entry-has-this-phrase",
     );
   });
 
-  it("builds a per-turn extraction prompt with the strict JSON schema and the data-only marker", () => {
-    const prompt = buildExtractionPrompt("household_size");
-    expect(prompt.startsWith(EXTRACTION_SYSTEM_PROMPT_PREFIX)).toBe(true);
-    expect(prompt).toContain("household_size");
-    expect(prompt).toContain('"question_id"');
-    expect(prompt).toContain("<<<DATA>>>");
-  });
-
-  it("instructs the extractor to map free-text phrasings onto exact option values", () => {
-    // Hardening item 6: choice answers must canonicalize in the model call
-    // too — "It's for myself" should arrive as value "self", not nothing.
-    const prompt = buildExtractionPrompt("application_role").toLowerCase();
-    expect(prompt).toContain("option value");
-    expect(prompt).toContain("exactly");
-  });
-
-  it("tells the extractor the value format for option-less questions", () => {
+  it("keeps the extraction format sentences for option-less questions", () => {
     // The walkthrough's live journeys caught this: a yes/no question with
     // no option list gave the extractor no format to hit, so it echoed the
     // word ("No") and the answer was skipped. Booleans, numbers, and dates
@@ -229,51 +254,78 @@ describe("grounded prompt builders", () => {
     // SENTENCES, not the words themselves — the embedded schema already
     // contains the strings "boolean" and "date", so a word-level check
     // would pass even if these lines were dropped.
-    expect(buildExtractionPrompt("veteran_status")).toContain(
+    expect(buildCombinedTurnPrompt(QUESTION_BY_ID["veteran_status"])).toContain(
       "answered with a JSON boolean: set value to true or false",
     );
-    expect(buildExtractionPrompt("household_size")).toContain(
+    expect(buildCombinedTurnPrompt(QUESTION_BY_ID["household_size"])).toContain(
       "answered with a JSON number",
     );
-    expect(buildExtractionPrompt("date_of_birth")).toContain(
+    expect(buildCombinedTurnPrompt(QUESTION_BY_ID["date_of_birth"])).toContain(
       "answered with a date in YYYY-MM-DD form",
     );
   });
 
-  it("never embeds user message text in either system prompt (injection guardrail)", () => {
-    // The prompt builders are pure functions of spec data: a user's words can
+  it("instructs the extractor to map free-text phrasings onto exact option values", () => {
+    // Hardening item 6: choice answers must canonicalize in the model call
+    // too — "It's for myself" should arrive as value "self", not nothing.
+    const prompt = buildCombinedTurnPrompt(
+      QUESTION_BY_ID["application_role"],
+    ).toLowerCase();
+    expect(prompt).toContain("option value");
+    expect(prompt).toContain("exactly");
+  });
+
+  it("embeds the data-only marker and the single-envelope output instruction", () => {
+    // One call, one response: the answers array and the reply text ride in
+    // ONE JSON object (VAL-VLAT-003) — the prompt must say so explicitly.
+    const prompt = buildCombinedTurnPrompt(QUESTION_BY_ID["household_size"]);
+    expect(prompt).toContain("<<<DATA>>>");
+    expect(prompt).toContain('"question_id"');
+    expect(prompt).toContain('"reply"');
+  });
+
+  it("never embeds user message text in the prompt (injection guardrail)", () => {
+    // The prompt builder is a pure function of spec data: a user's words can
     // only ever enter a model call as a message, never as instructions.
     const sentinel = "zz-injection-sentinel-777";
-    expect(buildSystemPrompt(null)).not.toContain(sentinel);
-    expect(buildSystemPrompt(QUESTION_BY_ID["application_role"])).not.toContain(
-      sentinel,
-    );
-    expect(buildExtractionPrompt("application_role")).not.toContain(sentinel);
-    expect(buildExtractionPrompt(null)).not.toContain(sentinel);
+    expect(buildCombinedTurnPrompt(null)).not.toContain(sentinel);
+    expect(
+      buildCombinedTurnPrompt(QUESTION_BY_ID["application_role"]),
+    ).not.toContain(sentinel);
+    expect(
+      buildCombinedTurnPrompt(QUESTION_BY_ID["application_role"], {
+        application_role: { status: "known", value: sentinel },
+      }),
+    ).not.toContain(sentinel);
   });
 });
 
-describe("structured extraction parsing (BN-32)", () => {
-  it("parses a plain and a fenced JSON extraction payload", () => {
+describe("combined envelope parsing (BN-32 + VAL-VLAT-003)", () => {
+  it("parses answers and reply from a plain and a fenced envelope", () => {
     const payload = JSON.stringify({
       answers: [
         { question_id: "household_size", status: "known", value: 3 },
         { question_id: "date_of_birth", status: "known", value: "1980-02-03", verbatim: "born Feb 3 1980" },
       ],
+      reply: "Thanks! How many of those people are under 18?",
     });
     for (const content of [payload, `Here is the JSON:\n\`\`\`json\n${payload}\n\`\`\``]) {
-      const answers = parseExtraction(content);
-      expect(answers).toHaveLength(2);
-      expect(answers[0]).toEqual({
+      const envelope = parseCombinedEnvelope(content);
+      expect(envelope).not.toBeNull();
+      expect(envelope?.answers).toHaveLength(2);
+      expect(envelope?.answers[0]).toEqual({
         questionId: "household_size",
         status: "known",
         value: 3,
       });
-      expect(answers[1]?.verbatim).toBe("born Feb 3 1980");
+      expect(envelope?.answers[1]?.verbatim).toBe("born Feb 3 1980");
+      expect(envelope?.reply).toBe(
+        "Thanks! How many of those people are under 18?",
+      );
     }
   });
 
-  it("drops items with unknown question ids, bad statuses, or a known answer without a value", () => {
+  it("drops malformed answer items without losing the reply (per-item tolerance)", () => {
     const content = JSON.stringify({
       answers: [
         { question_id: "not_a_question", status: "known", value: "x" },
@@ -283,21 +335,36 @@ describe("structured extraction parsing (BN-32)", () => {
         "junk",
         { question_id: "application_role", status: "known", value: "self", extra: true },
       ],
+      reply: "Thanks for letting me know.",
     });
-    const answers = parseExtraction(content);
-    expect(answers).toHaveLength(2);
-    expect(answers[0]).toEqual({
+    const envelope = parseCombinedEnvelope(content);
+    expect(envelope).not.toBeNull();
+    expect(envelope?.answers).toHaveLength(2);
+    expect(envelope?.answers[0]).toEqual({
       questionId: "household_size",
       status: "unknown",
     });
-    expect(answers[1]).toEqual({
+    expect(envelope?.answers[1]).toEqual({
       questionId: "application_role",
       status: "known",
       value: "self",
     });
+    expect(envelope?.reply).toBe("Thanks for letting me know.");
   });
 
-  it("returns no answers for any non-JSON or malformed content", () => {
+  it("tolerates a missing or non-array answers field while a reply is present", () => {
+    // The extraction half degrades to "nothing extracted" exactly like the
+    // old parser; the reply still drives the turn.
+    for (const answers of [undefined, "not an array", 42, { answers: true }]) {
+      const content = JSON.stringify({ answers, reply: "Next question coming up." });
+      const envelope = parseCombinedEnvelope(content);
+      expect(envelope).not.toBeNull();
+      expect(envelope?.answers).toEqual([]);
+      expect(envelope?.reply).toBe("Next question coming up.");
+    }
+  });
+
+  it("returns null when the reply is missing, empty, or the JSON is unusable", () => {
     for (const content of [
       "",
       "I don't have verified info on that.",
@@ -305,24 +372,34 @@ describe("structured extraction parsing (BN-32)", () => {
       "no braces here",
       "{\"answers\": \"not an array\"}",
       "[\"answers\"]",
+      JSON.stringify({ answers: [] }),
+      JSON.stringify({ answers: [], reply: "" }),
+      JSON.stringify({ answers: [], reply: "   " }),
+      JSON.stringify({ answers: [], reply: 42 }),
     ]) {
-      expect(parseExtraction(content)).toEqual([]);
+      expect(parseCombinedEnvelope(content)).toBeNull();
     }
   });
 
-  it("never throws and only yields spec-valid answers, for arbitrary input", () => {
+  it("never throws, for arbitrary input", () => {
     const junkArb = fc.oneof(
       textArb,
       fc.jsonValue().map((value) => JSON.stringify(value)),
     );
     fc.assert(
       fc.property(junkArb, (content) => {
-        const answers = parseExtraction(content);
-        for (const item of answers) {
-          expect(Object.hasOwn(QUESTION_BY_ID, item.questionId)).toBe(true);
-          expect(["known", "unknown"]).toContain(item.status);
+        const envelope = parseCombinedEnvelope(content);
+        if (envelope !== null) {
+          expect(Array.isArray(envelope.answers)).toBe(true);
+          expect(typeof envelope.reply).toBe("string");
+          expect(envelope.reply.length).toBeGreaterThan(0);
+          for (const answer of envelope.answers) {
+            expect(Object.hasOwn(QUESTION_BY_ID, answer.questionId)).toBe(true);
+            expect(["known", "unknown"]).toContain(answer.status);
+          }
         }
       }),
+      { numRuns: 300 },
     );
   });
 });
