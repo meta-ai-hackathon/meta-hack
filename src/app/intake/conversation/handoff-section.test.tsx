@@ -357,7 +357,16 @@ describe("HandoffSection inside the review section", () => {
         });
         const nextAction = () =>
           container.querySelector("[data-next-action]")?.getAttribute("data-next-action");
+        const handOff = () =>
+          container.querySelector<HTMLButtonElement>('[data-action="hand-off"]');
         expect(nextAction()).toBe("download");
+        // The download step says a download here is what lets the person
+        // mark it handed off, which holds on a fresh view as well (after a
+        // reload, say): the button stays off until this view downloads.
+        expect(container.querySelector("[data-next-action]")?.textContent).toContain(
+          "download it again here, and then you can mark it handed off",
+        );
+        expect(handOff()?.disabled).toBe(true);
 
         const download = container.querySelector<HTMLButtonElement>('[data-action="download"]');
         await act(async () => {
@@ -371,6 +380,7 @@ describe("HandoffSection inside the review section", () => {
         expect(clickSpy).toHaveBeenCalled();
         expect(nextAction()).toBe("mark_handed_off");
         expect(container.querySelector("[data-where]")?.textContent).toBe("In the app");
+        expect(handOff()?.disabled).toBe(false);
       } finally {
         await act(async () => {
           root.unmount();

@@ -89,9 +89,12 @@ const DOWNLOAD: HandoffAction = {
   kind: "download",
   where: "in_app",
   title: "Download your filled application",
+  // The download flag only covers this view, so a person who downloaded
+  // before a reload sees this step again and is told why.
   detail:
     "Download the filled PDF, so you have the form to sign and send in " +
-    "yourself.",
+    "yourself. If you downloaded it before, download it again here, and " +
+    "then you can mark it handed off.",
 };
 
 const MARK_HANDED_OFF: HandoffAction = {
