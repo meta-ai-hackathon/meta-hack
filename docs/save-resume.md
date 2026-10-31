@@ -165,7 +165,10 @@ answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
   `src/lib/intake/client-store.ts`). The form reads private answers only
   through its registry entry's vault field allowlist. The device lays its
   answers out the way the server keeps the same answers, so the filled form
-  matches the server's fill of those answers field for field.
+  matches the server's fill of those answers field for field. The PDF step
+  (`src/lib/intake/device-fill.ts`) is the only device module that loads
+  pdf-lib, and the page loads it only when the person downloads, so the
+  questions never wait on it.
 - **Answers the questions don't ask:** the form's other fields (the name,
   the addresses, the Social Security number, next year's income) are typed
   into the review. They are used for that one download, live only in the
