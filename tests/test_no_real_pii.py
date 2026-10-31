@@ -33,9 +33,12 @@ committed as a PDF, or an audio recording, is not checked here; those stay
 synthetic by review.
 
 ALLOWED names each value that is meant to be in a file by its SHA-256, with
-the reason, so the list never adds a copy of the value. A finding is
-reported by file, line, column and kind, never by its value, so a real
-detail that lands in a commit does not land in the CI log as well.
+the reason, so the list doesn't repeat the value in another file. The digest
+hides nothing: an SSN, a phone number or a common email can be recovered
+from it by trying every candidate. Never list a real person's value, hashed
+or not. A finding is reported by file, line, column and kind, never by its
+value, so a real detail that lands in a commit does not land in the CI log
+as well.
 Property tests plant every kind of value in text and in files, and check
 that the scan reports each one where it is, reads only the files it
 should, and lets the fictional and reserved values through.
@@ -122,7 +125,8 @@ FICTIONAL_EMAIL_DOMAINS: Final = ("example.com", "example.org", "example.net", "
 FICTIONAL_EMAIL_TLDS: Final = frozenset({"test", "invalid"})
 
 # Each value that is meant to be in a file, by the file and the value's
-# SHA-256, and why it is there.
+# SHA-256, and why it is there. The digest only avoids a second copy; it
+# does not hide the value, so only synthetic or public values belong here.
 ALLOWED: Final[dict[tuple[str, str], str]] = {
     ("tests/test_claude_review.py", "831f6494ad6be4fcb3a724c3d5fef22d3ceffa3c62ef3a7984e45a0ea177f982"): (
         "The review bot's redactor fixture: an owner's email in a code comment, at a real mail provider, which the bot "
