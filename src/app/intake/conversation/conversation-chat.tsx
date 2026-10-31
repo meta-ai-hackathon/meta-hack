@@ -30,11 +30,14 @@ import {
 } from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { IntakeWizard } from "../intake-wizard";
+import { ComingTogether, themesForQuestionIds, themeLabelFor } from "./coming-together";
 import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
 import { MatchSection } from "./match-section";
 import { ModeChoice, type ConversationEntryMode } from "./mode-choice";
 import { PurgeSection } from "./purge-section";
+import { PresenceOrb } from "./presence-orb";
 import { ReviewSection } from "./review-section";
+import { VoiceDeck } from "./voice-deck";
 
 // The conversational intake chat (Mission v2 M1 text, M2 voice, M5 consent,
 // and the HACK-106 natural-conversation rebuild). Two voice entry modes
@@ -107,6 +110,14 @@ interface ConversationTurn {
   readonly id: string;
   readonly role: "user" | "assistant";
   readonly transcript: string;
+  /**
+   * The sidebar themes this turn advanced (the [✓ theme] chips on
+   * finalized user bubbles, VAL-VJS2-001) — derived from the REAL engine
+   * diff of the turn's saved answers. History turns loaded from the server
+   * carry no attribution (the redacted transcript is all the server
+   * stores), so they show no chips: nothing is guessed.
+   */
+  readonly themes?: readonly string[];
 }
 
 /**
@@ -195,6 +206,11 @@ export function ConversationChat() {
   // utterance ends until the turn response lands, "speaking" while the
   // reply plays, null otherwise.
   const [voicePhase, setVoicePhase] = useState<VoiceInterimPhase | null>(null);
+  // Fallback honesty (VAL-TTS2-002): when the server-side voice (ElevenLabs)
+  // fails and the built-in browser voice covers the reply instead, the UI
+  // says so — silent degradation to the OS voice is the exact bug that
+  // caused the ElevenLabs switch (HACK-116).
+  const [builtInVoiceFallback, setBuiltInVoiceFallback] = useState(false);
   const [micBlocked, setMicBlocked] = useState(false);
   // The two entry modes (VAL-NCF-002): the entry choice is a moment, the
   // session state follows it. entryMode null = the choice hasn't been
@@ -437,7 +453,7 @@ export function ConversationChat() {
   }
 
   async function speakReply(turnId: string, subtitle: string): Promise<void> {
-    // Spoken replies (VAL-VOICE-003): Gemini audio for the STORED reply
+    // Spoken replies (VAL-VOICE-003): ElevenLabs audio for the STORED reply
     // (the server speaks the turn by id — never client-supplied text)
     // when voice sharing is ON, browser speechSynthesis otherwise. With
     // voice sharing off the speak route is never called — reply audio is
@@ -447,6 +463,7 @@ export function ConversationChat() {
     // continuous session's next listening cycle never transcribes the
     // assistant's own voice.
     if (voiceSharingOn) {
+      let providerFailed = false;
       try {
         const response = await fetch("/api/conversation/speak", {
           method: "POST",
@@ -455,23 +472,41 @@ export function ConversationChat() {
           ),
           body: JSON.stringify({ turnId }),
         });
-        if (response.ok) {
-          const audio = new Audio(URL.createObjectURL(await response.blob()));
-          await new Promise<void>((resolve) => {
-            audio.onended = () => {
-              URL.revokeObjectURL(audio.src);
-              resolve();
-            };
-            audio.onerror = () => {
-              URL.revokeObjectURL(audio.src);
-              resolve();
-            };
-            audio.play().catch(() => resolve());
-          });
-          return;
+        if (!response.ok) {
+          // The provider call failed (down, rate-limited, unconfigured):
+          // the built-in voice covers below — VISIBLY (VAL-TTS2-002),
+          // never a silent degradation to the OS voice again.
+          providerFailed = true;
+        } else {
+          setBuiltInVoiceFallback(false);
+          try {
+            const audio = new Audio(
+              URL.createObjectURL(await response.blob()),
+            );
+            await new Promise<void>((resolve) => {
+              audio.onended = () => {
+                URL.revokeObjectURL(audio.src);
+                resolve();
+              };
+              audio.onerror = () => {
+                URL.revokeObjectURL(audio.src);
+                resolve();
+              };
+              audio.play().catch(() => resolve());
+            });
+            return;
+          } catch {
+            // Local playback failed after a SUCCESSFUL provider call —
+            // speech is enhancement (the subtitle is the accessible
+            // path), and this is not a provider failure: no badge.
+          }
         }
       } catch {
-        // Fall through to the built-in voice.
+        // The speak route itself was unreachable: a provider failure.
+        providerFailed = true;
+      }
+      if (providerFailed) {
+        setBuiltInVoiceFallback(true);
       }
     }
     try {
@@ -516,12 +551,22 @@ export function ConversationChat() {
     }
     const data = (await response.json()) as TurnResponse;
     const wasComplete = state?.complete ?? false;
+    // The transcript chips (VAL-VJS2-001): the questions THIS turn saved,
+    // diffed against the engine state before it, mapped to their sidebar
+    // themes. Real engine state only — a turn that answers nothing new
+    // shows no chip.
+    const previouslyAnswered = new Set(Object.keys(state?.answers ?? {}));
+    const newlyAnswered = Object.keys(data.state.answers).filter(
+      (questionId) => !previouslyAnswered.has(questionId),
+    );
+    const turnThemes = themesForQuestionIds(newlyAnswered);
     setTurns((previous) => [
       ...previous,
       {
         id: nextLocalTurnId(),
         role: "user",
         transcript: data.redactedUserTranscript,
+        ...(turnThemes.length > 0 ? { themes: turnThemes } : {}),
       },
       { id: nextLocalTurnId(), role: "assistant", transcript: data.assistantReply },
     ]);
@@ -816,8 +861,8 @@ export function ConversationChat() {
         ) : null}
       </section>
 
-      <MatchSection refreshKey={turns.length + answersRefresh} />
-      <ReviewSection refreshKey={turns.length + answersRefresh} />
+      <MatchSection refreshKey={turns.length + answersRefresh} stagger={resultsStage} />
+      <ReviewSection refreshKey={turns.length + answersRefresh} stagger={resultsStage} />
       <PurgeSection onPurged={purgeClientState} />
     </>
   ) : null;
@@ -882,36 +927,95 @@ export function ConversationChat() {
 
       {/* The transcript lives on the TALK stage (VAL-VJS-002). The entry
       stage is the clean mode-choice screen and the results stage replaces
-      the conversation with the handoff — per the approved frames. */}
+      the conversation with the handoff — per the approved frames. The talk
+      stage splits the stream with the "Coming Together" sidebar
+      (VAL-VJS2-001); the typed paths keep today's single column. */}
       {!entryStage && !resultsStage ? (
-        <section aria-labelledby="conversation-transcript-heading" className="flex flex-col gap-3">
-          <h2 id="conversation-transcript-heading" className="font-display text-2xl font-bold">
-            Conversation
-          </h2>
-          {loaded && turns.length === 0 ? (
-            <p className="max-w-xl text-muted">
-              Say hello, or answer the first question whenever you are ready.
-            </p>
-          ) : null}
-          <ul className="flex flex-col gap-3" data-conversation-transcript>
-            {turns.map((turn) => (
-              <li
-                key={turn.id}
-                className={
-                  turn.role === "user"
-                    ? "self-end max-w-[85%] rounded-3xl rounded-br-lg bg-foreground px-4 py-2.5 text-background"
-                    : "self-start max-w-[85%] rounded-3xl rounded-bl-lg border border-surface-border bg-surface px-4 py-2.5"
-                }
-              >
-                <span className="sr-only">
-                  {turn.role === "user" ? "You said:" : "The assistant said:"}
-                </span>
-                {turn.transcript}
-              </li>
-            ))}
-          </ul>
-          <div ref={transcriptEndRef} />
-        </section>
+        <div
+          className={
+            talkStage
+              ? "flex flex-col gap-6 md:grid md:grid-cols-[minmax(0,1fr)_20rem] md:items-start"
+              : undefined
+          }
+        >
+          <section aria-labelledby="conversation-transcript-heading" className="flex min-w-0 flex-col gap-3">
+            <div className="flex items-center justify-between gap-4">
+              <h2 id="conversation-transcript-heading" className="font-display text-2xl font-bold">
+                Conversation
+              </h2>
+              {/* The presence orb (VAL-VJS-005): ambient decorative
+              presence floating beside the conversation, bound to the same
+              voice phase as the state bar — aria-hidden here, so the text
+              surfaces (state bar caption, StatusRegion notice) remain the
+              only announcements. On the talk stage for BOTH entry modes;
+              it idles while the mode-B deck is typed into. */}
+              <PresenceOrb phase={voicePhase} />
+            </div>
+            {loaded && turns.length === 0 ? (
+              <p className="max-w-xl text-muted">
+                Say hello, or answer the first question whenever you are ready.
+              </p>
+            ) : null}
+            <ul className="flex flex-col gap-3" data-conversation-transcript>
+              {turns.map((turn) =>
+                turn.role === "user" ? (
+                  <li
+                    key={turn.id}
+                    className="flex max-w-[85%] flex-col items-end gap-1 self-end"
+                  >
+                    <span className="sr-only">You said:</span>
+                    <span className="rounded-3xl rounded-br-lg bg-foreground px-4 py-2.5 text-background">
+                      {turn.transcript}
+                    </span>
+                    {turn.themes && turn.themes.length > 0 ? (
+                      <span className="flex flex-wrap justify-end gap-1">
+                        {turn.themes.map((themeId) => (
+                          <span
+                            key={themeId}
+                            data-turn-chip={themeId}
+                            className="rounded-full border border-teal/40 bg-teal-soft px-2 py-0.5 text-xs font-medium text-teal"
+                          >
+                            <span aria-hidden="true">✓</span>{" "}
+                            {themeLabelFor(themeId)}
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
+                  </li>
+                ) : (
+                  <li
+                    key={turn.id}
+                    className="max-w-[85%] self-start rounded-3xl rounded-bl-lg border border-surface-border bg-surface px-4 py-2.5"
+                  >
+                    <span className="sr-only">The assistant said:</span>
+                    {turn.transcript}
+                  </li>
+                ),
+              )}
+              {/* The live-caret partial (VAL-VJS2-001): while the mic is
+              open the person's side of the stream shows a blinking caret —
+              where their words will land. No partial text exists yet (STT
+              transcribes per finished utterance), so none is fabricated:
+              the bubble carries no words. Decorative and aria-hidden — the
+              listening state is conveyed in text by the state bar and the
+              StatusRegion notice. */}
+              {voicePhase === "listening" ? (
+                <li
+                  aria-hidden="true"
+                  data-live-partial
+                  className="flex min-h-11 max-w-[85%] items-center self-end rounded-3xl rounded-br-lg border border-teal/40 bg-teal-soft px-4 py-2.5"
+                >
+                  <span
+                    data-live-caret
+                    className="live-caret inline-block h-4 w-0.5 rounded-full bg-teal"
+                  />
+                </li>
+              ) : null}
+            </ul>
+            <div ref={transcriptEndRef} />
+          </section>
+          {talkStage ? <ComingTogether state={state} /> : null}
+        </div>
       ) : null}
 
       {error ? (
@@ -943,55 +1047,66 @@ export function ConversationChat() {
       ) : null}
 
       {voiceSessionSurface ? (
-        <div
-          data-voice-session={paused ? "paused" : "active"}
-          className="flex flex-col gap-2"
+        <VoiceDeck
+          phase={voicePhase}
+          sessionState={paused ? "paused" : "active"}
+          caption={
+            <>
+              <VoiceInterimState phase={voicePhase} />
+              {builtInVoiceFallback ? (
+                <p
+                  data-voice-fallback-badge
+                  className="rounded-full border border-amber-ink px-3 py-1 text-sm font-medium text-amber-ink"
+                >
+                  Hearing the built-in voice — the assistant&apos;s usual voice
+                  is unavailable right now.
+                </p>
+              ) : null}
+            </>
+          }
         >
-          <VoiceInterimState phase={voicePhase} />
-          <div className="flex flex-wrap items-center gap-2">
-            {paused ? (
-              <button
-                type="button"
-                data-voice-resume
-                onClick={resumeSession}
-                // A resume while a turn is in flight would start a second
-                // recorder cycle alongside the turn's own (claude-review
-                // P2): resume waits for the turn to settle.
-                disabled={busy}
-                className="min-h-12 flex shrink-0 items-center gap-2 rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Resume listening
-              </button>
-            ) : (
-              <button
-                type="button"
-                data-voice-pause
-                onClick={holdSession}
-                disabled={busy}
-                className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft disabled:opacity-50"
-              >
-                Pause
-              </button>
-            )}
-            {entryMode === "voice-plus-typing" ? (
-              <button
-                type="button"
-                data-switch-to-typing
-                onClick={switchToTyping}
-                className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal bg-surface px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft"
-              >
-                Switch to typing
-              </button>
-            ) : null}
-            <span className="text-sm text-muted">
-              {paused
-                ? "Paused."
-                : entryMode === "voice-only"
-                  ? "Speak freely — the assistant hears when you finish a thought."
-                  : "Speak freely; switch to typing whenever you like."}
-            </span>
-          </div>
-        </div>
+          {paused ? (
+            <button
+              type="button"
+              data-voice-resume
+              onClick={resumeSession}
+              // A resume while a turn is in flight would start a second
+              // recorder cycle alongside the turn's own (claude-review
+              // P2): resume waits for the turn to settle.
+              disabled={busy}
+              className="min-h-12 flex shrink-0 items-center gap-2 rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Resume listening
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-voice-pause
+              onClick={holdSession}
+              disabled={busy}
+              className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft disabled:opacity-50"
+            >
+              Pause
+            </button>
+          )}
+          {entryMode === "voice-plus-typing" ? (
+            <button
+              type="button"
+              data-switch-to-typing
+              onClick={switchToTyping}
+              className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal bg-surface px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft"
+            >
+              Switch to typing
+            </button>
+          ) : null}
+          <span className="text-sm text-muted">
+            {paused
+              ? "Paused."
+              : entryMode === "voice-only"
+                ? "Speak freely — the assistant hears when you finish a thought."
+                : "Speak freely; switch to typing whenever you like."}
+          </span>
+        </VoiceDeck>
       ) : null}
 
       {typedSurface ? (
@@ -1099,7 +1214,34 @@ export function ConversationChat() {
               {RESULTS_WRAP_UP}
             </p>
           </div>
-          {journeySections}
+          {/* The honest send control (VAL-VJS2-002, HACK-116 decision 2):
+          "Send my application" ROUTES — to the signature step, the filled-
+          form download, and the how/where-to-submit guidance below. Its
+          click never performs or simulates a submission: no session change,
+          no network call, no spinner-success theater, no receipt. The only
+          confirmation that exists is the person marking the journey
+          submitted themselves, after the fact. */}
+          <button
+            type="button"
+            data-action="send-application"
+            onClick={() => {
+              const target =
+                document.querySelector("[data-signature-step]") ??
+                document.querySelector("[data-handoff]");
+              target?.scrollIntoView();
+              document.getElementById("signature-input")?.focus();
+            }}
+            className="self-start rounded-full bg-teal-deep px-8 py-3 text-base font-semibold text-teal-contrast hover:bg-teal"
+          >
+            Send my application
+          </button>
+          {/* The staggered rules-check + fill reveal (VAL-VJS2-001): the
+          same real sections, paced in one after the other. Reduced-motion
+          users see them immediately (the stagger is CSS, defined only under
+          prefers-reduced-motion: no-preference). */}
+          <div data-stagger-group className="flex flex-col gap-6">
+            {journeySections}
+          </div>
         </section>
       ) : !voiceConsented ? (
         journeySections

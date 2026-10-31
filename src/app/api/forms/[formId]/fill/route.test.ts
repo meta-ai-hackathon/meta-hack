@@ -9,6 +9,7 @@ import { runMigrations } from "../../../../../lib/migrate";
 import { setLogSink, type LogLine } from "../../../../../lib/telemetry";
 import { saveAnswer } from "../../../../../lib/intake/store";
 import { fillForSession } from "../../../../../lib/forms/fill";
+import { discoverAcroFormFields } from "../../../../../lib/forms/parse";
 import {
   getFormRegistryEntry,
   loadTemplatePdf,
@@ -286,6 +287,9 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
       "8 Mailing Address if different from home address",
       "5 Social Security Number SSN",
       "Your total income next year if you think it will be different",
+      // The person skipped typing in this fixture: the unsigned signature
+      // is honestly noted as still-needed (VAL-VJS2-002 empty path).
+      "Signature",
     ]);
     for (const item of outcome.toResolve) {
       expect(item.reason).toBe("unknown");
@@ -299,6 +303,155 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
         "14 Phone Number",
         "undefined_10",
       ].sort(),
+    );
+  });
+
+  it("full-coverage fixture: every mapped field INCLUDING the typed signature fills (VAL-VJS2-002)", async () => {
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+    // Synthetic full-coverage persona: a KNOWN answer for every mapped
+    // spec question (pii values ride the vault through the entry's
+    // allowlist; the wage rides the answer table).
+    await saveAnswer(sessionId, "date_of_birth", "known", "1979-07-08");
+    await saveAnswer(sessionId, "phone_contact", "known", "555-014-2277");
+    await saveAnswer(sessionId, "income_sources", "known", ["job"]);
+    await saveAnswer(sessionId, "job_income_amount", "known", 1500);
+    // The unmapped persona fields — INCLUDING the typed signature — arrive
+    // exactly as the real typed-signature step sends them: the multipart
+    // `answers` part, keyed by field name. The signature value exists
+    // nowhere else: not in the answer table, not in the vault (there is no
+    // spec question for it), never prefilled.
+    const FULL_PERSONA = {
+      "1 First name Middle name Last name  Suffix": "Alex Rivera Demo",
+      "2 Home address Leave blank if you dont have one":
+        "101 Test Ave, Charlotte, NC 28202",
+      "8 Mailing Address if different from home address":
+        "PO Box 9, Charlotte, NC 28201",
+      "5 Social Security Number SSN": "000-00-0000",
+      "Your total income next year if you think it will be different":
+        "18000",
+      Signature: "Alex Rivera",
+    };
+    const multipart = new FormData();
+    multipart.append("answers", JSON.stringify(FULL_PERSONA));
+    const response = await POST(
+      new Request("http://localhost:3100/api/forms/dhb-5200/fill", {
+        method: "POST",
+        headers: { cookie },
+        body: multipart,
+      }),
+      { params: Promise.resolve({ formId: "dhb-5200" }) },
+    );
+    expect(response.status).toBe(200);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const pdf = await PDFDocument.load(bytes);
+    const form = pdf.getForm();
+    // EVERY mapped field fills — including the signature, with the value
+    // the person typed. The signature value is deliberately DIFFERENT from
+    // the name field's, proving it is never copied or auto-derived from
+    // another field or a stored answer.
+    expect(
+      form.getTextField("1 First name Middle name Last name  Suffix").getText(),
+    ).toBe("Alex Rivera Demo");
+    expect(
+      form.getTextField("2 Home address Leave blank if you dont have one").getText(),
+    ).toBe("101 Test Ave, Charlotte, NC 28202");
+    expect(
+      form
+        .getTextField("8 Mailing Address if different from home address")
+        .getText(),
+    ).toBe("PO Box 9, Charlotte, NC 28201");
+    expect(form.getTextField("14 Phone Number").getText()).toBe("555-014-2277");
+    expect(form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe(
+      "07/08/1979",
+    );
+    expect(form.getTextField("5 Social Security Number SSN").getText()).toBe(
+      "000-00-0000",
+    );
+    expect(form.getTextField("undefined_10").getText()).toBe("1500");
+    expect(
+      form
+        .getTextField(
+          "Your total income next year if you think it will be different",
+        )
+        .getText(),
+    ).toBe("18000");
+    expect(form.getTextField("Signature").getText()).toBe("Alex Rivera");
+
+    // The honest mapped-vs-unmapped coverage report, stated from the
+    // artifacts themselves (registry + discovery pass), never a
+    // full-coverage claim: X of Y AcroForm fields are mapped, and every
+    // UNMAPPED field stays VISIBLY blank.
+    const entry = getFormRegistryEntry("dhb-5200");
+    const template = await PDFDocument.load(loadTemplatePdf(entry));
+    const discovered = discoverAcroFormFields(template);
+    const mapped = new Set(entry.fields.map((field) => field.name));
+    const unmapped = discovered.filter((field) => !mapped.has(field.name));
+    expect(mapped.size).toBe(9);
+    expect(discovered.length).toBe(614);
+    expect(unmapped.length).toBe(discovered.length - mapped.size);
+    // Text-kind unmapped fields, sampled deterministically for speed.
+    const blankable = unmapped
+      .filter((field) => field.kind === "text")
+      .map((field) => field.name);
+    expect(blankable.length).toBeGreaterThan(0);
+    for (const name of blankable.slice(0, 25)) {
+      expect(form.getTextField(name).getText() ?? "", name).toBe("");
+    }
+
+    // Outcome-level: every mapped field filled, nothing left to resolve.
+    const outcome = await fillForSession(
+      loadTemplatePdf(entry),
+      entry,
+      sessionId,
+      FULL_PERSONA,
+    );
+    expect(outcome.filled.length).toBe(entry.fields.length);
+    expect(outcome.toResolve).toEqual([]);
+  });
+
+  it("the person skips typing: the form downloads unsigned, signature noted in to-resolve (VAL-VJS2-002)", async () => {
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+    // The session HAS stored answers — yet nothing may pre-fill the
+    // signature: its only source is fresh typed input on the fill request,
+    // and this request carries none.
+    await saveAnswer(sessionId, "date_of_birth", "known", "1979-07-08");
+    await saveAnswer(sessionId, "phone_contact", "known", "555-014-2277");
+    await saveAnswer(sessionId, "income_sources", "known", ["job"]);
+    await saveAnswer(sessionId, "job_income_amount", "known", 1500);
+    const multipart = new FormData();
+    multipart.append(
+      "answers",
+      JSON.stringify({
+        "1 First name Middle name Last name  Suffix": "Alex Rivera Demo",
+        "2 Home address Leave blank if you dont have one":
+          "101 Test Ave, Charlotte, NC 28202",
+      }),
+    );
+    const response = await POST(
+      new Request("http://localhost:3100/api/forms/dhb-5200/fill", {
+        method: "POST",
+        headers: { cookie },
+        body: multipart,
+      }),
+      { params: Promise.resolve({ formId: "dhb-5200" }) },
+    );
+    expect(response.status).toBe(200);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const pdf = await PDFDocument.load(bytes);
+    // The signature line stays VISIBLY BLANK — the app never signs.
+    expect(pdf.getForm().getTextField("Signature").getText() ?? "").toBe("");
+
+    const entry = getFormRegistryEntry("dhb-5200");
+    const outcome = await fillForSession(
+      loadTemplatePdf(entry),
+      entry,
+      sessionId,
+      {},
+    );
+    expect(outcome.toResolve).toContainEqual(
+      expect.objectContaining({ fieldName: "Signature" }),
     );
   });
 });

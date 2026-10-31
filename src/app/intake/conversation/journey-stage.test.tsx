@@ -63,7 +63,14 @@ vi.mock("../../../lib/audio/voice-session", () => ({
   },
 }));
 
-const queueSpeechMock = vi.fn(() => true);
+// The mocked built-in voice finishes instantly (the real queueSpeech
+// invokes the end callback when the utterance completes — args[2] here),
+// so a session's next turn can flow without waiting on real audio.
+const queueSpeechMock = vi.fn((...args: unknown[]) => {
+  const onended = args[2] as (() => void) | undefined;
+  onended?.();
+  return true;
+});
 
 vi.mock("../../../lib/audio/capture", () => ({
   queueSpeech: (...args: unknown[]) => queueSpeechMock(...(args as [])),
@@ -172,9 +179,28 @@ const REVIEW_PAYLOAD = {
     sourceUrl: "https://example.gov/form.pdf",
     retrievedAt: "2026-10-31",
   },
-  fields: [],
-  toResolve: [],
-  counts: { prefilled: 0, asked: 0, notApplicable: 0 },
+  // The signature field rides the real review payload (unmapped, asked):
+  // its rendering is the distinct typed-signature step (VAL-VJS2-002).
+  fields: [
+    {
+      fieldName: "Signature",
+      type: "text",
+      question:
+        "Type your full legal name to sign this application — typing your name signs it, like an e-signature.",
+      state: "asked",
+      specQuestionId: null,
+      required: false,
+      piiLikely: true,
+    },
+  ],
+  toResolve: [
+    {
+      fieldName: "Signature",
+      question:
+        "Type your full legal name to sign this application — typing your name signs it, like an e-signature.",
+    },
+  ],
+  counts: { prefilled: 0, asked: 1, notApplicable: 0 },
   sessionStatus: "draft",
   portalLinks: [],
   steps: [
@@ -182,7 +208,11 @@ const REVIEW_PAYLOAD = {
   ],
 };
 
-function stubFetch(state: IntakeClientState, turnState?: IntakeClientState): void {
+function stubFetch(
+  state: IntakeClientState,
+  turnState?: IntakeClientState,
+  speakStatus = 200,
+): void {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -194,10 +224,17 @@ function stubFetch(state: IntakeClientState, turnState?: IntakeClientState): voi
         return turnResponse(turnState ?? state);
       }
       if (url === "/api/conversation/speak") {
-        return new Response(JSON.stringify({ audio: null }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify(
+            speakStatus === 200
+              ? { audio: null }
+              : { error: { code: "model_unavailable", message: "unavailable" } },
+          ),
+          {
+            status: speakStatus,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       if (url === "/api/match") {
         return new Response(JSON.stringify(MATCH_PAYLOAD), {
@@ -328,6 +365,8 @@ describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
     expect(q(container, "switch-to-typing")).not.toBeNull();
     expect(container.querySelector("textarea")).toBeNull();
     expect(q(container, "conversation-transcript")).not.toBeNull();
+    // The send control belongs to the results stage only.
+    expect(q(container, 'action="send-application"')).toBeNull();
   });
 
   it("auto-advance: the completed turn transitions to results with no clicks — spoken wrap-up, match, download, purge (VAL-VJS-003/004)", async () => {
@@ -352,6 +391,36 @@ describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
     expect(container.textContent).toContain("submit it yourself");
     // The purge surface stays reachable.
     expect(q(container, "purge-wrapper")).not.toBeNull();
+  });
+
+  it("the Send my application button routes to the honest flow — signature, download, submit guidance; never a submission (VAL-VJS2-002)", async () => {
+    stubFetch(COMPLETE_STATE);
+    const { container, act: actFn } = await renderChat();
+    await actFn(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    const send = q(container, 'action="send-application"');
+    expect(send).not.toBeNull();
+    expect(send?.textContent).toBe("Send my application");
+    // The click ROUTES and does NOTHING else. The fetch stub throws on any
+    // unexpected request, so a session PATCH or a fill POST fired by the
+    // click would fail this test — the button never performs or simulates
+    // a submission (no spinner-success theater, no receipt).
+    await actFn(async () => {
+      (send as HTMLButtonElement).click();
+    });
+    // Routing lands on the distinct signature step.
+    expect(document.activeElement?.id).toBe("signature-input");
+    expect(q(container, "signature-step")).not.toBeNull();
+    expect(container.textContent).toContain("Type your full name to sign");
+    expect(container.textContent).toContain("like an e-signature");
+    // The honest flow it routes to: the download, the destination line,
+    // the portal links, and the person-submits note.
+    expect(q(container, 'action="download"')).not.toBeNull();
+    expect(q(container, "destination-line")).not.toBeNull();
+    expect(container.textContent).toContain("Mecklenburg County DSS");
+    expect(q(container, "portal-links")).not.toBeNull();
+    expect(container.textContent).toContain("submit it yourself");
   });
 
   it("a completed session reloads straight into the results stage — no clicks, no spoken wrap-up on load (VAL-VJS-003)", async () => {
@@ -399,5 +468,115 @@ describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
     // The ai-only path is unstaged: sections render inline as before.
     expect(container.textContent).toContain("Your answers so far");
     expect(q(container, "results-stage")).toBeNull();
+  });
+});
+
+describe("fallback honesty (VAL-TTS2-002)", () => {
+  it("a failed speak shows the built-in-voice badge — never silent OS-voice degradation", async () => {
+    // The speak route fails (e.g. the provider is down/rate-limited): the
+    // turn still completes and the built-in voice covers the reply, but
+    // the UI SAYS SO — silent degradation to the OS voice is the exact bug
+    // that caused the ElevenLabs switch (HACK-116).
+    stubFetch(OPEN_STATE, OPEN_STATE, 503);
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-only");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    // The built-in voice actually covered the reply…
+    expect(queueSpeechMock).toHaveBeenCalled();
+    // …visibly: a DOM badge says the built-in voice is in use.
+    expect(q(container, "voice-fallback-badge")).not.toBeNull();
+    expect(container.textContent).toContain("built-in voice");
+  });
+
+  it("a successful provider speak renders no fallback badge", async () => {
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-only");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(q(container, "voice-fallback-badge")).toBeNull();
+  });
+
+  it("a later successful speak clears the badge again", async () => {
+    stubFetch(OPEN_STATE, OPEN_STATE, 503);
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-only");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(q(container, "voice-fallback-badge")).not.toBeNull();
+
+    // The provider recovers: the next spoken reply clears the badge.
+    stubFetch(OPEN_STATE);
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(q(container, "voice-fallback-badge")).toBeNull();
+  });
+});
+
+describe("the presence orb on the talk stage (VAL-VJS-005)", () => {
+  it("rides mode A and follows the voice session's phase — with the state still announced in text", async () => {
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-only");
+    const orb = q(container, "presence-orb");
+    expect(orb).not.toBeNull();
+    expect(orb?.getAttribute("aria-hidden")).toBe("true");
+    expect(orb?.getAttribute("data-orb-phase")).toBe("idle");
+
+    // The session's phase drives the orb…
+    await actFn(async () => {
+      sessionCallbacks.onPhase("listening");
+    });
+    expect(q(container, "presence-orb")?.getAttribute("data-orb-phase")).toBe(
+      "listening",
+    );
+    // …and the SAME state is announced in text by the state bar — the
+    // orb is never the only signal (never animation-only).
+    expect(q(container, "voice-state-bar")?.textContent).toContain("Listening");
+  });
+
+  it("stays on stage through the mode-B switch to typing, idling when the mic stops", async () => {
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-plus-typing");
+    await actFn(async () => {
+      sessionCallbacks.onPhase("listening");
+    });
+    expect(q(container, "presence-orb")?.getAttribute("data-orb-phase")).toBe(
+      "listening",
+    );
+
+    // Switch to typing at any point (VAL-NCF-002): the orb stays on the
+    // stage — the conversation continues — and, the mic having stopped,
+    // it idles instead of claiming a voice phase.
+    await actFn(async () => {
+      q(container, "switch-to-typing")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    const orb = q(container, "presence-orb");
+    expect(orb).not.toBeNull();
+    expect(orb?.getAttribute("data-orb-phase")).toBe("idle");
+  });
+
+  it("never appears on the entry or results stages", async () => {
+    // Entry: the mode choice — no orb.
+    const entry = await renderChat();
+    await entry.act(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    expect(q(entry.container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("entry");
+    expect(q(entry.container, "presence-orb")).toBeNull();
+
+    // Results: a completed session lands there directly — still no orb.
+    stubFetch(COMPLETE_STATE);
+    const done = await renderChat();
+    await done.act(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    expect(q(done.container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("results");
+    expect(q(done.container, "presence-orb")).toBeNull();
   });
 });

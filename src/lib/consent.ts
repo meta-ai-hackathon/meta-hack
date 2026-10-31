@@ -45,7 +45,7 @@ export interface ConsentReceipt {
   readonly providerId: typeof CONSENT_PROVIDER_ID;
   /** Typed words may go to the Meta chat model (extraction + reply). */
   readonly ai: boolean;
-  /** Voice may additionally go to Meta STT (and replies via Gemini TTS). */
+  /** Voice may additionally go to Meta STT (and replies read aloud via ElevenLabs TTS). */
   readonly voice: boolean;
   /** The signed packet may go to the fax provider (HACK-88). Optional on the wire: receipts written before the fax path existed parse with fax off — absence never reads as consent. */
   readonly fax?: boolean;
@@ -82,19 +82,21 @@ export interface ConsentPathSpec {
  * consented paths; fax is post-submission and owned by HACK-75/90, so the
  * conversation APIs are everything this surface must cover).
  *
- * Terms verified LIVE on 2026-10-30 (findings recorded in the mission
- * library, library/model.md + library/voice.md):
+ * Terms verified LIVE on 2026-10-30 (Meta) / 2026-10-31 (ElevenLabs)
+ * (findings recorded in the mission library, library/model.md +
+ * library/voice.md):
  *
  * - Meta Model API (https://dev.meta.ai/legal/commitments): content from
  *   Standard Services is NOT used to train Meta's models; content IS
  *   retained per Meta's Terms/Privacy Policy — a data-handling commitment,
  *   NOT a zero-retention guarantee. The honest copy below says so.
- * - Gemini API (https://ai.google.dev/gemini-api/terms): the UNPAID
- *   services say Google may use submitted content to improve its products
- *   and says "do not submit sensitive, confidential, or personal
- *   information to the Unpaid Services". The TTS call therefore carries
- *   ONLY the assistant's own (already redacted, gated) reply text — never
- *   user content — and the copy discloses the tier honestly.
+ * - ElevenLabs (https://elevenlabs.io/terms, "Last Updated: 09 October
+ *   2026"): content may be used to provide and improve the Services, with
+ *   an account-level training opt-out ("Data use" menu) — also NOT a
+ *   zero-retention guarantee. The TTS call therefore carries ONLY the
+ *   assistant's own (already redacted, gated) reply text — never user
+ *   content. (It replaced Gemini TTS, HACK-116: the Gemini free tier's
+ *   10-requests/day quota silently degraded the demo to the OS voice.)
  */
 /**
  * The fax path (HACK-88, under HACK-75): the one post-submission send.
@@ -134,8 +136,7 @@ export const CONSENT_PATHS: readonly ConsentPathSpec[] = [
   },
   {
     id: "voice",
-    provider:
-      "Meta (speech-to-text) and Google Gemini (text-to-speech, free tier)",
+    provider: "Meta (speech-to-text) and ElevenLabs (text-to-speech)",
     sends: ["your recorded voice", "the assistant's reply text, to read it aloud"],
     purpose:
       "to turn your speech into text, and to read the assistant's replies aloud",
@@ -146,9 +147,9 @@ export const CONSENT_PATHS: readonly ConsentPathSpec[] = [
         verifiedOn: "2026-10-30",
       },
       {
-        label: "Gemini API Additional Terms of Service",
-        url: "https://ai.google.dev/gemini-api/terms",
-        verifiedOn: "2026-10-30",
+        label: "ElevenLabs Terms of Service",
+        url: "https://elevenlabs.io/terms",
+        verifiedOn: "2026-10-31",
       },
     ],
     termsVerified: true,
