@@ -160,9 +160,9 @@
           "source_id": "nc_medicaid_apply_page"
         },
         {
-          "id": "questions_or_no_reply",
-          "label": "If you have questions or don't hear back",
-          "detail": "The form says to call or visit your local DSS office for help with your application, including if you don't hear back after you send it.",
+          "id": "questions",
+          "label": "If you have questions",
+          "detail": "For help with your application, the form says to call or visit your local DSS office.",
           "source_id": "dhb_5200_form"
         },
         {

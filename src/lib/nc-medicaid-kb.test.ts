@@ -286,14 +286,23 @@ describe("the real entry's handoff steps (HACK-46, HACK-47)", () => {
 
   it("holds back the 2020 form's process timing until a current official page confirms it", () => {
     // The form is the 2020 revision and its own local DSS link is dead, so
-    // its follow-up timing, help line, change-reporting window, and
-    // application-date line stay out of the steps (review P2 on PR #82).
+    // its follow-up timing, its advice for when you don't hear back, the
+    // help line, the change-reporting window, and the application-date line
+    // stay out of the steps, paraphrased or not (review P2s on PR #82).
     // Bringing one back is a person's call, made with a current source.
+    const HELD_BACK =
+      /\b1-2 weeks\b|\bfollow[- ]up\b|\bhear (?:back|from)\b|\b10 calendar days\b|\bhelp line\b|\bdate (?:of )?your application\b/i;
     for (const step of allSteps) {
       const text = `${step.label}. ${step.detail}`;
-      expect(text, step.id).not.toMatch(
-        /\b1-2 weeks\b|\b10 calendar days\b|\bhelp line\b|\bdate (?:of )?your application\b/i,
-      );
+      expect(text, step.id).not.toMatch(HELD_BACK);
+    }
+    // The guard bites on the phrasings that were held back.
+    for (const text of [
+      "The form says the agency will follow up with you within 1-2 weeks.",
+      "Call or visit your local DSS office if you don't hear back after you send it.",
+      "If you don't hear from them, call the help line printed on the form.",
+    ]) {
+      expect(text).toMatch(HELD_BACK);
     }
     const form = entry.sources.find((source) => source.id === "dhb_5200_form");
     expect(form?.supports).toContain("Held back from the steps");

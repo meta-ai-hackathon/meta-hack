@@ -125,8 +125,8 @@ const FOLLOW_UP: HandoffAction = {
   title: "Wait to hear from your county office",
   detail:
     "You told us you sent it in. The steps below say how long a decision " +
-    "can take and who to contact if you have questions or don't hear back, " +
-    "each with its official source.",
+    "can take and who to contact with questions, each with its official " +
+    "source.",
   guide: "after_you_apply",
 };
 
