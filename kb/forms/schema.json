@@ -109,6 +109,11 @@
             "description": "Question-spec id this field pre-fills from, or null when the form collects something the spec does not ask (asked in the flow, stored as a form answer).",
             "type": ["string", "null"]
           },
+          "display_format": {
+            "description": "Optional printed-date format for a mapped date question (e.g. \"mm/dd/yyyy\"): ISO yyyy-mm-dd answers render with the mm/dd/yyyy tokens replaced by the zero-padded date parts, in the format the form itself prints.",
+            "type": "string",
+            "minLength": 1
+          },
           "pii_likely": {
             "description": "True when the field collects identity-like data: its value is sensitive-by-default and is omitted from client review/flow payloads.",
             "type": "boolean"

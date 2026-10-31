@@ -224,7 +224,7 @@
         ],
         "steps": [
           { "title": "Review every field", "detail": "Check each answer below. Anything marked as still needed is left blank on the form." },
-          { "title": "Download your application", "detail": "The filled PDF is generated when you tap download, and nothing is saved on our side." },
+          { "title": "Download your application", "detail": "The filled PDF is generated when you tap download, and the filled form itself isn't kept on our side." },
           { "title": "Submit it yourself", "detail": "Use the official portal link, or mail or drop off the printed form — the app never submits for you." },
           { "title": "Tell us what happened", "detail": "After you submit, let us know so your progress here reflects reality." }
         ]

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
 import { StatusRegion } from "../../../components/status-region";
+import { PILOT_CONFIG } from "../../../lib/pilot";
 
 // The review + handoff section (Mission v2 M4, BN-18/21/23/24/25): the
 // prepared-package view under the conversation. Every form field shows its
@@ -89,7 +90,12 @@ export function ReviewSection({ refreshKey }: { refreshKey: number }) {
     let cancelled = false;
     async function loadReview() {
       try {
-        const response = await fetch("/api/forms/sample-application-form/review");
+        // The REAL pilot form (owner demo-day decision 2026-10-31): the
+        // review + fill surface targets the pilot seam's registered form —
+        // the official DHB-5200 — never a hardcoded id here.
+        const response = await fetch(
+          `/api/forms/${PILOT_CONFIG.formRegistryId}/review`,
+        );
         if (!response.ok) {
           throw new Error("review unavailable");
         }
@@ -212,7 +218,8 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
       URL.revokeObjectURL(url);
       setDownloaded(true);
       announce(
-        "The sample application downloaded. Nothing was saved on our side.",
+        "Your application downloaded. The filled form itself wasn't " +
+          "saved on our side.",
       );
     } catch {
       announce("The download didn't go through. Try again in a moment.");
@@ -234,9 +241,12 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
           </a>{" "}
           (retrieved {data.form.retrievedAt}, form version {data.form.version})
         </p>
-        <p data-sample-form-note className="text-sm font-medium text-amber-ink">
-          This is the demonstration form. Your program&apos;s real form replaces
-          it once the pilot is locked — do not submit the sample anywhere.
+        <p data-real-form-note className="text-sm font-medium text-amber-ink">
+          We filled in the fields we could from what you told us, and left
+          the rest blank for you to finish. This is the official application
+          form: you review it, complete it, and submit it yourself — the app
+          never submits for you. Preparing it is not a benefits decision;
+          only the agency decides that.
         </p>
         <ul className="flex flex-col gap-3" data-review-fields>
           {data.fields.map((field) => (

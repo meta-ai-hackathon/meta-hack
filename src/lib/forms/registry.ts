@@ -35,6 +35,12 @@ export interface FormRegistryField {
   readonly question: string;
   /** Spec question this field pre-fills from; null when the spec doesn't ask it. */
   readonly specQuestionId: string | null;
+  /**
+   * Optional printed-date format for a mapped date question (e.g.
+   * "mm/dd/yyyy" on the DHB-5200): ISO date answers render in the format
+   * the form itself prints, so the person hands the agency a legible date.
+   */
+  readonly displayFormat?: string;
   /** Identity-like data: value is sensitive-by-default (omitted from client views). */
   readonly piiLikely: boolean;
   readonly required: boolean;
@@ -129,6 +135,14 @@ function parseEntry(raw: unknown): FormRegistryEntry {
     if (specQuestionId !== null && typeof specQuestionId !== "string") {
       throw registryError(`entry.fields[${index}].spec_question_id must be a string or null`);
     }
+    const displayFormat = item.display_format;
+    if (
+      displayFormat !== undefined &&
+      displayFormat !== null &&
+      (typeof displayFormat !== "string" || displayFormat.trim() === "")
+    ) {
+      throw registryError(`entry.fields[${index}].display_format must be a non-empty string`);
+    }
     const pages = item.pages;
     if (
       !Array.isArray(pages) ||
@@ -159,6 +173,9 @@ function parseEntry(raw: unknown): FormRegistryEntry {
       piiLikely: item.pii_likely === true,
       required: item.required === true,
       pages: pages as readonly number[],
+      ...(typeof displayFormat === "string" && displayFormat.trim() !== ""
+        ? { displayFormat: displayFormat.trim() }
+        : {}),
       ...(answerBox ? { answerBox } : {}),
     };
   });
