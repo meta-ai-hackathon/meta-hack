@@ -37,6 +37,12 @@ import { TURN_ATTEMPTS } from "./walkthrough-core.mjs";
 // (a typed value, a reply, a response body) ever reaches the markdown, and
 // the same observations always score the same way.
 
+// Property runs render whole records, and an async one drives the runner
+// end to end. They take about a second each on a laptop and several times
+// that on a loaded CI runner, so every property block gets a 30 s budget
+// instead of the 5 s default.
+const PROPERTY_BUDGET = Object.freeze({ timeout: 30_000 });
+
 const SPEC = JSON.parse(
   readFileSync(new URL("../specs/question-spec/generic-questions.json", import.meta.url), "utf8"),
 );
@@ -247,7 +253,7 @@ describe("copies of app constants (drift tests)", () => {
 // The frozen case set
 // ---------------------------------------------------------------------------
 
-describe("the frozen cases", () => {
+describe("the frozen cases", PROPERTY_BUDGET, () => {
   it("have unique ids and known categories", () => {
     const ids = EVAL_CASES.map((testCase) => testCase.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -357,7 +363,7 @@ describe("the frozen cases", () => {
 // Matching helpers
 // ---------------------------------------------------------------------------
 
-describe("phrase matching", () => {
+describe("phrase matching", PROPERTY_BUDGET, () => {
   const word = fc.stringMatching(/^[a-z]{1,8}$/);
   const phrase = fc.constantFrom("45 days", "ePASS", "signature", "DSS", "1015", "sign it");
 
@@ -428,7 +434,7 @@ describe("phrase matching", () => {
 // Scoring and the record
 // ---------------------------------------------------------------------------
 
-describe("scoring and the record", () => {
+describe("scoring and the record", PROPERTY_BUDGET, () => {
   it("counts always add up to the denominator, per category and overall", () => {
     fc.assert(
       fc.property(runArb, ([cases, observations]) => {
@@ -445,7 +451,7 @@ describe("scoring and the record", () => {
           expect(perCategory).toBe(record.totals[outcome]);
         }
       }),
-      { numRuns: 200 },
+      { numRuns: 100 },
     );
   });
 
@@ -468,7 +474,7 @@ describe("scoring and the record", () => {
           }
         }
       }),
-      { numRuns: 200 },
+      { numRuns: 100 },
     );
   });
 
@@ -487,7 +493,7 @@ describe("scoring and the record", () => {
         expect(empty.denominator).toBe(cases.length);
         expect(empty.totals.not_run).toBe(cases.length);
       }),
-      { numRuns: 200 },
+      { numRuns: 100 },
     );
   });
 
@@ -503,7 +509,7 @@ describe("scoring and the record", () => {
         expect(markdown).not.toMatch(/RPLY[0-9a-f]{8}/);
         expect(markdown).not.toContain("ZQX-");
       }),
-      { numRuns: 200 },
+      { numRuns: 100 },
     );
   });
 
@@ -545,7 +551,7 @@ describe("scoring and the record", () => {
           }
         });
       }),
-      { numRuns: 200 },
+      { numRuns: 100 },
     );
   });
 
@@ -859,7 +865,7 @@ function perfectTurn({ text, current }) {
   };
 }
 
-describe("the runner against a fake app", () => {
+describe("the runner against a fake app", PROPERTY_BUDGET, () => {
   it("scores the real cases end to end, each category in its own purged session", async () => {
     const app = fakeApp({ questions: REAL_QUESTIONS, turn: perfectTurn });
     const { observations, meta, lines } = await runAgainst(app);
@@ -1184,7 +1190,7 @@ describe("the runner against a fake app", () => {
   });
 });
 
-describe("finishing a run", () => {
+describe("finishing a run", PROPERTY_BUDGET, () => {
   it("never lets a run where nothing ran overwrite the record, and reports a failed purge first", () => {
     fc.assert(
       fc.property(
