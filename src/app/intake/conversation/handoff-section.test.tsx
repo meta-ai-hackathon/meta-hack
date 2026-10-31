@@ -3,7 +3,7 @@ import fc from "fast-check";
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import realEntryJson from "../../../../kb/entries/nc-medicaid.json";
 import { buildFormFlow } from "../../../lib/forms/flow";
 import { getFormRegistryEntry } from "../../../lib/forms/registry";
@@ -380,13 +380,27 @@ describe("HandoffSection inside the review section", () => {
   });
 
   describe("after a real download", () => {
+    // React's act() environment flag is a global, so it is set for this
+    // test only and put back the way it was, like the URL stubs below.
+    const actGlobal = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    let previousActEnvironment: boolean | undefined;
+
+    beforeEach(() => {
+      previousActEnvironment = actGlobal.IS_REACT_ACT_ENVIRONMENT;
+      actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+    });
+
     afterEach(() => {
       vi.unstubAllGlobals();
       document.body.replaceChildren();
+      if (previousActEnvironment === undefined) {
+        delete actGlobal.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actGlobal.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
     });
 
     it("moves the next step from download to mark handed off", async () => {
-      (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
       // The fill route answers with the filled PDF. jsdom has no object
       // URLs and no navigation, so the blob URL and the anchor click are
       // stubbed for this test only and restored after it.
