@@ -29,6 +29,10 @@ empty stays blank on the PDF, for the person to fill in by hand.
 Sharing choices belong to the person. The operator can turn sharing off, which only sends
 less, but never turns sharing on or ticks a sharing box for them.
 
+On camera, use only synthetic or rights-cleared data, such as the fictional walkthrough
+persona's values, unless a real person's explicit public-use consent is documented
+(AGENTS.md, Legal, HACK-58).
+
 ## Before a demo
 
 1. Check that the deployment answers. `/api/health` touches neither the database nor the
