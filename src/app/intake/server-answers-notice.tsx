@@ -25,6 +25,8 @@ import { requestPurge, type PurgeRequestOutcome } from "./conversation/purge-sec
 // the check on load fails, the notice stays hidden: there is nothing true
 // to say. When Check again fails after a delete of unknown outcome, the
 // notice says it couldn't reach the app, so the press is never silent.
+// Only one Check again runs at a time, so a failed check can never land
+// after one that reached the app and overwrite what it found.
 
 export const SERVER_ANSWERS_COPY = {
   heading: "Answers saved on the app's server",
@@ -109,6 +111,8 @@ export function ServerAnswersNotice() {
     null,
   );
   const rootRef = useRef<HTMLElement>(null);
+  // Set while a Check again waits on the app, so only one runs at a time.
+  const checkingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,7 +152,17 @@ export function ServerAnswersNotice() {
   }
 
   async function checkAgain(count: number): Promise<void> {
-    const latest = await checkServerAnswers();
+    if (checkingRef.current) {
+      // A press while a check is out waits for that check's answer.
+      return;
+    }
+    checkingRef.current = true;
+    let latest: number | null = null;
+    try {
+      latest = await checkServerAnswers();
+    } finally {
+      checkingRef.current = false;
+    }
     if (latest === 0) {
       setNotice({ phase: "settled", count, outcome: "purged" });
       setMessage(SERVER_ANSWERS_COPY.goneAfterCheck);
