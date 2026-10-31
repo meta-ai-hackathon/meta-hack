@@ -229,13 +229,17 @@ describe("grounded prompt builders", () => {
     expect(prompt).toContain("(self: Me)");
   });
 
-  it("renders skip conditions as plain-language hints so a multi-answer turn skips what no longer applies", () => {
+  it("renders skip conditions as skip-WHEN hints, matching the engine's semantics", () => {
+    // flow.ts: a question is SKIPPED when ANY skip condition matches
+    // (isQuestionVisible = !conditions.some(matches)). goal_detail's real
+    // condition is `main_goal not_equals "other"` — the engine asks it only
+    // when main_goal IS "other", so the hint must read "skipped when … is
+    // not …", never the inverted "asked only when …".
     const prompt = buildCombinedTurnPrompt(
       QUESTION_BY_ID["application_role"],
       {},
     );
-    // A spec question carrying a skip condition shows its gating hint.
-    expect(prompt).toMatch(/asked only when: .+includes .+/);
+    expect(prompt).toContain('skipped when: main_goal is not "other"');
   });
 
   it("grounds the combined prompt on active KB entries only (BN-29)", () => {

@@ -322,7 +322,7 @@ export function buildCombinedTurnPrompt(
     }
     if (question.skip_conditions.length > 0) {
       parts.push(
-        `asked only when: ${question.skip_conditions
+        `skipped when: ${question.skip_conditions
           .map(skipConditionText)
           .join(" OR ")}`,
       );
