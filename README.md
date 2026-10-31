@@ -75,7 +75,7 @@ a human-sounding Gemini TTS voice (`gemini-3.8-flash-tts`, Callirrhoe
 prebuilt; configurable via `GEMINI_TTS_MODEL`/`GEMINI_TTS_VOICE` env
 overrides; set `GEMINI_API_KEY` in `.env`), with the browser's built-in
 `speechSynthesis` as the honest fallback. Each voice turn runs one combined
-model call (end-to-end p50 ~9.7s locally). The conversation is
+model call, which keeps spoken replies snappy. The conversation is
 accessible by design: prominent live subtitles for the deaf/HoH path,
 keyboard operable, reduced-motion respected. The
 step-by-step wizard stays reachable as the fallback from the chat and from
