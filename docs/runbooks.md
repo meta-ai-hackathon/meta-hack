@@ -229,9 +229,9 @@ It answers with the counts of what it deleted. Then start over in a fresh privat
 
 Rehearsed on 2026-10-31. With no key, every session read and a first plain answer returned
 500. With a new key, the earlier session stayed unreadable, and the purge route still
-deleted its 6 answers and 1 vault entry. `docs/deployment.md` lists `MODEL_API_KEY` and
-`DATABASE_URL` as Vercel variables but not `VAULT_ENC_KEY` or `ELEVENLABS_API_KEY`, so
-confirm those two are set in Vercel too.
+deleted its 6 answers and 1 vault entry. `docs/deployment.md` now lists `VAULT_ENC_KEY` and
+`ELEVENLABS_API_KEY` with the other Vercel variables, but nobody has confirmed yet that
+both are set there, so check them in the Vercel project.
 
 ## Fax
 
