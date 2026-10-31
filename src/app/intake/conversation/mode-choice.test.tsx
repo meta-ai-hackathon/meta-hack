@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../../../lib/honesty";
@@ -65,5 +66,51 @@ describe("the conversation entry mode choice (VAL-NCF-002)", () => {
       <ModeChoice onBegin={() => undefined} />,
     );
     expect(findBannedClaims(html)).toEqual([]);
+  });
+
+  it("renders the headline at the requested level (h1 on the home shell)", () => {
+    const asH1 = renderToStaticMarkup(
+      <ModeChoice onBegin={() => undefined} headingLevel="h1" />,
+    );
+    expect(asH1).toContain('<h1 id="mode-choice-heading"');
+    const asDefault = renderToStaticMarkup(
+      <ModeChoice onBegin={() => undefined} />,
+    );
+    expect(asDefault).toContain('<h2 id="mode-choice-heading"');
+  });
+});
+
+// The carried mode suggestion (VAL-FIX-003): the home shell's mode choice
+// lands here as a PRESELECTION. It applies after paint (storage is
+// client-only), so the preselection must update via effect — never a
+// hydration mismatch on the radio.
+describe("the carried mode suggestion", () => {
+  it("preselects the suggested mode once mounted", async () => {
+    const React = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await React.act(async () => {
+      root.render(
+        React.createElement(ModeChoice, {
+          onBegin: () => undefined,
+          suggestedMode: "voice-only",
+        }),
+      );
+    });
+    await React.act(async () => undefined);
+    function radioFor(mode: string): HTMLInputElement | null {
+      const label = container.querySelector(
+        `label[data-mode-option="${mode}"]`,
+      );
+      return label?.querySelector("input") ?? null;
+    }
+    // Controlled radios carry the selection as the DOM property (React
+    // writes the property after mount, not the serialized attribute).
+    expect(radioFor("voice-only")?.checked).toBe(true);
+    expect(radioFor("voice-plus-typing")?.checked).toBe(false);
+    root.unmount();
+    container.remove();
   });
 });

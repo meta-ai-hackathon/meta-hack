@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type JSX } from "react";
+import { useEffect, useState, type JSX } from "react";
 
 // The entry mode choice (HACK-106 natural conversation, VAL-NCF-002) —
 // the calm mode-choice moment at conversation entry, ported from the
@@ -39,6 +39,19 @@ const MODE_OPTIONS: readonly {
 export function ModeChoice(props: {
   /** Begin the conversation in the chosen mode. */
   readonly onBegin: (mode: ConversationEntryMode) => void;
+  /**
+   * A mode chosen earlier on the home shell (VAL-FIX-003), carried as a
+   * PRESELECTION: the person still begins from this engine-gated entry
+   * stage. Applies after paint (storage is client-only) — never a
+   * hydration mismatch on the radio.
+   */
+  readonly suggestedMode?: ConversationEntryMode;
+  /**
+   * The headline's level: h2 on the conversation page (whose page h1 is
+   * "Chat through your application"), h1 on the home shell (VAL-FIX-003),
+   * where this card is the page's content.
+   */
+  readonly headingLevel?: "h1" | "h2";
 }): JSX.Element {
   // The design frame shows the typing-available mode pre-selected: the
   // safer default (typing stays reachable). This is a UI-mode choice,
@@ -46,6 +59,17 @@ export function ModeChoice(props: {
   const [selected, setSelected] = useState<ConversationEntryMode>(
     "voice-plus-typing",
   );
+  // The carried suggestion lands after paint (storage is client-only), so
+  // the preselection applies deferred past hydration — never a hydration
+  // mismatch, and no synchronous setState inside the effect.
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      if (props.suggestedMode) {
+        setSelected(props.suggestedMode);
+      }
+    });
+  }, [props.suggestedMode]);
+  const HeadingTag = props.headingLevel === "h1" ? "h1" : "h2";
   return (
     <section
       data-mode-choice
@@ -71,9 +95,12 @@ export function ModeChoice(props: {
         Let&apos;s make this feel easier
       </p>
       <div className="flex flex-col gap-2">
-        <h2 id="mode-choice-heading" className="font-display text-3xl font-bold">
+        <HeadingTag
+          id="mode-choice-heading"
+          className="font-display text-3xl font-bold"
+        >
           How would you like to talk?
-        </h2>
+        </HeadingTag>
         <p className="text-muted">
           You bring your story. We&apos;ll take it from there.
         </p>
