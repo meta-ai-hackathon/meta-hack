@@ -82,6 +82,7 @@ import subprocess
 import tempfile
 import unittest
 from dataclasses import dataclass, field, replace
+from unittest import mock
 from pathlib import Path, PurePosixPath
 from typing import Final, Iterable
 
@@ -375,13 +376,15 @@ class RepoScanTests(unittest.TestCase):
 
     def test_a_listed_value_passes_only_where_it_is_listed(self) -> None:
         # The allowed findings are exactly the listed entries, which holds
-        # for an empty list too.
+        # for an empty list too, and an entry of any kind, a published phone
+        # number included, passes nothing of another kind.
         listed = [finding for finding in self.findings if allowed(finding)]
         self.assertEqual({(finding.path, finding.kind, digest(finding.value)) for finding in listed}, set(ALLOWED))
         for finding in listed:
             self.assertFalse(allowed(replace(finding, path="src/lib/other.ts")))
             self.assertFalse(allowed(replace(finding, value=finding.value + "0")))
-            self.assertFalse(allowed(replace(finding, kind="phone number")))
+            for kind in {"ssn", "phone number", "email"} - {finding.kind}:
+                self.assertFalse(allowed(replace(finding, kind=kind)))
 
 
 # --- property tests ---------------------------------------------------------------
@@ -721,6 +724,17 @@ class FinderProperties(unittest.TestCase):
         value = f"git@{host}"
         for text in (surround(value, around), value):
             self.assertEqual([(kind, email) for _offset, kind, email in find_pii(text)], [("email", value)])
+
+    @PBT
+    @given(st.one_of(SSNS, st.builds(phone, REAL_NUMBERS, PHONE_FORMS), st.builds("{}@{}".format, LOCAL_PARTS, REAL_DOMAINS)))
+    def test_the_listed_value_check_holds_for_an_entry_of_any_kind(self, value: str) -> None:
+        # The repo check run on a list that holds one entry of the value's
+        # kind, like an agency's published phone number in kb/.
+        finding = Finding("kb/entries/fixture.json", 1, 1, find_pii(value)[0][1], value)
+        checks = RepoScanTests("test_a_listed_value_passes_only_where_it_is_listed")
+        checks.findings = [finding]
+        with mock.patch.dict(ALLOWED, {(finding.path, finding.kind, digest(value)): "In a fixture."}, clear=True):
+            checks.test_a_listed_value_passes_only_where_it_is_listed()
 
     @PBT
     @given(
