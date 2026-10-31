@@ -1,15 +1,26 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import { ANSWER_STATUSES } from "../lib/honesty";
+import { describe, expect, it, vi } from "vitest";
+import { findBannedClaims } from "../lib/honesty";
 import Home from "./page";
 
-// BN-07 heading-outline check: heading tag levels in document order, so the
-// outline must start at h1 and never skip a level downward.
+// The entry choice island is a client component that navigates with the
+// app router; the static shell render mocks that seam.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: () => undefined }),
+}));
+
+// The entry/home surface (VAL-FIX-003): the approved Lovable round-2
+// shell — the three-stage journey sidebar beside the framed paper-card
+// content (the approved mode-choice card), brand mark in the header, a
+// mobile-sane single column. The old hero page (status-badge showcase +
+// a11y demo blocks) is superseded: the a11y demo's own docstring said it
+// was to be replaced once the real flows landed, and they have.
+
 function headingLevels(html: string): number[] {
   return [...html.matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
 }
 
-describe("Home page", () => {
+describe("Home page (the round-2 entry shell, VAL-FIX-003)", () => {
   it("renders the app title as a single h1", () => {
     const html = renderToStaticMarkup(<Home />);
     const h1Count = (html.match(/<h1[\s>]/g) ?? []).length;
@@ -17,11 +28,28 @@ describe("Home page", () => {
     expect(html).toContain("Benefits Navigator");
   });
 
-  it("demonstrates every honest answer status with its badge", () => {
+  it("carries the approved mode-choice card as the framed content", () => {
     const html = renderToStaticMarkup(<Home />);
-    for (const status of ANSWER_STATUSES) {
-      expect(html, status).toContain(`data-status="${status}"`);
-    }
+    expect(html).toContain("data-mode-choice");
+    expect(html).toContain("How would you like to talk?");
+    expect(html).toContain("Live subtitles are always here.");
+  });
+
+  it("lists the three journey stages — fresh visitors see talk and results locked", () => {
+    const html = renderToStaticMarkup(<Home />);
+    expect(html).toContain('aria-label="Your journey"');
+    // Reached stages navigate; the fresh paint has only the mode choice
+    // reached (real progress arrives with the history fetch).
+    expect(html).toContain('data-journey-stage-link="mode-choice"');
+    expect(html).toContain('data-journey-stage-locked="talk"');
+    expect(html).toContain('data-journey-stage-locked="results"');
+    expect(html).not.toContain('data-journey-stage-link="talk"');
+    expect(html).not.toContain('data-journey-stage-link="results"');
+  });
+
+  it("keeps the intake wizard reachable by navigation (VAL-CROSS-004)", () => {
+    const html = renderToStaticMarkup(<Home />);
+    expect(html).toContain('href="/intake"');
   });
 
   it("keeps a hierarchical heading outline with no skipped levels", () => {
@@ -35,21 +63,8 @@ describe("Home page", () => {
     }
   });
 
-  it("includes a polite live region for announced status changes", () => {
+  it("stays banned-claim clean", () => {
     const html = renderToStaticMarkup(<Home />);
-    expect(html).toContain('role="status"');
-    expect(html).toContain('aria-live="polite"');
-  });
-
-  it("associates the example field label with its control", () => {
-    const html = renderToStaticMarkup(<Home />);
-    expect(html).toContain('<label for="a11y-demo-field"');
-    expect(html).toContain('id="a11y-demo-field"');
-    expect(html).toContain('aria-describedby="a11y-demo-field-help"');
-  });
-
-  it("links to the intake flow so it is reachable by navigation", () => {
-    const html = renderToStaticMarkup(<Home />);
-    expect(html).toContain('href="/intake"');
+    expect(findBannedClaims(html)).toEqual([]);
   });
 });
