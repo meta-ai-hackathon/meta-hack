@@ -698,7 +698,7 @@ _KEY_LINE_MIN = 16
 # too, unless it reads as code. A run that is a whole string, alone between
 # its quotes, is a piece from 2 key characters on, unless it is a word in
 # one case, capitalized or camelCase, or a number, maybe with digits at its
-# end, or a path of them ("POST", "utf8", "application/json"). Capitalized
+# end, or a path of them ("POST", "utf8", "text/plain"). Capitalized
 # and camelCase words stay visible so that copy a person reads ("Approved")
 # and the field names the reviewer judges ("ssnLast4") can never hide
 # between key markers. Any other run is a piece from 4 on,
