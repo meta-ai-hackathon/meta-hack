@@ -1364,6 +1364,42 @@ class ShortKeyPieceProperties(unittest.TestCase):
         self.assertIn(f"echo {bare} >> build.log\necho '{whole_string}' >> build.log", out)
         self.assertEqual(count, 2)
 
+    @staticmethod
+    def mixed_pieces(count: int) -> list[str]:
+        """count key pieces of 4 characters, each in both cases and with a digit."""
+        return [
+            string.ascii_uppercase[n % 26] + string.ascii_lowercase[n * 7 % 26] + string.digits[n % 10] + KEY_ALPHABET[n * 13 % 64]
+            for n in range(count)
+        ]
+
+    def test_short_pieces_go_however_much_code_stands_around_them(self) -> None:
+        # 400 pieces of 4 characters, one fs.appendFileSync line each: the
+        # code around them puts the footer about 15,000 characters past the
+        # header, far beyond the 8,040 main counted, and still every piece
+        # goes, because the bound counts only the key's own characters.
+        pieces = self.mixed_pieces(400)
+        text = APPEND_FORM.write("", pieces)
+        self.assertGreater(len(text), 14_000)
+        out, count = review.redact_sensitive(text)
+        for piece in pieces:
+            self.assertNotIn(APPEND_FORM.shown.format(piece=piece), out)
+        self.assertEqual(out.count("fs.appendFileSync('k.pem', '[REDACTED private key]\\n');"), 401)
+        self.assertEqual(count, 1 + 400 + 1)
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    def test_the_footer_bound_counts_one_keys_material(self) -> None:
+        # 8,040 characters of pieces, main's bound, still end at their
+        # footer, with about 76,000 characters of code around them. One
+        # piece more and the footer is no longer this key's, so, as on
+        # main, nothing after the header's line goes.
+        for count, footer_is_the_keys in ((2_010, True), (2_011, False)):
+            pieces = self.mixed_pieces(count)
+            out, _count = review.redact_sensitive(APPEND_FORM.write("", pieces))
+            self.assertNotIn("-----BEGIN", out)
+            self.assertEqual("-----END" not in out, footer_is_the_keys, count)
+            shown = [piece for piece in pieces if APPEND_FORM.shown.format(piece=piece) in out]
+            self.assertEqual(shown, [] if footer_is_the_keys else pieces, count)
+
     def test_short_key_pieces_take_linear_time(self) -> None:
         # Long texts between a header and a footer, after a line of code,
         # made of the pieces the redactor reads one by one: whole strings,

@@ -659,8 +659,12 @@ class _Detector:
 _KEY_HEADER = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _KEY_FOOTER = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
 _KEY_RUN = re.compile(r"(?:[A-Za-z0-9+/=]|\\++/)++")
-# How far past a header a footer still counts as that key's footer (main's bound).
-_KEY_FOOTER_WINDOW = 8000 + 40
+# How much key material may come between a header and a footer for the
+# footer to count as that key's: main's bound, counted in the characters of
+# the runs the redactor would hide rather than in every character, so the
+# code around a key written in short pieces cannot push its footer out of
+# reach.
+_KEY_MATERIAL_MAX = 8000 + 40
 _KEY_PIECE = re.compile(
     r"(?P<footer>-?-----END [A-Z ]*PRIVATE KEY-----)"
     r"|(?P<line_break>\r\n?+|\n|\\++[nr])"
@@ -709,10 +713,10 @@ def _key_end(text: str, pos: int) -> int:
     end of its footer when every line before the footer is key material, and
     otherwise at the end of the last whole line of key material right after
     the header (the header's own end when there is none). So when no footer
-    follows within the bound, the first line that is not key material, such
-    as a line of code, and everything after it reach the model; when one
-    does follow, private_key_spans also redacts the key's pieces and the
-    footer after that line (see there)."""
+    of this key follows, the first line that is not key material, such as a
+    line of code, and everything after it reach the model; when one does
+    follow, private_key_spans also redacts the key's pieces and the footer
+    after that line (see there)."""
     end = pos  # the header and every whole line of key material after it
     pending = False  # a short run ended a line, so only the footer may follow
     line_end: int | None = None  # the end of the current line's last full run
@@ -769,37 +773,58 @@ def _whole_string(text: str, start: int, end: int) -> bool:
     return closer is not None and closer.group(1) == opener
 
 
+def _key_pieces(text: str, start: int, end: int, stop: int) -> list[tuple[int, int]] | None:
+    """The pieces of a key between end, where its walk stopped, and stop,
+    where a footer starts. None when the key material between start (the
+    header's end) and stop is more than one key holds, so the footer is
+    not this key's."""
+    pieces: list[tuple[int, int]] = []
+    material = 0
+    for run in _KEY_RUN.finditer(text, start, stop):
+        value = run.group()
+        if is_key_piece(value, _whole_string(text, run.start(), run.end())):
+            material += len(value) - value.count("\\")
+            if material > _KEY_MATERIAL_MAX:
+                return None
+            if run.start() >= end:
+                pieces.append(run.span())
+    return pieces
+
+
 def private_key_spans(text: str) -> list[tuple[int, int]]:
     """Where each private key in text starts and where its redaction ends
     (see _key_end), in order, and the pieces of a key written as code.
-    Linear in the text's length: a key's walk ends at its footer or at the
-    first piece that is not key material, which any later header is, so no
-    two walks cover the same text.
 
-    When a footer follows a header within the bound but the walk stopped
-    early (a key written as code: one line or one short piece per echo, a
-    string piece per call, or pieces joined with a dot), the code stays
-    visible, and every piece of the key between the walk's end and the
-    footer is redacted with the footer (see is_key_piece). What still
-    reaches the model there: pieces under the floors (a string of one key
-    character, a bare run of up to three), and pieces that happen to read
-    as code, such as a string piece in one case or a bare piece shaped like
-    a name."""
+    A footer counts as a header's when no other header comes before it and
+    no more than _KEY_MATERIAL_MAX characters of key material lie between
+    them. When one follows but the walk stopped early (a key written as
+    code: one line or one short piece per echo, a string piece per call, or
+    pieces joined with a dot), the code stays visible, and every piece of
+    the key between the walk's end and the footer is redacted with the
+    footer (see is_key_piece). What still reaches the model there: pieces
+    under the floors (a string of one key character, a bare run of up to
+    three), and pieces that happen to read as code, such as a string piece
+    in one case or a bare piece shaped like a name.
+
+    Linear in the text's length. A key's walk ends at its footer or at the
+    first piece that is not key material, which any later header is, so no
+    two walks cover the same text. The search for a footer starts again only
+    once a header comes after the last footer found, and the runs before a
+    footer are read only for the last header before it."""
     spans: list[tuple[int, int]] = []
     header = _KEY_HEADER.search(text)
+    footer = None if header is None else _KEY_FOOTER.search(text, header.end())
     while header is not None:
         end = _key_end(text, header.end())
         spans.append((header.start(), end))
-        footer = _KEY_FOOTER.search(text, header.end(), header.end() + _KEY_FOOTER_WINDOW)
-        if footer is not None and _KEY_HEADER.search(text, header.end(), footer.start()) is not None:
-            # A later header comes first, so this footer is that key's, not
-            # this one's; leave both to the later header's own walk.
-            footer = None
-        if footer is not None and end <= footer.start():
-            for run in _KEY_RUN.finditer(text, end, footer.start()):
-                if is_key_piece(run.group(), _whole_string(text, run.start(), run.end())):
-                    spans.append(run.span())
-            spans.append((footer.start(), footer.end()))
+        if footer is not None and footer.start() < header.end():
+            footer = _KEY_FOOTER.search(text, header.end())
+        # A later header coming first makes the footer that key's, not this
+        # one's; both are left to the later header's own walk.
+        if footer is not None and end <= footer.start() and _KEY_HEADER.search(text, header.end(), footer.start()) is None:
+            pieces = _key_pieces(text, header.end(), end, footer.start())
+            if pieces is not None:
+                spans += [*pieces, footer.span()]
         header = _KEY_HEADER.search(text, spans[-1][1])
     return spans
 
