@@ -18,6 +18,13 @@ session until they delete them. AGENTS.md (Legal) says that store doesn't yet me
 rule that answers leave the device only through the fax (HACK-87), so a person has to
 confirm this path is acceptable for real pilot data before the pilot relies on it.
 
+The review also has its own boxes for what the questions don't ask: the full legal name,
+the home and mailing addresses, the Social Security number, next year's income, and the
+signature under "Type your full name to sign". Pressing "Download the filled PDF" sends
+whatever is typed in them to the app's server for that one fill. The server doesn't keep
+them, but they still leave the device, so the same confirmation covers them. A box left
+empty stays blank on the PDF, for the person to fill in by hand.
+
 Sharing choices belong to the person. The operator can turn sharing off, which only sends
 less, but never turns sharing on or ticks a sharing box for them.
 
@@ -93,7 +100,8 @@ To keep going without losing anything:
    at the first question still open, with every answer the chat already saved.
 3. Keep answering. "Your answers so far", "Benefits that may be worth pursuing" and "Your
    application, prepared from your answers" stay below, and "Download the filled PDF"
-   works.
+   works. These answers save in the app's server-side session like the chat's, and the
+   download sends the review's own boxes to the server (see the top of this page).
 4. Once the model is back, tell the person the chat works again. Going back to it is
    their choice, and they turn sharing on themselves: "Change your choices", the box for
    sharing typed words, then "Continue with these choices".
@@ -246,11 +254,13 @@ both are set there, so check them in the Vercel project.
 No route or screen sends a fax yet. `transmitPacket` and `assemblePacket` are only called
 from their tests, and the fax consent path stays switched off (`termsVerified: false` in
 `src/lib/consent.ts`). The review offers the filled PDF and the official links, and the
-person submits the form themselves. The "Send my application" button on the results only
-scrolls to the typed-signature step ("Type your full name to sign"), or to "Getting it
-done" when there isn't one, and sends nothing. If the demo films a fax, the person sends
-it through their own channel, and rehearsal faxes go to a test destination only
-(AGENTS.md, Legal).
+person submits the form themselves. The "Send my application" button on "Your results",
+where a conversation with typed and voice sharing on ends, only scrolls to the
+typed-signature step ("Type your full name to sign"), or to "Getting it done" when there
+isn't one, and sends nothing. A name typed in that step goes to the app's server with
+"Download the filled PDF", like the review's other boxes (see the top of this page). If
+the demo films a fax, the person sends it through their own channel, and rehearsal faxes
+go to a test destination only (AGENTS.md, Legal).
 
 ## Resetting between rehearsals
 
