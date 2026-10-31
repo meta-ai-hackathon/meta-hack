@@ -857,11 +857,25 @@ describe("the prompt's stored-answer mark (VAL-NCF-003)", () => {
   it("PROPERTY: no pii question's value ever appears in its mark, for arbitrary values", () => {
     const piiQuestions = QUESTIONS.filter((question) => question.pii);
     expect(piiQuestions.length).toBeGreaterThan(0);
+    // The marker is the REPLACEMENT, so a value that is a substring of the
+    // marker text itself is not a leak (the same exclusion the redaction
+    // property makes). Specific values (length ≥ 6) with the guard cover
+    // the leak-shaped cases.
+    const marker = storedAnswerMark(piiQuestions[0]!, {
+      status: "known",
+      value: "marker-probe",
+    });
+    const specificValueArb = fc.string({
+      unit: fc.constantFrom(...SAFE_VALUE_CHARS),
+      minLength: 6,
+      maxLength: 12,
+    });
     fc.assert(
       fc.property(
         fc.constantFrom(...piiQuestions),
-        valueArb,
+        specificValueArb,
         (question, value) => {
+          fc.pre(!containsIgnoreCase(marker, value));
           const mark = storedAnswerMark(question, {
             status: "known",
             value,
