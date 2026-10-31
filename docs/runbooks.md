@@ -10,6 +10,9 @@ answering. The step-by-step questions take over in place, keep every answer the 
 already saved, and still end at the review and the filled DHB-5200. The "Open the wizard"
 link in the error goes somewhere else (see the first runbook).
 
+Sharing choices belong to the person. The operator can turn sharing off, which only sends
+less, but never turns sharing on or ticks a sharing box for them.
+
 ## Before a demo
 
 1. Check that the deployment answers. `/api/health` touches neither the database nor the
@@ -28,9 +31,9 @@ link in the error goes somewhere else (see the first runbook).
     pnpm walkthrough --url https://meta-hack-omega.vercel.app    # expect WALKTHROUGH PASSED
     ```
 
-3. Open the chat page in a fresh private window, and find "Your privacy choices" below
-   the conversation. Its "Turn off sharing" and "Change your choices" buttons are the
-   controls the runbooks below use.
+3. Know where "Your privacy choices" is. It appears below the conversation once the person
+   has made a sharing choice, with the "Turn off sharing" and "Change your choices" buttons
+   the runbooks below use.
 
 4. Don't change `VAULT_ENC_KEY` in Vercel before or during the pilot (see the vault key
    runbook).
@@ -75,8 +78,9 @@ To keep going without losing anything:
 3. Keep answering. "Your answers so far", "Benefits that may be worth pursuing" and "Your
    application, prepared from your answers" stay below, and "Download the filled PDF"
    works.
-4. Once the model is back, press "Change your choices", tick the box for sharing typed
-   words, and press "Continue with these choices" to return to the chat.
+4. Once the model is back, tell the person the chat works again. Going back to it is
+   their choice, and they turn sharing on themselves: "Change your choices", the box for
+   sharing typed words, then "Continue with these choices".
 
 The amber alert stays on screen after the switch. Ignore it. Don't follow "Open the
 wizard" mid-demo. `/intake` keeps answers only on the device, doesn't see what the chat
@@ -117,9 +121,10 @@ instead."
 
 When speech to text fails, the person sees the model-unavailable alert. With the typing
 option on, press "Switch to typing" and carry on, which works while the chat model is
-still up. Voice-only mode has no switch button, so press "Change your choices", untick the
-voice box, and press "Continue with these choices". If typed turns fail too, turn sharing
-off as in the first runbook.
+still up. Voice-only mode has no switch button, so turn voice off instead: press "Change
+your choices", untick only the voice box, and press "Continue with these choices". That
+sends less, and sharing typed words stays as the person chose it. If typed turns fail too,
+turn sharing off as in the first runbook.
 
 When the spoken replies fail (ElevenLabs is down, or `ELEVENLABS_API_KEY` is missing), the
 reply text still appears and the browser's built-in voice reads it, with a "Hearing the
