@@ -40,9 +40,13 @@ every git-tracked text file and fails on
   git@github.com:org/repo.git or ssh://git@github.com/org/repo.git, names
   a server rather than a person, so it passes.
 
-An escaped line break or tab (backslash n, r or t) counts as a space, so a
-value right after one inside a string is still found. A file saved as
-UTF-16 or UTF-32 with its byte order mark is read in that encoding.
+An escape inside a string counts as spaces: a line break, a tab or another
+control character (backslash n, r, t, b, f or v), and a character written
+by its code (backslash x and two hex digits, or backslash u and four), the
+way Python's json.dumps writes an em dash, a curly quote or a no-break
+space. So a value right after one inside a string is still found, and so is
+one right after a regex word boundary. A file saved as UTF-16 or UTF-32
+with its byte order mark is read in that encoding.
 Lockfiles and binary file types are not read, so a filled form committed as
 a PDF, or an audio recording, is not checked here; those stay synthetic by
 review. Any other file with a NUL byte can't be read as text either (UTF-16
@@ -66,6 +70,7 @@ from __future__ import annotations
 
 import codecs
 import hashlib
+import json
 import re
 import string
 import subprocess
@@ -160,8 +165,11 @@ _PHONE_WORD = (
 NAMED_SSN: Final = re.compile(rf"{_SSN_WORD}{_NAMED}(?<![\d+])(\d{{9}})(?!\d)")
 NAMED_PHONE: Final = re.compile(rf"{_PHONE_WORD}{_NAMED}(?<![\d+])((?:\+?1)?{_NXX}{_NXX}\d{{4}})(?!\d)")
 EMAIL: Final = re.compile(r"(?<![\w.%+-])(?P<local>[A-Za-z0-9._%+-]+)@(?P<domain>[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b")
-# An escaped line break or tab inside a string literal.
-_ESCAPE: Final = re.compile(r"\\[nrt]")
+# An escape inside a string literal: a control character (backslash n, r,
+# t, b, f or v) or a character written by its code (backslash x and two hex
+# digits, or u and four), as Python's json.dumps writes every one outside
+# ASCII.
+_ESCAPE: Final = re.compile(r"\\(?:[nrtbfv]|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4})")
 
 FICTIONAL_EMAIL_DOMAINS: Final = ("example.com", "example.org", "example.net", "noreply.github.com")
 FICTIONAL_EMAIL_TLDS: Final = frozenset({"test", "invalid"})
@@ -225,7 +233,8 @@ def ssh_remote(text: str, match: re.Match[str]) -> bool:
 
 def find_pii(text: str) -> list[tuple[int, str, str]]:
     """Each real-looking detail in text, in order: where it starts, its kind and its value."""
-    text = _ESCAPE.sub("  ", text)
+    # Spaces as long as the escape, so every offset stays where it was.
+    text = _ESCAPE.sub(lambda escape: " " * len(escape.group()), text)
     found = {(match.start(), "ssn", match.group()) for match in SSN.finditer(text) if issuable_ssn(match.group())}
     found |= {(match.start(1), "ssn", match.group(1)) for match in NAMED_SSN.finditer(text) if issuable_ssn(match.group(1))}
     for pattern, group in ((PHONE, 0), (NAMED_PHONE, 1)):
@@ -358,10 +367,18 @@ class RepoScanTests(unittest.TestCase):
 
 PBT = settings(database=None, deadline=None, max_examples=150, suppress_health_check=[HealthCheck.too_slow])
 # Text around a value: letters and spaces, then one of the marks a value
-# stands next to in code or prose, escaped line breaks and tabs included.
+# stands next to in code or prose, escapes included (a line break, a tab, a
+# regex word boundary, a form feed, and a no-break space or a curly quote
+# written by its code).
 FILLER = st.text(alphabet=string.ascii_letters + " ", max_size=20)
-MARKS = st.sampled_from([" ", "\n", "\r\n", "\t", "(", ")", '"', "'", "`", ": ", ", ", "=", "<", ">", "[", "]", "\\n", "\\t"])
+MARKS = st.sampled_from(
+    [" ", "\n", "\r\n", "\t", "(", ")", '"', "'", "`", ": ", ", ", "=", "<", ">", "[", "]", "\\n", "\\t", "\\b", "\\f", "\\xa0", "\\u201c"]
+)
 SURROUNDINGS = st.tuples(FILLER, MARKS, MARKS, FILLER)
+# Punctuation outside ASCII that a transcript puts right next to a value
+# (dashes, curly quotes, a no-break space, an ellipsis, guillemets), which
+# Python's json.dumps writes only as an escape.
+WIDE_MARKS = st.sampled_from([chr(code) for code in (0x2014, 0x2013, 0x201C, 0x201D, 0x2019, 0x00A0, 0x2026, 0x00AB, 0x00BB)])
 
 # SSNs as (area, group, serial): any the SSA could issue (area 900 to 999
 # included, which ITINs use), and the shapes it never issues.
@@ -672,6 +689,25 @@ class FinderProperties(unittest.TestCase):
 
     @PBT
     @given(
+        st.one_of(SSNS, st.builds(phone, REAL_NUMBERS, PHONE_FORMS), st.builds("{}@{}".format, LOCAL_PARTS, REAL_DOMAINS)),
+        FILLER,
+        WIDE_MARKS,
+        WIDE_MARKS,
+        FILLER,
+    )
+    def test_a_value_next_to_punctuation_is_found_in_json_that_escapes_it(
+        self, value: str, before: str, left: str, right: str, after: str
+    ) -> None:
+        # The same text as it is, and as json.dumps saves it, alone or inside
+        # a payload, where each mark is only an escape.
+        expected = [(kind, found) for _offset, kind, found in find_pii(value)]
+        self.assertTrue(expected)
+        text = before + left + value + right + after
+        for written in (text, json.dumps(text), json.dumps({"turns": [{"text": text}]})):
+            self.assertEqual([(kind, found) for _offset, kind, found in find_pii(written)], expected)
+
+    @PBT
+    @given(
         st.lists(
             st.one_of(SSNS, st.builds(phone, REAL_NUMBERS, PHONE_FORMS), st.builds("{}@{}".format, LOCAL_PARTS, REAL_DOMAINS)),
             min_size=1,
@@ -680,14 +716,16 @@ class FinderProperties(unittest.TestCase):
         st.lists(st.sampled_from([".ts", ".md", ".json", ".py", ".txt", ""]), min_size=4, max_size=4),
         st.lists(ENCODINGS, min_size=4, max_size=4),
         st.integers(0, 3),
+        st.sampled_from(["", "\\n", "\\xa0", "\\u2014"]),
     )
     def test_a_planted_value_is_found_where_it_is_in_any_text_file_and_never_shown(
-        self, values: list[str], suffixes: list[str], encodings: list[str], blank_lines: int
+        self, values: list[str], suffixes: list[str], encodings: list[str], blank_lines: int, escape: str
     ) -> None:
         # Each value on its own line of a tracked text file, saved in any
-        # encoding the scan reads, after a few other lines; the same values
-        # in a lockfile, a binary file type, a file with a NUL byte and
-        # UTF-16 without its mark are not read.
+        # encoding the scan reads, after a few other lines and maybe an
+        # escape, which moves its column by the escape's length; the same
+        # values in a lockfile, a binary file type, a file with a NUL byte
+        # and UTF-16 without its mark are not read.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             expected = []
@@ -696,9 +734,10 @@ class FinderProperties(unittest.TestCase):
                 path = f"dir{index}/fixture{index}{suffixes[index]}"
                 paths.append(path)
                 (root / path).parent.mkdir(parents=True)
-                (root / path).write_bytes(saved("first line\n" + "\n" * blank_lines + f"  value = '{value}'\n", encodings[index]))
+                line = f"  value = '{escape}{value}'\n"
+                (root / path).write_bytes(saved("first line\n" + "\n" * blank_lines + line, encodings[index]))
                 kind = find_pii(value)[0][1]
-                expected.append((path, 2 + blank_lines, 12, kind, value))
+                expected.append((path, 2 + blank_lines, 12 + len(escape), kind, value))
             text = "".join(f"value = '{value}'\n" for value in values)
             for path, data in (
                 ("pnpm-lock.yaml", text.encode()),
