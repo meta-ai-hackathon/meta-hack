@@ -274,11 +274,13 @@ export function ConversationChat() {
     pausedRef.current = value;
     setPausedState(value);
   }, []);
-  // A continuation utterance that ended while a turn was still
-  // processing (VAL-FIX-001: speech resuming after an endpoint decision
-  // re-opens cleanly — queued first-wins, submitted when the in-flight
-  // turn settles, never dropped).
-  const pendingVoiceRef = useRef<Blob | null>(null);
+  // Continuation utterances that ended while a turn was still processing
+  // (VAL-FIX-001: speech resuming after an endpoint decision re-opens
+  // cleanly): queued in ORDER and submitted one-by-one as each in-flight
+  // turn settles — nothing the person said is dropped. Cleared wherever
+  // the session ends or voice consent is revoked (never send captured
+  // audio after the person withdrew it).
+  const pendingVoiceRef = useRef<Blob[]>([]);
   // VAL-FIX-001 instrumentation: the endpoint decision's timing, from
   // the gate through turn submission. Timing only — no transcript, no
   // audio, no PII. Rendered as a data attribute (no visual change) so
@@ -408,6 +410,7 @@ export function ConversationChat() {
     if (!voiceSharingOn && sessionRef.current !== null) {
       sessionRef.current.stop();
       sessionRef.current = null;
+      clearPendingVoice();
       setSessionOn(false);
       setPaused(false);
       setTypingMode(true);
@@ -424,6 +427,7 @@ export function ConversationChat() {
     if (journeyComplete && sessionRef.current !== null) {
       sessionRef.current.stop();
       sessionRef.current = null;
+      clearPendingVoice();
       setSessionOn(false);
       setPaused(false);
     }
@@ -434,6 +438,7 @@ export function ConversationChat() {
     return () => {
       sessionRef.current?.stop();
       sessionRef.current = null;
+      clearPendingVoice();
     };
   }, []);
 
@@ -628,10 +633,17 @@ export function ConversationChat() {
     // journey: an ai-only typed completion never hears audio (and its
     // layout is the single-scroll one, not the results stage).
     if (data.state.complete && !wasComplete && voiceSharingOn && entryMode !== null) {
-      // Same echo-proof for the spoken wrap-up: no capture while it
-      // plays (the journey-complete effect then ends the session).
+      // Same echo-proof for the spoken wrap-up, and it is AWAITED: the
+      // turn settles only after the wrap-up finishes playing, so the
+      // settled cleanup's resume really starts after the audio (the
+      // journey-complete effect then ends the session).
       sessionRef.current?.hold();
-      queueSpeech(RESULTS_WRAP_UP);
+      await new Promise<void>((resolve) => {
+        const spoke = queueSpeech(RESULTS_WRAP_UP, undefined, resolve);
+        if (!spoke) {
+          resolve();
+        }
+      });
     }
   }
 
@@ -700,13 +712,11 @@ export function ConversationChat() {
   async function submitVoiceTurn(recorded: Blob): Promise<void> {
     if (busyRef.current) {
       // A continuation spoken while a turn is still processing
-      // (VAL-FIX-001): queued first-wins and submitted when the
-      // in-flight turn settles — speech resuming after an endpoint
-      // decision re-opens the turn cleanly instead of being dropped.
-      // Capture keeps running so whatever comes next is heard too.
-      if (pendingVoiceRef.current === null) {
-        pendingVoiceRef.current = recorded;
-      }
+      // (VAL-FIX-001): queued in order and submitted when the in-flight
+      // turns settle — speech resuming after an endpoint decision
+      // re-opens the turn cleanly instead of being dropped. Capture
+      // keeps running so whatever comes next is heard too.
+      pendingVoiceRef.current.push(recorded);
       restartListeningIfActive();
       return;
     }
@@ -764,17 +774,36 @@ export function ConversationChat() {
 
   // The settled-turn cleanup, shared by the voice and typed flows
   // (VAL-FIX-001): end the playback hold — resuming the listening cycle
-  // unless the PERSON paused (their pause outlives any turn) — and
-  // submit a continuation utterance that was queued mid-turn, in order.
+  // unless the PERSON paused (their pause outlives any turn) — then
+  // submit the next queued continuation, if any. Continuations submit
+  // ONLY while voice consent still stands and the session is live:
+  // revoking voice, ending the session, or a recorder failure clears
+  // the queue instead of sending captured audio without consent
+  // (claude-review round: consent hygiene). One per settle keeps the
+  // submissions strictly in spoken order.
   function settleVoiceAfterTurn(): void {
     if (!pausedRef.current) {
       sessionRef.current?.resume();
     }
-    const pending = pendingVoiceRef.current;
-    pendingVoiceRef.current = null;
-    if (pending !== null) {
-      void submitVoiceTurnRef.current?.(pending);
+    if (
+      !consentPathEnabled("voice", cachedConsentSnapshot()) ||
+      sessionRef.current === null ||
+      !sessionRef.current.isActive
+    ) {
+      pendingVoiceRef.current = [];
+      return;
     }
+    const next = pendingVoiceRef.current.shift();
+    if (next !== undefined) {
+      void submitVoiceTurnRef.current?.(next);
+    }
+  }
+
+  // Wherever the voice session ENDS, captured-but-unsent audio goes with
+  // it (claude-review round: the queue must never outlive the consented
+  // session).
+  function clearPendingVoice(): void {
+    pendingVoiceRef.current = [];
   }
   // Latest-ref wiring (see the ref's comment): the session callback reads
   // the CURRENT submit function on every utterance. An effect, not a
@@ -820,6 +849,8 @@ export function ConversationChat() {
           // stop() releases the mic stream and audio context (claude-review
           // P2: no orphaned hardware while the UI says to type).
           sessionRef.current?.stop();
+          sessionRef.current = null;
+          clearPendingVoice();
           sessionRef.current = null;
           setSessionOn(false);
           setMicBlocked(true);
@@ -867,6 +898,7 @@ export function ConversationChat() {
   function stopSession(): void {
     sessionRef.current?.stop();
     sessionRef.current = null;
+    clearPendingVoice();
     setSessionOn(false);
     setPaused(false);
     setVoicePhase(null);

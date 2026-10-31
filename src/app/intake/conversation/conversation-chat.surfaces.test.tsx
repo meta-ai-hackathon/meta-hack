@@ -337,7 +337,7 @@ describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 
-  it("VAL-FIX-001: a continuation spoken while a turn is processing is queued and submitted after it (never dropped)", async () => {
+  it("VAL-FIX-001: continuations spoken while a turn is processing are queued in order and all submitted (never dropped)", async () => {
     const { container, act } = await renderChat();
     await beginMode(container, act, "voice-only");
     // The first turn's POST hangs until the test releases it, so
@@ -385,25 +385,28 @@ describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
     // decision re-opens for whatever the person says next).
     expect(turnCalls).toHaveLength(1);
     expect(sessionOps).toContain("listen");
-    // A continuation utterance ends while turn 1 is still processing.
+    // TWO continuation utterances end while turn 1 is still processing.
     await act(async () => {
       sessionCallbacks.onUtterance(
         new Blob(["second"], { type: "audio/webm" }),
       );
+      sessionCallbacks.onUtterance(
+        new Blob(["third"], { type: "audio/webm" }),
+      );
     });
-    // It is queued — not submitted into the in-flight turn, and not
+    // They are queued — not submitted into the in-flight turn, and not
     // dropped.
     expect(turnCalls).toHaveLength(1);
     // Turn 1 settles: playback HOLDS the mic first (the assistant's own
     // voice must never be captured as a user turn), then the session
-    // re-opens and the queued continuation is submitted in order.
+    // re-opens and the queued continuations submit in spoken order.
     sessionOps = [];
     await act(async () => {
       releaseTurn1?.();
     });
     expect(sessionOps).toContain("hold");
     expect(sessionOps).toContain("resume");
-    expect(turnCalls).toHaveLength(2);
+    expect(turnCalls).toHaveLength(3);
     // The instrumented endpoint decision evidence is on the surface
     // (agent-browser DOM evidence for the timing budget).
     const evidence = q(container, "endpoint-timing")?.getAttribute(
@@ -411,6 +414,63 @@ describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
     );
     expect(evidence ?? "").toContain("412");
     expect(evidence ?? "").toContain("submit=");
+  });
+
+  it("VAL-FIX-001: revoking voice sharing while a continuation is queued sends nothing further", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-only");
+    let releaseTurn1: (() => void) | undefined;
+    const turn1Promise = new Promise<Response>((resolve) => {
+      releaseTurn1 = () => resolve(turnResponse());
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return turnCalls.length === 1 ? turn1Promise : turnResponse();
+        }
+        if (url === "/api/conversation/speak") {
+          return new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["first"], { type: "audio/webm" }),
+      );
+    });
+    expect(turnCalls).toHaveLength(1);
+    // A continuation is captured and queued mid-turn…
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["second"], { type: "audio/webm" }),
+      );
+    });
+    expect(turnCalls).toHaveLength(1);
+    // …and then the person revokes voice sharing while turn 1 is still
+    // processing: the mic stops (the revoke effect) and the queued
+    // continuation is CLEARED — it must never be uploaded afterwards.
+    await act(async () => {
+      saveConsentReceipt({ ...voiceReceipt(false) });
+    });
+    expect(sessionOps).toContain("stop");
+    await act(async () => {
+      releaseTurn1?.();
+    });
+    expect(turnCalls).toHaveLength(1);
+    expect(q(container, "voice-session")).toBeNull();
   });
 
   it("VAL-FIX-001: a user pause outlives a turn — the playback hold never overrides it", async () => {
