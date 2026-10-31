@@ -259,8 +259,10 @@ class RepoScanTests(unittest.TestCase):
         self.assertEqual([path for path in texts if read_text(REPO_ROOT, path) is None], [])
 
     def test_a_listed_value_passes_only_where_it_is_listed(self) -> None:
+        # The allowed findings are exactly the listed entries, which holds
+        # for an empty list too.
         listed = [finding for finding in self.findings if allowed(finding)]
-        self.assertTrue(listed)
+        self.assertEqual({(finding.path, digest(finding.value)) for finding in listed}, set(ALLOWED))
         for finding in listed:
             self.assertFalse(allowed(replace(finding, path="src/lib/other.ts")))
             self.assertFalse(allowed(replace(finding, value=finding.value + "0")))
