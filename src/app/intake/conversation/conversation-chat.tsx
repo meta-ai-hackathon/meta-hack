@@ -30,6 +30,7 @@ import {
   type ConsentReceipt,
 } from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
+import { takeStoredEntryMode } from "../../../lib/entry-mode";
 import { IntakeWizard } from "../intake-wizard";
 import { ComingTogether, themesForQuestionIds, themeLabelFor } from "./coming-together";
 import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
@@ -72,6 +73,28 @@ const WIZARD_FALLBACK_URL = "/intake";
  * dropped with an honest notice, never silently.
  */
 export const MAX_PENDING_VOICE_TURNS = 3;
+
+/**
+ * The transcript pane's stick threshold (VAL-FIX-002): how close to the
+ * pane's bottom, in px, still counts as "parked at the latest turn". Small
+ * enough that an intentional scroll up is always honored (no yanking),
+ * large enough to absorb a few px of reflow.
+ */
+export const TRANSCRIPT_STICK_THRESHOLD_PX = 32;
+
+/**
+ * Whether the transcript pane is parked at its latest turn (VAL-FIX-002).
+ * Pure and exported for tests: auto-scroll is only ever applied while
+ * this holds, so a person who scrolled up to read is never yanked back.
+ */
+export function isPinnedToLatest(
+  scrollTop: number,
+  scrollHeight: number,
+  clientHeight: number,
+  threshold: number = TRANSCRIPT_STICK_THRESHOLD_PX,
+): boolean {
+  return scrollHeight - scrollTop - clientHeight <= threshold;
+}
 
 export type VoiceInterimPhase =
   | "listening"
@@ -256,6 +279,28 @@ export function ConversationChat() {
   const [notice, setNotice] = useState("");
   const [loaded, setLoaded] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  // The fixed-height transcript pane (VAL-FIX-002): the scrollable
+  // container on the talk stage, plus whether it is parked at the latest
+  // turn (auto-scroll only applies while it is — scrolled up is honored).
+  const transcriptPaneRef = useRef<HTMLDivElement | null>(null);
+  const transcriptPinnedRef = useRef(true);
+  // Stable attach callback: a freshly attached pane (the talk stage
+  // entered or re-entered — after a purge, a consent re-grant, or the
+  // typing switch and back) starts PARKED at the latest turn. The
+  // person's scroll position does not survive the pane leaving the
+  // stage, so a new pane must never inherit a stale "scrolled up" pin
+  // — that would silently kill auto-scroll for the whole stage (the
+  // droid-review P1 on PR #90).
+  const attachPaneRef = useCallback((el: HTMLDivElement | null): void => {
+    transcriptPaneRef.current = el;
+    if (el !== null) {
+      transcriptPinnedRef.current = true;
+    }
+  }, []);
+  // The entry mode chosen on the home shell (VAL-FIX-003), carried as a
+  // preselection for the engine-gated entry stage. Read once on mount.
+  const [suggestedMode, setSuggestedMode] =
+    useState<ConversationEntryMode | null>(null);
   // The continuous voice session (HACK-106): all mic/recorder/endpointing
   // wiring lives behind ONE stable ref — the component only maps session
   // events to UI state and submits the utterances.
@@ -348,9 +393,19 @@ export function ConversationChat() {
     };
   }, []);
 
+  // The home shell's carried mode choice (VAL-FIX-003): consumed ONCE on
+  // mount and applied as the entry stage's preselection — the session
+  // still begins only from the person's explicit "Let's begin" behind the
+  // consent gate. Deferred a microtask past hydration (the same idiom as
+  // the capability probe) — no synchronous setState in the effect.
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ block: "nearest" });
-  }, [turns]);
+    void Promise.resolve().then(() => {
+      const carried = takeStoredEntryMode();
+      if (carried) {
+        setSuggestedMode(carried);
+      }
+    });
+  }, []);
 
   // Zero-send mode has no conversation turns to bump the match/review
   // refresh key: the deterministic wizard's saves re-read the stored state
@@ -424,6 +479,37 @@ export function ConversationChat() {
     aiSharingOn &&
     !resultsStage &&
     (!voiceSharingOn || typingMode || micBlocked);
+
+  // Auto-scroll (VAL-FIX-002): the talk-stage transcript is a
+  // fixed-height pane — keep the latest turns in view WITHOUT ever
+  // growing the page. New turns AND streaming partials (the live-caret
+  // bubble rides the voice phase) scroll the PANE to the bottom, only
+  // while the person is parked there; scrolled up, it is never yanked.
+  // The single-scroll paths (typed/zero-send) keep the page-level
+  // scrollIntoView behavior.
+  useEffect(() => {
+    if (!talkStage) {
+      transcriptEndRef.current?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    const pane = transcriptPaneRef.current;
+    if (pane === null || !transcriptPinnedRef.current) {
+      return;
+    }
+    pane.scrollTop = pane.scrollHeight;
+  }, [turns, voicePhase, talkStage]);
+
+  function handlePaneScroll(): void {
+    const pane = transcriptPaneRef.current;
+    if (pane === null) {
+      return;
+    }
+    transcriptPinnedRef.current = isPinnedToLatest(
+      pane.scrollTop,
+      pane.scrollHeight,
+      pane.clientHeight,
+    );
+  }
 
   // Revoking voice consent mid-session stops the microphone immediately
   // and lands the person in the typed conversation (never a dead end).
@@ -1146,7 +1232,26 @@ export function ConversationChat() {
                 Say hello, or answer the first question whenever you are ready.
               </p>
             ) : null}
-            <ul className="flex flex-col gap-3" data-conversation-transcript>
+            {/* The fixed-height scrollable pane (VAL-FIX-002), on the talk
+            stage only: the conversation can grow without ever growing the
+            page. Focusable with a label so keyboard and assistive tech can
+            operate the scrollbar (a11y baseline); the section's heading
+            association and the list's data attribute are untouched. The
+            single-scroll paths render the same list without the pane. */}
+            <div
+              ref={talkStage ? attachPaneRef : undefined}
+              data-transcript-pane={talkStage ? "true" : undefined}
+              role={talkStage ? "region" : undefined}
+              tabIndex={talkStage ? 0 : undefined}
+              aria-label={talkStage ? "Conversation transcript" : undefined}
+              onScroll={talkStage ? handlePaneScroll : undefined}
+              className={
+                talkStage
+                  ? "h-[min(60vh,28rem)] overflow-y-auto overscroll-contain rounded-2xl border border-surface-border p-4"
+                  : undefined
+              }
+            >
+              <ul className="flex flex-col gap-3" data-conversation-transcript>
               {turns.map((turn) =>
                 turn.role === "user" ? (
                   <li
@@ -1201,8 +1306,9 @@ export function ConversationChat() {
                   />
                 </li>
               ) : null}
-            </ul>
-            <div ref={transcriptEndRef} />
+              </ul>
+              <div ref={transcriptEndRef} />
+            </div>
           </section>
           {talkStage ? <ComingTogether state={state} /> : null}
         </div>
@@ -1233,7 +1339,10 @@ export function ConversationChat() {
       ) : null}
 
       {entryStage ? (
-        <ModeChoice onBegin={(mode) => void beginVoiceSession(mode)} />
+        <ModeChoice
+          onBegin={(mode) => void beginVoiceSession(mode)}
+          suggestedMode={suggestedMode ?? undefined}
+        />
       ) : null}
 
       {voiceSessionSurface ? (

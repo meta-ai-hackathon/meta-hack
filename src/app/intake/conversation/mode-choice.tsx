@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, type JSX } from "react";
+import { useEffect, useState, type JSX } from "react";
+import { type EntryMode } from "../../../lib/entry-mode";
+
+/**
+ * The conversation's entry modes, aliased from the carry module's single
+ * source (`src/lib/entry-mode.ts`) so the stored carry value and this
+ * radio group can never drift apart.
+ */
+export type ConversationEntryMode = EntryMode;
 
 // The entry mode choice (HACK-106 natural conversation, VAL-NCF-002) —
 // the calm mode-choice moment at conversation entry, ported from the
@@ -16,8 +24,6 @@ import { useState, type JSX } from "react";
 // cards, teal-deep primary); the reduced-motion preference kills any
 // transition via the global rule; radios are native inputs so the group
 // is keyboard operable with visible focus out of the box.
-
-export type ConversationEntryMode = "voice-only" | "voice-plus-typing";
 
 const MODE_OPTIONS: readonly {
   readonly mode: ConversationEntryMode;
@@ -39,6 +45,13 @@ const MODE_OPTIONS: readonly {
 export function ModeChoice(props: {
   /** Begin the conversation in the chosen mode. */
   readonly onBegin: (mode: ConversationEntryMode) => void;
+  /**
+   * A mode chosen earlier on the home shell (VAL-FIX-003), carried as a
+   * PRESELECTION: the person still begins from this engine-gated entry
+   * stage. Applies after paint (storage is client-only) — never a
+   * hydration mismatch on the radio.
+   */
+  readonly suggestedMode?: ConversationEntryMode;
 }): JSX.Element {
   // The design frame shows the typing-available mode pre-selected: the
   // safer default (typing stays reachable). This is a UI-mode choice,
@@ -46,6 +59,16 @@ export function ModeChoice(props: {
   const [selected, setSelected] = useState<ConversationEntryMode>(
     "voice-plus-typing",
   );
+  // The carried suggestion lands after paint (storage is client-only), so
+  // the preselection applies deferred past hydration — never a hydration
+  // mismatch, and no synchronous setState inside the effect.
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      if (props.suggestedMode) {
+        setSelected(props.suggestedMode);
+      }
+    });
+  }, [props.suggestedMode]);
   return (
     <section
       data-mode-choice
