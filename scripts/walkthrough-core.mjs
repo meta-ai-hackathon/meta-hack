@@ -404,6 +404,11 @@ export class Walkthrough {
     await this.paceTurns();
     let response;
     for (let attempt = 1; attempt <= TURN_ATTEMPTS; attempt++) {
+      // Every attempt is a real server turn: if the engine counts failed
+      // turns toward its per-minute cap, the pacer must count them too.
+      if (attempt > 1) {
+        this.turnTimes.push(Date.now());
+      }
       response = await this.transport(
         this.base,
         "/api/conversation/turn",
@@ -491,7 +496,7 @@ export class Walkthrough {
     );
     if (response.status !== 200) {
       throw new WalkthroughError(
-        `match failed: ${response.status} ${response.text.slice(0, 200)}`,
+        `match failed: ${response.status} ${this.maskPrivateValues(response.text.slice(0, 200))}`,
       );
     }
     const body = parseJsonBody(response.text, "GET /api/match");
@@ -526,7 +531,7 @@ export class Walkthrough {
     );
     if (response.status !== 200) {
       throw new WalkthroughError(
-        `review failed: ${response.status} ${response.text.slice(0, 200)}`,
+        `review failed: ${response.status} ${this.maskPrivateValues(response.text.slice(0, 200))}`,
       );
     }
     const body = parseJsonBody(response.text, `GET /api/forms/${formId}/review`);
@@ -578,7 +583,7 @@ export class Walkthrough {
     );
     if (response.status !== 200) {
       throw new WalkthroughError(
-        `history failed: ${response.status} ${response.text.slice(0, 200)}`,
+        `history failed: ${response.status} ${this.maskPrivateValues(response.text.slice(0, 200))}`,
       );
     }
     const body = parseJsonBody(response.text, "GET /api/conversation/history");
@@ -625,7 +630,7 @@ export class Walkthrough {
     );
     if (response.status !== 200) {
       throw new WalkthroughError(
-        `form fill failed: ${response.status} ${response.text.slice(0, 200)}`,
+        `form fill failed: ${response.status} ${this.maskPrivateValues(response.text.slice(0, 200))}`,
       );
     }
     const contentType = response.response?.headers?.get?.("content-type") ?? "";
@@ -956,7 +961,7 @@ export class Walkthrough {
     this.log(`HEALTH    GET /api/health → ${health.status} ${JSON.stringify(healthBody)}`);
     if (health.status !== 200 || healthBody.ok !== true) {
       throw new WalkthroughError(
-        `health check failed: ${health.status} ${health.text.slice(0, 200)}`,
+        `health check failed: ${health.status} ${this.maskPrivateValues(health.text.slice(0, 200))}`,
       );
     }
     this.scanResponse("GET /api/health", health.text);
@@ -996,7 +1001,7 @@ export class Walkthrough {
     );
     this.log(`SAVE      POST /api/session → ${saved.status} (progress saved)`);
     if (saved.status !== 200) {
-      throw new WalkthroughError(`save failed: ${saved.status} ${saved.text.slice(0, 200)}`);
+      throw new WalkthroughError(`save failed: ${saved.status} ${this.maskPrivateValues(saved.text.slice(0, 200))}`);
     }
     const savedBody = parseJsonBody(saved.text, "POST /api/session");
     this.scanResponse("save", saved.text, savedBody.state);
@@ -1014,7 +1019,7 @@ export class Walkthrough {
     this.log(`RESUME    GET /api/session → ${resumed.status}`);
     if (resumed.status !== 200) {
       throw new WalkthroughError(
-        `resume failed: ${resumed.status} ${resumed.text.slice(0, 200)}`,
+        `resume failed: ${resumed.status} ${this.maskPrivateValues(resumed.text.slice(0, 200))}`,
       );
     }
     const resumedBody = parseJsonBody(resumed.text, "GET /api/session");
@@ -1094,7 +1099,7 @@ export class Walkthrough {
     );
     if (health.status !== 200 || healthBody.ok !== true) {
       throw new WalkthroughError(
-        `health check failed: ${health.status} ${health.text.slice(0, 200)}`,
+        `health check failed: ${health.status} ${this.maskPrivateValues(health.text.slice(0, 200))}`,
       );
     }
     if (this.scanResponse("GET /api/health", health.text)) {
@@ -1157,7 +1162,7 @@ export class Walkthrough {
       const newState = parseJsonBody(answer.text, `answer ${step.id}`);
       if (answer.status !== 200) {
         throw new WalkthroughError(
-          `answer ${step.id} rejected: ${answer.status} ${answer.text.slice(0, 200)}`,
+          `answer ${step.id} rejected: ${answer.status} ${this.maskPrivateValues(answer.text.slice(0, 200))}`,
         );
       }
       answerNumber += 1;
@@ -1220,7 +1225,7 @@ export class Walkthrough {
     this.log(`SAVE      POST /api/session → ${saved.status} (progress saved)`);
     if (saved.status !== 200) {
       throw new WalkthroughError(
-        `save failed: ${saved.status} ${saved.text.slice(0, 200)}`,
+        `save failed: ${saved.status} ${this.maskPrivateValues(saved.text.slice(0, 200))}`,
       );
     }
     const savedBody = parseJsonBody(saved.text, "POST /api/session");
@@ -1239,7 +1244,7 @@ export class Walkthrough {
     this.log(`RESUME    GET /api/session → ${resumed.status}`);
     if (resumed.status !== 200) {
       throw new WalkthroughError(
-        `resume failed: ${resumed.status} ${resumed.text.slice(0, 200)}`,
+        `resume failed: ${resumed.status} ${this.maskPrivateValues(resumed.text.slice(0, 200))}`,
       );
     }
     if (this.scanResponse("resume", resumed.text, resumedBody.state)) {
