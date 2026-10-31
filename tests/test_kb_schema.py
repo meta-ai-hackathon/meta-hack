@@ -350,6 +350,196 @@ class TestMissingFieldsFail(KbSchemaTestCase):
             self.assertInvalid(entry, f"deleting {path}")
 
 
+# The optional handoff groups (BN-24 and BN-26, HACK-46 and HACK-47).
+SOURCED_STEP_GROUPS = ["submission_steps", "after_you_apply"]
+SOURCED_STEP_REQUIRED_KEYS = ["id", "label", "detail", "source_id"]
+SAMPLE_SOURCE_IDS = ["official_rules_source", "official_application_portal"]
+
+STEP_TEXT = st.text(min_size=1, max_size=40)
+STEP_LINK = st.fixed_dictionaries(
+    {
+        "label": STEP_TEXT,
+        "url": st.from_regex(r"https://[a-z]{1,12}\.(gov|org)/[a-z0-9-]{0,12}", fullmatch=True),
+    }
+)
+STEP = st.fixed_dictionaries(
+    {
+        "id": st.from_regex(r"[a-z][a-z0-9_]{0,15}", fullmatch=True),
+        "label": STEP_TEXT,
+        "detail": STEP_TEXT,
+        "source_id": st.sampled_from(SAMPLE_SOURCE_IDS),
+    },
+    optional={"link": STEP_LINK},
+)
+STEP_LISTS = st.lists(STEP, min_size=1, max_size=6, unique_by=lambda step: str(step["id"]))
+
+# A phone or fax number written out (555-123-4567, 555.123.4567, (555) 123-4567).
+PHONE_NUMBER_RE = re.compile(r"\(?\b\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b")
+
+
+class TestSourcedStepGroups(KbSchemaTestCase):
+    """The optional `submission_steps` and `after_you_apply` groups.
+
+    Both hold ordered steps for the handoff, and every step names its own
+    source instead of the group naming one, because a single list draws on
+    the form, a county page, and an online portal. The schema checks the
+    shape. The cross-references it cannot express (unique step ids, each
+    step's source_id resolving) are checked here for every shipped entry,
+    and in src/lib/kb.ts at load.
+    """
+
+    REAL_PATH = ENTRIES_DIR / "nc-medicaid.json"
+
+    def step(self, **changes: object) -> dict[str, object]:
+        step: dict[str, object] = {
+            "id": "sign_it",
+            "label": "Sign it",
+            "detail": "The official form asks for a signature.",
+            "source_id": "official_rules_source",
+        }
+        step.update(changes)
+        return step
+
+    def entry_with(self, group: str, items: list[Any], **group_changes: object) -> dict:
+        entry = copy.deepcopy(self.sample)
+        entry["facts"][group] = {"items": items, "retrieved_at": "2026-10-29", **group_changes}
+        return entry
+
+    @settings(max_examples=150, deadline=None)
+    @given(group=st.sampled_from(SOURCED_STEP_GROUPS), steps=STEP_LISTS)
+    def test_any_well_formed_group_validates(self, group: str, steps: list[dict]) -> None:
+        self.assertValid(self.entry_with(group, steps), f"{group} with {steps!r}")
+
+    @settings(max_examples=150, deadline=None)
+    @given(
+        group=st.sampled_from(SOURCED_STEP_GROUPS),
+        steps=STEP_LISTS,
+        pick=st.integers(min_value=0),
+        key=st.sampled_from(SOURCED_STEP_REQUIRED_KEYS),
+    )
+    def test_dropping_any_required_step_field_fails(
+        self, group: str, steps: list[dict], pick: int, key: str
+    ) -> None:
+        broken = copy.deepcopy(steps)
+        del broken[pick % len(broken)][key]
+        self.assertInvalid(self.entry_with(group, broken), f"{group} step without {key}")
+
+    def test_groups_stay_optional(self) -> None:
+        for group in SOURCED_STEP_GROUPS:
+            self.assertNotIn(group, self.sample["facts"])
+        self.assertValid(self.sample, "entry without the handoff groups")
+
+    def test_a_group_level_source_is_not_a_substitute(self) -> None:
+        # One source for the whole group is exactly what this shape rules
+        # out: the source belongs on each step.
+        for group in SOURCED_STEP_GROUPS:
+            entry = self.entry_with(group, [self.step()], source_id="official_rules_source")
+            self.assertInvalid(entry, f"{group} with a group-level source_id")
+            unsourced = self.step()
+            del unsourced["source_id"]
+            self.assertInvalid(self.entry_with(group, [unsourced]), f"{group} step without source_id")
+
+    def test_malformed_steps_fail(self) -> None:
+        cases: list[tuple[str, list[Any]]] = [
+            ("unknown step key", [self.step(bonus="nope")]),
+            ("malformed step id", [self.step(id="Not An Id!")]),
+            ("empty label", [self.step(label="")]),
+            ("empty detail", [self.step(detail="")]),
+            ("non-https link", [self.step(link={"label": "Apply", "url": "http://example.org/apply"})]),
+            ("link without a label", [self.step(link={"url": "https://example.org/apply"})]),
+            ("link with an unknown key", [self.step(link={"label": "Apply", "url": "https://example.org/apply", "target": "_blank"})]),
+            ("malformed source id", [self.step(source_id="Not A Source!")]),
+            ("step that is not an object", ["Sign it."]),
+            ("empty items", []),
+        ]
+        for name, items in cases:
+            for group in SOURCED_STEP_GROUPS:
+                self.assertInvalid(self.entry_with(group, items), f"{group}: {name}")
+
+    def test_group_needs_its_retrieval_date(self) -> None:
+        for group in SOURCED_STEP_GROUPS:
+            entry = self.entry_with(group, [self.step()])
+            del entry["facts"][group]["retrieved_at"]
+            self.assertInvalid(entry, f"{group} without retrieved_at")
+            entry = self.entry_with(group, [self.step()], retrieved_at="Oct 30")
+            self.assertInvalid(entry, f"{group} with a malformed retrieved_at")
+
+    def test_form_id_is_optional_and_shaped_like_a_registry_id(self) -> None:
+        for group in SOURCED_STEP_GROUPS:
+            entry = self.entry_with(group, [self.step()], form_id="sample-form-1")
+            self.assertValid(entry, f"{group} with a form_id")
+            entry = self.entry_with(group, [self.step()], form_id="Not A Form!")
+            self.assertInvalid(entry, f"{group} with a malformed form_id")
+
+    def test_shipped_form_ids_name_a_registered_form(self) -> None:
+        # Cross-reference the schema cannot express: a group tied to a form
+        # names one the form registry actually ships.
+        registered = {
+            json.loads(path.read_text(encoding="utf-8"))["id"]
+            for path in (KB_DIR / "forms").glob("*.json")
+            if path.name != "schema.json"
+        }
+        for path in sorted(ENTRIES_DIR.glob("*.json")):
+            entry = json.loads(path.read_text(encoding="utf-8"))
+            for group in SOURCED_STEP_GROUPS:
+                form_id = entry["facts"].get(group, {}).get("form_id")
+                if form_id is not None:
+                    self.assertIn(form_id, registered, f"{path.name} {group}")
+
+    def test_shipped_step_ids_are_unique_and_every_source_resolves(self) -> None:
+        for path in sorted(ENTRIES_DIR.glob("*.json")):
+            entry = json.loads(path.read_text(encoding="utf-8"))
+            source_ids = {source["id"] for source in entry["sources"]}
+            for group in SOURCED_STEP_GROUPS:
+                steps = entry["facts"].get(group, {}).get("items", [])
+                ids = [step["id"] for step in steps]
+                self.assertEqual(len(ids), len(set(ids)), f"{path.name} {group} repeats a step id")
+                for step in steps:
+                    self.assertIn(step["source_id"], source_ids, f"{path.name} {group} {step['id']}")
+
+    def test_the_real_entry_carries_both_groups_from_official_pages(self) -> None:
+        from urllib.parse import urlparse
+
+        real = json.loads(self.REAL_PATH.read_text(encoding="utf-8"))
+        sources = {source["id"]: source for source in real["sources"]}
+        for group in SOURCED_STEP_GROUPS:
+            steps = real["facts"][group]["items"]
+            self.assertGreaterEqual(len(steps), 1, group)
+            for step in steps:
+                if "link" in step:
+                    host = urlparse(step["link"]["url"]).hostname or ""
+                    self.assertTrue(
+                        host in {"dcr.mecknc.gov", "epass.nc.gov"},
+                        f"{step['id']} links {host}, not an official page this entry verified",
+                    )
+                    # The link is the page its own source verified.
+                    self.assertEqual(step["link"]["url"], sources[step["source_id"]]["url"], step["id"])
+
+    def test_the_real_steps_sign_before_any_channel(self) -> None:
+        real = json.loads(self.REAL_PATH.read_text(encoding="utf-8"))
+        ids = [step["id"] for step in real["facts"]["submission_steps"]["items"]]
+        channels = ["drop_off_or_fax_in_county", "take_or_mail_to_county", "apply_online_instead"]
+        for channel in channels:
+            self.assertLess(ids.index("sign_and_date"), ids.index(channel), channel)
+
+    def test_the_real_steps_copy_no_numbers_and_no_legacy_rule(self) -> None:
+        # Addresses, phone and fax numbers stay on the official pages the
+        # steps link (they can change); the 2020 form's three-month
+        # coverage line stays out (no current official page confirms it).
+        real = json.loads(self.REAL_PATH.read_text(encoding="utf-8"))
+        for group in SOURCED_STEP_GROUPS:
+            for step in real["facts"][group]["items"]:
+                text = f"{step['label']} {step['detail']}"
+                self.assertIsNone(PHONE_NUMBER_RE.search(text), step["id"])
+                self.assertNotIn("three months", text.lower(), step["id"])
+                self.assertNotRegex(text.lower(), r"\b(approved|guaranteed|qualify|will receive)\b", step["id"])
+
+    def test_phone_number_check_bites(self) -> None:
+        for text in ["call 555-123-4567", "fax (555) 123-4567", "555.123.4567"]:
+            self.assertIsNotNone(PHONE_NUMBER_RE.search(text), text)
+        self.assertIsNone(PHONE_NUMBER_RE.search("within 1-2 weeks, or 10 calendar days"))
+
+
 class TestOptionalGroups(KbSchemaTestCase):
     """Mission v2 M3: optional `steps` and `match_signals` fact groups.
 
