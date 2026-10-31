@@ -35,8 +35,9 @@ every git-tracked text file and fails on
   So is one written right against a key that ends in a digit, since the
   key's digit and the number read as one longer number;
 - an email address outside example.com, example.org and example.net (and
-  their subdomains), names under .test and .invalid, and noreply.github.com
-  (with its subdomains). The git user of an SSH remote, as in
+  their subdomains), names under the reserved .test, .example, .invalid and
+  .localhost, and noreply.github.com (with its subdomains). None of those
+  can deliver to a person. The git user of an SSH remote, as in
   git@github.com:org/repo.git or ssh://git@github.com/org/repo.git, names
   a server rather than a person, so it passes.
 
@@ -185,7 +186,8 @@ _TYPESET: Final = str.maketrans(
 )
 
 FICTIONAL_EMAIL_DOMAINS: Final = ("example.com", "example.org", "example.net", "noreply.github.com")
-FICTIONAL_EMAIL_TLDS: Final = frozenset({"test", "invalid"})
+# The names RFC 2606 and RFC 6761 reserve, which no mail ever reaches.
+FICTIONAL_EMAIL_TLDS: Final = frozenset({"test", "example", "invalid", "localhost"})
 
 # Each value that is meant to be in a file, by the file, the kind and the
 # value's SHA-256, and why it is there. The reason names the test the value
@@ -548,7 +550,9 @@ REAL_DOMAINS = st.one_of(
     st.sampled_from(["gmail.com", "outlook.com", "yahoo.com", "icloud.com", "proton.me", "cornell.edu", "dhhs.nc.gov", "github.com"]),
     # Names that only look like the fictional ones.
     st.from_regex(r"[a-z]{1,8}(example|mail)\.(com|org|net|io)", fullmatch=True),
-    st.sampled_from(["example.com.mail.net", "test.com", "invalid.org", "example.co", "noreply.github.com.mail.io", "github.com.test.net"]),
+    st.sampled_from(
+        ["example.com.mail.net", "test.com", "invalid.org", "example.co", "localhost.net", "mail.contest", "noreply.github.com.mail.io", "github.com.test.net"]
+    ),
 )
 FICTIONAL_DOMAINS = st.one_of(
     st.builds(
@@ -556,7 +560,7 @@ FICTIONAL_DOMAINS = st.one_of(
         st.sampled_from(["", "mail.", "users.", "a.b."]),
         st.sampled_from(["example.com", "example.org", "example.net", "Example.Com", "EXAMPLE.NET", "noreply.github.com"]),
     ),
-    st.from_regex(r"([a-z]{1,8}\.){0,2}[a-z]{1,8}\.(test|invalid|TEST|Invalid)", fullmatch=True),
+    st.from_regex(r"([a-z]{1,8}\.){0,2}[a-z]{1,8}\.(test|example|invalid|localhost|TEST|Example|Invalid|LOCALHOST)", fullmatch=True),
 )
 # SSH remotes in the forms git and package manifests write them, with a
 # repo path that holds no other value.
