@@ -402,6 +402,28 @@ class TestSourcedStepGroups(KbSchemaTestCase):
             entry = self.entry_with(group, [self.step()], retrieved_at="Oct 30")
             self.assertInvalid(entry, f"{group} with a malformed retrieved_at")
 
+    def test_form_id_is_optional_and_shaped_like_a_registry_id(self) -> None:
+        for group in SOURCED_STEP_GROUPS:
+            entry = self.entry_with(group, [self.step()], form_id="sample-form-1")
+            self.assertValid(entry, f"{group} with a form_id")
+            entry = self.entry_with(group, [self.step()], form_id="Not A Form!")
+            self.assertInvalid(entry, f"{group} with a malformed form_id")
+
+    def test_shipped_form_ids_name_a_registered_form(self) -> None:
+        # Cross-reference the schema cannot express: a group tied to a form
+        # names one the form registry actually ships.
+        registered = {
+            json.loads(path.read_text(encoding="utf-8"))["id"]
+            for path in (KB_DIR / "forms").glob("*.json")
+            if path.name != "schema.json"
+        }
+        for path in sorted(ENTRIES_DIR.glob("*.json")):
+            entry = json.loads(path.read_text(encoding="utf-8"))
+            for group in SOURCED_STEP_GROUPS:
+                form_id = entry["facts"].get(group, {}).get("form_id")
+                if form_id is not None:
+                    self.assertIn(form_id, registered, f"{path.name} {group}")
+
     def test_shipped_step_ids_are_unique_and_every_source_resolves(self) -> None:
         for path in sorted(ENTRIES_DIR.glob("*.json")):
             entry = json.loads(path.read_text(encoding="utf-8"))

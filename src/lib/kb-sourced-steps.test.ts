@@ -32,6 +32,7 @@ interface RawStep {
 
 interface RawStepGroup {
   items: RawStep[];
+  form_id?: string;
   retrieved_at: string;
 }
 
@@ -78,14 +79,22 @@ const stepBodyArb = fc.record(
   { requiredKeys: ["label", "detail", "source_id"] },
 );
 const groupArb: fc.Arbitrary<RawStepGroup> = fc
-  .uniqueArray(fc.stringMatching(/^[a-z][a-z0-9_]{0,15}$/), {
-    minLength: 1,
-    maxLength: 6,
-  })
-  .chain((ids) =>
-    fc.tuple(...ids.map((id) => stepBodyArb.map((body) => ({ id, ...body })))),
+  .tuple(
+    fc
+      .uniqueArray(fc.stringMatching(/^[a-z][a-z0-9_]{0,15}$/), {
+        minLength: 1,
+        maxLength: 6,
+      })
+      .chain((ids) =>
+        fc.tuple(...ids.map((id) => stepBodyArb.map((body) => ({ id, ...body })))),
+      ),
+    fc.option(fc.stringMatching(/^[a-z0-9][a-z0-9-]{0,20}$/), { nil: undefined }),
   )
-  .map((items) => ({ items, retrieved_at: "2026-10-29" }));
+  .map(([items, formId]) => ({
+    items,
+    ...(formId === undefined ? {} : { form_id: formId }),
+    retrieved_at: "2026-10-29",
+  }));
 
 describe("handoff groups: schema mirror", () => {
   const schemaPath = fileURLToPath(new URL("../../kb/schema.json", import.meta.url));
@@ -115,6 +124,11 @@ describe("handoff groups: schema mirror", () => {
   it("requires a source on every step, not one per group", () => {
     const definition = schema.definitions.sourced_step_fact_group;
     expect(definition.required.sort()).toEqual(["items", "retrieved_at"]);
+    expect(Object.keys(definition.properties).sort()).toEqual([
+      "form_id",
+      "items",
+      "retrieved_at",
+    ]);
     expect(definition.properties.items.items.required.sort()).toEqual(
       [...REQUIRED_STEP_KEYS].sort(),
     );
@@ -134,6 +148,7 @@ describe("handoff groups: validation and citation", () => {
           const raw = rawWith({ [name]: group });
           expect(validateKbEntry(raw)).toEqual([]);
           const entry = parseKbEntry(raw);
+          expect(entry.facts[name]?.formId).toBe(group.form_id);
           const citations = citeSourcedSteps(entry, name);
           expect(citations.map((citation) => citation.step.id)).toEqual(
             group.items.map((item) => item.id),
@@ -229,6 +244,7 @@ describe("handoff groups: validation and citation", () => {
 
   it.each([
     ["a group-level source_id", { ...aGroup([aStep()]), source_id: "official_rules_source" }, "source_id"],
+    ["a malformed form id", { ...aGroup([aStep()]), form_id: "Not A Form!" }, "form_id"],
     ["an unknown step key", aGroup([{ ...aStep(), bonus: "nope" } as RawStep]), "bonus"],
     ["a malformed step id", aGroup([aStep({ id: "Not An Id!" })]), ".id"],
     ["an empty label", aGroup([aStep({ label: "" })]), ".label"],

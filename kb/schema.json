@@ -208,6 +208,11 @@
             }
           }
         },
+        "form_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Id of the form-registry entry (kb/forms/) these steps are written for, when they name that form's pages or steps. The handoff shows the group only beside that form. The id must name a registered form (cross-checked in tests)."
+        },
         "retrieved_at": { "$ref": "#/definitions/iso_date" }
       }
     },

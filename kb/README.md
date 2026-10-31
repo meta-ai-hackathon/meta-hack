@@ -78,7 +78,10 @@ one per group, because a single list draws on several official pages
 (snake_case, unique in its group), a short `label`, a plain-language
 `detail` of what its source says, an optional `link` (`label` plus an
 https `url`) to the official page for that step, and a `source_id` naming
-one of the entry's sources. The group keeps a `retrieved_at` date.
+one of the entry's sources. The group keeps a `retrieved_at` date, and an
+optional `form_id` names the form-registry entry (`kb/forms/`) its steps
+are written for when they point at that form's pages, so the handoff shows
+them only beside that form.
 `citeSourcedSteps()` in `src/lib/kb.ts` cites each step with its own
 source and refuses a stale or withdrawn entry without acknowledgment, the
 same way `citeFactGroup()` does. Steps link official pages instead of

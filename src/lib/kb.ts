@@ -119,6 +119,11 @@ export interface KbSourcedStep {
 /** A handoff group: ordered steps, each carrying its own source. */
 export interface KbSourcedStepGroup {
   readonly items: readonly KbSourcedStep[];
+  /**
+   * Id of the form-registry entry these steps are written for, when they
+   * name that form's pages or steps. Omitted: they fit any form.
+   */
+  readonly formId?: string;
   /** YYYY-MM-DD date these steps were retrieved from their sources. */
   readonly retrievedAt: string;
 }
@@ -294,8 +299,12 @@ function validateGroupProvenance(
 /** Exactly the keys kb/schema.json allows on a handoff group. */
 const SOURCED_STEP_GROUP_KEYS: ReadonlySet<string> = new Set([
   "items",
+  "form_id",
   "retrieved_at",
 ]);
+
+/** The form-registry id shape (kb/forms/schema.json). */
+const FORM_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /** Exactly the keys kb/schema.json allows on one handoff step. */
 const SOURCED_STEP_KEYS: ReadonlySet<string> = new Set([
@@ -326,6 +335,12 @@ function validateSourcedStepGroup(
     return;
   }
   checkUnknownKeys(group, SOURCED_STEP_GROUP_KEYS, `facts.${name}`, problems);
+  if (
+    group.form_id !== undefined &&
+    (typeof group.form_id !== "string" || !FORM_ID_RE.test(group.form_id))
+  ) {
+    problems.push(`facts.${name}.form_id must be a form-registry id when present`);
+  }
   if (
     typeof group.retrieved_at !== "string" ||
     !isIsoCalendarDate(group.retrieved_at)
@@ -634,6 +649,7 @@ function buildEntry(raw: Record<string, unknown>): KbEntry {
         sourceId: item.source_id as string,
       };
     }),
+    ...(typeof group.form_id === "string" ? { formId: group.form_id } : {}),
     retrievedAt: group.retrieved_at as string,
   });
   return {
