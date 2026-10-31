@@ -151,6 +151,20 @@ export const PARTIAL_SAVE_FALLBACK_PREFIX =
   "I couldn't record part of what you said.";
 
 /**
+ * The deterministic copy for the step-3b raw-cascade save (claude-review
+ * P2): the extractor returned nothing for the current question, the raw
+ * words mapped deterministically and SAVED, but the model's reply was
+ * written under the no-save belief and may re-ask the just-saved question.
+ * The reply is replaced with honest copy that confirms the save and asks
+ * the server's next question — the server-decided flow, never a re-ask of
+ * something already answered.
+ */
+export const RAW_CASCADE_SAVED_PREFIX = "Got it — I've noted that down.";
+
+export const RAW_CASCADE_SAVED_COMPLETE_REPLY =
+  "Got it — that's everything on my list. You can continue to the review step.";
+
+/**
  * Lightweight per-session turn-rate cap (hardening item 3): the turn
  * endpoint is unauthenticated model spend, and voice adds a second
  * expensive path per turn. A person speaking push-to-talk cannot plausibly
@@ -1172,6 +1186,7 @@ export async function processUserTurn(
     // 3b. The live-observed failure mode: the extractor returns NOTHING for a
     // spoken free-text phrasing. When the current question is a choice
     // question and no extracted item targeted it, map the raw words directly.
+    let savedViaRawCascade = false;
     if (
       currentQuestion &&
       currentQuestion.options &&
@@ -1190,6 +1205,7 @@ export async function processUserTurn(
           undefined,
         );
         savedAnswerCount += 1;
+        savedViaRawCascade = true;
       }
     }
 
@@ -1222,16 +1238,24 @@ export async function processUserTurn(
     const nextQuestion = nextUnansweredQuestion(answersAfter);
 
     // 6. The reply text. The model wrote it before the server knew what
-    // would actually save, so a lost extraction (a skipped malformed value,
-    // or a choice that mapped to nothing) must be disclosed honestly:
-    // NOTHING saved → the deterministic re-ask replaces the reply; PART of
-    // the turn saved → the honest loss prefix goes ahead of the reply
-    // (claude-review P2). An unusable envelope degrades to the
-    // deterministic re-ask — never a fabricated reply, never a failed turn.
+    // would actually save, so the server-decided state wins:
+    // a 3b raw-cascade SAVE replaced what the model believed (it extracted
+    // nothing, so its reply may re-ask the just-saved question) → the
+    // deterministic ack + the server's next question replaces the reply;
+    // a lost extraction (a skipped malformed value, or a choice that mapped
+    // to nothing) must be disclosed honestly — NOTHING saved → the
+    // deterministic re-ask replaces the reply, PART of the turn saved → the
+    // honest loss prefix goes ahead of the reply (claude-review P2). An
+    // unusable envelope degrades to the deterministic re-ask — never a
+    // fabricated reply, never a failed turn.
     const extractionHadLoss =
       unmappedChoiceAttempt || skippedAnswerCount > 0;
     let reply: string;
-    if (envelope === null) {
+    if (savedViaRawCascade) {
+      reply = nextQuestion
+        ? `${RAW_CASCADE_SAVED_PREFIX} ${nextQuestion.prompt}`
+        : RAW_CASCADE_SAVED_COMPLETE_REPLY;
+    } else if (envelope === null) {
       logWarn("conversation_envelope_malformed");
       reply = malformedEnvelopeFallback(currentQuestion);
     } else if (extractionHadLoss && savedAnswerCount === 0) {

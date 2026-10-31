@@ -10,6 +10,7 @@ import {
   COMMITTED_REFUSAL,
   PARTIAL_SAVE_FALLBACK_PREFIX,
   PII_ECHO_FALLBACK_REPLY,
+  RAW_CASCADE_SAVED_PREFIX,
   WIZARD_FALLBACK_URL,
   type ChatCallScript,
 } from "../../../../lib/conversation";
@@ -964,7 +965,11 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
 
   it("saves the raw turn text when the extractor returned nothing at all", async () => {
     // The live-observed failure: extraction yields NO answer for a spoken
-    // phrasing; the canonicalization layer maps the raw words instead.
+    // phrasing; the canonicalization layer maps the raw words instead. The
+    // model's reply was written under the no-save belief (it re-asks the
+    // just-saved question), so the deterministic ack + the SERVER's next
+    // question replaces it (claude-review P2: spoken question must agree
+    // with nextQuestionId).
     installScript([
       {
         extraction: JSON.stringify({ answers: [] }),
@@ -974,6 +979,11 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
 
     const response = await POST(turnRequest("It's for myself."));
     expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(
+      `${RAW_CASCADE_SAVED_PREFIX} ${QUESTION_BY_ID.main_goal.prompt}`,
+    );
+    expect(data.nextQuestionId).toBe("main_goal");
     const rows = await testDb`
       SELECT value FROM answer WHERE question_id = 'application_role'
     `;
@@ -1208,24 +1218,27 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
 
     const failed = await POST(turnRequest("I need help with food.", cookie));
     expect(failed.status).toBe(500);
-    // The model call ran and the answer SAVED (the failure was persistence,
-    // not the model).
-    const goalRows = await testDb`
-      SELECT value FROM answer WHERE question_id = 'main_goal'
-    `;
-    expect(goalRows).toHaveLength(1);
-    // NO transcript persisted for the failed turn — a retry cannot
-    // duplicate it (the rows live in the hidden table).
-    const hidden = await testDb`
-      SELECT role, redacted_transcript FROM conversation_turn_hidden
-      ORDER BY created_at ASC, id ASC
-    `;
-    expect(hidden.map((row) => String(row.role))).toEqual([
-      "user",
-      "assistant",
-    ]);
-    expect(String(hidden[0].redacted_transcript)).toBe("Hello there.");
-    await testDb`ALTER TABLE conversation_turn_hidden RENAME TO conversation_turn`;
+    try {
+      // The model call ran and the answer SAVED (the failure was
+      // persistence, not the model).
+      const goalRows = await testDb`
+        SELECT value FROM answer WHERE question_id = 'main_goal'
+      `;
+      expect(goalRows).toHaveLength(1);
+      // NO transcript persisted for the failed turn — a retry cannot
+      // duplicate it (the rows live in the hidden table).
+      const hidden = await testDb`
+        SELECT role, redacted_transcript FROM conversation_turn_hidden
+        ORDER BY created_at ASC, id ASC
+      `;
+      expect(hidden.map((row) => String(row.role))).toEqual([
+        "user",
+        "assistant",
+      ]);
+      expect(String(hidden[0].redacted_transcript)).toBe("Hello there.");
+    } finally {
+      await testDb`ALTER TABLE conversation_turn_hidden RENAME TO conversation_turn`;
+    }
 
     // The retry completes cleanly: exactly one copy of the transcript.
     installScript([
@@ -1238,13 +1251,19 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
         reply: "Got it. How many of those people are under 18?",
       },
     ]);
-    const retried = await POST(turnRequest("Two of us.", cookie));
+    const retried = await POST(turnRequest("I need help with food.", cookie));
     expect(retried.status).toBe(200);
-    // Exactly one copy of each persisted turn: the FAILED turn's transcript
-    // was never written (atomicity), so only turn 1 and the retry appear.
+    // Retrying the SAME failed turn yields exactly one copy of its
+    // transcript (counted, not pinned, because the stored form is the
+    // redacted rendering), and turn 1 appears once.
+    const retryCopies = await testDb`
+      SELECT COUNT(*)::int AS n FROM conversation_turn
+      WHERE role = 'user' AND redacted_transcript LIKE '%I need help with%'
+    `;
+    expect(Number(retryCopies[0].n)).toBe(1);
     expect(await userTranscripts()).toEqual([
       "Hello there.",
-      "Two of us.",
+      "I need help with food.",
     ]);
     expect(await assistantTranscripts()).toEqual([
       "Let's begin. Who is this application for?",

@@ -27,6 +27,8 @@ import {
   malformedEnvelopeFallback,
   parseCombinedEnvelope,
   PARTIAL_SAVE_FALLBACK_PREFIX,
+  RAW_CASCADE_SAVED_COMPLETE_REPLY,
+  RAW_CASCADE_SAVED_PREFIX,
   redactPiiValues,
   validateTurnText,
 } from "./conversation";
@@ -85,6 +87,9 @@ describe("committed refusal and fallback copy", () => {
       malformedEnvelopeFallback(QUESTION_BY_ID["application_role"]),
       malformedEnvelopeFallback(null),
       PARTIAL_SAVE_FALLBACK_PREFIX,
+      RAW_CASCADE_SAVED_PREFIX,
+      `${RAW_CASCADE_SAVED_PREFIX} Who is this application for?`,
+      RAW_CASCADE_SAVED_COMPLETE_REPLY,
     ]) {
       expect(findBannedClaims(text)).toEqual([]);
       expect(() => assertNoBannedClaimsEverySentence(text)).not.toThrow();
@@ -525,9 +530,12 @@ describe("redaction (VAL-CONV-004 invariant)", () => {
   });
 
   it("PROPERTY: any injected private value is fully removed, for arbitrary text and values", () => {
-    // Values that are substrings of the marker text itself (its wrapper words
-    // or the question prompt embedded in it) are excluded: the marker is the
-    // REPLACEMENT, so containing the needle there would not be a leak.
+    // Values that are substrings of the marker texts themselves are
+    // excluded: the markers are the REPLACEMENT, so containing the needle
+    // there would not be a leak. Three marker texts exist — the per-question
+    // marker (probed dynamically via markerTemplate below) and the two
+    // fixed structural markers swept unconditionally.
+    const structuralMarkers = ["[redacted personal detail]", "[redacted]"];
     const markerTemplate = redactPiiValues("marker-probe", [
       piiSource("date_of_birth", "marker-probe", "marker-probe"),
     ]);
@@ -538,18 +546,18 @@ describe("redaction (VAL-CONV-004 invariant)", () => {
         fc.boolean(),
         (before, value, afterToo) => {
           fc.pre(!containsIgnoreCase(markerTemplate, value));
+          fc.pre(
+            !structuralMarkers.some((marker) =>
+              containsIgnoreCase(marker, value),
+            ),
+          );
           const text =
             before + (before.length > 0 ? " " : "") + value +
             (afterToo ? " tail" : "");
           const redacted = redactPiiValues(text, [
             piiSource("date_of_birth", value, value),
           ]);
-          // The leak definition matches the implementation's own fail-closed
-          // sweep: a value inside a redaction marker is the marker's own
-          // template text ("personal detail" contains "na"), not a leak.
-          // A value that survives OUTSIDE every marker is a real leak.
-          const outsideMarkers = redacted.replace(/\[redacted[^\]]*\]/g, "");
-          expect(containsIgnoreCase(outsideMarkers, value)).toBe(false);
+          expect(containsIgnoreCase(redacted, value)).toBe(false);
         },
       ),
     );
@@ -580,6 +588,10 @@ describe("redaction (VAL-CONV-004 invariant)", () => {
   });
 
   it("PROPERTY: several injected values are all removed in one pass", () => {
+    // Values that are substrings of the marker texts themselves are
+    // excluded: the markers are the REPLACEMENT, so containing a needle
+    // there would not be a leak.
+    const structuralMarkers = ["[redacted personal detail]", "[redacted]"];
     const markerTemplate = redactPiiValues("marker-probe", [
       piiSource("goal_detail", "marker-probe", "marker-probe"),
     ]);
@@ -590,6 +602,11 @@ describe("redaction (VAL-CONV-004 invariant)", () => {
         (values, filler) => {
           for (const value of values) {
             fc.pre(!containsIgnoreCase(markerTemplate, value));
+            fc.pre(
+              !structuralMarkers.some((marker) =>
+                containsIgnoreCase(marker, value),
+              ),
+            );
           }
           const text = [filler, ...values].join(" | ");
           const redacted = redactPiiValues(
@@ -597,11 +614,7 @@ describe("redaction (VAL-CONV-004 invariant)", () => {
             values.map((value) => piiSource("goal_detail", value, value)),
           );
           for (const value of values) {
-            // Same leak definition as the single-value property: markers are
-            // the replacement (their template text may embed short values);
-            // only survival OUTSIDE every marker is a leak.
-            const outsideMarkers = redacted.replace(/\[redacted[^\]]*\]/g, "");
-            expect(containsIgnoreCase(outsideMarkers, value)).toBe(false);
+            expect(containsIgnoreCase(redacted, value)).toBe(false);
           }
         },
       ),
