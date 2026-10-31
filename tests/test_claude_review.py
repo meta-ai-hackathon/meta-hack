@@ -1467,7 +1467,10 @@ class ShortKeyPieceProperties(unittest.TestCase):
         # Long texts between a header and a footer, after a line of code,
         # made of the pieces the redactor reads one by one: whole strings,
         # strings left open, escaped line breaks after a quote, names, runs
-        # of + and a backslash escape, and many headers before one footer.
+        # of + and a backslash escape, many headers before one footer, and
+        # 20 keys that each hold a row of 60,000 backslashes with no / after
+        # it, which a scan that read the row again from each backslash in it
+        # would take seconds over.
         header, footer = "-----BEGIN PRIVATE KEY-----(", "-----END PRIVATE KEY-----"
         texts = [
             header + "'aB3x' " * 9_000 + footer,
@@ -1478,6 +1481,7 @@ class ShortKeyPieceProperties(unittest.TestCase):
             header + "'aB\\" + "\\" * 60_000 + "'" + footer,
             header + ("a" * 15 + "+") * 3_500 + footer,
             header * 2_000 + "'aB3x' " * 2_000 + footer,
+            (header + "\\" * 60_000 + "x" + footer + "\n") * 20,
             (header + "'aB3x' " * 5 + footer) * 1_500,
         ]
         for text in texts:

@@ -658,7 +658,11 @@ class _Detector:
 # possessive, so the walk takes linear time.
 _KEY_HEADER = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _KEY_FOOTER = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
-_KEY_RUN = re.compile(r"(?:[A-Za-z0-9+/=]|\\++/)++")
+# A base64 run, a / written \/ too. A run starts at the first backslash of
+# an escaped /, never at a later one, so a long row of backslashes with no /
+# after it is read once rather than once for each backslash in it. The runs
+# are the same.
+_KEY_RUN = re.compile(r"(?:[A-Za-z0-9+/=]|(?<!\\)\\++/)(?:[A-Za-z0-9+/=]|\\++/)*+")
 # How much key material may come between a header and a footer for the
 # footer to count as that key's: main's bound, counted in the characters of
 # the runs the redactor would hide rather than in every character, so the
@@ -826,7 +830,8 @@ def private_key_spans(text: str) -> list[tuple[int, int]]:
     first piece that is not key material, which any later header is, so no
     two walks cover the same text. The search for a footer starts again only
     once a header comes after the last footer found, and the runs before a
-    footer are read only for the last header before it."""
+    footer are read only for the last header before it, each character once
+    (see _KEY_RUN)."""
     spans: list[tuple[int, int]] = []
     header = _KEY_HEADER.search(text)
     footer = None if header is None else _KEY_FOOTER.search(text, header.end())
