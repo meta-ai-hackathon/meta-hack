@@ -24,8 +24,9 @@ files (a binary file type, or a NUL byte) are not read, so a filled form
 committed as a PDF, or an audio recording, is not checked here; those stay
 synthetic by review.
 
-ALLOWED names each value that is meant to be in a file, and why. A finding
-is reported by file, line, column and kind, never by its value, so a real
+ALLOWED names each value that is meant to be in a file by its SHA-256, with
+the reason, so the list never adds a copy of the value. A finding is
+reported by file, line, column and kind, never by its value, so a real
 detail that lands in a commit does not land in the CI log as well.
 Property tests plant every kind of value in text and in files, and check
 that the scan reports each one where it is, reads only the files it
@@ -34,12 +35,13 @@ should, and lets the fictional and reserved values through.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import string
 import subprocess
 import tempfile
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Final, Iterable
 
@@ -47,7 +49,6 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-THIS_FILE = "tests/test_no_real_pii.py"
 
 # Files the scan does not read by their name: lockfiles (generated, and full
 # of hashes) and binary file types. Any other file with a NUL byte in it
@@ -105,22 +106,27 @@ _ESCAPE: Final = re.compile(r"\\[nrt]")
 FICTIONAL_EMAIL_DOMAINS: Final = ("example.com", "example.org", "example.net", "noreply.github.com")
 FICTIONAL_EMAIL_TLDS: Final = frozenset({"test", "invalid"})
 
-# Each value that is meant to be in a file, and why. This file names each
-# value once more, here, so the scan allows every listed value in it too.
+# Each value that is meant to be in a file, by the file and the value's
+# SHA-256, and why it is there.
 ALLOWED: Final[dict[tuple[str, str], str]] = {
-    ("tests/test_claude_review.py", "jane.doe@gmail.com"): (
-        "The review bot's redactor fixture: an owner comment in a diff, which the bot must redact before the model sees it."
+    ("tests/test_claude_review.py", "831f6494ad6be4fcb3a724c3d5fef22d3ceffa3c62ef3a7984e45a0ea177f982"): (
+        "The review bot's redactor fixture: an owner's email in a code comment, at a real mail provider, which the bot "
+        "must redact before the model sees the diff."
     ),
-    ("tests/test_claude_review.py", "hunter2@db.internal"): (
+    ("tests/test_claude_review.py", "5bd07c9b8bab0050610547c944c143dff1221f8e5a6577a55ceb74410352e2f8"): (
         "The review bot's redactor fixture: the password and host of a made-up database URL, which the bot must redact."
     ),
-    ("src/lib/telemetry.test.ts", "123-45-6789"): (
+    ("src/lib/telemetry.test.ts", "01a54629efb952287e554eb23ef69c52097a75aecc0e3a93ca0855ab6d7a31a0"): (
         "The log redactor's fixture: the well-known placeholder SSN, planted to prove a log line never carries it."
     ),
-    ("src/lib/telemetry.test.ts", "hunter2@db.internal"): (
+    ("src/lib/telemetry.test.ts", "5bd07c9b8bab0050610547c944c143dff1221f8e5a6577a55ceb74410352e2f8"): (
         "The log redactor's fixture: the password and host of a made-up database URL inside an error, which a log must never carry."
     ),
 }
+
+
+def digest(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def fictional_phone(value: str) -> bool:
@@ -196,9 +202,7 @@ def tracked_files(root: Path) -> list[str]:
 
 def allowed(finding: Finding) -> bool:
     """Whether a finding is on the reviewed list."""
-    if (finding.path, finding.value) in ALLOWED:
-        return True
-    return finding.path == THIS_FILE and finding.value in {value for _path, value in ALLOWED}
+    return (finding.path, digest(finding.value)) in ALLOWED
 
 
 class RepoScanTests(unittest.TestCase):
@@ -221,8 +225,9 @@ class RepoScanTests(unittest.TestCase):
 
     def test_every_allowed_value_is_still_in_its_file(self) -> None:
         # The list stays short: an entry goes when its value does.
-        present = {(finding.path, finding.value) for finding in self.findings}
+        present = {(finding.path, digest(finding.value)) for finding in self.findings}
         self.assertEqual([entry for entry in ALLOWED if entry not in present], [])
+        self.assertTrue(all(ALLOWED.values()))
 
     def test_the_scan_reads_the_tracked_text_files_and_skips_the_rest(self) -> None:
         persona = "scripts/fixtures/walkthrough/v2-response-shapes.json"
@@ -237,14 +242,12 @@ class RepoScanTests(unittest.TestCase):
             self.assertIn(skipped, self.paths)
             self.assertIsNone(read_text(REPO_ROOT, skipped), skipped)
 
-    def test_only_listed_values_pass_and_only_where_listed(self) -> None:
-        for (path, value), why in ALLOWED.items():
-            self.assertTrue(why)
-            kind = find_pii(value)[0][1]
-            self.assertTrue(allowed(Finding(path, 1, 1, kind, value)))
-            self.assertTrue(allowed(Finding(THIS_FILE, 1, 1, kind, value)))
-            self.assertFalse(allowed(Finding("src/lib/other.ts", 1, 1, kind, value)))
-        self.assertFalse(allowed(Finding(THIS_FILE, 1, 1, "email", "someone@" + "gmail.com")))
+    def test_a_listed_value_passes_only_where_it_is_listed(self) -> None:
+        listed = [finding for finding in self.findings if allowed(finding)]
+        self.assertTrue(listed)
+        for finding in listed:
+            self.assertFalse(allowed(replace(finding, path="src/lib/other.ts")))
+            self.assertFalse(allowed(replace(finding, value=finding.value + "0")))
 
 
 # --- property tests ---------------------------------------------------------------
