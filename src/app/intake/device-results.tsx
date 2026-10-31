@@ -73,9 +73,12 @@ export const DEVICE_RESULTS_COPY = {
   leftBlankHeading: "Left blank on the form you downloaded",
   handoffHeading: "Submit it yourself",
   handoffBody:
-    "You submit the form yourself, through one of the official ways to " +
-    "apply below. The app never submits for you.",
-  handoffBodyNoLinks: "You submit the form yourself. The app never submits for you.",
+    "You sign the form and submit it yourself. The official links below " +
+    "show how and where to apply. The app never signs or submits anything " +
+    "for you.",
+  handoffBodyNoLinks:
+    "You sign the form and submit it yourself. The app never signs or " +
+    "submits anything for you.",
 } as const;
 
 const REQUIREMENT_KIND_LABELS: Readonly<Record<MatchCard["requirements"][number]["kind"], string>> = {
