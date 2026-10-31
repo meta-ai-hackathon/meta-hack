@@ -150,11 +150,29 @@ async function visit() {
     await click(option);
   };
   const status = () => container.querySelector('[role="status"]')?.textContent ?? "";
+  const question = () => container.querySelector("legend")?.textContent ?? "";
+  const checked = (label: string) =>
+    [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")].find(
+      (input) => input.closest("label")?.textContent?.trim() === label,
+    )?.checked ?? false;
   const unmount = async () => {
     await act(async () => root.unmount());
     container.remove();
   };
-  return { act, settle, text, button, click, choose, status, unmount, copy: DEVICE_INTAKE_COPY, container };
+  return {
+    act,
+    settle,
+    text,
+    button,
+    click,
+    choose,
+    status,
+    question,
+    checked,
+    unmount,
+    copy: DEVICE_INTAKE_COPY,
+    container,
+  };
 }
 
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
@@ -221,10 +239,14 @@ describe("the wizard in device mode", () => {
 
   it("'Save and finish later' saves the answer on screen before saying it's saved", async () => {
     const page = await visit();
+    expect(page.question()).toContain("Who is this application for?");
     await page.choose("A family member");
     await page.click(page.button("Save and finish later"));
     expect(page.status()).toBe(page.copy.savedForLaterKept);
     expect(page.text()).toContain("Answered 1 of");
+    // It saves in place: the person stays on the question they were on.
+    expect(page.question()).toContain("Who is this application for?");
+    expect(page.checked("A family member")).toBe(true);
     await page.unmount();
     const again = await visit();
     expect(again.text()).toContain("Answered 1 of");

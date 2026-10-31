@@ -458,11 +458,14 @@ export function IntakeWizard(props: {
 
   /**
    * Save one answer on this device (persistence "device"). Nothing is sent
-   * anywhere; the outcome's copy says whether the device kept it.
+   * anywhere; the outcome's copy says whether the device kept it. By default
+   * the page moves on to the next unanswered question; with `advance: false`
+   * ("Save and finish later") it stays on the question just saved.
    */
   async function answerOnThisDevice(
     questionId: string,
     status: "known" | "unverified" | "unknown",
+    options: { readonly advance?: boolean } = {},
   ): Promise<DeviceIntake | null> {
     const intake = deviceIntake;
     if (!intake) {
@@ -483,12 +486,16 @@ export function IntakeWizard(props: {
     const data = result.intake.view;
     setWizard({ phase: "ready", state: data });
     props.onAnswersChanged?.();
-    advanceTo(
-      result.kind === "purged"
-        ? (data.currentIndex ?? data.questions.length)
-        : nextUnansweredAfter(data, questionId),
-      data,
-    );
+    if (result.kind === "purged") {
+      goTo(data.currentIndex ?? data.questions.length, data);
+    } else if (options.advance === false) {
+      // Stay on the question just saved; if skip logic now hides it, go to
+      // the next unanswered one as a normal save would.
+      const same = data.questions.findIndex((question) => question.id === questionId);
+      goTo(same >= 0 ? same : nextUnansweredAfter(data, questionId), data);
+    } else {
+      advanceTo(nextUnansweredAfter(data, questionId), data);
+    }
     setNotice(result.notice);
     return result.kind === "saved" ? result.intake : null;
   }
@@ -575,7 +582,9 @@ export function IntakeWizard(props: {
       let latest: DeviceIntake | null = deviceIntake;
       const question = wizard.state.questions[current];
       if (question && !isEmptyDraft(draftValue)) {
-        latest = await answerOnThisDevice(question.id, bestGuess ? "unverified" : "known");
+        latest = await answerOnThisDevice(question.id, bestGuess ? "unverified" : "known", {
+          advance: false,
+        });
         if (latest === null) {
           // Not saved (invalid, busy, or deleted elsewhere): what to say is already shown.
           return;
