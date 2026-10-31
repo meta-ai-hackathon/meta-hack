@@ -90,10 +90,59 @@ function SourceNote({ source }: { source: MatchSourceView }) {
 }
 
 /**
+ * The compact citation chip (VAL-VJS2-001, owner master spec: the
+ * rules-check's "medicaid.ncdhhs.gov · retrieved <date>" chip): the host
+ * of the card's official source plus its real retrieval date, still
+ * source-linked. Derived from the entry's actual source data — nothing is
+ * hardcoded or invented; a card with no sourced item shows no chip.
+ */
+function CitationChip({ source }: { source: MatchSourceView }) {
+  let host = source.sourceUrl;
+  try {
+    host = new URL(source.sourceUrl).hostname;
+  } catch {
+    // A non-URL source string falls back to the raw text — still real.
+  }
+  return (
+    <span
+      data-citation-chip
+      className="self-start rounded-full border border-surface-border bg-background px-3 py-1 font-mono text-xs text-muted"
+    >
+      <a href={source.sourceUrl} className="underline" rel="noreferrer">
+        {host}
+      </a>{" "}
+      · retrieved {source.retrievedAt}
+    </span>
+  );
+}
+
+/** The card's first sourced item, or null when the card carries none. */
+function firstCardSource(card: MatchCardView): MatchSourceView | null {
+  return (
+    card.reasons[0]?.source ??
+    card.requirements[0]?.source ??
+    card.links[0]?.source ??
+    null
+  );
+}
+
+/**
  * The pure presentation for one match payload. Exported for tests: the
  * rendered-card detector scan runs over this markup for every fixture card.
+ * `stagger` (the results stage's staggered rules-check, VAL-VJS2-001) adds
+ * the stagger-item presentation classes to the checklist items — copy,
+ * sources, and provenance stay word-identical either way.
  */
-export function MatchSectionContent({ data }: { data: MatchDataView }) {
+export function MatchSectionContent({
+  data,
+  stagger = false,
+}: {
+  data: MatchDataView;
+  stagger?: boolean;
+}) {
+  const staggerStyle = (index: number): Record<string, string> =>
+    stagger ? { animationDelay: `${index * 90}ms` } : {};
+  const staggerClass = stagger ? "stagger-item" : "";
   return (
     <div data-match-section className="flex flex-col gap-6">
       <section aria-labelledby="match-heading" className="flex flex-col gap-3">
@@ -106,7 +155,9 @@ export function MatchSectionContent({ data }: { data: MatchDataView }) {
             show up here with their official sources.
           </p>
         ) : null}
-        {data.matches.map((card) => (
+        {data.matches.map((card) => {
+          const chipSource = firstCardSource(card);
+          return (
           <article
             key={card.entryId}
             data-match-card={card.entryId}
@@ -116,12 +167,17 @@ export function MatchSectionContent({ data }: { data: MatchDataView }) {
             <p className="text-sm text-muted">
               {card.framing} Facts from entry version {card.entryVersion}.
             </p>
+            {chipSource ? <CitationChip source={chipSource} /> : null}
             {card.reasons.length > 0 ? (
               <div className="flex flex-col gap-1">
                 <h4 className="font-medium">Why this may fit</h4>
                 <ul className="list-disc pl-5 marker:text-teal">
                   {card.reasons.map((reason, index) => (
-                    <li key={`${reason.questionId ?? "reason"}-${index}`}>
+                    <li
+                      key={`${reason.questionId ?? "reason"}-${index}`}
+                      className={staggerClass || undefined}
+                      style={staggerStyle(index)}
+                    >
                       {reason.text}
                       {reason.answerLabel ? (
                         <> — your answer: {reason.answerLabel}</>
@@ -137,7 +193,11 @@ export function MatchSectionContent({ data }: { data: MatchDataView }) {
               <h4 className="font-medium">What you would need</h4>
               <ul className="list-disc pl-5 marker:text-teal" data-match-requirements={card.entryId}>
                 {card.requirements.map((requirement, index) => (
-                  <li key={`${requirement.kind}-${index}`}>
+                  <li
+                    key={`${requirement.kind}-${index}`}
+                    className={staggerClass || undefined}
+                    style={staggerStyle(index)}
+                  >
                     <span className="font-medium">
                       {REQUIREMENT_KIND_LABELS[requirement.kind]}:
                     </span>{" "}
@@ -195,7 +255,8 @@ export function MatchSectionContent({ data }: { data: MatchDataView }) {
               </div>
             ) : null}
           </article>
-        ))}
+          );
+        })}
       </section>
       {data.toResolve.length > 0 ? (
         <section
@@ -242,7 +303,13 @@ export const MATCH_UNAVAILABLE_NOTICE =
  * into it, so screen readers announce the update (a region inserted with
  * its text already present may stay silent).
  */
-export function MatchSection({ refreshKey }: { refreshKey: number }) {
+export function MatchSection({
+  refreshKey,
+  stagger = false,
+}: {
+  refreshKey: number;
+  stagger?: boolean;
+}) {
   const [data, setData] = useState<MatchDataView | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -278,7 +345,7 @@ export function MatchSection({ refreshKey }: { refreshKey: number }) {
 
   return (
     <>
-      {data && !failed ? <MatchSectionContent data={data} /> : null}
+      {data && !failed ? <MatchSectionContent data={data} stagger={stagger} /> : null}
       <StatusRegion
         message={failed ? MATCH_UNAVAILABLE_NOTICE : ""}
         className="text-sm text-muted"

@@ -21,9 +21,10 @@ import { MAX_SPEAK_TEXT_LENGTH, speakText } from "../../../../lib/tts";
 // Per-turn audio cache (claude-review P3): a reply is deterministic for its
 // turn id, so replaying the same id re-serves the same bytes instead of
 // spending a second paid TTS call. Bounded and time-limited; a miss simply
-// regenerates.
+// regenerates. The TTL covers a demo session (demo-day bump, HACK-116:
+// pre-warm the replies once, replay them all hour long).
 const SPEAK_CACHE_LIMIT = 50;
-const SPEAK_CACHE_TTL_MS = 5 * 60 * 1000;
+const SPEAK_CACHE_TTL_MS = 60 * 60 * 1000;
 const speakCache = new Map<string, { audio: Uint8Array; cachedAt: number }>();
 
 function cachedAudioFor(turnId: string): Uint8Array | null {
@@ -50,7 +51,8 @@ function rememberAudio(turnId: string, audio: Uint8Array): void {
 
 // POST /api/conversation/speak (Mission v2 M2): spoken assistant replies.
 // The browser asks this route for audio of a reply it just displayed as a
-// subtitle; the Gemini key stays server-side.
+// subtitle; the ElevenLabs key stays server-side (HACK-116 provider
+// switch).
 //
 // Contract (claude-review P1-1/P2-1): the request carries a TURN ID, not
 // free text — the route speaks only a stored, REDACTED assistant turn that
@@ -60,9 +62,9 @@ function rememberAudio(turnId: string, audio: Uint8Array): void {
 // to browser speechSynthesis — the route never blocks the conversation.
 //
 // CONSENT GATE (Mission v2.1 M5, HACK-81, VAL-CONSENT-003): the reply text
-// goes to Gemini TTS only for a client whose receipt has the voice toggle
-// on — checked BEFORE the body is read. Without it, the client's browser
-// speechSynthesis (local, no send) is the path.
+// goes to ElevenLabs TTS only for a client whose receipt has the voice
+// toggle on — checked BEFORE the body is read. Without it, the client's
+// browser speechSynthesis (local, no send) is the path.
 
 export async function POST(request: Request): Promise<Response> {
   const requestId = requestIdFromHeaders(request.headers);

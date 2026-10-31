@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import fc from "fast-check";
 import { assertLoadablePdf, discoverAcroFormFields, extractFieldLabels } from "./parse";
 import { fillFormPdf, type FillValue } from "./fill";
 import { getFormRegistryEntry } from "./registry";
@@ -90,9 +91,27 @@ describe("the real DHB-5200 form fixture", () => {
     }
   });
 
-  it("never registers the signature field — the person signs themselves", () => {
-    const names = entry().fields.map((field) => field.name);
-    expect(names).not.toContain("Signature");
+  // HACK-116 decision 3 (owner, 2026-10-31): a TYPED e-signature is the
+  // person's own signing act — what THEY type renders as the signature.
+  // The old rule ("never registers the signature field") encoded the ban on
+  // the APP signing for the person; the ban that stands is on auto-fill,
+  // so the mapping must be registered yet UNMAPPED: the only source a
+  // fill can ever draw from is the fresh typed value riding the request.
+  it("registers the signature field as an unmapped text field (typed e-signature)", () => {
+    const signature = entry().fields.find(
+      (field) => field.name === "Signature",
+    );
+    expect(signature, "the DHB-5200 Signature field is registered").toBeDefined();
+    expect(signature?.type).toBe("text");
+    // Unmapped: structurally impossible to auto-populate from stored
+    // answers or the vault — the fill's value sources for an unmapped
+    // field are the in-request values only.
+    expect(signature?.specQuestionId).toBeNull();
+    // The person may skip typing: the form downloads unsigned, honestly.
+    expect(signature?.required).toBe(false);
+    // The person's legal name is sensitive by default.
+    expect(signature?.piiLikely).toBe(true);
+    expect(signature?.pages).toEqual([20]);
   });
 
   it("round-trips: fills the real bytes and re-parses the values", async () => {
@@ -147,6 +166,87 @@ describe("the real DHB-5200 form fixture", () => {
       expect(item.reason).toBe("unknown");
     }
   });
+
+  // Property (skills/property-based-testing): whatever the person TYPES as
+  // their signature — arriving exactly as the real typed-signature step
+  // sends it — is what the filled form carries, and nothing else ever
+  // populates that field. The signature value is arbitrary (printable
+  // WinAnsi text, the fonts the fill embeds), the persona fields are
+  // arbitrary too: the invariant is that the output's Signature equals the
+  // typed value when present, and stays blank + to-resolve when absent.
+  it("the signature fills with EXACTLY the typed value, or stays blank when absent (VAL-VJS2-002)", async () => {
+    const signatureArb = fc
+      .string({ minLength: 1, maxLength: 80 })
+      .filter((s) => /^[\x20-\x7E\xA0-\xFF\t\n\r]*$/.test(s) && s.trim().length > 0)
+      .map((s) => s.trim());
+    const personaArb = fc.record({
+      homeAddress: fc.option(fc.string({ minLength: 1, maxLength: 80 }), { nil: undefined }),
+      nextYearIncome: fc.option(fc.string({ minLength: 1, maxLength: 12 }), { nil: undefined }),
+    });
+    await fc.assert(
+      fc.asyncProperty(
+        signatureArb,
+        fc.option(signatureArb, { nil: undefined }),
+        personaArb,
+        async (typedName, absentCase, persona) => {
+          // `absentCase` toggles whether this run carries a typed signature
+          // at all — the empty path must behave identically every time.
+          const signature = absentCase === undefined ? typedName : undefined;
+          const values: Record<string, FillValue> = {};
+          if (persona.homeAddress !== undefined) {
+            values["2 Home address Leave blank if you dont have one"] = {
+              display: persona.homeAddress,
+              provenance: "user_supplied",
+              source: "in_request",
+            };
+          }
+          if (persona.nextYearIncome !== undefined) {
+            values[
+              "Your total income next year if you think it will be different"
+            ] = { display: persona.nextYearIncome, provenance: "user_supplied", source: "in_request" };
+          }
+          if (signature !== undefined) {
+            values.Signature = {
+              display: signature,
+              provenance: "user_supplied",
+              source: "in_request",
+            };
+          }
+          const outcome = await fillFormPdf(realBytes(), entry(), values);
+          const { PDFDocument } = await import("@cantoo/pdf-lib");
+          const reparsed = await PDFDocument.load(outcome.bytes, {
+            ignoreEncryption: true,
+          });
+          const signatureField = reparsed
+            .getForm()
+            .getTextField("Signature");
+          if (signature === undefined) {
+            // The app never signs: no typed value → the field stays
+            // VISIBLY blank and the to-resolve list says so.
+            expect(signatureField.getText() ?? "").toBe("");
+            expect(
+              outcome.toResolve.map((item) => item.fieldName),
+            ).toContain("Signature");
+          } else {
+            // Exactly what was typed — never trimmed further, never
+            // copied from another field, never a store's value.
+            expect(signatureField.getText()).toBe(signature);
+            expect(
+              outcome.filled.find((f) => f.fieldName === "Signature")
+                ?.provenance,
+            ).toBe("user_supplied");
+            expect(
+              outcome.toResolve.map((item) => item.fieldName),
+            ).not.toContain("Signature");
+          }
+        },
+      ),
+      // Each run fills + re-parses the 21-page official PDF (~0.5 s local,
+      // slower on CI runners) — 8 randomized combinations with an explicit
+      // 30 s budget keeps the property affordable in CI.
+      { numRuns: 8 },
+    );
+  }, 30000);
 });
 
 // --- helpers -----------------------------------------------------------------

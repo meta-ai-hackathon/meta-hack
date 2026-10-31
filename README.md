@@ -73,10 +73,13 @@ the person said before asking the next question; when an answer looks
 unclear the model may propose a short follow-up, but a deterministic engine
 validates it (banned-claims scan) and the next question stays
 spec-decided. Replies are subtitled in the transcript and spoken: through
-a human-sounding Gemini TTS voice (`gemini-3.8-flash-tts`, Callirrhoe
-prebuilt; configurable via `GEMINI_TTS_MODEL`/`GEMINI_TTS_VOICE` env
-overrides; set `GEMINI_API_KEY` in `.env`), with the browser's built-in
-`speechSynthesis` as the honest fallback. Each voice turn runs one combined
+a human-sounding ElevenLabs voice (`eleven_multilingual_v2`, "Sarah"
+prebuilt; configurable via `ELEVENLABS_TTS_MODEL`/`ELEVENLABS_TTS_VOICE`
+env overrides; set `ELEVENLABS_API_KEY` in `.env` — it replaced Gemini TTS
+on Oct 31, whose free tier allowed only 10 requests/day and silently
+degraded to the OS voice), with the browser's built-in
+`speechSynthesis` as the honest fallback — and a visible built-in-voice
+notice when that fallback is in use. Each voice turn runs one combined
 model call per turn. All of this sits behind the consent gate described
 below, and the same redaction applies to what is spoken as to what is
 shown. The conversation is
@@ -87,7 +90,7 @@ every error state.
 
 **Consent comes first** (HACK-81): a plain-language consent surface precedes
 the first send. It names what leaves the device, to which provider (the
-Meta chat model and Meta STT; Gemini TTS for replies), and for what, with
+Meta chat model and Meta STT; ElevenLabs TTS for replies), and for what, with
 links to the vendors' verified data-handling terms. A typed conversation
 turn goes to the Meta chat model, and the consent copy says so; the
 zero-send path that still completes the whole journey is the step-by-step

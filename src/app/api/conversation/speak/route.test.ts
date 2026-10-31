@@ -4,20 +4,25 @@ import postgres from "postgres";
 import { closeDb } from "../../../../lib/db";
 import { runMigrations } from "../../../../lib/migrate";
 import { persistTurn } from "../../../../lib/conversation";
-import { resetTtsTransport, setTtsTransport, type TtsTransport } from "../../../../lib/tts";
+import {
+  ELEVENLABS_TTS_MODEL,
+  resetTtsTransport,
+  setTtsTransport,
+  type TtsTransport,
+} from "../../../../lib/tts";
 import { parseWavHeader } from "../../../../lib/audio/wav";
 import { setLogSink, type LogLine } from "../../../../lib/telemetry";
 import { CONSENT_HEADER } from "../../../../lib/consent";
 import { POST } from "./route";
 
-// Spoken-reply route tests (Mission v2 M2): the server proxies Gemini TTS
-// so the API key never reaches the browser. Contract (claude-review
-// P1-1/P2-1): the request carries a TURN ID — the route speaks only a
-// stored, session-owned, REDACTED assistant turn, never client-supplied
-// text. Failures map to the taxonomy; the client falls back to browser
-// speechSynthesis on any non-200.
+// Spoken-reply route tests (Mission v2 M2): the server proxies ElevenLabs
+// TTS (HACK-116 provider switch) so the API key never reaches the browser.
+// Contract (claude-review P1-1/P2-1): the request carries a TURN ID — the
+// route speaks only a stored, session-owned, REDACTED assistant turn,
+// never client-supplied text. Failures map to the taxonomy; the client
+// falls back to browser speechSynthesis on any non-200.
 
-const SENTINEL_KEY = "sentinel-gemini-key-abc123";
+const SENTINEL_KEY = "sentinel-elevenlabs-key-abc123";
 
 const LOCAL_DATABASE_URL =
   "postgresql://postgres:benefits_dev@localhost:5432/benefits_navigator";
@@ -54,7 +59,7 @@ afterAll(async () => {
 afterEach(() => {
   resetTtsTransport();
   setLogSink(() => undefined);
-  delete process.env.GEMINI_API_KEY;
+  delete process.env.ELEVENLABS_API_KEY;
 });
 
 /** One session with two stored assistant turns; returns [sessionId, turnIds]. */
@@ -89,36 +94,25 @@ function cookieFor(sessionId: string): string {
   return `bn_session=${sessionId}`;
 }
 
+/** ElevenLabs pcm_24000 responds with RAW PCM bytes — no container. */
+function elevenlabsPcm(): Uint8Array<ArrayBuffer> {
+  const buffer = new ArrayBuffer(480);
+  new Int16Array(buffer); // zero-filled
+  return new Uint8Array(buffer);
+}
+
 function scriptedTtsOk(): void {
-  setTtsTransport((async () => {
-    const pcm = new Int16Array(240);
-    const bytes = new Uint8Array(pcm.buffer.slice(0));
-    let binary = "";
-    for (const byte of bytes) {
-      binary += String.fromCharCode(byte);
-    }
-    return new Response(
-      JSON.stringify({
-        candidates: [
-          {
-            content: {
-              parts: [
-                { inlineData: { mimeType: "audio/L16;rate=24000", data: btoa(binary) } },
-              ],
-              role: "model",
-            },
-          },
-        ],
-      }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
-  }) as TtsTransport);
+  setTtsTransport((async () =>
+    new Response(elevenlabsPcm(), {
+      status: 200,
+      headers: { "content-type": "application/octet-stream" },
+    })) as TtsTransport);
 }
 
 describe("POST /api/conversation/speak — turn-id contract", () => {
   it("speaks a stored assistant turn for the caller's session as WAV", async () => {
     const { sessionId, turnIds } = await seedTurns();
-    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    process.env.ELEVENLABS_API_KEY = SENTINEL_KEY;
     scriptedTtsOk();
 
     const response = await POST(speakRequest(turnIds[0], cookieFor(sessionId)));
@@ -139,7 +133,7 @@ describe("POST /api/conversation/speak — turn-id contract", () => {
 
   it("never speaks another session's turn or a user turn", async () => {
     const { sessionId, turnIds } = await seedTurns();
-    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    process.env.ELEVENLABS_API_KEY = SENTINEL_KEY;
     let called = false;
     setTtsTransport((async () => {
       called = true;
@@ -165,7 +159,7 @@ describe("POST /api/conversation/speak — turn-id contract", () => {
 
   it("requires a session: no cookie is a 404, never a proxy", async () => {
     const { turnIds } = await seedTurns();
-    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    process.env.ELEVENLABS_API_KEY = SENTINEL_KEY;
     let called = false;
     setTtsTransport((async () => {
       called = true;
@@ -197,43 +191,27 @@ describe("POST /api/conversation/speak — turn-id contract", () => {
 
   it("serves a repeated turn id from the cache without a second provider call (claude-review P3)", async () => {
     const { sessionId, turnIds } = await seedTurns();
-    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    process.env.ELEVENLABS_API_KEY = SENTINEL_KEY;
     let calls = 0;
     setTtsTransport((async () => {
       calls += 1;
-      const pcm = new Int16Array(240);
-      const bytes = new Uint8Array(pcm.buffer.slice(0));
-      let binary = "";
-      for (const byte of bytes) {
-        binary += String.fromCharCode(byte);
-      }
-      return new Response(
-        JSON.stringify({
-          candidates: [
-            {
-              content: {
-                parts: [
-                  {
-                    inlineData: {
-                      mimeType: "audio/L16;rate=24000",
-                      data: btoa(binary),
-                    },
-                  },
-                ],
-                role: "model",
-              },
-            },
-          ],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+      return new Response(elevenlabsPcm(), {
+        status: 200,
+        headers: { "content-type": "application/octet-stream" },
+      });
     }) as TtsTransport);
 
     const first = await POST(speakRequest(turnIds[1], cookieFor(sessionId)));
+    const warmStarted = Date.now();
     const second = await POST(speakRequest(turnIds[1], cookieFor(sessionId)));
+    const warmMs = Date.now() - warmStarted;
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
+    // Zero provider calls on the warm hit — and the in-memory replay is
+    // fast (VAL-TTS2-004 budget: < 500 ms), so the demo never waits on a
+    // repeated turn.
     expect(calls).toBe(1);
+    expect(warmMs).toBeLessThan(500);
     const firstBytes = Buffer.from(await first.arrayBuffer());
     const secondBytes = Buffer.from(await second.arrayBuffer());
     expect(firstBytes.length).toBeGreaterThan(0);
@@ -259,7 +237,7 @@ describe("POST /api/conversation/speak — turn-id contract", () => {
 
   it("never logs the spoken text or the key", async () => {
     const { sessionId, turnIds } = await seedTurns();
-    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    process.env.ELEVENLABS_API_KEY = SENTINEL_KEY;
     scriptedTtsOk();
     const logs: LogLine[] = [];
     setLogSink((line) => logs.push(JSON.parse(line) as LogLine));
@@ -297,7 +275,7 @@ const CONSENTED_AI_ONLY = JSON.stringify({
 describe("POST /api/conversation/speak — consent gate (VAL-CONSENT-003)", () => {
   it("refuses a speak request with no receipt before any provider call", async () => {
     const { sessionId, turnIds } = await seedTurns();
-    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    process.env.ELEVENLABS_API_KEY = SENTINEL_KEY;
     let called = false;
     setTtsTransport((async () => {
       called = true;
@@ -315,7 +293,7 @@ describe("POST /api/conversation/speak — consent gate (VAL-CONSENT-003)", () =
 
   it("refuses a speak request whose receipt lacks the voice toggle", async () => {
     const { sessionId, turnIds } = await seedTurns();
-    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    process.env.ELEVENLABS_API_KEY = SENTINEL_KEY;
     let called = false;
     setTtsTransport((async () => {
       called = true;
@@ -334,10 +312,11 @@ describe("POST /api/conversation/speak — consent gate (VAL-CONSENT-003)", () =
 });
 
 // ---------------------------------------------------------------------------
-// TTS payload hygiene (natural-conversation milestone, VAL-VTTS-003): the
-// ONLY text that ever reaches the Gemini TTS transport is the STORED
-// assistant reply — a full-population check that no pii:true value and no
-// user-turn text appears in any provider payload.
+// TTS payload hygiene (natural-conversation milestone, VAL-VTTS-003; carried
+// by VAL-TTS2-003 after the ElevenLabs switch): the ONLY text that ever
+// reaches the TTS transport is the STORED assistant reply — a
+// full-population check that no pii:true value and no user-turn text
+// appears in any provider payload.
 // ---------------------------------------------------------------------------
 
 const SPEC_PATH = new URL(
@@ -356,7 +335,7 @@ describe("POST /api/conversation/speak — TTS payload hygiene (VAL-VTTS-003)", 
   it("sends zero pii:true values and zero user-turn text to the provider (full population)", async () => {
     expect(SPEC_PII_FIELDS.length).toBeGreaterThan(0);
     const { sessionId } = await seedTurns();
-    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    process.env.ELEVENLABS_API_KEY = SENTINEL_KEY;
 
     // A user turn seeded with EVERY pii:true value in the spec, followed by
     // the assistant reply the route is asked to speak.
@@ -373,32 +352,10 @@ describe("POST /api/conversation/speak — TTS payload hygiene (VAL-VTTS-003)", 
     const payloadBodies: string[] = [];
     setTtsTransport((async (_url, init) => {
       payloadBodies.push(String(init.body));
-      const pcm = new Int16Array(240);
-      const bytes = new Uint8Array(pcm.buffer.slice(0));
-      let binary = "";
-      for (const byte of bytes) {
-        binary += String.fromCharCode(byte);
-      }
-      return new Response(
-        JSON.stringify({
-          candidates: [
-            {
-              content: {
-                parts: [
-                  {
-                    inlineData: {
-                      mimeType: "audio/L16;rate=24000",
-                      data: btoa(binary),
-                    },
-                  },
-                ],
-                role: "model",
-              },
-            },
-          ],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+      return new Response(elevenlabsPcm(), {
+        status: 200,
+        headers: { "content-type": "application/octet-stream" },
+      });
     }) as TtsTransport);
 
     const response = await POST(speakRequest(replyId, cookieFor(sessionId)));
@@ -407,11 +364,13 @@ describe("POST /api/conversation/speak — TTS payload hygiene (VAL-VTTS-003)", 
 
     // The payload carries the assistant reply text — and nothing else.
     const payload = JSON.parse(payloadBodies[0]) as {
-      contents: { parts: { text: string }[] }[];
+      text: string;
+      model_id: string;
     };
-    expect(payload.contents[0]?.parts[0]?.text).toBe(
+    expect(payload.text).toBe(
       "Thanks. What is your email address?",
     );
+    expect(payload.model_id).toBe(ELEVENLABS_TTS_MODEL);
     // No user-turn text: none of the pii sentinels, none of the phrasing.
     for (const id of SPEC_PII_FIELDS) {
       expect(payloadBodies[0]).not.toContain(`pii-sentinel-${id}`);
