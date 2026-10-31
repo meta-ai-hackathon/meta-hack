@@ -1072,8 +1072,9 @@ class RedactionProperties(unittest.TestCase):
         # with, so no code is ever hidden from the model. A run shorter than
         # a key line is redacted only when it is a piece of a key where it
         # stands (review.key_piece_at), and never, by a check that does not
-        # go through that rule, when it is a lower-case or camelCase name,
-        # maybe with digits at its end.
+        # go through that rule, when it is a word in lower case, camelCase,
+        # capitalized or all caps, maybe with digits at its end, or a number:
+        # the shapes that stay visible both bare and as a whole string.
         previous = 0
         for start, end in review.private_key_spans(text):
             self.assertGreaterEqual(start, previous)
@@ -1086,7 +1087,7 @@ class RedactionProperties(unittest.TestCase):
             self.assertIsNone(CODE_PUNCTUATION.search(text, start, end), text[start:end])
             if is_run and len(value) - value.count("\\") < 16:
                 self.assertTrue(review.key_piece_at(text, start, end), value)
-                self.assertIsNone(re.fullmatch(r"[a-z]+(?:[A-Z][a-z]+)*[0-9]*", value), value)
+                self.assertIsNone(re.fullmatch(r"(?:[a-z]+(?:[A-Z][a-z]+)*|[A-Z][a-z]+|[A-Z]+)[0-9]*|[0-9]+", value), value)
             previous = end
         out, _count = review.redact_sensitive(text)
         self.assertEqual(review.redact_sensitive(out), (out, 0))
