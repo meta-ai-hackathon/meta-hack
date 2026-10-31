@@ -110,10 +110,10 @@ To keep going without losing anything:
 The amber alert stays on screen after the switch. Ignore it. Don't follow "Open the
 wizard" mid-demo, or "Use the wizard instead" at the top of the page, since both go to
 `/intake`. It keeps answers only on the device, doesn't see what the chat saved, starts
-again at question 1, and ends at a list of answers ("All questions answered
-for now") with no form review and no PDF. It also shows an "Answers saved on the app's
-server" notice offering to delete them, and those are the chat session's answers. Don't
-press "Delete them from the app's server" if the person is going back to the chat.
+again at question 1, and ends at a list of answers ("All questions answered for now")
+with no form review and no PDF. It also shows an "Answers saved on the app's server"
+notice that counts the chat session's answers and offers to delete them, chat included.
+Don't press "Delete them from the app's server" if the person is going back to the chat.
 
 Rehearsed on 2026-10-31 with the app on port 3301 and no model key. A typed turn returned
 503 and showed the alert above. "Turn off sharing" brought up the questions in place. After
