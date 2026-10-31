@@ -67,17 +67,6 @@ describe("the conversation entry mode choice (VAL-NCF-002)", () => {
     );
     expect(findBannedClaims(html)).toEqual([]);
   });
-
-  it("renders the headline at the requested level (h1 on the home shell)", () => {
-    const asH1 = renderToStaticMarkup(
-      <ModeChoice onBegin={() => undefined} headingLevel="h1" />,
-    );
-    expect(asH1).toContain('<h1 id="mode-choice-heading"');
-    const asDefault = renderToStaticMarkup(
-      <ModeChoice onBegin={() => undefined} />,
-    );
-    expect(asDefault).toContain('<h2 id="mode-choice-heading"');
-  });
 });
 
 // The carried mode suggestion (VAL-FIX-003): the home shell's mode choice

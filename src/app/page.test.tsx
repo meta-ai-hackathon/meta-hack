@@ -15,6 +15,17 @@ vi.mock("next/navigation", () => ({
 // mobile-sane single column. The old hero page (status-badge showcase +
 // a11y demo blocks) is superseded: the a11y demo's own docstring said it
 // was to be replaced once the real flows landed, and they have.
+//
+// The old home page asserted the a11y attribute wiring THROUGH its demo
+// blocks (a polite live region, a label associated with its control).
+// That gate did not go away with the demo: the components own those
+// attributes and their unit suites pin them —
+// `src/components/status-region.test.tsx` (role="status" +
+// aria-live="polite" + stays mounted) and `src/components/field.test.tsx`
+// (for/id association, aria-describedby help/error wiring) — and the
+// surfaces that render the real flows keep the browser-level a11y
+// evidence (skip link, outline, focus, axe audits). This file keeps the
+// page-level outline + navigation gates.
 
 function headingLevels(html: string): number[] {
   return [...html.matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));

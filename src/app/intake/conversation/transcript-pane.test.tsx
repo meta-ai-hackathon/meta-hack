@@ -321,4 +321,42 @@ describe("the talk-stage transcript pane (VAL-FIX-002)", () => {
     expect(q(container, "transcript-pane")).toBeNull();
     expect(q(container, "conversation-transcript")).not.toBeNull();
   });
+
+  it("a re-entered talk stage starts pinned again — auto-scroll never silently dies", async () => {
+    const { container, act } = await renderChat();
+    const pane = await beginTalkStage(container, act);
+    // The person scrolls up: the pane unpins.
+    installGeometry(pane, {
+      scrollTop: 0,
+      scrollHeight: 1000,
+      clientHeight: 400,
+    });
+    await act(async () => {
+      pane.dispatchEvent(new Event("scroll"));
+    });
+    // They leave the voice journey and return (revoke + re-grant voice
+    // consent): the pane detaches and a FRESH one attaches.
+    await act(async () => {
+      saveConsentReceipt({ ...voiceReceipt(), voice: false });
+    });
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    const freshPane = q(container, "transcript-pane");
+    if (!(freshPane instanceof HTMLElement)) {
+      throw new Error("the talk stage pane did not re-attach");
+    }
+    const { assigned } = installGeometry(freshPane, {
+      scrollTop: 0,
+      scrollHeight: 1000,
+      clientHeight: 400,
+    });
+    // A new turn on the re-entered stage scrolls the fresh pane to the
+    // latest turn — the stale scrolled-up pin did not survive the
+    // detach.
+    await act(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(assigned).toContain(1000);
+  });
 });

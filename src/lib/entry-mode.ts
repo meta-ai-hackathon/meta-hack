@@ -9,6 +9,12 @@
 
 const ENTRY_MODE_KEY = "bn_entry_mode_v1";
 
+/**
+ * The two conversation entry modes — THE single source of the union.
+ * The conversation surface re-exports this as `ConversationEntryMode`,
+ * so the carried value and the entry stage's radio can never drift
+ * apart.
+ */
 export type EntryMode = "voice-only" | "voice-plus-typing";
 
 function isEntryMode(value: unknown): value is EntryMode {

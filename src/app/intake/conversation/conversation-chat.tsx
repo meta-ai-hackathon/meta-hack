@@ -284,6 +284,19 @@ export function ConversationChat() {
   // turn (auto-scroll only applies while it is — scrolled up is honored).
   const transcriptPaneRef = useRef<HTMLDivElement | null>(null);
   const transcriptPinnedRef = useRef(true);
+  // Stable attach callback: a freshly attached pane (the talk stage
+  // entered or re-entered — after a purge, a consent re-grant, or the
+  // typing switch and back) starts PARKED at the latest turn. The
+  // person's scroll position does not survive the pane leaving the
+  // stage, so a new pane must never inherit a stale "scrolled up" pin
+  // — that would silently kill auto-scroll for the whole stage (the
+  // droid-review P1 on PR #90).
+  const attachPaneRef = useCallback((el: HTMLDivElement | null): void => {
+    transcriptPaneRef.current = el;
+    if (el !== null) {
+      transcriptPinnedRef.current = true;
+    }
+  }, []);
   // The entry mode chosen on the home shell (VAL-FIX-003), carried as a
   // preselection for the engine-gated entry stage. Read once on mount.
   const [suggestedMode, setSuggestedMode] =
@@ -1226,7 +1239,7 @@ export function ConversationChat() {
             association and the list's data attribute are untouched. The
             single-scroll paths render the same list without the pane. */}
             <div
-              ref={talkStage ? transcriptPaneRef : undefined}
+              ref={talkStage ? attachPaneRef : undefined}
               data-transcript-pane={talkStage ? "true" : undefined}
               role={talkStage ? "region" : undefined}
               tabIndex={talkStage ? 0 : undefined}
