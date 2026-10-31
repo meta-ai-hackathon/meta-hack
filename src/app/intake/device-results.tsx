@@ -46,8 +46,8 @@ export const DEVICE_RESULTS_COPY = {
     "submits for you. Preparing it is not a benefits decision; only the " +
     "agency decides that.",
   typedNote:
-    "Used for this download only. It isn't saved anywhere, so it clears " +
-    "when you leave this screen.",
+    "Used only for the form you download. This page doesn't keep it, so it " +
+    "clears when you leave this screen.",
   answerAbove: "Answer this question",
   stillNeededHeading: "Still needed on the form",
   stillNeededBody: "These are left blank on the prepared form. Nothing is guessed.",
@@ -55,9 +55,10 @@ export const DEVICE_RESULTS_COPY = {
   downloading: "Preparing your form…",
   downloadNote:
     "When you tap download, this page gets the blank form and fills it in " +
-    "this browser. None of your answers are sent anywhere. The file saves " +
-    "to this device, so on a shared computer, delete it once you've " +
-    "printed or sent it.",
+    "this browser. None of your answers are sent anywhere. The file holds " +
+    "the answers filled in on the form, private ones included. It saves to " +
+    "this device as an ordinary file that isn't encrypted, so on a shared " +
+    "computer, delete it once you've printed or sent it.",
   downloaded:
     "Your application downloaded. It was filled in this browser, and none " +
     "of your answers were sent anywhere.",
