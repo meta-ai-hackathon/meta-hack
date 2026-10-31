@@ -229,18 +229,13 @@ class RepoScanTests(unittest.TestCase):
         self.assertEqual([entry for entry in ALLOWED if entry not in present], [])
         self.assertTrue(all(ALLOWED.values()))
 
-    def test_the_scan_reads_the_tracked_text_files_and_skips_the_rest(self) -> None:
-        persona = "scripts/fixtures/walkthrough/v2-response-shapes.json"
-        self.assertIn(persona, self.paths)
-        persona_text = read_text(REPO_ROOT, persona)
-        assert persona_text is not None
-        # The persona's values are read, and pass as fictional.
-        self.assertIn("jamie.watts@example.com", persona_text)
-        self.assertIn("555-0100", persona_text)
-        self.assertEqual(find_pii(persona_text), [])
-        for skipped in ("pnpm-lock.yaml", "src/lib/forms/fixtures/dhb-5200-ia-9-2020.pdf", "specs/fixtures/voice/its-for-myself-16k.wav"):
-            self.assertIn(skipped, self.paths)
-            self.assertIsNone(read_text(REPO_ROOT, skipped), skipped)
+    def test_every_tracked_text_file_is_read(self) -> None:
+        # Only lockfiles and binaries are skipped, so no source, test,
+        # fixture or doc goes unread.
+        text_suffixes = (".md", ".ts", ".tsx", ".mjs", ".js", ".py", ".json", ".yml", ".yaml", ".sql", ".css", ".txt", ".tsv", ".sh")
+        texts = [path for path in self.paths if path.endswith(text_suffixes) and PurePosixPath(path).name.lower() not in LOCKFILE_NAMES]
+        self.assertTrue(texts)
+        self.assertEqual([path for path in texts if read_text(REPO_ROOT, path) is None], [])
 
     def test_a_listed_value_passes_only_where_it_is_listed(self) -> None:
         listed = [finding for finding in self.findings if allowed(finding)]
