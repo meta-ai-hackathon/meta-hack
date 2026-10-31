@@ -1,10 +1,7 @@
-import { PDFDocument } from "@cantoo/pdf-lib";
 import {
   assembleFillValues,
   checkedFormValues,
-  fillLoadedPdf,
   type FillAnswerRecord,
-  type FillOutcome,
   type FillValue,
 } from "../forms/fill-core";
 import { buildFormFlow, type FormFlowView } from "../forms/flow";
@@ -39,6 +36,9 @@ import { QUESTION_BY_ID, QUESTIONS } from "./spec";
 // allowlist. So for any answers, the device's review and filled form match
 // what the server builds for the same answers field for field
 // (property-proven in device-form.test.ts against the real routes).
+//
+// Nothing here loads pdf-lib: drawing onto the form is device-fill.ts,
+// which the page loads only when the person downloads.
 
 /** The pilot's registered form, read from the committed registry data. */
 export const DEVICE_FORM_ENTRY: FormRegistryEntry = pilotFormEntry();
@@ -122,45 +122,4 @@ export function deviceFillValues(
     return null;
   }
   return assembleFillValues(entry, answerRows(answers), vaultValues(answers, QUESTIONS), formValues);
-}
-
-export type DeviceFillResult =
-  | { readonly kind: "filled"; readonly outcome: FillOutcome }
-  /** A typed answer didn't pass the checks (too long, for example). Nothing was filled. */
-  | { readonly kind: "invalid_answers" }
-  /** The blank form couldn't be opened. Nothing was filled. */
-  | { readonly kind: "unreadable_form" };
-
-/**
- * Fill the blank form with the device answers, in memory. The bytes are
- * the person's own filled application; nothing here stores or sends them.
- *
- * The template is the committed public form (device-template.ts serves the
- * registry's own bytes, pinned by a test, and that copy passes the
- * server's XFA and encryption gate). A copy that won't open, encrypted
- * ones included, fills nothing.
- */
-export async function fillFormOnDevice(
-  templateBytes: Uint8Array,
-  answers: ClientAnswerState,
-  typed: Readonly<Record<string, string>> = {},
-  entry: FormRegistryEntry = DEVICE_FORM_ENTRY,
-): Promise<DeviceFillResult> {
-  const assembled = deviceFillValues(answers, typed, entry);
-  if (assembled === null) {
-    return { kind: "invalid_answers" };
-  }
-  let pdf: PDFDocument;
-  try {
-    pdf = await PDFDocument.load(templateBytes);
-  } catch {
-    return { kind: "unreadable_form" };
-  }
-  const { filled, toResolve } = await fillLoadedPdf(
-    pdf,
-    entry,
-    assembled.values,
-    assembled.answerMap,
-  );
-  return { kind: "filled", outcome: { bytes: await pdf.save(), filled, toResolve } };
 }

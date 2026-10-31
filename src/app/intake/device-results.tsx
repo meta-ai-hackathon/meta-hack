@@ -11,7 +11,6 @@ import {
   deviceFormReview,
   deviceHandoffLinks,
   deviceMatch,
-  fillFormOnDevice,
 } from "../../lib/intake/device-form";
 import { loadDeviceTemplate } from "../../lib/intake/device-template";
 import type { MatchCard, MatchSourceCitation } from "../../lib/match-core";
@@ -21,9 +20,10 @@ import type { MatchCard, MatchSourceCitation } from "../../lib/match-core";
 // form to download. All of it is computed in this browser from the answers
 // on this device (lib/intake/device-form.ts). The match explains each
 // program with the program's own sourced facts only. Downloading fetches
-// the blank public form, fills it here, and hands the file to the browser;
-// no answer is sent anywhere, and answers typed here for the form's other
-// fields live only in this page.
+// the blank public form, loads the PDF fill (lib/intake/device-fill.ts,
+// kept out of the page's first load), fills the form here, and hands the
+// file to the browser; no answer is sent anywhere, and answers typed here
+// for the form's other fields live only in this page.
 //
 // Private answers never appear on this screen: the review shows their
 // status and provenance, and the match never carries them.
@@ -256,7 +256,10 @@ export function DeviceResults(props: {
     }
     setBusy(true);
     try {
-      const template = await loadDeviceTemplate(DEVICE_FORM_ENTRY);
+      const [template, { fillFormOnDevice }] = await Promise.all([
+        loadDeviceTemplate(DEVICE_FORM_ENTRY),
+        import("../../lib/intake/device-fill"),
+      ]);
       if (template === null) {
         announce(DEVICE_RESULTS_COPY.templateUnavailable);
         return;

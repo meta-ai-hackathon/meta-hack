@@ -20,12 +20,12 @@ import {
   type ClientAnswerProvenance,
   type ClientAnswerState,
 } from "./client-store";
+import { fillFormOnDevice } from "./device-fill";
 import {
   DEVICE_FORM_ENTRY,
   deviceFillValues,
   deviceFormReview,
   deviceMatch,
-  fillFormOnDevice,
 } from "./device-form";
 import { QUESTIONS, type Question } from "./spec";
 import { saveAnswer } from "./store";

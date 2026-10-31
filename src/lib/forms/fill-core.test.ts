@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import fc from "fast-check";
-import { PDFDocument } from "@cantoo/pdf-lib";
+import { PDFDocument, StandardFonts } from "@cantoo/pdf-lib";
 import { describe, expect, it } from "vitest";
 import type { AnswerStatus } from "../honesty";
 import { QUESTIONS, type Question } from "../intake/spec";
 import {
+  FILL_FONT,
   assembleFillValues,
   checkedFormValues,
   fillLoadedPdf,
@@ -167,6 +168,10 @@ describe("assembleFillValues", () => {
 });
 
 describe("fillLoadedPdf", () => {
+  it("draws in pdf-lib's standard Helvetica, named by its value", () => {
+    expect(FILL_FONT).toBe(StandardFonts.Helvetica);
+  });
+
   it("accounts for every field exactly once: filled, to resolve, or not applicable", async () => {
     const cases = fc.record({
       entry: fc.constantFrom(...ACROFORM_ENTRIES),

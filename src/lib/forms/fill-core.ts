@@ -1,4 +1,4 @@
-import { StandardFonts, type PDFDocument, type PDFFont } from "@cantoo/pdf-lib";
+import type { PDFDocument, PDFFont } from "@cantoo/pdf-lib";
 import type { AnswerStatus } from "../honesty";
 import { isQuestionVisible, type AnswerMap, type StoredAnswer } from "../intake/flow";
 import type { AnswerProvenance } from "../intake/store";
@@ -27,6 +27,14 @@ import type { FormRegistryEntry, FormRegistryField } from "./registry-core";
 
 export const FLAT_TEXT_SIZE = 10;
 const FLAT_MIN_SIZE = 6;
+
+/**
+ * The font fills are drawn in: pdf-lib's standard Helvetica, given by its
+ * name (StandardFonts.Helvetica's value, pinned equal in fill-core.test.ts).
+ * This module needs only pdf-lib's types, so a page that imports it loads
+ * pdf-lib itself only when it actually opens a form to fill.
+ */
+export const FILL_FONT = "Helvetica";
 
 /** One field's fill value, display-ready, with where it came from. */
 export interface FillValue {
@@ -273,7 +281,7 @@ async function fillAcroForm(
   hooks: FillHooks,
 ): Promise<void> {
   const form = pdf.getForm();
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const font = await pdf.embedFont(FILL_FONT);
   for (const field of entry.fields) {
     if (skipped.has(field.name)) {
       continue; // not applicable by the flow's conditional logic
@@ -333,7 +341,7 @@ async function fillFlat(
   toResolve: ToResolveItem[],
 ): Promise<void> {
   const pages = pdf.getPages();
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const font = await pdf.embedFont(FILL_FONT);
   for (const field of entry.fields) {
     if (skipped.has(field.name)) {
       continue; // not applicable by the flow's conditional logic

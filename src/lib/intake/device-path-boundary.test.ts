@@ -22,6 +22,7 @@ const DEVICE_PATH_ENTRIES = [
   "app/intake/device-results.tsx",
   "lib/intake/device-intake.ts",
   "lib/intake/device-form.ts",
+  "lib/intake/device-fill.ts",
   "lib/intake/device-template.ts",
 ];
 
@@ -51,13 +52,15 @@ const TEMPLATE_LOADER = "lib/intake/device-template.ts";
 const REQUEST_API = /\bfetch\b|XMLHttpRequest|sendBeacon|WebSocket|EventSource/;
 
 /**
- * The modules a file imports at runtime, by path relative to src. Type-only
- * imports are erased by the compiler, so they never reach the bundle.
+ * The modules a file imports at runtime, by path relative to src, loaded
+ * up front or on demand with import(). Type-only imports are erased by the
+ * compiler, so they never reach the bundle.
  */
 function localImports(file: string): string[] {
   const source = readFileSync(join(SRC, file), "utf8");
   const specifiers = [
     ...source.matchAll(/^\s*(?:import|export)\s(?!type\s)[^;]*?from\s+"([^"]+)"/gm),
+    ...source.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g),
   ].map((match) => match[1]);
   const local: string[] = [];
   for (const specifier of specifiers) {
@@ -99,6 +102,7 @@ describe("the on-device intake path", () => {
       "lib/device-kv.ts",
       "app/intake/device-results.tsx",
       "lib/intake/device-form.ts",
+      "lib/intake/device-fill.ts",
       "lib/intake/device-template.ts",
       "lib/match-core.ts",
       "lib/kb.ts",
@@ -132,6 +136,19 @@ describe("the on-device intake path", () => {
       }
       const source = readFileSync(join(SRC, file), "utf8");
       expect(source, `${file} makes a request`).not.toMatch(REQUEST_API);
+    }
+  });
+
+  it("loads pdf-lib only with the fill, which the page imports on demand", () => {
+    // The questions never wait on the PDF library: it reaches the browser
+    // only when the person downloads their filled form.
+    for (const file of files) {
+      const source = readFileSync(join(SRC, file), "utf8");
+      const loadsPdfLib = /^\s*import\s(?!type\s)[^;]*?from\s+"@cantoo\/pdf-lib"/m.test(source);
+      expect(loadsPdfLib, `${file} loads pdf-lib`).toBe(file === "lib/intake/device-fill.ts");
+      expect(source, `${file} loads the fill up front`).not.toMatch(
+        /^\s*(?:import|export)\s(?!type\s)[^;]*?from\s+"[^"]*\/device-fill"/m,
+      );
     }
   });
 
