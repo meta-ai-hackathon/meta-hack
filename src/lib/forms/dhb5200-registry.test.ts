@@ -241,9 +241,12 @@ describe("the real DHB-5200 form fixture", () => {
           }
         },
       ),
-      { numRuns: 12 },
+      // Each run fills + re-parses the 21-page official PDF (~0.5 s local,
+      // slower on CI runners) — 8 randomized combinations with an explicit
+      // 30 s budget keeps the property affordable in CI.
+      { numRuns: 8 },
     );
-  });
+  }, 30000);
 });
 
 // --- helpers -----------------------------------------------------------------
