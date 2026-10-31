@@ -98,7 +98,7 @@ export const DEVICE_INTAKE_COPY = {
     "This browser is taking too long to save, so this answer might not be " +
     "kept. Answers from now on last only until you close this page.",
   purgedElsewhere:
-    "Your answers were deleted from this device in another tab or window, " +
+    "Your answers were deleted from this browser in another tab or window, " +
     "so the questions start fresh.",
   updatedElsewhere: "Updated with changes made in another tab or window.",
   busy:
