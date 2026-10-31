@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // person sees, clicks, and hears. The answer path never makes a request;
 // a reload resumes; a double-click can't answer a question the person never
 // saw; the delete flow keeps focus and says what happened; "Save and finish
-// later" saves the answer on screen; and a delete in another tab shows up
-// when the page comes back into view.
+// later" saves the answer on screen, and is the only thing that asks the
+// browser to keep its storage; and a delete in another tab shows up when the
+// page comes back into view.
 
 type Handler = ((event: unknown) => void) | null;
 
@@ -342,6 +343,72 @@ describe("the wizard in device mode", () => {
     await page.click(page.button("Continue"));
     expect(page.status()).toMatch(/can't save answers/);
     expect(fetchSpy).not.toHaveBeenCalled();
+    await page.unmount();
+  });
+});
+
+// Asking the browser to keep this site's storage can show a permission
+// prompt (Firefox does), so the page never asks while the person answers.
+// It asks once, when they press Save and finish later, and the note by the
+// button says so before the press (HACK-113).
+describe("asking the browser to keep the answers", () => {
+  let persist: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    persist = vi.fn(async () => true);
+    Object.defineProperty(navigator, "storage", { value: { persist }, configurable: true });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "storage");
+  });
+
+  it("never asks while answering, says before the press that it may ask, and asks once on Save and finish later", async () => {
+    const page = await visit();
+    await page.choose("Me");
+    await page.click(page.button("Continue"));
+    await page.click(page.button("I'm not sure"));
+    expect(page.text()).toContain("Answered 2 of");
+    expect(persist).not.toHaveBeenCalled();
+
+    // The note is on screen before the press, and is the button's description for screen readers.
+    const save = page.button("Save and finish later");
+    const note = document.getElementById(save.getAttribute("aria-describedby") ?? "");
+    expect(note?.textContent).toBe(page.copy.keepPrompt);
+    await page.click(save);
+    expect(page.status()).toBe(page.copy.savedForLaterKept);
+    expect(persist).toHaveBeenCalledTimes(1);
+
+    // Pressing it again on this visit doesn't ask again.
+    await page.click(page.button("Save and finish later"));
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    await page.unmount();
+  });
+
+  it("asks for the answer on screen when that is the first one saved", async () => {
+    const page = await visit();
+    await page.choose("A family member");
+    await page.click(page.button("Save and finish later"));
+    expect(page.status()).toBe(page.copy.savedForLaterKept);
+    expect(persist).toHaveBeenCalledTimes(1);
+    await page.unmount();
+  });
+
+  it("doesn't ask, or say it might, when nothing is saved on the device", async () => {
+    // Nothing answered yet: there is nothing to keep.
+    const empty = await visit();
+    await empty.click(empty.button("Save and finish later"));
+    expect(persist).not.toHaveBeenCalled();
+    await empty.unmount();
+
+    // A browser that can't store anything: no note, and no request.
+    vi.stubGlobal("indexedDB", undefined);
+    const page = await visit();
+    expect(page.text()).not.toContain(page.copy.keepPrompt);
+    expect(page.button("Save and finish later").hasAttribute("aria-describedby")).toBe(false);
+    await page.choose("Me");
+    await page.click(page.button("Continue"));
+    await page.click(page.button("Save and finish later"));
+    expect(persist).not.toHaveBeenCalled();
     await page.unmount();
   });
 });
