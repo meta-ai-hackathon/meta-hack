@@ -2,6 +2,7 @@ import {
   DEFAULT_ENDPOINTING,
   createEndpointingGate,
   type EndpointingConfig,
+  type EndpointTiming,
 } from "./endpointing";
 
 // The continuous voice session (HACK-106 natural conversation,
@@ -49,6 +50,12 @@ export interface VoiceSessionCallbacks {
   onPhase(phase: VoiceSessionPhase): void;
   /** A recorder cycle failed mid-session; the session stops itself. */
   onRecorderError(): void;
+  /**
+   * VAL-FIX-001 instrumentation: the endpoint decision's timing, reported
+   * the instant the gate fires (before the recorder stops), so the
+   * speech-energy-end → turn-submission budget is measurable end to end.
+   */
+  onEndpointTiming?(timing: EndpointTiming): void;
 }
 
 export interface VoiceSession {
@@ -249,6 +256,12 @@ export function createVoiceSession(
       cancelPoll = deps.schedule(() => {
         const fired = gate?.feed(analyser?.rms() ?? 0, deps.now());
         if (fired) {
+          // Report the decision timing BEFORE the graceful stop, so the
+          // component can timestamp the submission side of the budget.
+          const timing = gate?.lastEndpoint();
+          if (timing) {
+            callbacks.onEndpointTiming?.(timing);
+          }
           session.endpointNow();
         }
       }, POLL_INTERVAL_MS);
