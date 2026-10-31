@@ -42,8 +42,6 @@ export const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 export const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const MAX_TEXT_LENGTH = MAX_ANSWER_TEXT_LENGTH;
-
 /** Where an answer's value came from — mirrors the answer table CHECK. */
 export const ANSWER_PROVENANCES = [
   "user_supplied",
@@ -203,11 +201,11 @@ export async function loadSessionState(
  * Validate an assist note and return it trimmed — WITHOUT touching the
  * database, so callers (the /api/session route) can reject bad notes before
  * creating a session. The bound matches every other free-text field
- * (MAX_TEXT_LENGTH).
+ * (MAX_ANSWER_TEXT_LENGTH).
  */
 export function validateAssistNote(note: string): string {
   const trimmed = note.trim();
-  if (trimmed === "" || trimmed.length > MAX_TEXT_LENGTH) {
+  if (trimmed === "" || trimmed.length > MAX_ANSWER_TEXT_LENGTH) {
     throw validationError();
   }
   return trimmed;
