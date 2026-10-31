@@ -33,13 +33,14 @@ files (a binary file type, or a NUL byte) are not read, so a filled form
 committed as a PDF, or an audio recording, is not checked here; those stay
 synthetic by review.
 
-ALLOWED names each value that is meant to be in a file by its SHA-256, with
-the reason, so the list doesn't repeat the value in another file. The digest
-hides nothing: an SSN, a phone number or a common email can be recovered
-from it by trying every candidate. Never list a real person's value, hashed
-or not. A finding is reported by file, line, column and kind, never by its
-value, so a real detail that lands in a commit does not land in the CI log
-as well.
+ALLOWED names each value that is meant to be in a file by its kind and its
+SHA-256, with a reason that names the test it sits in, so the list doesn't
+repeat the value in another file and a reviewer can still find it. The
+digest hides nothing: an SSN, a phone number or a common email can be
+recovered from it by trying every candidate. Never list a real person's
+value, hashed or not. A finding is reported by file, line, column and kind,
+never by its value, so a real detail that lands in a commit does not land in
+the CI log as well.
 Property tests plant every kind of value in text and in files, and check
 that the scan reports each one where it is, reads only the files it
 should, and lets the fictional and reserved values through.
@@ -131,22 +132,28 @@ _ESCAPE: Final = re.compile(r"\\[nrt]")
 FICTIONAL_EMAIL_DOMAINS: Final = ("example.com", "example.org", "example.net", "noreply.github.com")
 FICTIONAL_EMAIL_TLDS: Final = frozenset({"test", "invalid"})
 
-# Each value that is meant to be in a file, by the file and the value's
-# SHA-256, and why it is there. The digest only avoids a second copy; it
-# does not hide the value, so only synthetic or public values belong here.
-ALLOWED: Final[dict[tuple[str, str], str]] = {
-    ("tests/test_claude_review.py", "831f6494ad6be4fcb3a724c3d5fef22d3ceffa3c62ef3a7984e45a0ea177f982"): (
-        "The review bot's redactor fixture: an owner's email in a code comment, at a real mail provider, which the bot "
-        "must redact before the model sees the diff."
+# Each value that is meant to be in a file, by the file, the kind and the
+# value's SHA-256, and why it is there. The reason names the test the value
+# sits in, so a reviewer can check an entry against the file without seeing
+# the value here. The digest only avoids a second copy; it does not hide the
+# value, so only synthetic or public values belong here.
+ALLOWED: Final[dict[tuple[str, str, str], str]] = {
+    ("tests/test_claude_review.py", "email", "831f6494ad6be4fcb3a724c3d5fef22d3ceffa3c62ef3a7984e45a0ea177f982"): (
+        "In test_withheld_and_redacted_content_never_reaches_the_prompt: the review bot's redactor fixture, an owner's "
+        "email in a code comment, at a real mail provider, which the bot must redact before the model sees the diff."
     ),
-    ("tests/test_claude_review.py", "5bd07c9b8bab0050610547c944c143dff1221f8e5a6577a55ceb74410352e2f8"): (
-        "The review bot's redactor fixture: the password and host of a made-up database URL, which the bot must redact."
+    ("tests/test_claude_review.py", "email", "5bd07c9b8bab0050610547c944c143dff1221f8e5a6577a55ceb74410352e2f8"): (
+        "In test_url_credentials_and_private_keys: the review bot's redactor fixture, the password and host of a made-up "
+        "database URL, which the bot must redact."
     ),
-    ("src/lib/telemetry.test.ts", "01a54629efb952287e554eb23ef69c52097a75aecc0e3a93ca0855ab6d7a31a0"): (
-        "The log redactor's fixture: the well-known placeholder SSN, planted to prove a log line never carries it."
+    ("src/lib/telemetry.test.ts", "ssn", "01a54629efb952287e554eb23ef69c52097a75aecc0e3a93ca0855ab6d7a31a0"): (
+        "In the identity-key tests (\"strips the known identity keys and their common variants\" and \"matches camelCase "
+        "spellings and identity aliases\"): the log redactor's fixture, the well-known placeholder SSN, planted to prove a "
+        "log line never carries it."
     ),
-    ("src/lib/telemetry.test.ts", "5bd07c9b8bab0050610547c944c143dff1221f8e5a6577a55ceb74410352e2f8"): (
-        "The log redactor's fixture: the password and host of a made-up database URL inside an error, which a log must never carry."
+    ("src/lib/telemetry.test.ts", "email", "5bd07c9b8bab0050610547c944c143dff1221f8e5a6577a55ceb74410352e2f8"): (
+        "In \"unknown errors log error_code=internal with zero detail leakage\": the log redactor's fixture, the password and "
+        "host of a made-up database URL inside an error, which a log must never carry."
     ),
 }
 
@@ -230,7 +237,7 @@ def tracked_files(root: Path) -> list[str]:
 
 def allowed(finding: Finding) -> bool:
     """Whether a finding is on the reviewed list."""
-    return (finding.path, digest(finding.value)) in ALLOWED
+    return (finding.path, finding.kind, digest(finding.value)) in ALLOWED
 
 
 class RepoScanTests(unittest.TestCase):
@@ -253,9 +260,10 @@ class RepoScanTests(unittest.TestCase):
 
     def test_every_allowed_value_is_still_in_its_file(self) -> None:
         # The list stays short: an entry goes when its value does.
-        present = {(finding.path, digest(finding.value)) for finding in self.findings}
+        present = {(finding.path, finding.kind, digest(finding.value)) for finding in self.findings}
         self.assertEqual([entry for entry in ALLOWED if entry not in present], [])
-        self.assertTrue(all(ALLOWED.values()))
+        # Every reason says which test the value sits in.
+        self.assertEqual([why for why in ALLOWED.values() if not why.startswith("In ")], [])
 
     def test_every_tracked_text_file_is_read(self) -> None:
         # Only lockfiles and binaries are skipped, so no source, test,
@@ -269,10 +277,11 @@ class RepoScanTests(unittest.TestCase):
         # The allowed findings are exactly the listed entries, which holds
         # for an empty list too.
         listed = [finding for finding in self.findings if allowed(finding)]
-        self.assertEqual({(finding.path, digest(finding.value)) for finding in listed}, set(ALLOWED))
+        self.assertEqual({(finding.path, finding.kind, digest(finding.value)) for finding in listed}, set(ALLOWED))
         for finding in listed:
             self.assertFalse(allowed(replace(finding, path="src/lib/other.ts")))
             self.assertFalse(allowed(replace(finding, value=finding.value + "0")))
+            self.assertFalse(allowed(replace(finding, kind="phone number")))
 
 
 # --- property tests ---------------------------------------------------------------
