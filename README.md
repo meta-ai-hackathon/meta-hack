@@ -58,10 +58,12 @@ pnpm dev --port 3100               # http://localhost:3100
 
 `/intake/conversation` is the primary path through the intake: a natural
 voice conversation. Two entry modes — voice the whole way, or voice with the
-option to switch to typing at any point. Both input modes hit the same route
-(`/api/conversation/turn`), share the same extraction and persistence, and
-redact private values before anything is stored or shown — the mic hears it,
-the screen keeps it private. One continuous voice session covers the whole
+option to switch to typing at any point; the step-by-step wizard below
+remains a first-class path for anyone who declines voice. Both input modes
+hit the same route (`/api/conversation/turn`), share the same extraction
+and persistence, and redact private values before anything is stored,
+shown, or spoken — the mic hears it, the screen keeps it private. One
+continuous voice session covers the whole
 sitting: no per-question record/stop ritual; utterances end by silence
 endpointing, and the user may answer several questions in one breath.
 Spoken turns are captured in-browser (`MediaRecorder`), decoded and
@@ -75,7 +77,9 @@ a human-sounding Gemini TTS voice (`gemini-3.8-flash-tts`, Callirrhoe
 prebuilt; configurable via `GEMINI_TTS_MODEL`/`GEMINI_TTS_VOICE` env
 overrides; set `GEMINI_API_KEY` in `.env`), with the browser's built-in
 `speechSynthesis` as the honest fallback. Each voice turn runs one combined
-model call, which keeps spoken replies snappy. The conversation is
+model call per turn. All of this sits behind the consent gate described
+below, and the same redaction applies to what is spoken as to what is
+shown. The conversation is
 accessible by design: prominent live subtitles for the deaf/HoH path,
 keyboard operable, reduced-motion respected. The
 step-by-step wizard stays reachable as the fallback from the chat and from
