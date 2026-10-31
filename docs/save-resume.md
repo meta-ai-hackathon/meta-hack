@@ -144,7 +144,8 @@ and nothing about the journey is stored on the server.
   also removes any chat with the assistant, and it offers the HACK-80 purge
   (`POST /api/session/purge`) behind one confirming step. Its outcome copy
   claims a deletion only when the server confirmed one, and a Check again
-  that can't reach the app says so
+  that can't reach the app says so. Only one Check again runs at a time, so
+  a failed check can't overwrite one that reached the app
   (`src/app/intake/server-answers-notice.tsx`).
 
 The conversation page still keeps answers on the server, because its match
@@ -166,5 +167,5 @@ without what the person told the chat.
 | What the page says matches what the browser kept | `src/lib/intake/device-intake.test.ts` (unsupported, failed open, failed read, failed and stalled saves, other tabs) + `src/app/intake/intake-wizard.device.test.tsx` (focus and announcements in the delete flow, the double-click guard) |
 | Device storage holds no plaintext and resumes exactly | `src/lib/intake/device-answer-store.test.ts` (properties over saved answer sequences) + `src/lib/device-kv.test.ts` (sealed store over a fake IndexedDB) |
 | A device delete is verified and never undone by another tab | `src/lib/intake/device-answer-store.test.ts` (purge and racing-save properties) |
-| Answers saved on the server can be found and deleted | `src/app/intake/server-answers-notice.test.tsx` (cookie-only check, confirmed purge, every purge outcome, a failed Check again, no answer in any request) |
+| Answers saved on the server can be found and deleted | `src/app/intake/server-answers-notice.test.tsx` (cookie-only check, confirmed purge, every purge outcome, a failed Check again, overlapping Check again presses, no answer in any request) |
 | Only Save and finish later asks the browser to keep the store, after saying so | `src/lib/intake/device-intake.test.ts` (answering never asks; it asks only when the device holds answers) + `src/app/intake/intake-wizard.device.test.tsx` (the note describes the button, one request a visit) |
