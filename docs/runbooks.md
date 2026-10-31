@@ -207,7 +207,8 @@ questions failed as described, and `/intake` saved an answer with "Saved on this
 
 ## The vault key is missing, wrong, or changed
 
-`VAULT_ENC_KEY` seals every private answer. When it's missing or not 64 hex characters,
+`VAULT_ENC_KEY` is the server key the vault uses to encrypt private answers. When it's
+missing or not 64 hex characters,
 every page that reads the session fails like a database outage. Even a plain answer comes
 back with an error, because each save reads the vault back. When the key changes, any
 session that already holds a private answer can't be read again, while new sessions work.
