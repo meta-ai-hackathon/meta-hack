@@ -659,8 +659,17 @@ class _Detector:
 _KEY_HEADER = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _KEY_FOOTER = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
 _KEY_RUN = re.compile(r"(?:[A-Za-z0-9+/=]|\\++/)++")
-# How far past a header a footer still counts as that key's footer (main's bound).
-_KEY_FOOTER_WINDOW = 8000 + 40
+# How much key material may come between a header and a footer for the
+# footer to count as that key's: main's bound, counted in the characters of
+# the runs the redactor would hide rather than in every character, so the
+# code around a key written in short pieces cannot push its footer out of
+# reach.
+_KEY_MATERIAL_MAX = 8000 + 40
+# How far past a header its footer may start at all: eight times main's
+# bound. A pair of key markers, real or fake, never covers more text than
+# that, and a 4096-bit key written four characters at a time with a line of
+# code each still fits.
+_KEY_FOOTER_REACH = 8 * _KEY_MATERIAL_MAX
 _KEY_PIECE = re.compile(
     r"(?P<footer>-?-----END [A-Z ]*PRIVATE KEY-----)"
     r"|(?P<line_break>\r\n?+|\n|\\++[nr])"
@@ -683,6 +692,28 @@ _KEY_LINE_START = re.compile(
 # key's last line, right before the footer. A run of fewer + signs than that
 # is the + of a concatenation.
 _KEY_LINE_MIN = 16
+# Between a key's markers, once the walk has stopped at code, a key can be
+# written in pieces shorter than a line: one string per echo, call or join,
+# or bare words after an echo. So there a shorter run is a piece of the key
+# too, unless it reads as code. A run that is a whole string, alone between
+# its quotes, is a piece from 2 key characters on, unless it is a word in
+# one case, capitalized or camelCase, or a number, maybe with digits at its
+# end, or a path of them ("POST", "utf8", "text/plain"). Capitalized
+# and camelCase words stay visible so that copy a person reads ("Approved")
+# and the field names the reviewer judges ("ssnLast4") can never hide
+# between key markers. Any other run is a piece from 4 on,
+# unless the words, numbers and paths in it, with + and = between them, are
+# written the way code names things: lower case, camelCase, capitalized or
+# all caps, maybe with digits at the end ("echo", "appendFileSync", "JSON",
+# "frozen=True", "//collector").
+_KEY_STRING_PIECE_MIN = 2
+_KEY_BARE_PIECE_MIN = 4
+_KEY_STRING_WORD = re.compile(r"(?:[a-z]+(?:[A-Z][a-z]+)*|[A-Z]+|[A-Z][a-z]+)[0-9]*|[0-9]+")
+_KEY_CODE_WORD = re.compile(r"(?:[a-z]+(?:[A-Z][a-z]+)*|(?:[A-Z][a-z]+)+|[A-Z]+)[0-9]*|[0-9]+")
+_KEY_CODE_JOIN = re.compile(r"[+/=]+")
+# What closes the string a run is the whole of: escaped line breaks or tabs,
+# then the quote the string opened with, maybe escaped.
+_KEY_STRING_END = re.compile(r"""(?:\\++[nrt])*+\\*+(["'`])""")
 
 
 def _key_end(text: str, pos: int) -> int:
@@ -690,10 +721,10 @@ def _key_end(text: str, pos: int) -> int:
     end of its footer when every line before the footer is key material, and
     otherwise at the end of the last whole line of key material right after
     the header (the header's own end when there is none). So when no footer
-    follows within the bound, the first line that is not key material, such
-    as a line of code, and everything after it reach the model; when one
-    does follow, private_key_spans also redacts the key material and the
-    footer after that line (see there)."""
+    of this key follows, the first line that is not key material, such as a
+    line of code, and everything after it reach the model; when one does
+    follow, private_key_spans also redacts the key's pieces and the footer
+    after that line (see there)."""
     end = pos  # the header and every whole line of key material after it
     pending = False  # a short run ended a line, so only the footer may follow
     line_end: int | None = None  # the end of the current line's last full run
@@ -724,32 +755,97 @@ def _key_end(text: str, pos: int) -> int:
             line_start = False
 
 
+def is_key_piece(run: str, quoted: bool) -> bool:
+    """Whether a base64 run between a key's markers, after the walk has
+    stopped at code, is a piece of the key: a run of a key line or more, or
+    a shorter one that does not read as code (see _KEY_STRING_PIECE_MIN).
+    quoted says whether the run is a whole string, alone between its
+    quotes."""
+    value = run.replace("\\", "")
+    if len(value) >= _KEY_LINE_MIN:
+        return True
+    if quoted:
+        parts, word, floor = value.split("/"), _KEY_STRING_WORD, _KEY_STRING_PIECE_MIN
+    else:
+        parts, word, floor = _KEY_CODE_JOIN.split(value), _KEY_CODE_WORD, _KEY_BARE_PIECE_MIN
+    return len(value) >= floor and not all(not part or word.fullmatch(part) for part in parts)
+
+
+def _whole_string(text: str, start: int, end: int) -> bool:
+    """Whether text[start:end] is a whole string: a quote right before it,
+    and the same quote right after it, past any escaped line breaks and tabs."""
+    opener = text[start - 1 : start]
+    if opener not in ("'", '"', "`"):
+        return False
+    closer = _KEY_STRING_END.match(text, end)
+    return closer is not None and closer.group(1) == opener
+
+
+def key_piece_at(text: str, start: int, end: int) -> bool:
+    """Whether the base64 run text[start:end] is a piece of a key where it
+    stands: is_key_piece, with whether it is a whole string read from text."""
+    return is_key_piece(text[start:end], _whole_string(text, start, end))
+
+
+def _key_pieces(text: str, start: int, end: int, stop: int) -> list[tuple[int, int]] | None:
+    """The pieces of a key between end, where its walk stopped, and stop,
+    where a footer starts. None when the key material between start (the
+    header's end) and stop is more than one key holds, so the footer is
+    not this key's."""
+    pieces: list[tuple[int, int]] = []
+    material = 0
+    for run in _KEY_RUN.finditer(text, start, stop):
+        if key_piece_at(text, run.start(), run.end()):
+            value = run.group()
+            material += len(value) - value.count("\\")
+            if material > _KEY_MATERIAL_MAX:
+                return None
+            if run.start() >= end:
+                pieces.append(run.span())
+    return pieces
+
+
 def private_key_spans(text: str) -> list[tuple[int, int]]:
     """Where each private key in text starts and where its redaction ends
-    (see _key_end), in order. Linear in the text's length: a key's walk ends
-    at its footer or at the first piece that is not key material, which any
-    later header is, so no two walks cover the same text. When a footer
-    follows a header within the bound but the walk stopped early -- a key
-    written as code, one base64 line per echo or one string piece per line
-    joined with a dot -- the code skeleton stays visible, but every base64
-    run of a key line or more between the walk's end and the footer, and
-    the footer itself, are redacted too."""
+    (see _key_end), in order, and the pieces of a key written as code.
+
+    A footer counts as a header's when no other header comes before it, it
+    starts no more than _KEY_FOOTER_REACH characters after the header, and no
+    more than _KEY_MATERIAL_MAX characters of key material lie between them.
+    When one follows but the walk stopped early (a key written as
+    code: one line or one short piece per echo, a string piece per call, or
+    pieces joined with a dot), the code stays visible, and every piece of
+    the key between the walk's end and the footer is redacted with the
+    footer (see is_key_piece). What still reaches the model there: pieces
+    under the floors (a string of one key character, a bare run of up to
+    three), and pieces that happen to read as code, such as a string piece
+    in one case, capitalized or camelCase, or a bare piece shaped like a
+    name.
+
+    Linear in the text's length. A key's walk ends at its footer or at the
+    first piece that is not key material, which any later header is, so no
+    two walks cover the same text. The search for a footer starts again only
+    once a header comes after the last footer found, and the runs before a
+    footer are read only for the last header before it."""
     spans: list[tuple[int, int]] = []
     header = _KEY_HEADER.search(text)
+    footer = None if header is None else _KEY_FOOTER.search(text, header.end())
     while header is not None:
         end = _key_end(text, header.end())
         spans.append((header.start(), end))
-        footer = _KEY_FOOTER.search(text, header.end(), header.end() + _KEY_FOOTER_WINDOW)
-        if footer is not None and _KEY_HEADER.search(text, header.end(), footer.start()) is not None:
-            # A later header comes first, so this footer is that key's, not
-            # this one's; leave both to the later header's own walk.
-            footer = None
-        if footer is not None and end <= footer.start():
-            for run in _KEY_RUN.finditer(text, end, footer.start()):
-                value = run.group()
-                if len(value) - value.count("\\") >= _KEY_LINE_MIN:
-                    spans.append(run.span())
-            spans.append((footer.start(), footer.end()))
+        if footer is not None and footer.start() < header.end():
+            footer = _KEY_FOOTER.search(text, header.end())
+        # A later header coming first makes the footer that key's, not this
+        # one's; both are left to the later header's own walk.
+        if (
+            footer is not None
+            and end <= footer.start()
+            and footer.start() - header.end() <= _KEY_FOOTER_REACH
+            and _KEY_HEADER.search(text, header.end(), footer.start()) is None
+        ):
+            pieces = _key_pieces(text, header.end(), end, footer.start())
+            if pieces is not None:
+                spans += [*pieces, footer.span()]
         header = _KEY_HEADER.search(text, spans[-1][1])
     return spans
 
