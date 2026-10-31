@@ -235,6 +235,13 @@ describe("the real entry's handoff steps (HACK-46, HACK-47)", () => {
     const byId = new Map(submission.map((step) => [step.id, step]));
     const county = byId.get("drop_off_or_fax_in_county");
     expect(county?.sourceId).toBe("mecklenburg_apply_page");
+    // The entry is statewide, so the county's own channels are labeled as
+    // the county's, after the form's statewide instruction.
+    expect(county?.label).toMatch(/^If you live in Mecklenburg County\b/);
+    const ids = submission.map((step) => step.id);
+    expect(ids.indexOf("take_or_mail_to_county")).toBeLessThan(
+      ids.indexOf("drop_off_or_fax_in_county"),
+    );
     expect(new URL(county?.link?.url ?? "https://invalid.example").hostname).toBe(
       "dcr.mecknc.gov",
     );

@@ -116,20 +116,20 @@
           "source_id": "dhb_5200_form"
         },
         {
+          "id": "take_or_mail_to_county",
+          "label": "Take it or mail it to your county DSS office",
+          "detail": "Step 6 of the form, on page 21, says to take or mail your completed application to your local county Department of Social Services.",
+          "source_id": "dhb_5200_form"
+        },
+        {
           "id": "drop_off_or_fax_in_county",
-          "label": "Drop it off or fax it in Mecklenburg County",
-          "detail": "Mecklenburg County's Apply for Benefits page says you can return a paper application in person at a county Community Resource Center, where each center has a 24-hour secure drop-off box, or fax it to the county fax number published on that page. Check the page for the current locations and fax number before you go.",
+          "label": "If you live in Mecklenburg County, you can drop it off or fax it",
+          "detail": "Mecklenburg County's Apply for Benefits page says county residents can return a paper application in person at a Community Resource Center, where each center has a 24-hour secure drop-off box, or fax it to the county fax number published on that page. Check the page for the current locations and fax number before you go.",
           "link": {
             "label": "Mecklenburg County: Apply for Benefits",
             "url": "https://dcr.mecknc.gov/Apply-for-Benefits"
           },
           "source_id": "mecklenburg_apply_page"
-        },
-        {
-          "id": "take_or_mail_to_county",
-          "label": "Or take it or mail it to your county DSS office",
-          "detail": "Step 6 of the form, on page 21, says to take or mail your completed application to your local county Department of Social Services.",
-          "source_id": "dhb_5200_form"
         },
         {
           "id": "apply_online_instead",
