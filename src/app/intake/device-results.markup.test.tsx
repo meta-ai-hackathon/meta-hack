@@ -10,10 +10,10 @@ import {
   type ClientAnswerProvenance,
   type ClientAnswerState,
 } from "../../lib/intake/client-store";
-import { deviceMatch } from "../../lib/intake/device-form";
+import { deviceFormReview, deviceMatch } from "../../lib/intake/device-form";
 import { QUESTIONS, type Question } from "../../lib/intake/spec";
 import { KB_ENTRIES } from "../../lib/kb";
-import { DeviceResults } from "./device-results";
+import { DEVICE_RESULTS_COPY, DeviceResults } from "./device-results";
 
 // The end of /intake as it renders for any answers on the device (HACK-115).
 // The match cards, the form review, and the handoff all come from the
@@ -157,6 +157,52 @@ describe("the device results, for any answers on the device", () => {
         for (const value of privateValuesIn(state)) {
           expect(shown, `the screen shows ${value}`).not.toContain(value);
           expect(html, `the markup carries ${value}`).not.toContain(value);
+        }
+      }),
+      { numRuns: 60 },
+    );
+  });
+
+  it("label every typed answer and describe it with the note on how it's kept", () => {
+    fc.assert(
+      fc.property(deviceAnswersArb, (state) => {
+        const { root } = render(state);
+        const inputs = [...root.querySelectorAll<HTMLInputElement>("[data-review-fields] input")];
+        expect(inputs.length).toBeGreaterThan(0);
+        for (const input of inputs) {
+          const label = root.querySelector(`label[for="${input.id}"]`);
+          const item = input.closest("[data-review-field]");
+          expect(label?.textContent, input.id).toBe(item?.querySelector("label")?.textContent);
+          const describedBy = input.getAttribute("aria-describedby") ?? "";
+          const note = describedBy === "" ? null : root.querySelector(`[id="${describedBy}"]`);
+          expect(note?.textContent, input.id).toBe(DEVICE_RESULTS_COPY.typedNote);
+          expect(item?.contains(note ?? null), input.id).toBe(true);
+        }
+      }),
+      { numRuns: 60 },
+    );
+  });
+
+  it("describe each answer-this-question button with its own field's question", () => {
+    fc.assert(
+      fc.property(deviceAnswersArb, (state) => {
+        const { root } = render(state);
+        const review = deviceFormReview(state);
+        const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-review-fields] button")];
+        const asked = review.fields.filter(
+          (field) => field.state === "asked" && field.specQuestionId !== null,
+        );
+        expect(buttons).toHaveLength(asked.length);
+        for (const button of buttons) {
+          expect(button.textContent).toBe(DEVICE_RESULTS_COPY.answerAbove);
+          const item = button.closest("[data-review-field]");
+          const field = review.fields.find(
+            (candidate) => candidate.fieldName === item?.getAttribute("data-review-field"),
+          );
+          const describedBy = button.getAttribute("aria-describedby") ?? "";
+          const question = describedBy === "" ? null : root.querySelector(`[id="${describedBy}"]`);
+          expect(question?.textContent).toBe(field?.question);
+          expect(item?.contains(question ?? null)).toBe(true);
         }
       }),
       { numRuns: 60 },

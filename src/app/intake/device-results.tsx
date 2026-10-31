@@ -343,6 +343,8 @@ export function DeviceResults(props: {
         <ul className="flex flex-col gap-3" data-review-fields>
           {review.fields.map((field, index) => {
             const typedId = `device-form-answer-${index}`;
+            const typedNoteId = `${typedId}-note`;
+            const questionId = `device-form-question-${index}`;
             const typeHere = field.state === "asked" && field.specQuestionId === null;
             return (
               <li
@@ -355,7 +357,9 @@ export function DeviceResults(props: {
                     {field.question}
                   </label>
                 ) : (
-                  <span className="font-medium">{field.question}</span>
+                  <span id={questionId} className="font-medium">
+                    {field.question}
+                  </span>
                 )}
                 <span className="flex flex-wrap items-center gap-2 text-sm">
                   <span data-field-state={field.state} className="text-muted">
@@ -377,6 +381,7 @@ export function DeviceResults(props: {
                       id={typedId}
                       type="text"
                       autoComplete="off"
+                      aria-describedby={typedNoteId}
                       maxLength={MAX_FORM_ANSWER_LENGTH}
                       value={typed[field.fieldName] ?? ""}
                       onChange={(event) =>
@@ -384,7 +389,7 @@ export function DeviceResults(props: {
                       }
                       className="rounded-lg border border-surface-border bg-surface px-2 py-1"
                     />
-                    <span data-typed-note={field.fieldName} className="text-xs text-muted">
+                    <span id={typedNoteId} data-typed-note={field.fieldName} className="text-xs text-muted">
                       {DEVICE_RESULTS_COPY.typedNote}
                     </span>
                   </span>
@@ -392,6 +397,7 @@ export function DeviceResults(props: {
                 {field.state === "asked" && field.specQuestionId !== null && onAnswer ? (
                   <button
                     type="button"
+                    aria-describedby={questionId}
                     onClick={() => onAnswer(field.specQuestionId!)}
                     className="self-start text-sm text-muted underline hover:text-foreground"
                   >
