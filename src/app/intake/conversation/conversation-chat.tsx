@@ -301,6 +301,16 @@ export function ConversationChat() {
     };
   }, []);
 
+  // While the privacy-choice surface is open, the voice session HOLDS (the
+  // mic stops listening; nothing is captured while the person is deciding
+  // about their privacy). The session resumes only when they press Resume.
+  useEffect(() => {
+    if (panelOpen && sessionRef.current !== null) {
+      sessionRef.current.hold();
+      setPaused(true);
+    }
+  }, [panelOpen]);
+
   function decideConsent(): void {
     const next: ConsentReceipt = {
       v: 2,
