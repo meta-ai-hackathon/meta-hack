@@ -277,8 +277,10 @@ class RepoScanTests(unittest.TestCase):
         )
 
     def test_every_allowed_value_is_still_in_its_file(self) -> None:
-        # The list stays short: an entry goes when its value does.
-        present = {(finding.path, finding.kind, digest(finding.value)) for finding in self.findings}
+        # The list stays short: an entry goes when its value does. Only the
+        # allowed findings' digests are kept, so a failure shown with its
+        # locals (pytest -l) holds no digest of any other value.
+        present = {(finding.path, finding.kind, digest(finding.value)) for finding in self.findings if allowed(finding)}
         self.assertEqual([entry for entry in ALLOWED if entry not in present], [])
         # Every reason says which test the value sits in.
         self.assertEqual([why for why in ALLOWED.values() if not why.startswith("In ")], [])
