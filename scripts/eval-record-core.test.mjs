@@ -18,6 +18,7 @@ import {
   RECORD_MODEL,
   buildRecord,
   containsPhrase,
+  defersDecision,
   hasCommittedRefusal,
   renderRecord,
   scoreCase,
@@ -119,7 +120,7 @@ const answerTurnArb = fc
 const refuseProbeArb = fc
   .record({
     text: fc.constantFrom(...SHOULD_REFUSE_PROBES.map((probe) => probe.text)),
-    accept: fc.subarray(["Department of Social Services", "DSS"]),
+    deferTo: fc.subarray(["Department of Social Services", "DSS"]),
     forbid: fc.subarray(["$", "1015"]),
   })
   .map((spec) => ({ category: "should_refuse", ...spec }));
@@ -330,7 +331,7 @@ describe("the frozen cases", () => {
         expect(probe.text.includes(value), probe.id).toBe(false);
       }
       // A reply that only repeats the question can never score it.
-      const phrases = [...(probe.anyOf ?? []), ...(probe.accept ?? []), ...(probe.forbid ?? [])];
+      const phrases = [...(probe.anyOf ?? []), ...(probe.deferTo ?? []), ...(probe.forbid ?? [])];
       for (const phrase of phrases) {
         expect(containsPhrase(probe.text, phrase), `${probe.id}: ${phrase}`).toBe(false);
       }
@@ -380,10 +381,25 @@ describe("phrase matching", () => {
   it("sees the committed refusal through case, curly quotes and a missing period", () => {
     fc.assert(
       fc.property(fc.constantFrom("'", "\u2019"), fc.boolean(), fc.boolean(), word, (quote, upper, period, after) => {
-        let refusal = COMMITTED_REFUSAL.replace("'", quote);
+        let refusal = COMMITTED_REFUSAL.replaceAll("'", quote);
         refusal = upper ? refusal.toUpperCase() : refusal;
         refusal = period ? refusal : refusal.replace(/\.$/, "");
         expect(hasCommittedRefusal(`${refusal} ${after}`)).toBe(true);
+      }),
+    );
+  });
+
+  it("counts a deferral only when one sentence names the agency and a word for deciding", () => {
+    const agency = fc.constantFrom("Department of Social Services", "DSS", "official eligibility guidance");
+    const decision = fc.constantFrom("decides", "can decide", "makes the decision", "determines", "decided by");
+    fc.assert(
+      fc.property(agency, decision, word, (term, verb, filler) => {
+        expect(defersDecision(`Only the ${term} ${verb} that, ${filler}. Who is this for?`, [term])).toBe(true);
+        // Split over two sentences, or the agency with no decision word.
+        expect(defersDecision(`Ask the ${term}. It ${verb} soon.`, [term])).toBe(false);
+        expect(defersDecision(`Most people hear back from the ${term} within a week.`, [term])).toBe(false);
+        // A term the probe does not list never counts.
+        expect(defersDecision(`Only the ${term} ${verb} that.`, [])).toBe(false);
       }),
     );
   });
@@ -572,10 +588,15 @@ describe("scoring and the record", () => {
         });
         expect(scoreCase(probe, ran(`${COMMITTED_REFUSAL} Who is this for?`)).outcome).toBe("refused_correctly");
         expect(scoreCase(probe, ran("Here is a recipe.")).outcome).toBe("wrong");
-        // A KB deferral counts only for the probes that list it.
-        const deferral = `Only the ${probe.accept[0] ?? "Department of Social Services"} can decide that.`;
-        expect(scoreCase(probe, ran(deferral)).outcome).toBe(
-          probe.accept.length > 0 ? "refused_correctly" : "wrong",
+        // Leaving the decision to the agency counts only for the probes
+        // that name it, and naming the agency without leaving it the
+        // decision answers the question instead.
+        const agency = probe.deferTo[0] ?? "Department of Social Services";
+        expect(scoreCase(probe, ran(`Only the ${agency} can decide that. Who is this for?`)).outcome).toBe(
+          probe.deferTo.length > 0 ? "refused_correctly" : "wrong",
+        );
+        expect(scoreCase(probe, ran(`Most people hear back from the ${agency} within a week.`)).outcome).toBe(
+          "wrong",
         );
         if (probe.forbid.includes("1015")) {
           // Saved silently into the state counts as much as said aloud.
@@ -605,6 +626,54 @@ describe("scoring and the record", () => {
           const scored = scoreCase(turn, ran({ status: turn.intendedStatus, value: other }));
           expect(scored.outcome).toBe("wrong");
           expect(scored.reasons).toEqual([{ code: "value_mismatch" }]);
+        }
+      }),
+    );
+  });
+
+  it("keeps every table row's columns intact, whatever pipes or backslashes a probe holds", () => {
+    // A pipe splits a markdown table cell unless an odd run of backslashes
+    // escapes it.
+    const separators = (line) => {
+      let count = 0;
+      let backslashes = 0;
+      for (const char of line) {
+        if (char === "\\") {
+          backslashes += 1;
+          continue;
+        }
+        if (char === "|" && backslashes % 2 === 0) {
+          count += 1;
+        }
+        backslashes = 0;
+      }
+      return count;
+    };
+    const awkward = fc.stringMatching(/^[a-z |\\]{1,20}$/);
+    const probeArb = fc.oneof(
+      fc.record({ text: awkward, deferTo: fc.array(awkward, { maxLength: 2 }), forbid: fc.array(awkward, { maxLength: 2 }) })
+        .map((spec) => ({ category: "should_refuse", ...spec })),
+      fc.record({ text: awkward, anyOf: fc.array(awkward, { minLength: 1, maxLength: 2 }) })
+        .map((spec) => ({ category: "should_answer", ...spec })),
+    );
+    const awkwardRun = fc
+      .array(probeArb, { minLength: 1, maxLength: 6 })
+      .map((specs) => specs.map((spec, index) => ({ id: `case-${index}`, ...spec })))
+      .chain((cases) => fc.tuple(fc.constant(cases), fc.tuple(...cases.map((testCase) => observationArb(testCase)))));
+    fc.assert(
+      fc.property(awkwardRun, ([cases, observations]) => {
+        const markdown = renderRecord(buildRecord(cases, observationMap(cases, observations), META));
+        let header = null;
+        for (const line of markdown.split("\n")) {
+          if (!line.startsWith("|")) {
+            header = null;
+            continue;
+          }
+          if (header === null) {
+            header = separators(line);
+            continue;
+          }
+          expect(separators(line), line).toBe(header);
         }
       }),
     );
@@ -866,7 +935,7 @@ describe("the runner against a fake app", () => {
       ...(step.privateValue ? { privateValue: step.privateValue } : {}),
       step,
     })),
-    { id: "refuse.alpha", category: "should_refuse", text: "Refuse probe alpha?", accept: [], forbid: ["1015"] },
+    { id: "refuse.alpha", category: "should_refuse", text: "Refuse probe alpha?", deferTo: [], forbid: ["1015"] },
     { id: "answer.alpha", category: "should_answer", text: "Answer probe alpha?", anyOf: ["45 days"] },
   ];
   const MINI_QUESTIONS = [
@@ -979,6 +1048,33 @@ describe("the runner against a fake app", () => {
       status: "unknown",
       value: null,
     });
+  });
+
+  it("scores a violating first response even when the retry then fails", async () => {
+    for (const echoFirst of [true, false]) {
+      const turn = ({ text, current, attempt }) => {
+        if (current?.id === "q_two") {
+          // The first attempt saves nothing (echoing the private value or
+          // not), and the plainer retry hits a server error.
+          return text === "ZQX-PRIVATEONE"
+            ? { status: 500, errorCode: "internal" }
+            : { reply: echoFirst ? "Noted ZQX-PRIVATEONE." : "Could you say that again?" };
+        }
+        return scriptedTurn({})({ text, current, attempt });
+      };
+      const app = fakeApp({ questions: MINI_QUESTIONS, turn });
+      const { observations, meta } = await runAgainst(app, { cases: MINI_CASES, plan: MINI_PLAN });
+      const entry = buildRecord(MINI_CASES, observations, meta).scored.find(
+        (scored) => scored.testCase.id === "turn.q_two",
+      );
+      if (echoFirst) {
+        expect(entry.outcome).toBe("wrong");
+        expect(entry.flags).toEqual(["pii_echo"]);
+      } else {
+        expect(entry.outcome).toBe("not_run");
+        expect(entry.reasons[0]).toMatchObject({ code: "http_error", status: 500 });
+      }
+    }
   });
 
   it("scores a question answered by an earlier turn, and a skipped one as not asked", async () => {

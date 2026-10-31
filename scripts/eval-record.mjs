@@ -359,7 +359,17 @@ class EvalRun {
       if (!result.ok) {
         failure = result.failure;
         if (testCase) {
-          observations.set(testCase.id, { ran: false, ...failure });
+          // A first response that already broke a rule is scored from what
+          // it showed, so a failed retry can never hide a violation as not
+          // run. Without one, the case could not finish: not run.
+          const partial = {
+            ran: true,
+            responses: bodies.map((body) => ({ reply: replyOf(body), body })),
+            privateValues: [...privateValues],
+            saved: null,
+          };
+          const flagged = bodies.length > 0 && scoreCase(testCase, partial).flags.length > 0;
+          observations.set(testCase.id, flagged ? partial : { ran: false, ...failure });
           this.logOutcome(testCase, observations.get(testCase.id));
         }
         break;
