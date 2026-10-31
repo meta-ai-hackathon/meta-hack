@@ -171,9 +171,17 @@ answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
   questions never wait on it.
 - **Answers the questions don't ask:** the form's other fields (the name,
   the addresses, the Social Security number, next year's income) are typed
-  into the review. They are used for that one download, live only in the
-  page's memory, and clear when the person leaves the screen. Nothing saves
-  them, on the device or anywhere else.
+  into the review. They are used for that one download and live only in the
+  page's memory, so they clear when the person leaves the screen. The page
+  never stores them, on the device or anywhere else, though the downloaded
+  file holds them like the rest of the filled form. Their inputs turn off
+  the browser's spellcheck, because a browser's cloud spellcheck sends what
+  is typed to its vendor.
+- **The downloaded file:** the filled PDF is an ordinary file that isn't
+  encrypted, outside the sealed store, so "Delete my answers from this
+  device" can't reach it. The page says what the file holds next to the
+  download, and the delete confirmation says a downloaded form is still on
+  the device until the person deletes it.
 - **The blank form:** the public DHB-5200 is a static file
   (`public/forms/dhb-5200.pdf`), byte for byte the registry's committed
   copy. The page asks for it only when the person downloads, with a GET that
@@ -200,6 +208,8 @@ answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
 | A device delete is verified and never undone by another tab | `src/lib/intake/device-answer-store.test.ts` (purge and racing-save properties) |
 | Answers saved on the server before device mode can be found and deleted | `src/app/intake/server-answers-notice.test.tsx` (cookie-only check, confirmed purge, every purge outcome, no answer in any request) |
 | `/intake` reaches the match, the review, and the filled form with no answer in any request, and a reload resumes them | `src/app/intake/device-results.test.tsx` (the page driven through the DOM over a fake IndexedDB, with every request recorded) + `src/lib/intake/device-path-boundary.test.ts` (no server module, Node built-in, or request on the path besides the blank form's GET) |
+| The end of `/intake` shows no banned claim and no private answer, for any answers | `src/app/intake/device-results.markup.test.tsx` (properties over generated device answers: the rendered text, attributes, and markup, plus labelled and described inputs with spellcheck off and a heading outline that never skips a level) |
+| A delete after a download claims only what it did | `src/app/intake/device-results.test.tsx` (download, then delete: the store is empty and the confirmation says the downloaded file is still on the device) |
 | The device's fill and review match the server's for the same answers | `src/lib/intake/device-form.test.ts` (properties over generated answer sets saved through the server store and on the device: the same field values, provenance, to-resolve and not-applicable lists, and the review route's view) |
 | The device's match is the consent-declined server match | `src/lib/match-core.test.ts` (property over answer maps) + `src/lib/intake/device-form.test.ts` (the `/api/match` route over the same answers) |
 | A form reads only the private answers its allowlist names | `src/lib/forms/fill-core.test.ts` (property over entries with fields remapped outside the allowlist) |
