@@ -1,0 +1,35 @@
+{
+  "description": "The same conversation turn response with redaction intact — the transcript carries the redaction marker, no status badge leaks a value, and no submitted private value appears anywhere in the payload.",
+  "expect": "clean",
+  "detector": "findPiiEcho",
+  "privateValues": ["1990-05-14", "jamie.watts@example.com"],
+  "payload": {
+    "assistantReply": "Thanks! And when is the best time to reach you?",
+    "redactedUserTranscript": "My date of birth is [redacted answer to \"What is your date of birth?\"].",
+    "nextQuestionId": "best_time_to_reach",
+    "state": {
+      "questions": [
+        {
+          "id": "best_time_to_reach",
+          "prompt": "When is the best time to reach you?",
+          "help": "",
+          "type": "single_select",
+          "required": true,
+          "pii": false,
+          "options": [
+            { "value": "morning", "label": "Morning" },
+            { "value": "afternoon", "label": "Afternoon" },
+            { "value": "evening", "label": "Evening" }
+          ]
+        }
+      ],
+      "answers": {
+        "date_of_birth": { "status": "known" },
+        "best_time_to_reach": { "status": "known", "value": "afternoon" }
+      },
+      "progress": { "answered": 2, "remaining": 0, "total": 2 },
+      "currentIndex": null,
+      "complete": true
+    }
+  }
+}

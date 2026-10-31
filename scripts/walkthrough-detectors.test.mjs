@@ -1,4 +1,7 @@
 import fc from "fast-check";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ANSWER_STATUS_LABELS as SPINE_LABELS,
@@ -7,9 +10,12 @@ import {
 import {
   ANSWER_STATUS_LABELS,
   BANNED_CLAIM_PATTERNS,
+  findAssistantBannedClaims,
   findBannedClaims,
+  findPiiEcho,
   findPiiValueExposure,
   findPiiValueLeaks,
+  verifyRedaction,
 } from "./walkthrough-detectors.mjs";
 
 // The walkthrough CLI's violation detectors are the runtime check behind
@@ -209,5 +215,157 @@ describe("detector properties (property-based)", () => {
         expect(findPiiValueExposure(text, ["ppp", "qqq"])).toEqual([]);
       }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2 detectors (VAL-WALK2-002): the fixtures are committed files under
+// scripts/fixtures/walkthrough/ so the exact inputs that must bite are
+// reviewable artifacts, and the v2-response-shapes list (VAL-X2-003)
+// enumerates every client-visible response shape with a rationale.
+// ---------------------------------------------------------------------------
+
+const FIXTURE_DIR = fileURLToPath(
+  new URL("./fixtures/walkthrough", import.meta.url),
+);
+
+function loadFixture(name) {
+  return JSON.parse(readFileSync(path.join(FIXTURE_DIR, name), "utf8"));
+}
+
+describe("assistant banned-claim detector (v2, VAL-WALK2-002)", () => {
+  it("flags the committed banned-claim assistant fixture", () => {
+    const fixture = loadFixture("assistant-banned-claim.json");
+    expect(fixture.expect).toBe("violation");
+    expect(findAssistantBannedClaims(fixture.assistantReply)).not.toEqual([]);
+  });
+
+  it("passes the committed clean assistant fixture", () => {
+    const fixture = loadFixture("assistant-clean.json");
+    expect(fixture.expect).toBe("clean");
+    expect(findAssistantBannedClaims(fixture.assistantReply)).toEqual([]);
+  });
+
+  it("reports the matched text and pattern on an assistant turn", () => {
+    const matches = findAssistantBannedClaims("You will be approved shortly.");
+    expect(matches.length).toBe(1);
+    expect(matches[0].matchedText.length).toBeGreaterThan(0);
+    expect(matches[0].patternSource.length).toBeGreaterThan(0);
+  });
+
+  it("stays silent on a non-assistant-safe empty reply", () => {
+    expect(findAssistantBannedClaims("")).toEqual([]);
+  });
+});
+
+describe("pii-echo detector on any client payload (v2, VAL-WALK2-002)", () => {
+  it("flags the committed pii-echo fixture and names the echoing path", () => {
+    const fixture = loadFixture("pii-echo.json");
+    expect(fixture.expect).toBe("violation");
+    const echoes = findPiiEcho(fixture.payload, fixture.privateValues);
+    expect(echoes.length).toBeGreaterThan(0);
+    expect(
+      echoes.some((echo) => echo.path.includes("redactedUserTranscript")),
+    ).toBe(true);
+    // The report names paths, never values — the value is private content.
+    for (const echo of echoes) {
+      expect(echo).not.toHaveProperty("value");
+    }
+  });
+
+  it("passes the committed clean payload fixture", () => {
+    const fixture = loadFixture("pii-echo-clean.json");
+    expect(fixture.expect).toBe("clean");
+    expect(findPiiEcho(fixture.payload, fixture.privateValues)).toEqual([]);
+  });
+
+  it("attributes nested and array paths exactly", () => {
+    const echoes = findPiiEcho(
+      { a: { b: ["jamie.watts@example.com"] } },
+      ["jamie.watts@example.com"],
+    );
+    expect(echoes).toEqual([
+      { path: "a.b[0]", reason: "private_value_in_payload" },
+    ]);
+  });
+
+  it("ignores blank and non-string private values", () => {
+    expect(findPiiEcho({ note: "x  jamie.watts@example.com  x" }, ["", "   ", 42, null])).toEqual([]);
+  });
+});
+
+describe("redaction verification (v2, VAL-WALK2-002)", () => {
+  const fixture = loadFixture("redaction.json");
+
+  it.each(fixture.cases.map((testCase) => [testCase.name, testCase]))(
+    "%s",
+    (_name, testCase) => {
+      const leaked = verifyRedaction(
+        testCase.rawUserText,
+        testCase.redactedUserTranscript,
+        testCase.privateValues,
+      );
+      if (testCase.expect === "violation") {
+        expect(leaked.length).toBeGreaterThan(0);
+      } else {
+        expect(leaked).toEqual([]);
+      }
+    },
+  );
+
+  it("only fires for values the raw turn actually carried", () => {
+    expect(
+      verifyRedaction("no private value here", "no private value here", [
+        "1990-05-14",
+      ]),
+    ).toEqual([]);
+  });
+});
+
+describe("v2 response shapes (VAL-X2-003): honesty across every committed shape", () => {
+  const shapes = loadFixture("v2-response-shapes.json");
+  const privateValues = shapes.persona.privateValues;
+
+  it("enumerates the complete shape set, each with surface and rationale", () => {
+    expect(shapes.shapes.length).toBeGreaterThanOrEqual(15);
+    for (const shape of shapes.shapes) {
+      expect(shape.shape.length).toBeGreaterThan(0);
+      expect(shape.surface.length).toBeGreaterThan(0);
+      expect(shape.rationale.length).toBeGreaterThan(0);
+      expect(shape.example).toBeDefined();
+    }
+  });
+
+  it("carries zero banned claims and zero pii echoes in every example", () => {
+    for (const shape of shapes.shapes) {
+      const text = JSON.stringify(shape.example);
+      expect(findBannedClaims(text)).toEqual([]);
+      expect(findPiiEcho(shape.example, privateValues)).toEqual([]);
+    }
+  });
+
+  it("state-bearing examples ship no value under a pii:true question", () => {
+    for (const shape of shapes.shapes) {
+      // Collect every `state` payload wherever it sits in the example.
+      const states = [];
+      const queue = [shape.example];
+      while (queue.length > 0) {
+        const node = queue.pop();
+        if (Array.isArray(node)) {
+          queue.push(...node);
+          continue;
+        }
+        if (node === null || typeof node !== "object") {
+          continue;
+        }
+        if (node.state !== undefined) {
+          states.push(node.state);
+        }
+        queue.push(...Object.values(node));
+      }
+      for (const state of states) {
+        expect(findPiiValueLeaks(state)).toEqual([]);
+      }
+    }
   });
 });
