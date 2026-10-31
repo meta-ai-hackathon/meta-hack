@@ -377,15 +377,20 @@ describe("asking the browser to keep the answers", () => {
     expect(page.status()).toBe(page.copy.savedForLaterKept);
     expect(persist).toHaveBeenCalledTimes(1);
 
-    // Pressing it again on this visit doesn't ask again.
+    // Once it has asked, the note goes, and pressing again on this visit doesn't ask again.
+    expect(page.text()).not.toContain(page.copy.keepPrompt);
+    expect(page.button("Save and finish later").hasAttribute("aria-describedby")).toBe(false);
     await page.click(page.button("Save and finish later"));
     expect(persist).toHaveBeenCalledTimes(1);
     expect(fetchSpy).not.toHaveBeenCalled();
     await page.unmount();
   });
 
-  it("asks for the answer on screen when that is the first one saved", async () => {
+  it("asks for the answer on screen when that is the first one saved, after saying it may", async () => {
     const page = await visit();
+    // Nothing is stored yet, but the press saves the answer on screen and
+    // then asks, so the note has to be there before it.
+    expect(page.text()).toContain(page.copy.keepPrompt);
     await page.choose("A family member");
     await page.click(page.button("Save and finish later"));
     expect(page.status()).toBe(page.copy.savedForLaterKept);
@@ -393,8 +398,8 @@ describe("asking the browser to keep the answers", () => {
     await page.unmount();
   });
 
-  it("doesn't ask, or say it might, when nothing is saved on the device", async () => {
-    // Nothing answered yet: there is nothing to keep.
+  it("doesn't ask when nothing is saved, and doesn't say it might when the browser can't keep anything", async () => {
+    // Nothing answered yet: there is nothing to keep, so the press doesn't ask.
     const empty = await visit();
     await empty.click(empty.button("Save and finish later"));
     expect(persist).not.toHaveBeenCalled();

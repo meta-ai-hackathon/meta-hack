@@ -249,8 +249,9 @@ export function IntakeWizard(props: {
   const deviceRef = useRef<DeviceIntake | null>(null);
   const activityRef = useRef(false);
   // Whether this visit already asked the browser to keep the answers: Save
-  // and finish later asks at most once a visit (HACK-113).
-  const askedToKeep = useRef(false);
+  // and finish later asks at most once a visit, and the note that says it
+  // may ask goes away once it has (HACK-113).
+  const [askedToKeep, setAskedToKeep] = useState(false);
   const applyRef = useRef<
     (intake: DeviceIntake, message: string, options: { readonly keepDraft: boolean }) => void
   >(() => undefined);
@@ -639,8 +640,8 @@ export function IntakeWizard(props: {
       }
       setDeviceIntake(refreshed.intake);
       setNotice(saveForLaterNotice(refreshed.intake));
-      if (!askedToKeep.current) {
-        askedToKeep.current = askToKeepAnswers(refreshed.intake);
+      if (!askedToKeep && askToKeepAnswers(refreshed.intake)) {
+        setAskedToKeep(true);
       }
     } catch {
       setNotice(GENERIC_ERROR);
@@ -706,7 +707,11 @@ export function IntakeWizard(props: {
       busy={savingForLater || busy || deleting}
       saving={savingForLater}
       blurb={shownDevice ? keepingBlurb(shownDevice) : SERVER_SAVE_BLURB}
-      note={shownDevice && keepsAnswers(shownDevice) ? DEVICE_INTAKE_COPY.keepPrompt : undefined}
+      note={
+        shownDevice && keepsAnswers(shownDevice) && !askedToKeep
+          ? DEVICE_INTAKE_COPY.keepPrompt
+          : undefined
+      }
     >
       {shownDevice ? (
         <DeleteFromDevice
