@@ -186,12 +186,40 @@ describe("the interim voice states (VAL-VLAT-001)", () => {
     expect(html).toContain("Transcribing");
   });
 
+  it("renders the thinking state with its phase attribute (the state bar's fourth frame caption)", () => {
+    const html = renderToStaticMarkup(
+      VoiceInterimState({ phase: "thinking" }),
+    );
+    expect(html).toContain('data-voice-interim-state="thinking"');
+    expect(html).toContain("Thinking");
+    // The frames' state bar carries the state-name prefix like the other
+    // captions, with the studio's caption text.
+    expect(html).toContain("taking a moment with what you shared");
+  });
+
+  it("the state bar carries the frames' state-bar probe attribute on every phase", () => {
+    for (const phase of [
+      "listening",
+      "transcribing",
+      "thinking",
+      "speaking",
+    ] as const) {
+      const html = renderToStaticMarkup(VoiceInterimState({ phase }));
+      expect(html).toContain("data-voice-state-bar");
+    }
+  });
+
   it("renders nothing when no turn is in flight", () => {
     expect(renderToStaticMarkup(VoiceInterimState({ phase: null }))).toBe("");
   });
 
-  it("keeps both interim texts banned-claim clean", () => {
-    for (const phase of ["listening", "transcribing"] as const) {
+  it("keeps every interim text banned-claim clean", () => {
+    for (const phase of [
+      "listening",
+      "transcribing",
+      "thinking",
+      "speaking",
+    ] as const) {
       const html = renderToStaticMarkup(VoiceInterimState({ phase }));
       expect(findBannedClaims(html)).toEqual([]);
     }

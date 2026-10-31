@@ -52,6 +52,21 @@ export function ModeChoice(props: {
       aria-labelledby="mode-choice-heading"
       className="flex flex-col items-center gap-6 rounded-2xl border border-surface-border bg-surface p-8 text-center"
     >
+      {/* The brand mark per the approved entry frame (VAL-VJS-001): the
+      waveform mark, decorative and aria-hidden — the page header carries
+      the wordmark link, this echoes the voice brand on the stage itself.
+      Static bars: no animation, so reduced-motion needs no variant. */}
+      <div
+        aria-hidden="true"
+        data-brand-wave
+        className="flex items-end justify-center gap-1"
+      >
+        <span className="h-2 w-1.5 rounded-full bg-teal" />
+        <span className="h-4 w-1.5 rounded-full bg-teal" />
+        <span className="h-6 w-1.5 rounded-full bg-teal" />
+        <span className="h-4 w-1.5 rounded-full bg-teal" />
+        <span className="h-2 w-1.5 rounded-full bg-teal" />
+      </div>
       <p className="text-xs font-semibold uppercase tracking-widest text-teal">
         Let&apos;s make this feel easier
       </p>

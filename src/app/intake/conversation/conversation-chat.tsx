@@ -60,16 +60,23 @@ import { ReviewSection } from "./review-section";
 
 const WIZARD_FALLBACK_URL = "/intake";
 
-export type VoiceInterimPhase = "listening" | "transcribing" | "speaking";
+export type VoiceInterimPhase =
+  | "listening"
+  | "transcribing"
+  | "thinking"
+  | "speaking";
 
 /**
- * The instant perceived-latency states (VAL-VLAT-001): the interim status
- * renders the moment recording starts ("listening") and the moment it
- * stops ("transcribing") — synchronously with the endpoint, far inside
- * the 500 ms budget — plus the speaking window while the reply plays. A
- * null phase renders nothing. Deliberately NOT a live region: the notice
- * (StatusRegion) announces the same phases, and a second live region
- * would make screen readers announce them twice.
+ * The instant perceived-latency states (VAL-VLAT-001), rendered as the
+ * conversation stage's state bar (VAL-VJS-002, per the approved Lovable
+ * round-2 frames): "listening" renders the moment recording starts,
+ * "transcribing" the moment it stops — synchronously with the endpoint,
+ * far inside the 500 ms budget — "thinking" refines the same in-flight
+ * window once the wait is long enough that "your subtitles are coming
+ * together" is no longer the whole truth, and "speaking" covers the
+ * reply playback. A null phase renders nothing. Deliberately NOT a live
+ * region: the notice (StatusRegion) announces the same phases, and a
+ * second live region would make screen readers announce them twice.
  */
 export function VoiceInterimState({
   phase,
@@ -80,12 +87,18 @@ export function VoiceInterimState({
     return null;
   }
   return (
-    <p data-voice-interim-state={phase} className="text-sm font-medium text-muted">
+    <p
+      data-voice-interim-state={phase}
+      data-voice-state-bar
+      className="text-sm font-medium text-muted"
+    >
       {phase === "listening"
         ? "Listening — go ahead, we're right here."
         : phase === "transcribing"
           ? "Transcribing — your subtitles are coming together."
-          : "Your reply is here to read, too."}
+          : phase === "thinking"
+            ? "Thinking — taking a moment with what you shared."
+            : "Speaking — your reply is here to read, too."}
     </p>
   );
 }
@@ -95,6 +108,19 @@ interface ConversationTurn {
   readonly role: "user" | "assistant";
   readonly transcript: string;
 }
+
+/**
+ * The short wrap-up spoken when the deterministic engine has no
+ * unanswered question left (VAL-VJS-003), and the visible handoff line
+ * at the top of the results stage (VAL-VJS-004). One text for both so
+ * the spoken words are exactly the words on screen. Permitted framing
+ * only — "may be worth pursuing", the person reviews/signs/submits —
+ * never an eligibility or approval claim.
+ */
+export const RESULTS_WRAP_UP =
+  "That's everything I need. Based on what you shared, here's what may " +
+  "be worth pursuing — with the official sources — and your filled " +
+  "application form to review, sign, and submit yourself.";
 
 interface ConversationErrorResponse {
   error: { code: string; message: string; wizardFallbackUrl?: string };
@@ -286,6 +312,32 @@ export function ConversationChat() {
   const sharingDeclined = receipt !== null && !receipt.ai;
   const zeroSend = sharingDeclined && !panelOpen;
 
+  // The three-stage voice journey (VAL-VJS-001..004), derived — no extra
+  // state machine to desync. A voice-consented visitor (AI + voice on,
+  // panel closed, not the zero-send path) moves ENTRY (the mode choice,
+  // VAL-VJS-001) → TALK (the clean transcript stage, VAL-VJS-002) →
+  // RESULTS the moment the deterministic engine reports no unanswered
+  // question left (state.complete — the auto-advance, VAL-VJS-003).
+  // Every non-voice path (consent panel open, zero-send, ai-only typed)
+  // keeps today's single-scroll layout untouched.
+  const voiceConsented =
+    !panelOpen && !zeroSend && aiSharingOn && voiceSharingOn;
+  const journeyComplete = state?.complete ?? false;
+  const resultsStage = voiceConsented && journeyComplete;
+  const entryStage = voiceConsented && entryMode === null && !journeyComplete;
+  const talkStage = voiceConsented && entryMode !== null && !journeyComplete;
+
+  // Surface conditions (the two-mode rule, VAL-NCF-002): mode A shows no
+  // typing at all; mode B offers the switch at any point; the typed form
+  // carries the ai-only, switched, and mic-fallback cases.
+  const voiceSessionSurface = talkStage && sessionOn && !typingMode;
+  const typedSurface =
+    !panelOpen &&
+    !zeroSend &&
+    aiSharingOn &&
+    !resultsStage &&
+    (!voiceSharingOn || typingMode || micBlocked);
+
   // Revoking voice consent mid-session stops the microphone immediately
   // and lands the person in the typed conversation (never a dead end).
   useEffect(() => {
@@ -300,6 +352,18 @@ export function ConversationChat() {
       );
     }
   }, [voiceSharingOn]);
+
+  // The journey is complete (VAL-VJS-003): the voice session ends with
+  // it — no further listening once the results stage renders. Covers both
+  // the live final turn and a reload onto an already-complete session.
+  useEffect(() => {
+    if (journeyComplete && sessionRef.current !== null) {
+      sessionRef.current.stop();
+      sessionRef.current = null;
+      setSessionOn(false);
+      setPaused(false);
+    }
+  }, [journeyComplete]);
 
   // Full teardown on unmount: no orphaned mic or audio context.
   useEffect(() => {
@@ -435,6 +499,7 @@ export function ConversationChat() {
       return;
     }
     const data = (await response.json()) as TurnResponse;
+    const wasComplete = state?.complete ?? false;
     setTurns((previous) => [
       ...previous,
       {
@@ -449,11 +514,20 @@ export function ConversationChat() {
     setNotice(
       data.nextQuestionId
         ? "The assistant asked the next question."
-        : "All questions are answered.",
+        : "Your conversation is complete. Your results are ready.",
     );
     if (spoken && voiceSharingOn) {
       setVoicePhase("speaking");
       await speakReply(data.assistantTurnId, data.assistantReply);
+    }
+    // The auto-advance (VAL-VJS-003): when the deterministic engine has no
+    // unanswered question left, speak the short wrap-up and hand off to
+    // the results stage — no additional form clicks (the results render
+    // from state.complete itself). The wrap-up speaks locally (no send):
+    // it is UI copy, not an assistant turn, so the speak route — which
+    // speaks stored turns by id — is not involved.
+    if (data.state.complete && !wasComplete) {
+      queueSpeech(RESULTS_WRAP_UP);
     }
   }
 
@@ -524,6 +598,17 @@ export function ConversationChat() {
     setBusy(true);
     setError(null);
     setNotice("Transcribing your recording…");
+    // The state bar's "thinking" refinement (VAL-VJS-002, per the frames):
+    // one POST carries STT + extraction + reply, so the in-flight window
+    // starts as "transcribing"; once the wait is long enough that "your
+    // subtitles are coming together" is no longer the whole truth, the
+    // caption honestly renames the same window — the assistant is taking
+    // a moment with what was shared.
+    const think = setTimeout(() => {
+      setVoicePhase((current) =>
+        current === "transcribing" ? "thinking" : current,
+      );
+    }, 4000);
     // If the turn is still pending after 5 s, escalate the wait message —
     // honestly (no phase claim), so a slow turn never reads as a hang.
     const escalate = setTimeout(() => {
@@ -537,6 +622,7 @@ export function ConversationChat() {
         "We couldn't process that recording. Please try again, or type your answer below.",
       );
     } finally {
+      clearTimeout(think);
       clearTimeout(escalate);
       setVoicePhase(null);
       setBusy(false);
@@ -664,32 +750,76 @@ export function ConversationChat() {
     ? state.questions.filter((question) => state.answers[question.id])
     : [];
 
-  // Surface conditions (the two-mode rule, VAL-NCF-002): the mode choice
-  // is the entry moment for a voice-consented visitor; mode A shows no
-  // typing at all; mode B offers the switch at any point; the typed form
-  // carries the ai-only, switched, and mic-fallback cases.
-  const modeChoiceOpen =
-    !panelOpen &&
-    !zeroSend &&
-    aiSharingOn &&
-    voiceSharingOn &&
-    entryMode === null;
-  const voiceSessionSurface =
-    !panelOpen &&
-    !zeroSend &&
-    sessionOn &&
-    entryMode !== null &&
-    !typingMode;
-  const typedSurface =
-    !panelOpen &&
-    !zeroSend &&
-    aiSharingOn &&
-    (!voiceSharingOn || typingMode || micBlocked);
+  // The journey sections, reused intact (VAL-VJS-004): answers-so-far +
+  // the match engine's framing card + the review/download handoff + the
+  // purge. The results stage hosts them; every non-voice path keeps them
+  // inline exactly as before the restage. Reusing the components keeps
+  // the gate-gated copy and provenance rendering word-identical.
+  const journeySections = state ? (
+    <>
+      <section
+        data-answers-so-far
+        aria-labelledby="conversation-status-heading"
+        className="flex flex-col gap-2"
+      >
+        <h2 id="conversation-status-heading" className="font-display text-2xl font-bold">
+          Your answers so far
+        </h2>
+        <p
+          id="conversation-progress-text"
+          className="text-sm text-muted"
+        >
+          Answered {state.progress.answered} of {state.progress.total} questions
+          {state.progress.remaining > 0
+            ? ` — ${state.progress.remaining} to go`
+            : ""}
+        </p>
+        <progress
+          aria-labelledby="conversation-progress-text"
+          value={state.progress.answered}
+          max={state.progress.total}
+          className="h-2 w-full"
+        />
+        {answeredQuestions.length > 0 ? (
+          <ul className="flex flex-col gap-2">
+            {answeredQuestions.map((question) => {
+              const answer = state.answers[question.id];
+              return (
+                <li
+                  key={question.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-surface-border bg-surface p-3"
+                >
+                  <span className="font-medium">{question.prompt}</span>
+                  {answer ? <AnswerStatusBadge status={answer.status} /> : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+        {state.complete ? (
+          <p className="text-muted">
+            Every question is answered. Nothing is submitted — you decide what
+            happens next.
+          </p>
+        ) : null}
+      </section>
+
+      <MatchSection refreshKey={turns.length + answersRefresh} />
+      <ReviewSection refreshKey={turns.length + answersRefresh} />
+      <PurgeSection onPurged={purgeClientState} />
+    </>
+  ) : null;
+
+  // Surface conditions live with the consent gates above (the three-stage
+  // derivation must precede the effects that read it).
 
   return (
     <div
       data-conversation-chat
       data-entry-mode={entryMode ?? undefined}
+      data-journey-stage={
+        resultsStage ? "results" : talkStage ? "talk" : entryStage ? "entry" : undefined
+      }
       className="flex flex-col gap-6"
     >
       <p className="text-sm text-muted">
@@ -738,34 +868,39 @@ export function ConversationChat() {
 
       <StatusRegion message={notice} />
 
-      <section aria-labelledby="conversation-transcript-heading" className="flex flex-col gap-3">
-        <h2 id="conversation-transcript-heading" className="font-display text-2xl font-bold">
-          Conversation
-        </h2>
-        {loaded && turns.length === 0 ? (
-          <p className="max-w-xl text-muted">
-            Say hello, or answer the first question whenever you are ready.
-          </p>
-        ) : null}
-        <ul className="flex flex-col gap-3" data-conversation-transcript>
-          {turns.map((turn) => (
-            <li
-              key={turn.id}
-              className={
-                turn.role === "user"
-                  ? "self-end max-w-[85%] rounded-3xl rounded-br-lg bg-foreground px-4 py-2.5 text-background"
-                  : "self-start max-w-[85%] rounded-3xl rounded-bl-lg border border-surface-border bg-surface px-4 py-2.5"
-              }
-            >
-              <span className="sr-only">
-                {turn.role === "user" ? "You said:" : "The assistant said:"}
-              </span>
-              {turn.transcript}
-            </li>
-          ))}
-        </ul>
-        <div ref={transcriptEndRef} />
-      </section>
+      {/* The transcript lives on the TALK stage (VAL-VJS-002). The entry
+      stage is the clean mode-choice screen and the results stage replaces
+      the conversation with the handoff — per the approved frames. */}
+      {!entryStage && !resultsStage ? (
+        <section aria-labelledby="conversation-transcript-heading" className="flex flex-col gap-3">
+          <h2 id="conversation-transcript-heading" className="font-display text-2xl font-bold">
+            Conversation
+          </h2>
+          {loaded && turns.length === 0 ? (
+            <p className="max-w-xl text-muted">
+              Say hello, or answer the first question whenever you are ready.
+            </p>
+          ) : null}
+          <ul className="flex flex-col gap-3" data-conversation-transcript>
+            {turns.map((turn) => (
+              <li
+                key={turn.id}
+                className={
+                  turn.role === "user"
+                    ? "self-end max-w-[85%] rounded-3xl rounded-br-lg bg-foreground px-4 py-2.5 text-background"
+                    : "self-start max-w-[85%] rounded-3xl rounded-bl-lg border border-surface-border bg-surface px-4 py-2.5"
+                }
+              >
+                <span className="sr-only">
+                  {turn.role === "user" ? "You said:" : "The assistant said:"}
+                </span>
+                {turn.transcript}
+              </li>
+            ))}
+          </ul>
+          <div ref={transcriptEndRef} />
+        </section>
+      ) : null}
 
       {error ? (
         <div
@@ -791,7 +926,7 @@ export function ConversationChat() {
         </div>
       ) : null}
 
-      {modeChoiceOpen ? (
+      {entryStage ? (
         <ModeChoice onBegin={(mode) => void beginVoiceSession(mode)} />
       ) : null}
 
@@ -909,7 +1044,7 @@ export function ConversationChat() {
       </form>
       ) : null}
 
-      {!voiceSharingOn && aiSharingOn && !panelOpen ? (
+      {!voiceSharingOn && aiSharingOn && !panelOpen && !resultsStage ? (
         <p
           data-voice-consent-guidance
           className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"
@@ -919,7 +1054,7 @@ export function ConversationChat() {
           &ldquo;Your privacy choices&rdquo;, or just type above.
         </p>
       ) : null}
-      {micBlocked && !panelOpen && aiSharingOn ? (
+      {micBlocked && !panelOpen && aiSharingOn && !resultsStage ? (
         <p
           data-mic-blocked-guidance
           className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"
@@ -938,62 +1073,24 @@ export function ConversationChat() {
         />
       ) : null}
 
-      {state ? (
+      {resultsStage ? (
         <section
-          aria-labelledby="conversation-status-heading"
-          className="flex flex-col gap-2"
+          data-results-stage
+          aria-labelledby="results-stage-heading"
+          className="flex flex-col gap-6"
         >
-          <h2 id="conversation-status-heading" className="font-display text-2xl font-bold">
-            Your answers so far
-          </h2>
-          <p
-            id="conversation-progress-text"
-            className="text-sm text-muted"
-          >
-            Answered {state.progress.answered} of {state.progress.total} questions
-            {state.progress.remaining > 0
-              ? ` — ${state.progress.remaining} to go`
-              : ""}
-          </p>
-          <progress
-            aria-labelledby="conversation-progress-text"
-            value={state.progress.answered}
-            max={state.progress.total}
-            className="h-2 w-full"
-          />
-          {answeredQuestions.length > 0 ? (
-            <ul className="flex flex-col gap-2">
-              {answeredQuestions.map((question) => {
-                const answer = state.answers[question.id];
-                return (
-                  <li
-                    key={question.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-surface-border bg-surface p-3"
-                  >
-                    <span className="font-medium">{question.prompt}</span>
-                    {answer ? <AnswerStatusBadge status={answer.status} /> : null}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-          {state.complete ? (
-            <p className="text-muted">
-              Every question is answered. Nothing is submitted — you decide what
-              happens next.
+          <div className="flex flex-col gap-2">
+            <h2 id="results-stage-heading" className="font-display text-2xl font-bold">
+              Your results
+            </h2>
+            <p data-results-wrap-up className="max-w-xl text-muted">
+              {RESULTS_WRAP_UP}
             </p>
-          ) : null}
+          </div>
+          {journeySections}
         </section>
-      ) : null}
-
-      {state ? (
-        <MatchSection refreshKey={turns.length + answersRefresh} />
-      ) : null}
-      {state ? (
-        <ReviewSection refreshKey={turns.length + answersRefresh} />
-      ) : null}
-      {state ? (
-        <PurgeSection onPurged={purgeClientState} />
+      ) : !voiceConsented ? (
+        journeySections
       ) : null}
     </div>
   );

@@ -50,6 +50,16 @@ describe("the conversation entry mode choice (VAL-NCF-002)", () => {
     expect(html).toContain("data-mode-begin");
   });
 
+  it("carries the brand mark per the approved entry frame (VAL-VJS-001)", () => {
+    const html = renderToStaticMarkup(
+      <ModeChoice onBegin={() => undefined} />,
+    );
+    // The waveform brand mark is decorative: aria-hidden, never a heading,
+    // states conveyed by the real copy around it.
+    expect(html).toContain("data-brand-wave");
+    expect(html).toContain('aria-hidden="true"');
+  });
+
   it("keeps the entry copy banned-claim clean", () => {
     const html = renderToStaticMarkup(
       <ModeChoice onBegin={() => undefined} />,
