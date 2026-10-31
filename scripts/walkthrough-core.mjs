@@ -10,7 +10,6 @@
 
 import {
   ANSWER_STATUS_LABELS,
-  findAssistantBannedClaims,
   findBannedClaims,
   findPiiEcho,
   findPiiValueExposure,
@@ -173,7 +172,12 @@ async function fetchWithRetry(url, init, timeoutMs) {
 /** GET/POST against the target app, returning {status, text, response}.
  * A FormData/string/Uint8Array body passes through raw (fetch sets the
  * multipart boundary itself); anything else is JSON-encoded. */
-export async function http(base, path, { method = "GET", body, cookie, headers = {} } = {}, timeoutMs) {
+export async function http(
+  base,
+  path,
+  { method = "GET", body, cookie, headers = {} } = {},
+  timeoutMs,
+) {
   const requestHeaders = { ...headers };
   const rawBody =
     body instanceof FormData ||
@@ -266,6 +270,7 @@ export class Walkthrough {
     this.privateValues = [];
     this.cookie = null;
     this.turnTimes = [];
+    this.turnsSent = 0;
     this.lastAssistantReply = null;
   }
 
@@ -354,7 +359,8 @@ export class Walkthrough {
       const wait = TURN_WINDOW_MS - (now - this.turnTimes[0]) + 250;
       if (wait > 0) {
         this.log(
-          `PAUSE     ${Math.ceil(wait / 1000)}s — pacing typed turns under the server's per-minute cap`,
+        `PAUSE     ${Math.ceil(wait / 1000)}s — pacing typed turns under `
+          + `the server's per-minute cap`,
         );
         await this.sleepFn(wait);
       }
@@ -408,7 +414,9 @@ export class Walkthrough {
       // turn is safe — a failed turn persists no transcript (the route's
       // atomicity), and saved answers update rather than duplicate.
       this.log(
-        `RETRY     turn failed with ${response.status} (the model is throttling or unavailable); ` +
+        `RETRY     turn failed with ${response.status} — the model is `
+          + `throttling or unavailable; waiting ${TURN_RETRY_WAIT_MS / 1000}s `
+          + "before trying again",
           `waiting ${TURN_RETRY_WAIT_MS / 1000}s before trying again`,
       );
       await this.sleepFn(TURN_RETRY_WAIT_MS);
@@ -418,12 +426,16 @@ export class Walkthrough {
         `conversation turn rejected: ${response.status} ${response.text.slice(0, 200)}`,
       );
     }
+    this.turnsSent += 1;
     const body = parseJsonBody(response.text, "POST /api/conversation/turn");
-    this.lastAssistantReply = typeof body.assistantReply === "string" ? body.assistantReply : this.lastAssistantReply;
+    this.lastAssistantReply =
+      typeof body.assistantReply === "string" ? body.assistantReply : this.lastAssistantReply;
     // Every scan runs unconditionally — the transcript must name ALL the
     // violations a body carries (what and where), not just the first kind.
     this.scanResponse("conversation turn", response.text, body.state);
-    for (const match of findAssistantBannedClaims(body.assistantReply)) {
+    // The assistant's own words get their own violation kind: a promise in
+    // an assistant turn means the app's reply gate failed to fire.
+    for (const match of findBannedClaims(String(body.assistantReply ?? ""))) {
       this.recordViolation("assistant_banned_claim", {
         where: "conversation turn assistantReply",
         pattern: match.patternSource,
@@ -445,7 +457,8 @@ export class Walkthrough {
     if (unredacted.length > 0) {
       this.recordViolation("redaction_failure", {
         where: "conversation turn redactedUserTranscript",
-        detail: `${unredacted.length} submitted private value(s) survived in the delivered transcript`,
+        detail: `${unredacted.length} submitted private value(s) survived `
+          + "in the delivered transcript",
       });
     }
     return body;
@@ -472,7 +485,8 @@ export class Walkthrough {
     const matchCount = Array.isArray(body.matches) ? body.matches.length : -1;
     const toResolveCount = Array.isArray(body.toResolve) ? body.toResolve.length : -1;
     this.log(
-      `MATCH     GET /api/match → ${response.status}, ${matchCount} card(s) that may be worth pursuing, ${toResolveCount} to resolve`,
+      `MATCH     GET /api/match → ${response.status}, ${matchCount} card(s) `
+        + `that may be worth pursuing, ${toResolveCount} to resolve`,
     );
     this.scanResponse("match", response.text);
     for (const echo of findPiiEcho(body, this.privateValues)) {
@@ -501,7 +515,9 @@ export class Walkthrough {
     }
     const body = parseJsonBody(response.text, `GET /api/forms/${formId}/review`);
     if (body.hasSession !== true) {
-      throw new WalkthroughError("review hasSession=false — the session cookie was not honored");
+      throw new WalkthroughError(
+        "review hasSession=false — the session cookie was not honored",
+      );
     }
     if (!BN25_SESSION_STATUSES.includes(body.sessionStatus)) {
       throw new WalkthroughError(
@@ -519,7 +535,8 @@ export class Walkthrough {
         this.log(`          skipped by the flow: ${field.fieldName} (not applicable)`);
       } else if (field.state === "prefilled") {
         this.log(
-          `          pre-filled: ${field.fieldName} — ${field.provenance ?? "provenance not shown"}`,
+          `          pre-filled: ${field.fieldName} — `
+            + (field.provenance ?? "provenance not shown"),
         );
       }
     }
@@ -550,10 +567,14 @@ export class Walkthrough {
     }
     const body = parseJsonBody(response.text, "GET /api/conversation/history");
     const turns = Array.isArray(body.turns) ? body.turns : [];
-    this.log(`HISTORY   GET /api/conversation/history → ${response.status}, ${turns.length} turn(s)`);
+    this.log(
+      `HISTORY   GET /api/conversation/history → ${response.status}, `
+        + `${turns.length} turn(s)`,
+    );
     if (turns.length < 2) {
       throw new WalkthroughError(
-        `history has ${turns.length} turn(s) — a conversational journey must store both sides of at least one exchange`,
+          `history has ${turns.length} turn(s) — a conversational journey `
+            + "must store both sides of at least one exchange",
       );
     }
     this.scanResponse("history", response.text, body.state);
@@ -602,12 +623,14 @@ export class Walkthrough {
     }
     if (response.text.length < 1000) {
       throw new WalkthroughError(
-        `fill response is suspiciously small (${response.text.length} chars) — refusing to call it a filled PDF`,
+          `fill response is suspiciously small (${response.text.length} chars) `
+            + "— refusing to call it a filled PDF",
       );
     }
     this.log(
       `PDF       POST /api/forms/${formId}/fill → ${response.status}, ` +
-        `filled PDF downloaded (~${Math.round(response.text.length / 1024)} KB, generated on the fly, never persisted server-side)`,
+          `filled PDF downloaded (~${Math.round(response.text.length / 1024)} KB, `
+            + "generated on the fly, never persisted server-side)",
     );
   }
 
@@ -620,7 +643,7 @@ export class Walkthrough {
    * @param {readonly {id: string, text: string, retry: string,
    *   intent: string, privateValue?: string}[]} plan typed turns by id
    * @param {string} what transcript label for the loop
-   * @returns {Promise<{turns: number, skippedBy: Map<string, string>}>}
+   * @returns {Promise<{skippedBy: Map<string, string>}>}
    */
   async runTurnLoop(plan, what) {
     const planById = new Map(plan.map((step) => [step.id, step]));
@@ -641,10 +664,11 @@ export class Walkthrough {
         );
       }
       const isPii = question.pii === true;
-      const isFreeForm = question.type === "text" || question.type === "date";
-      if (isPii && isFreeForm && typeof step.privateValue === "string" && step.privateValue.trim() !== "") {
+      if (isPii && typeof step.privateValue === "string" && step.privateValue.trim() !== "") {
         // The value is about to be typed: every body from this turn on is
-        // checked for it (echo + redaction).
+        // checked for it (echo + redaction). The plan's privateValue is
+        // explicit and typed in canonical form, so the tracking does not
+        // guess types — any pii question with a stated value is covered.
         this.privateValues.push(step.privateValue);
       }
       const beforeIds = new Set(state.questions.map((item) => item.id));
@@ -661,11 +685,14 @@ export class Walkthrough {
         outcome = await this.conversationTurn(step.retry ?? step.text);
         newState = outcome.state;
         if (!newState || typeof newState !== "object") {
-          throw new WalkthroughError(`retry turn for "${question.id}" returned no client state`);
+          throw new WalkthroughError(
+            `retry turn for "${question.id}" returned no client state`,
+          );
         }
         if (newState.answers?.[question.id] === undefined) {
           throw new WalkthroughError(
-            `the conversation could not extract an answer for "${question.id}" after a plain-word retry`,
+            `the conversation could not extract an answer for "${question.id}" `
+              + "after a plain-word retry",
           );
         }
       }
@@ -708,14 +735,17 @@ export class Walkthrough {
       state = newState;
       this.state = newState;
       if (this.violations.length > 0) {
-        return { stopped: true, turns: turnNumber, skippedBy };
+        return { skippedBy };
       }
     }
+    // turnsSent counts what was actually sent — a plain-word retry sends a
+    // second turn for one question, and the transcript must not undercount.
     this.log(
-      `COMPLETE  ${what} finished — ${turnNumber} typed turn(s), ` +
+      `COMPLETE  ${what} finished — ${turnNumber} question(s) answered in ` +
+        `${this.turnsSent} typed turn(s), ` +
         `${skippedBy.size} question(s) skipped by the flow`,
     );
-    return { turns: turnNumber, skippedBy };
+    return { skippedBy };
   }
 
   /**
@@ -727,7 +757,7 @@ export class Walkthrough {
    * violation stopped the walk.
    *
    * @param {{plan?: object[], formId?: string, unmappedAnswers?: object,
-   *   planLabel?: string}} [options] injectable for the unit tests
+   *   }} [options] injectable for the unit tests
    */
   async runConversation(options = {}) {
     const {
@@ -736,14 +766,16 @@ export class Walkthrough {
       unmappedAnswers = SAMPLE_FORM_UNMAPPED_ANSWERS,
     } = options;
     this.log(
-      `WALKTHROUGH target ${this.base} — conversational journey (text mode): typed turns → match → review → save/resume → PDF download`,
+      `WALKTHROUGH target ${this.base} — conversational journey (text mode): `
+        + "typed turns → match → review → save/resume → PDF download",
     );
     await this.startSession();
     if (this.violations.length > 0) {
       return this.reportViolations();
     }
     this.log(
-      "CONSENT   typed turns carry the AI consent receipt (voice off) — the same grant the consent surface's typed path gives (HACK-81)",
+      "CONSENT   typed turns carry the AI consent receipt (voice off) — the "
+        + "same grant the consent surface's typed path gives (HACK-81)",
     );
     const { skippedBy } = await this.runTurnLoop(plan, "conversation");
     if (this.violations.length > 0) {
@@ -759,10 +791,14 @@ export class Walkthrough {
     if (this.violations.length > 0) {
       return this.reportViolations();
     }
-    const notApplicable = (review.fields ?? []).filter((field) => field.state === "not_applicable");
+    const notApplicable = (review.fields ?? []).filter(
+      (field) => field.state === "not_applicable",
+    );
     this.log(
       `          skipped fields observed on the review: ` +
-        (notApplicable.length === 0 ? "(none)" : notApplicable.map((field) => field.fieldName).join(", ")),
+        (notApplicable.length === 0
+          ? "(none)"
+          : notApplicable.map((field) => field.fieldName).join(", ")),
     );
 
     // Save and exit, then resume with the session token: the saved state,
@@ -799,7 +835,9 @@ export class Walkthrough {
         "the last delivered assistant reply is missing from the stored history",
       );
     }
-    this.log("          stored history carries the delivered reply — transcript and state agree");
+    this.log(
+      "          stored history carries the delivered reply — transcript and state agree",
+    );
 
     await this.fillForm(formId, unmappedAnswers);
     if (this.violations.length > 0) {
@@ -826,14 +864,16 @@ export class Walkthrough {
       unmappedAnswers = SAMPLE_FORM_UNMAPPED_ANSWERS,
     } = options;
     this.log(
-      `WALKTHROUGH target ${this.base} — form-driven journey: conversation → pre-fill → review → filled PDF`,
+      `WALKTHROUGH target ${this.base} — form-driven journey: `
+        + "conversation → pre-fill → review → filled PDF",
     );
     await this.startSession();
     if (this.violations.length > 0) {
       return this.reportViolations();
     }
     this.log(
-      "CONSENT   typed turns carry the AI consent receipt (voice off) — the same grant the consent surface's typed path gives (HACK-81)",
+      "CONSENT   typed turns carry the AI consent receipt (voice off) — the "
+        + "same grant the consent surface's typed path gives (HACK-81)",
     );
     const { skippedBy } = await this.runTurnLoop(plan, "form-driven conversation");
     if (this.violations.length > 0) {
@@ -850,7 +890,8 @@ export class Walkthrough {
     const prefilled = fields.filter((field) => field.state === "prefilled");
     if (prefilled.length < 1) {
       throw new WalkthroughError(
-        "no form field pre-filled from the conversation's answers — the pre-fill round-trip did not happen",
+        "no form field pre-filled from the conversation's answers — the "
+          + "pre-fill round-trip did not happen",
       );
     }
     // Internal consistency: a field may only be still-needed when its
@@ -867,13 +908,16 @@ export class Walkthrough {
         const answer = stateAnswers[field.specQuestionId];
         if (answer && answer.status === "known") {
           throw new WalkthroughError(
-            `review still needs "${item.fieldName}" although its question was answered through the conversation`,
+            `review still needs "${item.fieldName}" although its question was `
+              + "answered through the conversation",
           );
         }
       }
     }
     this.log(
-      `          pre-fill observed: ${prefilled.length} field(s) from the conversation's answers; ` +
+      `          pre-fill observed: ${prefilled.length} field(s) from the `
+        + `conversation's answers; `
+        + `${fields.filter((field) => field.state === "not_applicable").length} not applicable`,
         `${fields.filter((field) => field.state === "not_applicable").length} not applicable`,
     );
 
@@ -952,7 +996,9 @@ export class Walkthrough {
     );
     this.log(`RESUME    GET /api/session → ${resumed.status}`);
     if (resumed.status !== 200) {
-      throw new WalkthroughError(`resume failed: ${resumed.status} ${resumed.text.slice(0, 200)}`);
+      throw new WalkthroughError(
+        `resume failed: ${resumed.status} ${resumed.text.slice(0, 200)}`,
+      );
     }
     const resumedBody = parseJsonBody(resumed.text, "GET /api/session");
     this.scanResponse("resume", resumed.text, resumedBody.state);
@@ -994,7 +1040,8 @@ export class Walkthrough {
     );
     this.log(
       "SUMMARY   private values submitted: " +
-        `${this.privateValues.length} (checked: never echoed in any body, redaction verified per turn)`,
+        `${this.privateValues.length} (checked: never echoed in any body, `
+          + "redaction verified per turn)",
     );
     this.log("SUMMARY   violations: none");
   }
@@ -1229,7 +1276,8 @@ export class Walkthrough {
 
 export function usage() {
   return [
-    "Usage: pnpm walkthrough [--mode <wizard|conversation|form>] [--url <base-url>] [--timeout <ms>]",
+    "Usage: pnpm walkthrough [--mode <wizard|conversation|form>]" +
+      " [--url <base-url>] [--timeout <ms>]",
     "",
     "Walks a full user journey over HTTP against a running Benefits",
     "Navigator: create session, mixed tri-state answers, observed skips,",

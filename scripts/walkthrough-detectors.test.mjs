@@ -10,7 +10,6 @@ import {
 import {
   ANSWER_STATUS_LABELS,
   BANNED_CLAIM_PATTERNS,
-  findAssistantBannedClaims,
   findBannedClaims,
   findPiiEcho,
   findPiiValueExposure,
@@ -233,28 +232,32 @@ function loadFixture(name) {
   return JSON.parse(readFileSync(path.join(FIXTURE_DIR, name), "utf8"));
 }
 
-describe("assistant banned-claim detector (v2, VAL-WALK2-002)", () => {
+describe("assistant banned-claim detection on the committed fixtures (v2, VAL-WALK2-002)", () => {
+  // The assistant-turn gate reuses findBannedClaims (same spine patterns);
+  // what makes it a distinct check is the violation kind and context at the
+  // turn call site (walkthrough-core.mjs) — these fixtures pin that the
+  // spine's patterns bite on assistant PHRASINGS specifically.
   it("flags the committed banned-claim assistant fixture", () => {
     const fixture = loadFixture("assistant-banned-claim.json");
     expect(fixture.expect).toBe("violation");
-    expect(findAssistantBannedClaims(fixture.assistantReply)).not.toEqual([]);
+    expect(findBannedClaims(fixture.assistantReply)).not.toEqual([]);
   });
 
   it("passes the committed clean assistant fixture", () => {
     const fixture = loadFixture("assistant-clean.json");
     expect(fixture.expect).toBe("clean");
-    expect(findAssistantBannedClaims(fixture.assistantReply)).toEqual([]);
+    expect(findBannedClaims(fixture.assistantReply)).toEqual([]);
   });
 
   it("reports the matched text and pattern on an assistant turn", () => {
-    const matches = findAssistantBannedClaims("You will be approved shortly.");
+    const matches = findBannedClaims("You will be approved shortly.");
     expect(matches.length).toBe(1);
     expect(matches[0].matchedText.length).toBeGreaterThan(0);
     expect(matches[0].patternSource.length).toBeGreaterThan(0);
   });
 
-  it("stays silent on a non-assistant-safe empty reply", () => {
-    expect(findAssistantBannedClaims("")).toEqual([]);
+  it("stays silent on an empty reply", () => {
+    expect(findBannedClaims("")).toEqual([]);
   });
 });
 
@@ -367,5 +370,91 @@ describe("v2 response shapes (VAL-X2-003): honesty across every committed shape"
         expect(findPiiValueLeaks(state)).toEqual([]);
       }
     }
+  });
+});
+
+describe("v2 detector properties (property-based)", () => {
+  // findPiiEcho is a recursive payload walker — the most property-amenable
+  // logic in the file: it must find ANY non-empty private value at ANY
+  // depth, attribute the exact path, and stay silent on disjoint payloads.
+  const leafValue = fc.stringMatching(/^[pqr]{3,8}$/);
+  const filler = fc.stringMatching(/^[xyz ]{0,10}$/);
+  // Disjoint from every private-value alphabet: an echo-detector that
+  // scanned too broadly would fire here.
+  const disjointString = fc.stringMatching(/^[abc]{0,20}$/);
+
+  function seededPayload(depth, value) {
+    if (depth === 0) {
+      return { note: `keep ${value} private` };
+    }
+    return { nested: seededPayload(depth - 1, value) };
+  }
+
+  it("finds a private value at any nesting depth, with the exact path", () => {
+    fc.assert(
+      fc.property(
+        filler,
+        leafValue,
+        filler,
+        fc.integer({ min: 0, max: 12 }),
+        (before, value, after, depth) => {
+          const payload = seededPayload(depth, `${before}${value}${after}`);
+          const echoes = findPiiEcho(payload, [value]);
+          expect(echoes).toHaveLength(1);
+          // The detector attributes the STRING leaf that carries the
+          // value: "note" at the top, "nested" chains down to it.
+          const expectedPath =
+            depth === 0 ? "note" : `${Array(depth).fill("nested").join(".")}.note`;
+          expect(echoes[0].path).toBe(expectedPath);
+          expect(echoes[0].reason).toBe("private_value_in_payload");
+        },
+      ),
+    );
+  });
+
+  it("finds values inside arrays of objects and attributes the index path", () => {
+    fc.assert(
+      fc.property(leafValue, fc.integer({ min: 0, max: 5 }), (value, index) => {
+        const items = Array.from({ length: index }, () => ({ x: "aaa" }));
+        items.push({ transcript: value });
+        const echoes = findPiiEcho({ turns: items }, [value]);
+        expect(echoes).toEqual([
+          { path: `turns[${index}].transcript`, reason: "private_value_in_payload" },
+        ]);
+      }),
+    );
+  });
+
+  it("stays silent on payloads built from a disjoint alphabet", () => {
+    fc.assert(
+      fc.property(disjointString, (text) => {
+        expect(findPiiEcho({ note: text, list: [text, { deep: text }] }, ["ppp", "qqq"]))
+          .toEqual([]);
+      }),
+    );
+  });
+
+  it("never reports the value itself — paths and reasons only", () => {
+    fc.assert(
+      fc.property(leafValue, (value) => {
+        const echoes = findPiiEcho({ transcript: value }, [value]);
+        const serialized = JSON.stringify(echoes);
+        expect(serialized).not.toContain(value);
+      }),
+    );
+  });
+
+  it("verifyRedaction flags any typed private value that survives, whatever the surrounding words", () => {
+    fc.assert(
+      fc.property(filler, leafValue, filler, filler, (lead, value, mid, tail) => {
+        const raw = `${lead} ${value} ${mid}`;
+        const survivors = verifyRedaction(raw, raw, [value]);
+        expect(survivors).toEqual([value]);
+        // With the value replaced, the same transcript is clean.
+        const redacted = raw.split(value).join("[redacted]");
+        expect(verifyRedaction(raw, redacted, [value])).toEqual([]);
+        expect(verifyRedaction(raw, `${raw}${tail}`, [value])).toEqual([value]);
+      }),
+    );
   });
 });

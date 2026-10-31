@@ -1,9 +1,9 @@
 {
-  "description": "The complete set of client-visible response shapes of the v2 surfaces (VAL-X2-003), one entry per shape with the surface it comes from and the rationale for its inclusion, so completeness is reviewable. Every example uses the walkthrough's fictional persona (Jamie Watts, Mecklenburg County NC). The detector suite asserts, for every shape: zero banned-claim matches anywhere in the example, zero pii echoes of any persona private value, and — for the state-bearing shapes — zero values shipped under pii:true questions.",
+  "description": "The complete set of client-visible response shapes of the v2 surfaces (VAL-X2-003), one entry per shape with the surface it comes from and the rationale for its inclusion, so completeness is reviewable. Every example uses the walkthrough's fictional persona (Jamie Watts — a North Carolina resident whose walkthrough answers the county question with a real NC county the committed knowledge base never names). The detector suite asserts, for every shape: zero banned-claim matches anywhere in the example, zero pii echoes of any persona private value, and — for the state-bearing shapes — zero values shipped under pii:true questions.",
   "persona": {
     "name": "Jamie Watts (fictional)",
     "privateValues": [
-      "Mecklenburg County",
+      "Wake County",
       "June 2025",
       "1990-05-14",
       "jamie.watts@example.com",

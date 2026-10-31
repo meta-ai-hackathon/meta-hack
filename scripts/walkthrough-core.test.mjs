@@ -734,6 +734,22 @@ describe("v2 form-driven journey (VAL-WALK2-003 contract)", () => {
         hasSession: true,
         form: { id: "form-x", title: "Form X", version: "1.0.0", sourceUrl: "https://example.org/x.pdf", retrievedAt: "2026-10-30" },
         fields: [
+          // A genuinely pre-filled field keeps the earlier pre-fill guard
+          // quiet, so THIS test's target — the to-resolve consistency
+          // check — is the logic that actually throws (a mapped field
+          // answered through the conversation may not be still-needed).
+          {
+            fieldName: "role_field",
+            type: "text",
+            question: "Who is this application for?",
+            state: "prefilled",
+            specQuestionId: "application_role",
+            required: false,
+            piiLikely: false,
+            status: "known",
+            provenance: "user_supplied",
+            value: "self",
+          },
           {
             fieldName: "county_field",
             type: "text",
@@ -745,7 +761,7 @@ describe("v2 form-driven journey (VAL-WALK2-003 contract)", () => {
           },
         ],
         toResolve: [{ fieldName: "county_field", question: "Which county or city area do you live in?" }],
-        counts: { prefilled: 0, asked: 1, notApplicable: 0 },
+        counts: { prefilled: 1, asked: 1, notApplicable: 0 },
         sessionStatus: "draft",
         steps: [],
       }),
@@ -753,7 +769,7 @@ describe("v2 form-driven journey (VAL-WALK2-003 contract)", () => {
     const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
     await expect(
       walk.runFormJourney({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
-    ).rejects.toBeInstanceOf(WalkthroughError);
+    ).rejects.toThrow(/still needs/);
   });
 
   it("a fill that returns a non-PDF body is a journey error", async () => {
@@ -893,7 +909,16 @@ describe("BN-25 session vocabulary (v2 review)", () => {
     ]);
   });
 
-  it("the sample form id is the committed sample registry entry", () => {
-    expect(SAMPLE_FORM_ID).toBe("sample-application-form");
+  it("mirrors the honesty spine's session vocabulary (drift test)", async () => {
+    // The CLI cannot import app modules; the mirror is kept honest the
+    // same way the detectors' vocabulary is — a drift test against the
+    // owning export.
+    const spine = await import("../src/lib/honesty");
+    expect([...BN25_SESSION_STATUSES]).toEqual([...spine.SESSION_STATUSES]);
+  });
+
+  it("the sample form id mirrors the pilot seam (drift test)", async () => {
+    const pilot = await import("../src/lib/pilot");
+    expect(SAMPLE_FORM_ID).toBe(pilot.PILOT_CONFIG.sampleFormRegistryId);
   });
 });

@@ -1,7 +1,6 @@
 {
   "description": "The same conversation turn response with redaction intact — the transcript carries the redaction marker, no status badge leaks a value, and no submitted private value appears anywhere in the payload.",
   "expect": "clean",
-  "detector": "findPiiEcho",
   "privateValues": ["1990-05-14", "jamie.watts@example.com"],
   "payload": {
     "assistantReply": "Thanks! And when is the best time to reach you?",

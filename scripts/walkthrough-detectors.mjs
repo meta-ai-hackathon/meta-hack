@@ -140,26 +140,10 @@ export function findPiiValueExposure(body, privateValues) {
 // turns, redacted transcripts, subtitles, match cards, review views. These
 // detectors extend the same fail-closed vocabulary to them. As before, the
 // Vitest suite (walkthrough-detectors.test.mjs) runs these against
-// committed fixtures so the checks provably bite.
+// committed fixtures so the checks provably bite. (Assistant-turn
+// banned-claim detection reuses findBannedClaims directly at the turn call
+// site, which records the assistant-specific violation kind and context.)
 // ---------------------------------------------------------------------------
-
-/**
- * Banned-claim detection on an ASSISTANT turn specifically (v2). The app
- * gates every reply sentence server-side and replaces violations with
- * honest fallback copy — so any promise language that reaches a client is
- * a double failure (gate did not fire). The distinct function names the
- * context: violation reports read "assistant turn", and the fixture tests
- * target assistant phrasings.
- *
- * @param {string} reply - the assistant reply as delivered to a client
- * @returns {Array<{patternSource: string, matchedText: string, index: number}>}
- */
-export function findAssistantBannedClaims(reply) {
-  if (typeof reply !== "string") {
-    return [];
-  }
-  return findBannedClaims(reply);
-}
 
 /**
  * Pii-echo detection on ANY client payload (v2): walk every string in a
