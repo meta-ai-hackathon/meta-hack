@@ -1395,17 +1395,38 @@ class ShortKeyPieceProperties(unittest.TestCase):
         self.assertEqual(review.redact_sensitive(out), (out, 0))
 
     def test_the_footer_bound_counts_one_keys_material(self) -> None:
-        # 8,040 characters of pieces, main's bound, still end at their
-        # footer, with about 76,000 characters of code around them. One
-        # piece more and the footer is no longer this key's, so, as on
-        # main, nothing after the header's line goes.
+        # 8,040 characters of pieces joined with PHP's dot, main's bound,
+        # still end at their footer. One piece more and the footer is no
+        # longer this key's, so, as on main, nothing after the header goes.
+        php = JOINED_FORMS[0]
         for count, footer_is_the_keys in ((2_010, True), (2_011, False)):
             pieces = self.mixed_pieces(count)
-            out, _count = review.redact_sensitive(APPEND_FORM.write("", pieces))
+            out, _count = review.redact_sensitive(php.write("", pieces))
             self.assertNotIn("-----BEGIN", out)
             self.assertEqual("-----END" not in out, footer_is_the_keys, count)
-            shown = [piece for piece in pieces if APPEND_FORM.shown.format(piece=piece) in out]
+            shown = [piece for piece in pieces if php.shown.format(piece=piece) in out]
             self.assertEqual(shown, [] if footer_is_the_keys else pieces, count)
+
+    def test_a_pair_of_markers_reaches_no_further_than_its_bound(self) -> None:
+        # A footer more than 64,320 characters past its header is never that
+        # key's, however little key material lies between them, so a pair
+        # of fake markers can hide nothing beyond that. Just inside the
+        # reach, the pieces still go. The code between stays either way.
+        echo = ECHO_FORMS[0]
+        pieces = self.mixed_pieces(10)
+        for filler, footer_is_the_keys in ((2_500, True), (3_000, False)):
+            lines = [
+                echo.header.format(kind=""),
+                *(echo.piece.format(piece=piece) for piece in pieces),
+                *["echo done >> build.log"] * filler,
+                echo.footer.format(kind=""),
+            ]
+            out, _count = review.redact_sensitive("\n".join(lines))
+            self.assertNotIn("-----BEGIN", out)
+            self.assertEqual("-----END" not in out, footer_is_the_keys, filler)
+            shown = [piece for piece in pieces if echo.shown.format(piece=piece) in out]
+            self.assertEqual(shown, [] if footer_is_the_keys else pieces, filler)
+            self.assertEqual(out.count("echo done >> build.log"), filler)
 
     def test_short_key_pieces_take_linear_time(self) -> None:
         # Long texts between a header and a footer, after a line of code,

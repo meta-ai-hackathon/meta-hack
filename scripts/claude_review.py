@@ -665,6 +665,11 @@ _KEY_RUN = re.compile(r"(?:[A-Za-z0-9+/=]|\\++/)++")
 # code around a key written in short pieces cannot push its footer out of
 # reach.
 _KEY_MATERIAL_MAX = 8000 + 40
+# How far past a header its footer may start at all: eight times main's
+# bound. A pair of key markers, real or fake, never covers more text than
+# that, and a 4096-bit key written four characters at a time with a line of
+# code each still fits.
+_KEY_FOOTER_REACH = 8 * _KEY_MATERIAL_MAX
 _KEY_PIECE = re.compile(
     r"(?P<footer>-?-----END [A-Z ]*PRIVATE KEY-----)"
     r"|(?P<line_break>\r\n?+|\n|\\++[nr])"
@@ -797,9 +802,10 @@ def private_key_spans(text: str) -> list[tuple[int, int]]:
     """Where each private key in text starts and where its redaction ends
     (see _key_end), in order, and the pieces of a key written as code.
 
-    A footer counts as a header's when no other header comes before it and
-    no more than _KEY_MATERIAL_MAX characters of key material lie between
-    them. When one follows but the walk stopped early (a key written as
+    A footer counts as a header's when no other header comes before it, it
+    starts no more than _KEY_FOOTER_REACH characters after the header, and no
+    more than _KEY_MATERIAL_MAX characters of key material lie between them.
+    When one follows but the walk stopped early (a key written as
     code: one line or one short piece per echo, a string piece per call, or
     pieces joined with a dot), the code stays visible, and every piece of
     the key between the walk's end and the footer is redacted with the
@@ -823,7 +829,12 @@ def private_key_spans(text: str) -> list[tuple[int, int]]:
             footer = _KEY_FOOTER.search(text, header.end())
         # A later header coming first makes the footer that key's, not this
         # one's; both are left to the later header's own walk.
-        if footer is not None and end <= footer.start() and _KEY_HEADER.search(text, header.end(), footer.start()) is None:
+        if (
+            footer is not None
+            and end <= footer.start()
+            and footer.start() - header.end() <= _KEY_FOOTER_REACH
+            and _KEY_HEADER.search(text, header.end(), footer.start()) is None
+        ):
             pieces = _key_pieces(text, header.end(), end, footer.start())
             if pieces is not None:
                 spans += [*pieces, footer.span()]
