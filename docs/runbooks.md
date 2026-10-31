@@ -166,9 +166,13 @@ The app never fetches an official page while it runs. The only outside calls are
 model API (`src/lib/model.ts`) and ElevenLabs (`src/lib/tts.ts`). The program facts are
 committed in `kb/entries/nc-medicaid.json` (version 2, retrieved 2026-10-30) and the
 DHB-5200 template in `src/lib/forms/fixtures/dhb-5200-ia-9-2020.pdf`. So when an official
-site is down, the match card, the review and the PDF keep working. Only the outbound links
-fail for whoever clicks them: "Apply online through ePASS", "How to apply for NC Medicaid
-(official guidance)" and "Printable application (DHB-5200, PDF)" (from `src/lib/pilot.ts`).
+site is down, the match card, the review and the PDF keep working. Only the links out to
+official pages fail for whoever clicks them. Those are every source link and the "Official
+application links" on the match card (from the knowledge base entry), the form's source
+link at the top of the review, and the three links under "Official portal (submit here
+yourself)" in "Getting it done": "Apply online through ePASS", "How to apply for NC
+Medicaid (official guidance)" and "Printable application (DHB-5200, PDF)" (from
+`src/lib/pilot.ts`).
 
 During the demo, don't click through to a site that's down. Point to the source line under
 the facts instead, which shows the page and the date it was checked. The downloaded PDF is
