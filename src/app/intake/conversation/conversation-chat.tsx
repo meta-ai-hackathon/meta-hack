@@ -1237,7 +1237,11 @@ export function ConversationChat() {
             page. Focusable with a label so keyboard and assistive tech can
             operate the scrollbar (a11y baseline); the section's heading
             association and the list's data attribute are untouched. The
-            single-scroll paths render the same list without the pane. */}
+            single-scroll paths render the same list without the pane.
+            `relative` makes the pane the containing block for the turns'
+            absolutely-positioned sr-only labels — without it their
+            containing block is the document root, they escape the
+            overflow clip, and every turn grows the page itself. */}
             <div
               ref={talkStage ? attachPaneRef : undefined}
               data-transcript-pane={talkStage ? "true" : undefined}
@@ -1247,7 +1251,7 @@ export function ConversationChat() {
               onScroll={talkStage ? handlePaneScroll : undefined}
               className={
                 talkStage
-                  ? "h-[min(60vh,28rem)] overflow-y-auto overscroll-contain rounded-2xl border border-surface-border p-4"
+                  ? "relative h-[min(60vh,28rem)] overflow-y-auto overscroll-contain rounded-2xl border border-surface-border p-4"
                   : undefined
               }
             >
