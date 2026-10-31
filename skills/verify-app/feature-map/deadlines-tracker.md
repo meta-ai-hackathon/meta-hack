@@ -14,8 +14,7 @@ The renewal tracker shows the program's renewal facts from the verified knowledg
 ## How to get to it (user POV)
 
 - Open the renewal tracker page at `/renewal`.
-- Follow "Open your renewal tracker" in the "Already have coverage? Keep track of your renewal" box at the end of the conversation once every question is answered.
-- Follow the same box on the wizard's review screen.
+- Follow "Open your renewal tracker" in the "Already have coverage? Keep track of your renewal" box on the wizard's review screen.
 - Follow "Already have coverage? Keep track of your renewal" on the home page.
 - Follow the reminder banner's link from any other page once a saved date is within 30 days or has passed.
 

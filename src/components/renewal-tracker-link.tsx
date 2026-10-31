@@ -7,9 +7,8 @@ import {
 
 /**
  * The way into the renewal tracker (BN-22 / HACK-50) from the places a
- * person finishes: the end of the conversation, the wizard's review
- * screen, and the home page. The heading level fits the host page's
- * outline (BN-07: no skipped levels).
+ * person finishes: the wizard's review screen and the home page. The
+ * heading level fits the host page's outline (BN-07: no skipped levels).
  */
 export function RenewalTrackerLink({ headingLevel }: { headingLevel: 2 | 3 }) {
   const Heading = headingLevel === 2 ? "h2" : "h3";
