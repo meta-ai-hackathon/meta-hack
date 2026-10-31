@@ -1,9 +1,9 @@
+import type { SourceCardSource } from "../components/source-card";
 import type { SessionStatus } from "./honesty";
 import {
   KB_ENTRIES,
   citeSourcedSteps,
   type KbEntry,
-  type KbEntryStatus,
   type KbSourcedStepGroup,
   type KbStepCitation,
   type SourcedStepKbFactGroupName,
@@ -200,22 +200,13 @@ export function showsAfterYouApply(status: SessionStatus): boolean {
 // The sourced companion steps, from the knowledge base
 // ---------------------------------------------------------------------------
 
-/** What a source card shows for one step (BN-27). */
-export interface HandoffSourceView {
-  readonly title: string;
-  readonly url: string;
-  readonly retrievedAt: string;
-  readonly entryVersion: number;
-  readonly entryStatus: KbEntryStatus;
-  readonly statusReason?: string;
-}
-
 export interface HandoffStepView {
   readonly id: string;
   readonly label: string;
   readonly detail: string;
   readonly link?: { readonly label: string; readonly url: string };
-  readonly source: HandoffSourceView;
+  /** Exactly what the step's source card shows (BN-27). */
+  readonly source: SourceCardSource;
 }
 
 /** Both sourced lists the handoff renders. */
