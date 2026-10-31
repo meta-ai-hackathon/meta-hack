@@ -17,8 +17,10 @@ and reusable components so every later flow inherits it.
 | Motion | `src/app/globals.css` | `prefers-reduced-motion` collapses animations and transitions. |
 | Contrast | theme tokens in `src/app/globals.css` | After the visual-polish pass (VAL-DEMOEXP-008) the default pairing is ink `#0a0a0a` on paper `#f8f4ec` — 18.05:1, at or above the pre-polish 17.93:1 (`#171717` on `#ffffff`); dark mode keeps the pre-polish `#ededed` on `#0a0a0a` (16.91:1). Muted text measures 9.42:1 light (pre-polish muted: 7.81:1). Every token pair is gated by `src/components/contrast-tokens.test.ts`. |
 
-The home page (`src/components/a11y-demo.tsx`) demonstrates the field and
-status region until real flows replace the demo.
+The field and status region were once demonstrated on the home page by a
+demo component; the real flows have replaced that demo (the home surface is
+now the round-2 journey shell), and the components' own unit suites — listed
+below — are the gate for their attribute wiring.
 
 ## PR checklist — attest in the PR body
 
@@ -36,7 +38,7 @@ Vitest (static SSR assertions, no extra a11y dependency):
 - `src/components/app-shell.test.tsx` — skip link first, targets the single main landmark
 - `src/components/field.test.tsx` — `for`/`id` association, help text, error announcement wiring
 - `src/components/status-region.test.tsx` — polite atomic live region, stays mounted
-- `src/app/page.test.tsx` — one `h1`, hierarchical outline, live region and labeled field present
+- `src/app/page.test.tsx` — one `h1`, hierarchical outline, journey-shell structure (the round-2 entry shell); the live-region and labeled-field attributes are pinned by the component suites above
 
 `vitest-axe` was considered and skipped: it would add a dependency for
 coverage that overlaps these static checks, so the behavioral checks below
@@ -48,5 +50,5 @@ server with `pnpm dev --port 3100` — this mission's dev port. Plain
 
 1. Keyboard tab-through: screenshot the focused skip link, then the next stops.
 2. Heading outline extraction per page (DOM query over `h1`-`h6`).
-3. Accessibility-tree snapshot: textbox named by its label; press the demo
-   button and observe the live region's announced update.
+3. Accessibility-tree snapshot: labels associated with their controls; live
+   regions announced via the real flows (conversation status notices).
