@@ -1,13 +1,15 @@
 import fc from "fast-check";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TARGET_SAMPLE_RATE } from "../../../lib/audio/capture";
+import { findBannedClaims } from "../../../lib/honesty";
 import {
   CONSENT_HEADER,
   CONSENT_STORAGE_KEY,
   saveConsentReceipt,
   type ConsentReceipt,
 } from "../../../lib/consent";
-import { sendVoiceTurn } from "./conversation-chat";
+import { VoiceInterimState, sendVoiceTurn } from "./conversation-chat";
 
 // Voice-fetch wiring tests (Mission v2.1 M5, VAL-CONSENT-006): the browser
 // voice client must attach the consent header to the audio POST to
@@ -158,5 +160,39 @@ describe("the voice fetch carries the consent receipt (VAL-CONSENT-006)", () => 
     const request = await captureVoiceSend();
     const headers = new Headers(request.init.headers);
     expect(headers.get(CONSENT_HEADER)).toBeNull();
+  });
+});
+
+// The interim perceived-latency states (VAL-VLAT-001): the component that
+// carries the "listening" / "transcribing" statuses renders them with a
+// probeable data attribute, honest copy, and nothing at all when no turn
+// is in flight. The wiring (stopRecording sets the phase synchronously
+// with the stop click) is what puts the render inside the 500 ms budget.
+describe("the interim voice states (VAL-VLAT-001)", () => {
+  it("renders the listening state with its phase attribute", () => {
+    const html = renderToStaticMarkup(
+      VoiceInterimState({ phase: "listening" }),
+    );
+    expect(html).toContain('data-voice-interim-state="listening"');
+    expect(html).toContain("Listening");
+  });
+
+  it("renders the transcribing state with its phase attribute", () => {
+    const html = renderToStaticMarkup(
+      VoiceInterimState({ phase: "transcribing" }),
+    );
+    expect(html).toContain('data-voice-interim-state="transcribing"');
+    expect(html).toContain("Transcribing");
+  });
+
+  it("renders nothing when no turn is in flight", () => {
+    expect(renderToStaticMarkup(VoiceInterimState({ phase: null }))).toBe("");
+  });
+
+  it("keeps both interim texts banned-claim clean", () => {
+    for (const phase of ["listening", "transcribing"] as const) {
+      const html = renderToStaticMarkup(VoiceInterimState({ phase }));
+      expect(findBannedClaims(html)).toEqual([]);
+    }
   });
 });
