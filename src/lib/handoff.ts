@@ -122,18 +122,18 @@ const SIGN_AND_SEND: HandoffAction = {
 const FOLLOW_UP: HandoffAction = {
   kind: "follow_up",
   where: "caseworker",
-  title: "Wait to hear from your county office",
+  title: "Next, the agency reviews your application",
   detail:
     "You told us you sent it in. The steps below say how long a decision " +
-    "can take and who to contact with questions, each with its official " +
-    "source.",
+    "can take and how to ask for a review, and the help step says who to " +
+    "ask with questions. Each one shows its official source.",
   guide: "after_you_apply",
 };
 
 const DECISION_QUESTIONS: HandoffAction = {
   kind: "decision_questions",
   where: "caseworker",
-  title: "Questions about the decision? Contact your county office",
+  title: "Questions about the decision? Ask the agency",
   detail:
     "You told us a decision was made. If you have questions about it, or " +
     "think it's a mistake, the steps below say what the form says about " +
@@ -164,8 +164,8 @@ function answerRemaining(count: number): HandoffAction {
  * The one next action for the handoff (BN-23). Total over the BN-25
  * lifecycle: every status maps to exactly one action. In order, they are
  * answer what's still needed, mark prepared, download, mark handed off,
- * sign and send it yourself, then watch for the county's follow-up and
- * contact the county office about a decision.
+ * sign and send it yourself, then wait while the agency reviews it, and
+ * ask the agency about a decision.
  */
 export function nextHandoffAction(state: HandoffState): HandoffAction {
   switch (state.sessionStatus) {

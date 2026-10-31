@@ -207,6 +207,23 @@ describe("nextHandoffAction: honest copy", () => {
     );
   });
 
+  it("never restates the 2020 form's held-back process claims", () => {
+    // The same lines the KB holds back until a current official page
+    // confirms them (src/lib/nc-medicaid-kb.test.ts): follow-up timing,
+    // hearing back, the help line, the change window, the application date.
+    const HELD_BACK =
+      /\b1-2 weeks\b|\bfollow[- ]up\b|\bhear (?:back|from)\b|\b10 calendar days\b|\bhelp line\b|\bdate (?:of )?your application\b/i;
+    fc.assert(
+      fc.property(stateArb, (state) => {
+        for (const text of copyOf(nextHandoffAction(state))) {
+          expect(text).not.toMatch(HELD_BACK);
+        }
+      }),
+      { numRuns: 200 },
+    );
+    expect("Wait to hear from your county office").toMatch(HELD_BACK);
+  });
+
   it("never brings up submitting before the session is handed off", () => {
     const beforeHandoffArb = fc.record({
       sessionStatus: fc.constantFrom<SessionStatus>("draft", "prepared"),
