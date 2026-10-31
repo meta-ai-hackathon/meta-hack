@@ -911,8 +911,12 @@ describe("the prompt's stored-answer mark (VAL-NCF-003)", () => {
           // a substring of the template is a false positive, not a leak
           // (the same exclusion the redaction property makes for its
           // markers — e.g. "p" inside "[the answer they shared — private…").
+          // The pii mark is the fixed "already answered: " prefix plus that
+          // bracketed placeholder, so the prefix is a template too ("ere"
+          // inside "answered" is not a leak). Values have no colon, space
+          // or bracket, so no value can straddle the two parts.
           const templates = question.pii
-            ? ["[the answer they shared — private, never repeat it]"]
+            ? ["already answered", "[the answer they shared — private, never repeat it]"]
             : ["already answered", "already answered (not verified)"];
           const needles = [
             ...(value !== undefined ? [typeof value === "string" ? value : JSON.stringify(value)] : []),
