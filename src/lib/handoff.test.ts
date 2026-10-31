@@ -344,6 +344,20 @@ describe("handoffCompanion: the sourced steps behind the actions", () => {
     );
   });
 
+  it("keeps the follow-up's pointer true: the last signing step is the one that says who to ask", () => {
+    // The follow-up callout sends people to "the last of the signing
+    // steps" for questions, so a step added after the help step would
+    // leave it pointing at the wrong one.
+    const { detail } = nextHandoffAction({
+      sessionStatus: "user_reported_submitted",
+      downloaded: false,
+      stillNeededCount: 0,
+    });
+    expect(detail).toContain("the last of the signing steps says who to ask");
+    const steps = pilotCompanion?.submissionSteps ?? [];
+    expect(steps[steps.length - 1]?.id).toBe("get_help");
+  });
+
   it("shows what to expect only once the form is handed off", () => {
     for (const status of SESSION_STATUSES) {
       expect(showsAfterYouApply(status), status).toBe(
