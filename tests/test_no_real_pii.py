@@ -7,7 +7,11 @@ and the address jamie.watts@example.com (scripts/fixtures/walkthrough/).
 This scan keeps the repo that way while a real pilot is under way. It reads
 every git-tracked text file and fails on
 
-- an SSN shape: three, two and four digits joined by dashes, or by spaces;
+- an SSN shape: three, two and four digits joined by dashes, or by spaces.
+  The SSA never issues area 000 or 666 or group 00, and no ITIN uses them,
+  so a number with one of those can't be anyone's and the scan leaves it
+  alone (the fill-route tests use one as a placeholder). Area 900 to 999
+  still counts, since ITINs use it;
 - a NANP phone number outside the fictional 555-0100 to 555-0199 range,
   written with its area code (dashes, dots, spaces or parentheses, with or
   without a leading 1 or +1, or +1 and ten digits) or as a seven-digit
@@ -189,6 +193,13 @@ def fictional_phone(value: str) -> bool:
     return digits[-7:-4] == "555" and 100 <= int(digits[-4:]) <= 199
 
 
+def issuable_ssn(value: str) -> bool:
+    """Whether an SSN shape could be someone's number: never area 000 or 666
+    or group 00, which the SSA doesn't issue and no ITIN uses."""
+    digits = re.sub(r"\D", "", value)
+    return digits[:3] not in ("000", "666") and digits[3:5] != "00"
+
+
 def fictional_email(domain: str) -> bool:
     """Whether an email's domain is one that never delivers to a person."""
     domain = domain.lower()
@@ -206,8 +217,8 @@ def ssh_remote(text: str, match: re.Match[str]) -> bool:
 def find_pii(text: str) -> list[tuple[int, str, str]]:
     """Each real-looking detail in text, in order: where it starts, its kind and its value."""
     text = _ESCAPE.sub("  ", text)
-    found = {(match.start(), "ssn", match.group()) for match in SSN.finditer(text)}
-    found |= {(match.start(1), "ssn", match.group(1)) for match in NAMED_SSN.finditer(text)}
+    found = {(match.start(), "ssn", match.group()) for match in SSN.finditer(text) if issuable_ssn(match.group())}
+    found |= {(match.start(1), "ssn", match.group(1)) for match in NAMED_SSN.finditer(text) if issuable_ssn(match.group(1))}
     for pattern, group in ((PHONE, 0), (NAMED_PHONE, 1)):
         found |= {(match.start(group), "phone number", match.group(group)) for match in pattern.finditer(text) if not fictional_phone(match.group(group))}
     found |= {
@@ -343,13 +354,21 @@ FILLER = st.text(alphabet=string.ascii_letters + " ", max_size=20)
 MARKS = st.sampled_from([" ", "\n", "\r\n", "\t", "(", ")", '"', "'", "`", ": ", ", ", "=", "<", ">", "[", "]", "\\n", "\\t"])
 SURROUNDINGS = st.tuples(FILLER, MARKS, MARKS, FILLER)
 
-SSNS = st.builds(
-    lambda area, group, serial, mark: f"{area:03d}{mark}{group:02d}{mark}{serial:04d}",
-    st.integers(0, 999),
-    st.integers(0, 99),
-    st.integers(0, 9999),
-    st.sampled_from(["-", " "]),
+# SSNs as (area, group, serial): any the SSA could issue (area 900 to 999
+# included, which ITINs use), and the shapes it never issues.
+ISSUABLE_SSN_PARTS = st.tuples(st.integers(1, 998).map(lambda area: area + (area >= 666)), st.integers(1, 99), st.integers(0, 9999))
+NEVER_ISSUED_SSN_PARTS = st.tuples(st.sampled_from([0, 666]), st.integers(0, 99), st.integers(0, 9999)) | st.tuples(
+    st.integers(0, 999), st.just(0), st.integers(0, 9999)
 )
+SSN_MARKS = st.sampled_from(["-", " "])
+
+
+def ssn(parts: tuple[int, int, int], mark: str) -> str:
+    area, group, serial = parts
+    return f"{area:03d}{mark}{group:02d}{mark}{serial:04d}"
+
+
+SSNS = st.builds(ssn, ISSUABLE_SSN_PARTS, SSN_MARKS)
 # Phone numbers as (area code, exchange, line), written in every form the scan reads.
 AREA_CODES = st.integers(200, 999)
 EXCHANGES_BUT_555 = st.integers(200, 998).map(lambda exchange: exchange + (exchange >= 555))
@@ -428,7 +447,8 @@ PHONE_WORDS = st.sampled_from(
     ]
 )
 NAMED_GAPS = st.sampled_from(["", " ", ": ", "=", '": "', "': '", '":"', " = '", ", ", " is ", " number is ", " (home) "])
-BARE_SSNS = st.integers(0, 999_999_999).map("{:09d}".format)
+BARE_SSNS = st.builds(ssn, ISSUABLE_SSN_PARTS, st.just(""))
+NINE_DIGITS = st.integers(0, 999_999_999).map("{:09d}".format)
 BARE_PREFIXES = st.sampled_from(["", "1", "+1"])
 # Words that name no such value, some of them only looking like one, and
 # filler that can't spell one.
@@ -510,8 +530,18 @@ def saved(text: str, encoding: str) -> bytes:
 class FinderProperties(unittest.TestCase):
     @PBT
     @given(SSNS, SURROUNDINGS)
-    def test_an_ssn_shape_is_always_found(self, ssn: str, around: tuple[str, str, str, str]) -> None:
-        self.assertEqual([(kind, value) for _offset, kind, value in find_pii(surround(ssn, around))], [("ssn", ssn)])
+    def test_an_ssn_shape_that_could_be_issued_is_always_found(self, value: str, around: tuple[str, str, str, str]) -> None:
+        self.assertEqual([(kind, found) for _offset, kind, found in find_pii(surround(value, around))], [("ssn", value)])
+
+    @PBT
+    @given(NEVER_ISSUED_SSN_PARTS, SSN_MARKS, SSN_WORDS, NAMED_GAPS, SURROUNDINGS)
+    def test_an_ssn_the_ssa_never_issues_passes(
+        self, parts: tuple[int, int, int], mark: str, word: str, gap: str, around: tuple[str, str, str, str]
+    ) -> None:
+        # Written as an SSN, or kept bare after a word that names it.
+        assume(gap or not word[-1].isdigit())
+        for text in (ssn(parts, mark), word + gap + ssn(parts, "")):
+            self.assertEqual(find_pii(surround(text, around)), [])
 
     @PBT
     @given(REAL_NUMBERS, PHONE_FORMS, SURROUNDINGS)
@@ -555,7 +585,7 @@ class FinderProperties(unittest.TestCase):
         self.assertEqual(found, [] if fictional_phone(digits) else [("phone number", digits)])
 
     @PBT
-    @given(KEYLESS_FILLER, OTHER_WORDS, NAMED_GAPS, BARE_SSNS | st.builds(phone, REAL_NUMBERS, st.just("{area}{exchange}{line}")))
+    @given(KEYLESS_FILLER, OTHER_WORDS, NAMED_GAPS, NINE_DIGITS | st.builds(phone, REAL_NUMBERS, st.just("{area}{exchange}{line}")))
     def test_bare_numbers_without_such_a_word_pass(self, before: str, word: str, gap: str, digits: str) -> None:
         # Ids, counts and timestamps look like bare digits too, and so do
         # words that only contain a key word, standing on their own.
