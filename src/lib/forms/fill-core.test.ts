@@ -197,5 +197,7 @@ describe("fillLoadedPdf", () => {
       }),
       { numRuns: 40 },
     );
-  });
+    // Each run opens a real form, the official one at nearly 1 MB, so this
+    // needs far more than the default 5 seconds on a busy CI runner.
+  }, 60_000);
 });
