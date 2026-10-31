@@ -23,7 +23,8 @@ import { requestPurge, type PurgeRequestOutcome } from "./conversation/purge-sec
 // confirming step. The outcome copy follows requestPurge's four outcomes
 // exactly: it claims a deletion only when the server confirmed one. When
 // the check on load fails, the notice stays hidden: there is nothing true
-// to say.
+// to say. When Check again fails after a delete of unknown outcome, the
+// notice says it couldn't reach the app, so the press is never silent.
 
 export const SERVER_ANSWERS_COPY = {
   heading: "Answers saved on the app's server",
@@ -49,6 +50,10 @@ export const SERVER_ANSWERS_COPY = {
     "whether it went through. Check again to see where things stand.",
   checkAgain: "Check again",
   goneAfterCheck: "Nothing from this browser is saved on the app's server now.",
+  checkFailed: "We still couldn't reach the app. Try again in a moment.",
+  checkFailedAgain:
+    "We still couldn't reach the app, so we can't say whether the delete " +
+    "went through. Try again in a moment.",
 } as const;
 
 /**
@@ -150,6 +155,17 @@ export function ServerAnswersNotice() {
       setNotice({ phase: "found", count: latest });
       setMessage("");
       focusNext("delete");
+    } else {
+      // The check itself failed (offline, an error, a proxy page). Say so
+      // instead of changing nothing, and alternate the wording so a repeat
+      // press is announced too: StatusRegion announces only a changed
+      // message. Focus stays on Check again for the next try.
+      setMessage((previous) =>
+        previous === SERVER_ANSWERS_COPY.checkFailed
+          ? SERVER_ANSWERS_COPY.checkFailedAgain
+          : SERVER_ANSWERS_COPY.checkFailed,
+      );
+      focusNext("check-again");
     }
   }
 

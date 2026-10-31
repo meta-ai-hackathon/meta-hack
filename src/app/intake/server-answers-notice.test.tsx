@@ -195,6 +195,52 @@ describe("the server answers notice", () => {
     await page.unmount();
   });
 
+  it("after an unknown outcome, a Check again that can't reach the app says so on every press and keeps focus there", async () => {
+    // How the state check can fail: offline, an error status, a proxy page.
+    const failedCheck = fc.constantFrom<() => Promise<Response>>(
+      () => Promise.reject(new Error("offline")),
+      () => Promise.resolve(new Response("", { status: 503 })),
+      () => Promise.resolve(new Response("oops", { status: 500 })),
+      () => Promise.resolve(new Response("<html>proxy</html>", { status: 200 })),
+    );
+    await fc.assert(
+      fc.asyncProperty(fc.array(failedCheck, { minLength: 1, maxLength: 4 }), async (failures) => {
+        // The check on load finds the answers, every press meets a failed
+        // check, and then the app is back and the delete turns out to have gone through.
+        const checks = [() => Promise.resolve(stateResponse(2)), ...failures, () => Promise.resolve(stateResponse(0))];
+        stubFetch({
+          state: () => checks.shift()!(),
+          purge: () => Promise.resolve(new Response("", { status: 502 })),
+        });
+        const page = await render();
+        await page.click(SERVER_ANSWERS_COPY.deleteButton);
+        await page.click(SERVER_ANSWERS_COPY.confirmYes);
+        expect(page.status()).toBe(SERVER_ANSWERS_COPY.unknown);
+        for (let press = 0; press < failures.length; press += 1) {
+          const before = page.status();
+          // A mouse press can leave focus off the button (Safari doesn't focus a clicked button).
+          (document.activeElement as HTMLElement | null)?.blur();
+          await page.click(SERVER_ANSWERS_COPY.checkAgain);
+          // The message changes on every failed press, so each one is announced.
+          expect([SERVER_ANSWERS_COPY.checkFailed, SERVER_ANSWERS_COPY.checkFailedAgain]).toContain(page.status());
+          expect(page.status()).not.toBe(before);
+          expect(document.activeElement?.textContent).toBe(SERVER_ANSWERS_COPY.checkAgain);
+          // Nothing is known to be removed: the count stays and no delete is offered yet.
+          expect(page.container.textContent).toContain(SERVER_ANSWERS_COPY.body(2));
+          expect(page.button(SERVER_ANSWERS_COPY.deleteButton)).toBeUndefined();
+        }
+        // A failed check leaves the next one working.
+        await page.click(SERVER_ANSWERS_COPY.checkAgain);
+        expect(page.status()).toBe(SERVER_ANSWERS_COPY.goneAfterCheck);
+        expectNoAnswerSent();
+        await page.unmount();
+        page.container.remove();
+        vi.unstubAllGlobals();
+      }),
+      { numRuns: 12 },
+    );
+  });
+
   it("after an unknown outcome, Check again offers the delete again when the answers are still there", async () => {
     stubFetch({
       state: () => Promise.resolve(stateResponse(2)),
