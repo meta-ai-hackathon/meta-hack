@@ -15,6 +15,7 @@ import {
 } from "../../lib/intake/device-intake";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { StatusRegion } from "../../components/status-region";
+import { DeviceResults } from "./device-results";
 import { QuestionView } from "./question-view";
 
 // Intake wizard (BN-09 / HACK-37): one question per screen, in spec order,
@@ -26,7 +27,9 @@ import { QuestionView } from "./question-view";
 // - "device" (the step-by-step page): answers never leave the browser. The
 //   flow engine runs here over the sealed on-device store, and the person
 //   can delete everything from the device. Copy follows what the browser
-//   actually managed to keep.
+//   actually managed to keep. Once the questions are done, the match, the
+//   form review, and the filled form to download are computed here from the
+//   same answers (HACK-115, device-results.tsx).
 // - "server" (the default, for the consent-declined conversation page,
 //   whose match and review sections still read the server session until
 //   HACK-95 moves them on-device): answers go to the /api/intake routes.
@@ -782,6 +785,17 @@ export function IntakeWizard(props: {
               ))}
             </ul>
           </section>
+        ) : null}
+        {shownDevice ? (
+          <DeviceResults
+            answers={shownDevice.answers}
+            onAnswer={(questionId) => {
+              const index = state.questions.findIndex((question) => question.id === questionId);
+              if (index >= 0) {
+                goTo(index, state);
+              }
+            }}
+          />
         ) : null}
         {saveForLaterSection}
       </div>
