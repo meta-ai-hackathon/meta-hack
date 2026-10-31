@@ -295,6 +295,23 @@ describe("pii-echo detector on any client payload (v2, VAL-WALK2-002)", () => {
   it("ignores blank and non-string private values", () => {
     expect(findPiiEcho({ note: "x  jamie.watts@example.com  x" }, ["", "   ", 42, null])).toEqual([]);
   });
+
+  it("fails closed past the depth bound — unscanned nesting is a violation, never silence", () => {
+    // Build a payload nested past the default bound; the detector must
+    // report the unscanned subtree instead of passing it as clean.
+    let deep = { value: "potentially private" };
+    for (let i = 0; i < 14; i += 1) {
+      deep = { nested: deep };
+    }
+    const echoes = findPiiEcho(deep, ["potentially private"]);
+    // The walk enters depth 12 and reports the subtree it could not
+    // descend into at depth 13.
+    expect(echoes).toEqual([
+      { path: Array(13).fill("nested").join("."), reason: "payload_nesting_past_scan_bound" },
+    ]);
+    // And a shallow payload still scans clean through the same code path.
+    expect(findPiiEcho({ a: { b: "plain" } }, ["potentially private"])).toEqual([]);
+  });
 });
 
 describe("redaction verification (v2, VAL-WALK2-002)", () => {

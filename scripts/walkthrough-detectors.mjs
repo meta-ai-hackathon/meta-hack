@@ -175,7 +175,16 @@ export function findPiiEcho(payload, privateValues, maxDepth = 12) {
       }
       return;
     }
-    if (node === null || typeof node !== "object" || depth > maxDepth) {
+    if (node === null || typeof node !== "object") {
+      return;
+    }
+    // Fail closed: a payload nested past the walk bound is not "clean" —
+    // it is unscanned, which the journey must treat as a violation.
+    if (depth > maxDepth) {
+      echoes.push({
+        path: path === "" ? "(root)" : path,
+        reason: "payload_nesting_past_scan_bound",
+      });
       return;
     }
     if (Array.isArray(node)) {
