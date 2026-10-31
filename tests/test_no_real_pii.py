@@ -7,7 +7,9 @@ and the address jamie.watts@example.com (scripts/fixtures/walkthrough/).
 This scan keeps the repo that way while a real pilot is under way. It reads
 every git-tracked text file and fails on
 
-- an SSN shape: three, two and four digits joined by dashes, or by spaces.
+- an SSN shape: three, two and four digits joined by dashes, by spaces,
+  or by dots when no other dotted number runs on from it, as one would in
+  a version.
   The SSA never issues area 000 or 666 or group 00, and no ITIN uses them,
   so a number with one of those can't be anyone's and the scan leaves it
   alone (the fill-route tests use one as a placeholder). Area 900 to 999
@@ -127,7 +129,7 @@ TEXT_BYTE_ORDER_MARKS: Final = (
     (codecs.BOM_UTF16_BE, "utf-16"),
 )
 
-SSN: Final = re.compile(r"(?<![\w-])\d{3}([- ])\d{2}\1\d{4}(?![\w-])")
+SSN: Final = re.compile(r"(?<![\w-])\d{3}([- ])\d{2}\1\d{4}(?![\w-])|(?<![\w.-])\d{3}\.\d{2}\.\d{4}(?![\w-]|\.\d)")
 # A NANP area code or exchange: never 0 or 1 first.
 _NXX = r"[2-9]\d{2}"
 PHONE: Final = re.compile(
@@ -367,7 +369,7 @@ ISSUABLE_SSN_PARTS = st.tuples(st.integers(1, 998).map(lambda area: area + (area
 NEVER_ISSUED_SSN_PARTS = st.tuples(st.sampled_from([0, 666]), st.integers(0, 99), st.integers(0, 9999)) | st.tuples(
     st.integers(0, 999), st.just(0), st.integers(0, 9999)
 )
-SSN_MARKS = st.sampled_from(["-", " "])
+SSN_MARKS = st.sampled_from(["-", " ", "."])
 
 
 def ssn(parts: tuple[int, int, int], mark: str) -> str:
@@ -562,6 +564,13 @@ class FinderProperties(unittest.TestCase):
         assume(gap or not word[-1].isdigit())
         for text in (ssn(parts, mark), word + gap + ssn(parts, "")):
             self.assertEqual(find_pii(surround(text, around)), [])
+
+    @PBT
+    @given(ISSUABLE_SSN_PARTS, st.integers(0, 9999), st.booleans(), SURROUNDINGS)
+    def test_a_longer_dotted_number_is_no_ssn(self, parts: tuple[int, int, int], other: int, first: bool, around: tuple[str, str, str, str]) -> None:
+        # A version or an address, with another dotted number before or after.
+        value = ssn(parts, ".")
+        self.assertEqual(find_pii(surround(f"{other}.{value}" if first else f"{value}.{other}", around)), [])
 
     @PBT
     @given(REAL_NUMBERS, PHONE_FORMS, SURROUNDINGS)
