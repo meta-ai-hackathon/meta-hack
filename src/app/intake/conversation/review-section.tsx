@@ -218,7 +218,8 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
       URL.revokeObjectURL(url);
       setDownloaded(true);
       announce(
-        "Your application downloaded. Nothing was saved on our side.",
+        "Your application downloaded. The filled form itself wasn't " +
+          "saved on our side.",
       );
     } catch {
       announce("The download didn't go through. Try again in a moment.");
