@@ -183,10 +183,14 @@ fact on the spot or repeat the new wording from memory. After the demo, a person
 the page again. If that can't happen before the next session, a PR that sets the entry's
 `status` to `stale` with a `status_reason` (see `kb/README.md`) takes the program card off
 the match section, since stale entries are never shown. The form and the review keep
-working.
+working. That PR is more than the one field. Tests expect the pilot entry to be active
+(in `src/lib/nc-medicaid-kb.test.ts`, `src/lib/match.test.ts`, `src/lib/conversation.test.ts`,
+`src/app/api/match/route.test.ts` and `tests/test_kb_schema.py`), so CI fails until the
+same PR updates them and says why in its body, as AGENTS.md asks.
 
 Checked by listing every `fetch` in `src` and reading the filter in `src/lib/match.ts`
-that shows only active entries.
+that shows only active entries. Marking the entry stale on a scratch copy of `main` at
+7c2239d failed 9 Vitest tests in those four files and 1 pytest test.
 
 ## A wrong answer
 
