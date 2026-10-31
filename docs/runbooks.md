@@ -243,8 +243,11 @@ both are set there, so check them in the Vercel project.
 No route or screen sends a fax yet. `transmitPacket` and `assemblePacket` are only called
 from their tests, and the fax consent path stays switched off (`termsVerified: false` in
 `src/lib/consent.ts`). The review offers the filled PDF and the official links, and the
-person submits the form themselves. If the demo films a fax, the person sends it through
-their own channel, and rehearsal faxes go to a test destination only (AGENTS.md, Legal).
+person submits the form themselves. The "Send my application" button on the results only
+scrolls to the typed-signature step ("Type your full name to sign"), or to "Getting it
+done" when there isn't one, and sends nothing. If the demo films a fax, the person sends
+it through their own channel, and rehearsal faxes go to a test destination only
+(AGENTS.md, Legal).
 
 ## Resetting between rehearsals
 
