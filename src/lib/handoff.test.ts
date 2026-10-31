@@ -45,6 +45,13 @@ const kindIndex = (action: HandoffAction) => HANDOFF_ACTION_KINDS.indexOf(action
 const APP_SENT_CLAIM =
   /\b(?:we|the app|this app)\s+(?:have\s+|has\s+|already\s+)*(?:signed|sent|submitted|filed|faxed|mailed)\b|\b(?:was|were|has been|have been)\s+(?:signed|sent|submitted|filed|faxed|mailed)\b|\b(?:signed|sent|submitted|filed|faxed|mailed)\s+(?:it|this|your application)\s+for you\b/i;
 
+/**
+ * Copy that tells the person to sign as if the form were still unsigned.
+ * The review's signature step lets them sign by typing their name before
+ * the download, so the form they download may already carry it.
+ */
+const SIGN_AS_IF_UNSIGNED = /\bsign (?:it|and|the form)\b|\bbefore you sign\b/i;
+
 function copyOf(action: HandoffAction): string[] {
   return [action.title, action.detail, HANDOFF_WHERE_LABELS[action.where]];
 }
@@ -263,8 +270,49 @@ describe("nextHandoffAction: honest copy", () => {
     // anything for the person, and the handoff section adds that nothing
     // on the page sends the form. Both stay true only while the consented
     // fax path is off (HACK-75, HACK-89). Verifying it is when a fax step
-    // joins the action list, and this copy has to change with it.
+    // joins the action list, and this copy has to change with it. The
+    // results stage's "Send my application" button only moves the page to
+    // the signature step and the handoff, and journey-stage.test.tsx checks
+    // that its click makes no request.
     expect(FAX_PATH_UNVERIFIED.termsVerified).toBe(false);
+  });
+
+  it("never tells the person to sign a form that may already carry their typed signature", () => {
+    // Someone who typed their name in the review's signature step has
+    // signed the form they download, and someone who left it blank signs
+    // the printed form by hand. "Make sure it's signed and dated" is true
+    // for both, and every action that points at the signing steps says it.
+    fc.assert(
+      fc.property(stateArb, (state) => {
+        const action = nextHandoffAction(state);
+        for (const text of copyOf(action)) {
+          expect(text).not.toMatch(SIGN_AS_IF_UNSIGNED);
+        }
+        if (action.guide === "submission_steps") {
+          expect(action.detail).toContain("signed and dated");
+        }
+      }),
+      { numRuns: 300 },
+    );
+  });
+
+  it("bites: the signing check flags copy that assumes the form is unsigned", () => {
+    for (const text of [
+      "Download the filled PDF, so you have the form to sign and send in yourself.",
+      "Mark it handed off, then sign it and send it in yourself.",
+      "Sign it and send it in yourself",
+      "Follow the steps below to sign and date the form.",
+      "Anything you leave blank you can write in by hand before you sign.",
+    ]) {
+      expect(text).toMatch(SIGN_AS_IF_UNSIGNED);
+    }
+    for (const text of [
+      "Make sure it's signed and dated, then send it in yourself",
+      "The app doesn't sign, send, or submit anything for you.",
+      "For other questions, the last of the signing steps says who to ask.",
+    ]) {
+      expect(text).not.toMatch(SIGN_AS_IF_UNSIGNED);
+    }
   });
 
   it("tells the person, at the handoff, that they sign and send it themselves", () => {

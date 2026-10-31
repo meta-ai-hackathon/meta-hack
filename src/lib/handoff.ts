@@ -24,6 +24,11 @@ import {
 // Rules built in (AGENTS.md Legal, BN-25):
 // - The person signs the form and sends it in themselves. No action signs,
 //   sends, submits, or faxes anything, and no copy says the app did.
+// - The review's signature step lets the person sign by typing their name
+//   before the download, so the form they download may already carry their
+//   signature. Copy that brings up signing says to make sure the form is
+//   signed and dated, which holds whether they typed their name or will
+//   sign the printed form by hand.
 // - An action only ever leads to the next BN-25 state, so a user-reported
 //   state is never offered before the session is handed off.
 // - No copy states or implies an eligibility outcome.
@@ -92,9 +97,9 @@ const DOWNLOAD: HandoffAction = {
   // The download flag only covers this view, so a person who downloaded
   // before a reload sees this step again and is told why.
   detail:
-    "Download the filled PDF, so you have the form to sign and send in " +
-    "yourself. If you downloaded it before, download it again here, and " +
-    "then you can mark it handed off.",
+    "Download the filled PDF, so you have the form to send in yourself. " +
+    "If you downloaded it before, download it again here, and then you " +
+    "can mark it handed off.",
 };
 
 const MARK_HANDED_OFF: HandoffAction = {
@@ -102,8 +107,9 @@ const MARK_HANDED_OFF: HandoffAction = {
   where: "in_app",
   title: "Mark it handed off",
   detail:
-    "You have your filled application. Mark it handed off, then sign it " +
-    "and send it in yourself. The steps below show how.",
+    "You have your filled application. Mark it handed off, then make sure " +
+    "it's signed and dated and send it in yourself. The steps below show " +
+    "how.",
   leadsTo: "handed_off",
   guide: "submission_steps",
 };
@@ -111,11 +117,11 @@ const MARK_HANDED_OFF: HandoffAction = {
 const SIGN_AND_SEND: HandoffAction = {
   kind: "sign_and_send",
   where: "official_channel",
-  title: "Sign it and send it in yourself",
+  title: "Make sure it's signed and dated, then send it in yourself",
   detail:
-    "Follow the steps below to sign and date the form and send it in " +
-    "through an official channel, or to apply online instead. Each step " +
-    "shows its official source. The app doesn't sign, send, or submit " +
+    "Once the form is signed and dated, send it in through an official " +
+    "channel, or apply online instead. The steps below show how, and each " +
+    "one shows its official source. The app doesn't sign, send, or submit " +
     "anything for you. When you've sent it, tell us you submitted it " +
     "yourself.",
   leadsTo: "user_reported_submitted",
@@ -162,7 +168,7 @@ function answerRemaining(count: number): HandoffAction {
     detail:
       `The form still lists ${items} as needed, shown in the list above. ` +
       "Answer what you can, and anything you leave blank you can write in " +
-      "by hand before you sign. When it looks right, mark your package " +
+      "by hand on the printed form. When it looks right, mark your package " +
       "prepared.",
   };
 }
