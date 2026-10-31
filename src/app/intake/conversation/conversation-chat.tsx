@@ -1204,6 +1204,27 @@ export function ConversationChat() {
               {RESULTS_WRAP_UP}
             </p>
           </div>
+          {/* The honest send control (VAL-VJS2-002, HACK-116 decision 2):
+          "Send my application" ROUTES — to the signature step, the filled-
+          form download, and the how/where-to-submit guidance below. Its
+          click never performs or simulates a submission: no session change,
+          no network call, no spinner-success theater, no receipt. The only
+          confirmation that exists is the person marking the journey
+          submitted themselves, after the fact. */}
+          <button
+            type="button"
+            data-action="send-application"
+            onClick={() => {
+              const target =
+                document.querySelector("[data-signature-step]") ??
+                document.querySelector("[data-handoff]");
+              target?.scrollIntoView();
+              document.getElementById("signature-input")?.focus();
+            }}
+            className="self-start rounded-full bg-teal-deep px-8 py-3 text-base font-semibold text-teal-contrast hover:bg-teal"
+          >
+            Send my application
+          </button>
           {/* The staggered rules-check + fill reveal (VAL-VJS2-001): the
           same real sections, paced in one after the other. Reduced-motion
           users see them immediately (the stagger is CSS, defined only under

@@ -82,6 +82,15 @@ export const REVIEW_UNAVAILABLE_NOTICE =
   "The application review is unavailable right now. Your answers are " +
   "safe; try again after your next message.";
 
+/**
+ * The DHB-5200's signature field (AcroForm discovery, registry entry
+ * v1.1.0): the one field the app can never fill from a store. When the
+ * review payload carries it, it renders as the distinct typed-signature
+ * step below — the person types their full name, and that fresh value is
+ * the ONLY source (it rides the download request, in memory, once).
+ */
+export const SIGNATURE_FIELD_NAME = "Signature";
+
 export function ReviewSection({ refreshKey, stagger = false }: { refreshKey: number; stagger?: boolean }) {
   const [data, setData] = useState<ReviewDataView | null>(null);
   const [failed, setFailed] = useState(false);
@@ -306,7 +315,56 @@ export function ReviewSectionContent({
               {field.state === "prefilled" && field.value !== undefined ? (
                 <span data-field-value={field.fieldName}>{field.value}</span>
               ) : null}
-              {field.state === "asked" && field.specQuestionId === null ? (
+              {field.state === "asked" &&
+              field.specQuestionId === null &&
+              field.fieldName === SIGNATURE_FIELD_NAME ? (
+                // The distinct typed-signature step (VAL-VJS2-002, HACK-116
+                // decision 3): the person types their full legal name — the
+                // same act as signing by hand, in e-signature form. The
+                // value rides THIS download's request and nothing else; the
+                // app never signs and never pre-fills this field.
+                <span
+                  data-signature-step
+                  className="flex flex-col gap-1"
+                >
+                  <label
+                    htmlFor="signature-input"
+                    className="font-medium"
+                  >
+                    Type your full name to sign
+                  </label>
+                  <span id="signature-help" className="text-sm text-muted">
+                    Typing your full name signs this application, like an
+                    e-signature. The app never signs for you, and your
+                    signature is never filled in from anything you told us
+                    before. Leave it blank to sign the printed form by hand.
+                  </span>
+                  <input
+                    id="signature-input"
+                    type="text"
+                    aria-describedby="signature-help"
+                    autoComplete="name"
+                    value={drafts[SIGNATURE_FIELD_NAME] ?? ""}
+                    onChange={(event) =>
+                      setDrafts((previous) => ({
+                        ...previous,
+                        [SIGNATURE_FIELD_NAME]: event.target.value,
+                      }))
+                    }
+                    className="rounded-lg border border-surface-border bg-surface px-2 py-1"
+                  />
+                  <span
+                    data-draft-note={field.fieldName}
+                    className="text-xs text-muted"
+                  >
+                    Used for this download only — nothing is stored on our
+                    side.
+                  </span>
+                </span>
+              ) : null}
+              {field.state === "asked" &&
+              field.specQuestionId === null &&
+              field.fieldName !== SIGNATURE_FIELD_NAME ? (
                 <span className="flex flex-col gap-1">
                   <label
                     className="sr-only"
@@ -375,6 +433,14 @@ export function ReviewSectionContent({
         </h2>
         <p className="text-sm text-muted">
           Where you are: <span data-session-status={sessionStatus}>{SESSION_STATUS_COPY[sessionStatus] ?? sessionStatus}</span>
+        </p>
+        {/* The destination line (adjudicated spec Step 4, ADOPT): where the
+        person submits the form themselves — the publicly published
+        destination, carried by the pilot seam. The app never submits. */}
+        <p data-destination-line className="text-sm font-medium">
+          Where it goes: {PILOT_CONFIG.countyName} DSS —{" "}
+          {PILOT_CONFIG.programName}. You submit it yourself; the app never
+          submits for you.
         </p>
         <ol className="flex flex-col gap-2 pl-5" data-handoff-steps>
           {data.steps.map((step, index) => (

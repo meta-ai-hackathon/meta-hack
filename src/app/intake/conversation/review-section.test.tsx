@@ -33,22 +33,25 @@ function decodeEntities(html: string): string {
 
 const ENTRY = getFormRegistryEntry("sample-application-form");
 
-function reviewData(overrides?: Partial<Parameters<typeof buildFormFlow>[1]>) {
+function reviewData(
+  formEntry: typeof ENTRY = ENTRY,
+  overrides?: Partial<Parameters<typeof buildFormFlow>[1]>,
+) {
   const answers = {
     household_size: { status: "known" as const, value: 3 },
     date_of_birth: { status: "known" as const, value: "1990-01-01" },
     housing_status: { status: "known" as const, value: "shelter" },
     ...(overrides ?? {}),
   };
-  const view = buildFormFlow(ENTRY, answers);
+  const view = buildFormFlow(formEntry, answers);
   return {
     hasSession: true,
     form: {
-      id: ENTRY.id,
-      title: ENTRY.title,
-      version: ENTRY.version,
-      sourceUrl: ENTRY.source.url,
-      retrievedAt: ENTRY.source.retrievedAt,
+      id: formEntry.id,
+      title: formEntry.title,
+      version: formEntry.version,
+      sourceUrl: formEntry.source.url,
+      retrievedAt: formEntry.source.retrievedAt,
     },
     fields: view.fields,
     toResolve: view.toResolve,
@@ -95,7 +98,7 @@ describe("ReviewSectionContent structure", () => {
     const html = decodeEntities(
       renderToStaticMarkup(
         <ReviewSectionContent
-          data={reviewData({
+          data={reviewData(ENTRY, {
             date_of_birth: { status: "unverified", value: "1990-01-01" },
           })}
         />,
@@ -132,6 +135,66 @@ describe("ReviewSectionContent structure", () => {
     const note = html.match(/data-real-form-note[^>]*>([^<]*)</)?.[1] ?? "";
     expect(note).not.toBe("");
     expect(findBannedClaims(note)).toEqual([]);
+  });
+
+  it("renders the distinct typed-signature step for the signature field (VAL-VJS2-002)", () => {
+    // The REAL form's payload: the DHB-5200's Signature field is unmapped
+    // and asked — its rendering is the distinct signing step, not the
+    // generic draft input.
+    const dhb = getFormRegistryEntry("dhb-5200");
+    const view = buildFormFlow(dhb, {
+      date_of_birth: { status: "known" as const, value: "1990-01-01" },
+    });
+    const html = decodeEntities(
+      renderToStaticMarkup(
+        <ReviewSectionContent
+          data={{
+            hasSession: true,
+            form: {
+              id: dhb.id,
+              title: dhb.title,
+              version: dhb.version,
+              sourceUrl: dhb.source.url,
+              retrievedAt: dhb.source.retrievedAt,
+            },
+            fields: view.fields,
+            toResolve: view.toResolve,
+            counts: view.counts,
+            sessionStatus: "draft",
+            portalLinks: [],
+            steps: [],
+          }}
+        />,
+      ),
+    );
+    // The distinct step: a visible label, the plain-language e-signature
+    // explanation, and the never-auto-signs promise.
+    expect(html).toContain("data-signature-step");
+    expect(html).toContain("Type your full name to sign");
+    expect(html).toContain("like an e-signature");
+    expect(html).toContain("The app never signs for you");
+    expect(html).toContain("Leave it blank to sign the printed form by hand");
+    // Properly labeled control (visible label ↔ input association).
+    expect(html).toContain('for="signature-input"');
+    expect(html).toContain('id="signature-input"');
+    // The generic sr-only draft input does NOT render for the signature.
+    expect(html).not.toContain('id="form-answer-Signature"');
+    // The signature step copy scans clean of banned claims.
+    const step = html.match(/data-signature-step[\s\S]*?<\/span>/)?.[0] ?? "";
+    expect(step).not.toBe("");
+    expect(findBannedClaims(step)).toEqual([]);
+  });
+
+  it("renders the destination line in the handoff (VAL-VJS2-002 honest send flow)", () => {
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
+    );
+    // Where the person submits it themselves — from the pilot seam, with
+    // the person-submits note attached. No fabricated receipt alongside.
+    expect(html).toContain("data-destination-line");
+    expect(html).toContain("Mecklenburg County DSS");
+    expect(html).toContain("NC Medicaid");
+    expect(html).toContain("the app never submits for you");
   });
 
   it("keeps a hierarchical heading outline", () => {
@@ -184,16 +247,21 @@ describe("ReviewSectionContent structure", () => {
           ),
         }),
         async (answers) => {
-          const view = buildFormFlow(ENTRY, answers as never);
-          const data = {
-            ...reviewData(),
-            fields: view.fields,
-            toResolve: view.toResolve,
-          };
-          const html = decodeEntities(
-            renderToStaticMarkup(<ReviewSectionContent data={data} />),
-          );
-          expect(findBannedClaims(html)).toEqual([]);
+          // Both the sample entry and the REAL form's payload (whose
+          // signature field renders the typed-signature step) must render
+          // clean across randomized answer states.
+          for (const entry of [ENTRY, getFormRegistryEntry("dhb-5200")]) {
+            const view = buildFormFlow(entry, answers as never);
+            const data = {
+              ...reviewData(entry),
+              fields: view.fields,
+              toResolve: view.toResolve,
+            };
+            const html = decodeEntities(
+              renderToStaticMarkup(<ReviewSectionContent data={data} />),
+            );
+            expect(findBannedClaims(html)).toEqual([]);
+          }
         },
       ),
       { numRuns: 25 },

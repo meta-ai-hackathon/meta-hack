@@ -179,9 +179,28 @@ const REVIEW_PAYLOAD = {
     sourceUrl: "https://example.gov/form.pdf",
     retrievedAt: "2026-10-31",
   },
-  fields: [],
-  toResolve: [],
-  counts: { prefilled: 0, asked: 0, notApplicable: 0 },
+  // The signature field rides the real review payload (unmapped, asked):
+  // its rendering is the distinct typed-signature step (VAL-VJS2-002).
+  fields: [
+    {
+      fieldName: "Signature",
+      type: "text",
+      question:
+        "Type your full legal name to sign this application — typing your name signs it, like an e-signature.",
+      state: "asked",
+      specQuestionId: null,
+      required: false,
+      piiLikely: true,
+    },
+  ],
+  toResolve: [
+    {
+      fieldName: "Signature",
+      question:
+        "Type your full legal name to sign this application — typing your name signs it, like an e-signature.",
+    },
+  ],
+  counts: { prefilled: 0, asked: 1, notApplicable: 0 },
   sessionStatus: "draft",
   portalLinks: [],
   steps: [
@@ -346,6 +365,8 @@ describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
     expect(q(container, "switch-to-typing")).not.toBeNull();
     expect(container.querySelector("textarea")).toBeNull();
     expect(q(container, "conversation-transcript")).not.toBeNull();
+    // The send control belongs to the results stage only.
+    expect(q(container, 'action="send-application"')).toBeNull();
   });
 
   it("auto-advance: the completed turn transitions to results with no clicks — spoken wrap-up, match, download, purge (VAL-VJS-003/004)", async () => {
@@ -370,6 +391,36 @@ describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
     expect(container.textContent).toContain("submit it yourself");
     // The purge surface stays reachable.
     expect(q(container, "purge-wrapper")).not.toBeNull();
+  });
+
+  it("the Send my application button routes to the honest flow — signature, download, submit guidance; never a submission (VAL-VJS2-002)", async () => {
+    stubFetch(COMPLETE_STATE);
+    const { container, act: actFn } = await renderChat();
+    await actFn(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    const send = q(container, 'action="send-application"');
+    expect(send).not.toBeNull();
+    expect(send?.textContent).toBe("Send my application");
+    // The click ROUTES and does NOTHING else. The fetch stub throws on any
+    // unexpected request, so a session PATCH or a fill POST fired by the
+    // click would fail this test — the button never performs or simulates
+    // a submission (no spinner-success theater, no receipt).
+    await actFn(async () => {
+      (send as HTMLButtonElement).click();
+    });
+    // Routing lands on the distinct signature step.
+    expect(document.activeElement?.id).toBe("signature-input");
+    expect(q(container, "signature-step")).not.toBeNull();
+    expect(container.textContent).toContain("Type your full name to sign");
+    expect(container.textContent).toContain("like an e-signature");
+    // The honest flow it routes to: the download, the destination line,
+    // the portal links, and the person-submits note.
+    expect(q(container, 'action="download"')).not.toBeNull();
+    expect(q(container, "destination-line")).not.toBeNull();
+    expect(container.textContent).toContain("Mecklenburg County DSS");
+    expect(q(container, "portal-links")).not.toBeNull();
+    expect(container.textContent).toContain("submit it yourself");
   });
 
   it("a completed session reloads straight into the results stage — no clicks, no spoken wrap-up on load (VAL-VJS-003)", async () => {
