@@ -1071,8 +1071,9 @@ class RedactionProperties(unittest.TestCase):
         # one before it, and holds none of the punctuation code is written
         # with, so no code is ever hidden from the model. A run shorter than
         # a key line is redacted only when it is a piece of a key where it
-        # stands (review.key_piece_at), and never when it is a lower-case
-        # name, which code is written in.
+        # stands (review.key_piece_at), and never, by a check that does not
+        # go through that rule, when it is a lower-case or camelCase name,
+        # maybe with digits at its end.
         previous = 0
         for start, end in review.private_key_spans(text):
             self.assertGreaterEqual(start, previous)
@@ -1085,7 +1086,7 @@ class RedactionProperties(unittest.TestCase):
             self.assertIsNone(CODE_PUNCTUATION.search(text, start, end), text[start:end])
             if is_run and len(value) - value.count("\\") < 16:
                 self.assertTrue(review.key_piece_at(text, start, end), value)
-                self.assertIsNone(re.fullmatch(r"[a-z]+", value), value)
+                self.assertIsNone(re.fullmatch(r"[a-z]+(?:[A-Z][a-z]+)*[0-9]*", value), value)
             previous = end
         out, _count = review.redact_sensitive(text)
         self.assertEqual(review.redact_sensitive(out), (out, 0))
@@ -1373,6 +1374,36 @@ class ShortKeyPieceProperties(unittest.TestCase):
         out, count = review.redact_sensitive(text)
         self.assertIn(f"echo {bare} >> build.log\necho '{whole_string}' >> build.log", out)
         self.assertEqual(count, 2)
+
+    def test_known_names_stay_and_known_key_pieces_go(self) -> None:
+        # A fixed table that does not go through the rule: names that code
+        # and copy are written with stay visible between real key markers,
+        # as bare words and as whole strings, and pieces only a key holds go.
+        def redact_between_markers(lines: list[str]) -> str:
+            text = "\n".join(
+                ["echo '-----BEGIN PRIVATE KEY-----' > key.pem", "set -e", *lines, "echo '-----END PRIVATE KEY-----' >> key.pem"]
+            )
+            return review.redact_sensitive(text)[0]
+
+        names = ["echo", "appendFileSync", "JSON", "utf8", "Approved", "ssnLast4", "vaultEntry", "2026"]
+        bare_only = ["frozen=True", "//collector"]
+        strings_only = ["POST", "text/plain"]
+        out = redact_between_markers(
+            [f"echo {name} >> build.log" for name in [*names, *bare_only]]
+            + [f"echo '{name}' >> build.log" for name in [*names, *strings_only]]
+        )
+        for name in [*names, *bare_only]:
+            self.assertIn(f"echo {name} >> build.log", out)
+        for name in [*names, *strings_only]:
+            self.assertIn(f"echo '{name}' >> build.log", out)
+        pieces = ["Ab3d==", "aB3x", "MIIEvQ", "qhkiG9w0B", "iJkL"]
+        out = redact_between_markers([f"echo {piece} >> key.pem" for piece in pieces] + [f"echo '{piece}' >> key.pem" for piece in [*pieces, "yX"]])
+        for piece in pieces:
+            self.assertNotIn(f"echo {piece} >>", out)
+        for piece in [*pieces, "yX"]:
+            self.assertNotIn(f"'{piece}'", out)
+        self.assertEqual(out.count("echo [REDACTED private key] >> key.pem"), len(pieces))
+        self.assertEqual(out.count("echo '[REDACTED private key]' >> key.pem"), len(pieces) + 2)
 
     @staticmethod
     def mixed_pieces(count: int) -> list[str]:
