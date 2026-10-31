@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // browser to keep the saved date, and some browsers, Firefox among them,
 // answer with a permission prompt. So the page says first, by the save
 // button and as its description, that the browser may ask and what saying
-// yes does. It asks only once a date is saved, at most once a visit, and
-// never when it can't save a reminder at all.
+// yes does. It asks only once a date is saved, at most once a visit (the
+// note goes once it has), and never when it can't save a reminder at all.
 
 type Handler = ((event: unknown) => void) | null;
 
@@ -176,9 +176,12 @@ describe("asking the browser to keep the saved date", () => {
     expect(device.stores.get("kv")?.has("renewal-reminder")).toBe(true);
     expect(persist).toHaveBeenCalledTimes(1);
 
-    // Changing the date and saving again on this visit doesn't ask again.
+    // Changing the date and saving again on this visit doesn't ask again,
+    // so the note that says it may is gone from the form.
     await page.click(page.button(page.copy.CHANGE_BUTTON)!);
     await page.enterDueDate("2027-05-31");
+    expect(page.text()).not.toContain(page.copy.KEEP_PROMPT_NOTE);
+    expect(page.button(page.copy.SAVE_BUTTON)!.hasAttribute("aria-describedby")).toBe(false);
     await page.click(page.button(page.copy.SAVE_BUTTON)!);
     expect(page.status()).toBe(page.copy.savedNotice("renewal_due"));
     expect(persist).toHaveBeenCalledTimes(1);

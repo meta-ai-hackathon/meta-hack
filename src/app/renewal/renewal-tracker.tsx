@@ -118,8 +118,9 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
   const [draftCalendarId, setDraftCalendarId] = useState<string | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   // Whether this visit already asked the browser to keep this site's
-  // storage: the first save asks, and no later one does (HACK-113's rule).
-  const askedToKeep = useRef(false);
+  // storage: the first save asks, no later one does, and the note that
+  // says it may ask goes away once it has (HACK-113's rule).
+  const [askedToKeep, setAskedToKeep] = useState(false);
   const ageRange = ageQuestionRange(facts.schedules);
 
   useEffect(() => {
@@ -238,8 +239,8 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
       // beforehand that the browser may ask, since Firefox shows a
       // permission prompt. The notice above still points to the calendar
       // file, which no browser clears.
-      if (!askedToKeep.current) {
-        askedToKeep.current = true;
+      if (!askedToKeep) {
+        setAskedToKeep(true);
         void requestPersistentStorage();
       }
     } catch {
@@ -515,7 +516,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
                   ))}
                 </fieldset>
               ) : null}
-              {storage.state === "ready" ? (
+              {storage.state === "ready" && !askedToKeep ? (
                 <p id="renewal-save-note" className="text-sm text-zinc-600 dark:text-zinc-400">
                   {KEEP_PROMPT_NOTE}
                 </p>
@@ -525,7 +526,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
                   <button
                     type="submit"
                     disabled={busy}
-                    aria-describedby="renewal-save-note"
+                    aria-describedby={askedToKeep ? undefined : "renewal-save-note"}
                     className="rounded-md bg-zinc-900 px-4 py-2 text-base font-semibold text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
                   >
                     {SAVE_BUTTON}
