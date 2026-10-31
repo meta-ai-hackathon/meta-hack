@@ -353,7 +353,7 @@ describe("the handoff code stays name-free", () => {
   // handoff's names come from the knowledge base, never from its code.
   const NAMES =
     /\b(?:SNAP|CalFresh|food stamps|Section 8|Medicaid|Medicare|SSI|SSDI|TANF|WIC|LIHEAP|EBT|ACA|CHIP|EITC|North Carolina|Mecklenburg|Charlotte|Raleigh|ePASS|NCID|ncdhhs|mecknc)\b/i;
-  const FILES = ["./handoff.ts"];
+  const FILES = ["./handoff.ts", "../components/source-card.tsx"];
 
   it.each(FILES)("%s names no program, place, or portal", (file) => {
     const source = readFileSync(fileURLToPath(new URL(file, import.meta.url)), "utf8");
