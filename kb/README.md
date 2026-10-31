@@ -34,7 +34,7 @@ Chosen over `src/data/kb/` on purpose:
 | `status_reason` | stale / withdrawn | Why the entry is not current |
 | `superseded_by` | optional | Entry id that replaces this one |
 | `sources` | yes | One or more official sources: `id`, `title`, `url` (https only), `retrieved_at` (ISO date), `supports` (what it backs) |
-| `facts` | yes | Four required fact groups (`rules`, `required_documents`, `official_links`, `deadlines`) plus two optional ones (`steps`, `match_signals`), each source-linked |
+| `facts` | yes | Four required fact groups (`rules`, `required_documents`, `official_links`, `deadlines`) plus optional ones (`steps`, `match_signals`, and the handoff groups `submission_steps` and `after_you_apply`), each source-linked |
 
 Fact groups — `rules`, `required_documents`, `official_links`, `deadlines` —
 each carry `items`, a `source_id` naming one of the entry's sources, and a
@@ -61,6 +61,28 @@ Two optional groups (mission v2 M3) follow the same provenance rules:
 | `active` | Facts re-verified against the sources. Citable, with the status and retrieval date shown. |
 | `stale` | Sources may have changed since retrieval. Never cited silently: citing requires explicit acknowledgment, and any surfaced fact must display the stale status and the reason. |
 | `withdrawn` | Retracted entirely (program ended, source disowned the facts, retraction found). Never cited as fact, only presented as withdrawn, always with the reason. Name `superseded_by` when a replacement entry exists. |
+
+## Handoff step groups
+
+Two more optional groups feed the handoff (BN-24 and BN-26, HACK-46 and
+HACK-47) rather than the match card:
+
+- `submission_steps`: what a person does, in order, with a filled
+  application form to sign it and send it in themselves.
+- `after_you_apply`: what the official sources say happens after it is
+  sent.
+
+Unlike the other groups, these carry a source on every item instead of
+one per group, because a single list draws on several official pages
+(the form itself, a county page, an online portal). Each item has an `id`
+(snake_case, unique in its group), a short `label`, a plain-language
+`detail` of what its source says, an optional `link` (`label` plus an
+https `url`) to the official page for that step, and a `source_id` naming
+one of the entry's sources. The group keeps a `retrieved_at` date.
+`citeSourcedSteps()` in `src/lib/kb.ts` cites each step with its own
+source and refuses a stale or withdrawn entry without acknowledgment, the
+same way `citeFactGroup()` does. Steps link official pages instead of
+copying addresses, phone numbers, or fax numbers, which can change.
 
 ## No silent citation
 
