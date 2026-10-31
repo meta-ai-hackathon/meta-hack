@@ -76,7 +76,11 @@ links to the vendors' verified data-handling terms. A typed conversation
 turn goes to the Meta chat model, and the consent copy says so; the
 zero-send path that still completes the whole journey is the step-by-step
 form with AI consent declined. Voice sits behind its own additional
-toggle. A declined consent never blocks the application.
+toggle. A declined consent never blocks the application. (Open decision,
+owned by a person: the consent-based rule above and the stricter
+no-exception rule in `.github/claude-review/rules.md` conflict and must
+be reconciled before this channel is promoted to real users; until then
+the zero-send path is the default recommendation.)
 
 ### Prepared forms
 
@@ -151,11 +155,14 @@ an outcome means the app's own gate failed to fire), client-visible private
 (`pii: true`) content — a value shipped under a private question, a submitted
 private value echoed back in any payload field (subtitles, transcripts,
 state, cards), or a typed private value that survived redaction into the
-delivered transcript. Exit codes: `0` clean journey, `1` violation detected
-(the transcript names what and where), `2` journey error (bad URL, failed
-request, unexpected question). The detectors are unit-tested with committed
-fixtures in `scripts/fixtures/walkthrough/`, so the checks provably bite.
-Teammates can run it against any preview URL without a browser.
+delivered transcript. The value matching is exact-string (a partially
+redacted or paraphrased free-text answer can pass); deep-nested payloads
+fail closed as unscanned. Exit codes: `0` clean journey, `1` violation
+detected (the transcript names what and where), `2` journey error (bad URL,
+failed request, unexpected question). The detectors are unit-tested with
+committed fixtures in `scripts/fixtures/walkthrough/`, so the checks
+provably bite. Teammates can run it against any preview URL without a
+browser.
 
 ### Production
 
