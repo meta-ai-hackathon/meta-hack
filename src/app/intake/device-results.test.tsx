@@ -142,6 +142,7 @@ let device: ReturnType<typeof fakeIndexedDb>;
 let requests: { url: string; init?: RequestInit }[];
 let downloads: { name: string; blob: Blob }[];
 let pendingBlob: Blob | null;
+let revoked: string[];
 
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -149,6 +150,7 @@ beforeEach(() => {
   requests = [];
   downloads = [];
   pendingBlob = null;
+  revoked = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -174,7 +176,12 @@ beforeEach(() => {
       return "blob:filled-form";
     },
   });
-  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: () => undefined });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    value: (url: string) => {
+      revoked.push(url);
+    },
+  });
   // The browser saves the file; here the click records what it would save.
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
     if (this.href === "blob:filled-form" && pendingBlob) {
@@ -299,7 +306,7 @@ async function visit() {
     await act(async () => root.unmount());
     container.remove();
   };
-  return { container, text, byId, type, answerEverything, download, unmount, copy: DEVICE_RESULTS_COPY };
+  return { container, text, byId, type, waitFor, answerEverything, download, unmount, copy: DEVICE_RESULTS_COPY };
 }
 
 /** Every request so far: its URL and body carry none of these values. */
@@ -351,6 +358,10 @@ describe("/intake to the review and the filled form, on the device", () => {
 
     const first = await page.download();
     expect(first.name).toBe("dhb-5200.pdf");
+    // The file's URL outlives the click, so a browser that starts the
+    // download a moment later still gets it, and then it is let go.
+    expect(revoked).toEqual([]);
+    await page.waitFor(() => revoked.includes("blob:filled-form"), "the download URL to be revoked");
     expect(first.form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe("07/19/1984");
     expect(first.form.getTextField("14 Phone Number").getText()).toBe("704-555-0142");
     expect(first.form.getTextField("undefined_10").getText()).toBe("1200");

@@ -204,6 +204,13 @@ function MatchCardView({ card }: { card: MatchCard }) {
   );
 }
 
+/**
+ * How long the filled form's object URL outlives the click. Some browsers
+ * start a download a moment after the click, and revoking the URL before
+ * then cancels it.
+ */
+const DOWNLOAD_URL_LIFETIME_MS = 1000;
+
 /** Hand the filled form to the browser as a download. Nothing is kept here. */
 function saveToDevice(bytes: Uint8Array, fileName: string): void {
   const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }));
@@ -213,7 +220,7 @@ function saveToDevice(bytes: Uint8Array, fileName: string): void {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
 }
 
 export function DeviceResults(props: {
