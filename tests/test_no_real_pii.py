@@ -29,7 +29,9 @@ every git-tracked text file and fails on
   and the number read as one longer number;
 - an email address outside example.com, example.org and example.net (and
   their subdomains), names under .test and .invalid, and noreply.github.com
-  (with its subdomains).
+  (with its subdomains). The git user of an SSH remote, as in
+  git@github.com:org/repo.git or ssh://git@github.com/org/repo.git, names
+  a server rather than a person, so it passes.
 
 An escaped line break or tab (backslash n, r or t) counts as a space, so a
 value right after one inside a string is still found. Lockfiles and binary
@@ -130,7 +132,7 @@ _PHONE_WORD = (
 )
 NAMED_SSN: Final = re.compile(rf"{_SSN_WORD}{_NAMED}(?<![\d+])(\d{{9}})(?!\d)")
 NAMED_PHONE: Final = re.compile(rf"{_PHONE_WORD}{_NAMED}(?<![\d+])((?:\+?1)?{_NXX}{_NXX}\d{{4}})(?!\d)")
-EMAIL: Final = re.compile(r"(?<![\w.%+-])[A-Za-z0-9._%+-]+@(?P<domain>[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b")
+EMAIL: Final = re.compile(r"(?<![\w.%+-])(?P<local>[A-Za-z0-9._%+-]+)@(?P<domain>[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b")
 # An escaped line break or tab inside a string literal.
 _ESCAPE: Final = re.compile(r"\\[nrt]")
 
@@ -181,6 +183,12 @@ def fictional_email(domain: str) -> bool:
     return any(domain == known or domain.endswith("." + known) for known in FICTIONAL_EMAIL_DOMAINS)
 
 
+def ssh_remote(text: str, match: re.Match[str]) -> bool:
+    """Whether an email match is the git user and host of an SSH remote, as
+    in git@github.com:org/repo.git or ssh://git@github.com/org/repo.git."""
+    return match.group("local") == "git" and text[match.end() : match.end() + 1] in (":", "/")
+
+
 def find_pii(text: str) -> list[tuple[int, str, str]]:
     """Each real-looking detail in text, in order: where it starts, its kind and its value."""
     text = _ESCAPE.sub("  ", text)
@@ -188,7 +196,11 @@ def find_pii(text: str) -> list[tuple[int, str, str]]:
     found |= {(match.start(1), "ssn", match.group(1)) for match in NAMED_SSN.finditer(text)}
     for pattern, group in ((PHONE, 0), (NAMED_PHONE, 1)):
         found |= {(match.start(group), "phone number", match.group(group)) for match in pattern.finditer(text) if not fictional_phone(match.group(group))}
-    found |= {(match.start(), "email", match.group()) for match in EMAIL.finditer(text) if not fictional_email(match.group("domain"))}
+    found |= {
+        (match.start(), "email", match.group())
+        for match in EMAIL.finditer(text)
+        if not fictional_email(match.group("domain")) and not ssh_remote(text, match)
+    }
     return sorted(found)
 
 
@@ -428,6 +440,18 @@ FICTIONAL_DOMAINS = st.one_of(
     ),
     st.from_regex(r"([a-z]{1,8}\.){0,2}[a-z]{1,8}\.(test|invalid|TEST|Invalid)", fullmatch=True),
 )
+# SSH remotes in the forms git and package manifests write them, with a
+# repo path that holds no other value.
+SSH_REMOTE_FORMS = st.sampled_from(
+    [
+        "git@{host}:{path}.git",
+        "ssh://git@{host}/{path}.git",
+        "ssh://git@{host}:22/{path}.git",
+        "git+ssh://git@{host}/{path}.git",
+        "git+ssh://git@{host}:{path}.git",
+    ]
+)
+REPO_PATHS = st.from_regex(r"[a-z]{1,10}/[a-z][a-z-]{0,12}", fullmatch=True)
 
 
 def surround(value: str, around: tuple[str, str, str, str]) -> str:
@@ -494,6 +518,8 @@ class FinderProperties(unittest.TestCase):
     def test_an_email_outside_the_fictional_domains_is_always_found(
         self, local: str, domain: str, around: tuple[str, str, str, str]
     ) -> None:
+        # git@ right before a colon is an SSH remote, tested below.
+        assume(not (local == "git" and around[2].startswith(":")))
         value = f"{local}@{domain}"
         self.assertEqual([(kind, found) for _offset, kind, found in find_pii(surround(value, around))], [("email", value)])
 
@@ -501,6 +527,29 @@ class FinderProperties(unittest.TestCase):
     @given(LOCAL_PARTS, FICTIONAL_DOMAINS, SURROUNDINGS)
     def test_an_email_at_a_fictional_domain_passes(self, local: str, domain: str, around: tuple[str, str, str, str]) -> None:
         self.assertEqual(find_pii(surround(f"{local}@{domain}", around)), [])
+
+    @PBT
+    @given(SSH_REMOTE_FORMS, REAL_DOMAINS, REPO_PATHS, SURROUNDINGS)
+    def test_the_git_user_of_an_ssh_remote_passes(self, form: str, host: str, path: str, around: tuple[str, str, str, str]) -> None:
+        self.assertEqual(find_pii(surround(form.format(host=host, path=path), around)), [])
+
+    @PBT
+    @given(LOCAL_PARTS.filter(lambda local: local != "git"), REAL_DOMAINS, st.sampled_from([":", "/"]), REPO_PATHS, SURROUNDINGS)
+    def test_another_user_before_a_colon_or_a_slash_is_still_an_email(
+        self, local: str, host: str, follow: str, path: str, around: tuple[str, str, str, str]
+    ) -> None:
+        value = f"{local}@{host}"
+        found = find_pii(surround(value + follow + path, around))
+        self.assertEqual([(kind, email) for _offset, kind, email in found], [("email", value)])
+
+    @PBT
+    @given(REAL_DOMAINS, SURROUNDINGS)
+    def test_the_git_user_before_anything_else_is_still_an_email(self, host: str, around: tuple[str, str, str, str]) -> None:
+        # At the end of the text too.
+        assume(not around[2].startswith(":"))
+        value = f"git@{host}"
+        for text in (surround(value, around), value):
+            self.assertEqual([(kind, email) for _offset, kind, email in find_pii(text)], [("email", value)])
 
     @PBT
     @given(
