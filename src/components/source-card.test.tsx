@@ -60,7 +60,7 @@ describe("SourceCard", () => {
     );
   });
 
-  it("flags exactly the cards whose entry is not active, with the reason", () => {
+  it("flags exactly the cards whose entry is not active", () => {
     fc.assert(
       fc.property(sourceArb, (source) => {
         const flag = renderCard(source).querySelector("[data-source-status]");
@@ -70,10 +70,36 @@ describe("SourceCard", () => {
         }
         expect(flag?.getAttribute("data-source-status")).toBe(source.entryStatus);
         expect(flag?.textContent).toContain("Check the source before you rely on it.");
-        if (source.statusReason) {
-          expect(flag?.textContent).toContain(source.statusReason);
-        }
+        // The reason's own closing punctuation never doubles the flag's.
+        expect(flag?.textContent).not.toMatch(/[.!?]\s*\. Check the source/);
       }),
+      { numRuns: 150 },
+    );
+  });
+
+  it("shows the reason and ends the flag's sentence once, however the reason ends", () => {
+    // Reasons built to end in a letter, then given each kind of ending a KB
+    // author might write, so the expected text is known without a filter.
+    const reasonArb = fc.stringMatching(/^[A-Za-z][A-Za-z ,'-]{0,40}[A-Za-z]$/);
+    fc.assert(
+      fc.property(
+        fc.constantFrom("stale", "withdrawn" as const),
+        reasonArb,
+        fc.constantFrom("", ".", "!", "...", ".  "),
+        (entryStatus, reason, ending) => {
+          const flag = renderCard({
+            title: "Official page",
+            url: "https://example.org/rules",
+            retrievedAt: "2026-10-30",
+            entryVersion: 3,
+            entryStatus,
+            statusReason: reason + ending,
+          }).querySelector("[data-source-status]");
+          expect(flag?.textContent).toContain(
+            `: ${reason}. Check the source before you rely on it.`,
+          );
+        },
+      ),
       { numRuns: 150 },
     );
   });

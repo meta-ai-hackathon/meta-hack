@@ -11,6 +11,15 @@ const NON_ACTIVE_COPY: Readonly<Record<NonActiveKbStatus, string>> = {
   withdrawn: "This was withdrawn",
 };
 
+/**
+ * The status reason as the flag's own sentence ends it: KB reasons are
+ * often written as sentences, and the flag adds its own period.
+ */
+function flagReason(reason: string | undefined): string {
+  const text = (reason ?? "").trim().replace(/[.!?]+$/, "").trimEnd();
+  return text === "" ? "" : `: ${text}`;
+}
+
 export function SourceCard({ source }: { source: KbSourceCardView }) {
   return (
     <p data-source-card className="text-sm text-muted">
@@ -33,8 +42,8 @@ export function SourceCard({ source }: { source: KbSourceCardView }) {
           className="block font-semibold text-amber-ink"
         >
           {NON_ACTIVE_COPY[source.entryStatus]}
-          {source.statusReason ? `: ${source.statusReason}` : ""}. Check the
-          source before you rely on it.
+          {flagReason(source.statusReason)}. Check the source before you rely
+          on it.
         </span>
       )}
     </p>
