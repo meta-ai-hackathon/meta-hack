@@ -217,6 +217,22 @@ describe("the wizard in device mode", () => {
     await page.unmount();
   });
 
+  it("can't start a delete while Save and finish later is still saving", async () => {
+    const page = await visit();
+    await page.choose("Me");
+    // Click without waiting for the save to finish: the first render after
+    // the click is what the person can press next.
+    page.act(() => {
+      page.button("Save and finish later").click();
+    });
+    const deleteButton = page.button(page.copy.deleteButton);
+    expect(deleteButton.disabled).toBe(true);
+    await page.settle();
+    expect(page.status()).toBe(page.copy.savedForLaterKept);
+    expect(page.button(page.copy.deleteButton).disabled).toBe(false);
+    await page.unmount();
+  });
+
   it("never holds back a fast keyboard answer right after the screen changes", async () => {
     const page = await visit();
     await page.choose("Me");

@@ -527,7 +527,7 @@ export function IntakeWizard(props: {
   /** Delete every answer from this device and this page (persistence "device"). */
   async function deleteFromThisDevice(): Promise<void> {
     const intake = deviceIntake;
-    if (!intake || deleting || busy) {
+    if (!intake || deleting || busy || savingForLater) {
       return;
     }
     setDeleting(true);
@@ -689,7 +689,7 @@ export function IntakeWizard(props: {
       {shownDevice ? (
         <DeleteFromDevice
           confirming={confirmingDelete}
-          busy={deleting || busy}
+          busy={deleting || busy || savingForLater}
           onAsk={() => setConfirmingDelete(true)}
           onConfirm={() => void deleteFromThisDevice()}
           onCancel={() => {
