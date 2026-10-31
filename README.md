@@ -72,10 +72,11 @@ every error state.
 **Consent comes first** (HACK-81): a plain-language consent surface precedes
 the first send. It names what leaves the device, to which provider (the
 Meta chat model and Meta STT; Gemini TTS for replies), and for what, with
-links to the vendors' verified data-handling terms — and typed-only +
-subtitles is the zero-send path that still completes the whole journey.
-Voice sits behind its own additional toggle. A declined consent never
-blocks the application.
+links to the vendors' verified data-handling terms. A typed conversation
+turn goes to the Meta chat model, and the consent copy says so; the
+zero-send path that still completes the whole journey is the step-by-step
+form with AI consent declined. Voice sits behind its own additional
+toggle. A declined consent never blocks the application.
 
 ### Prepared forms
 
