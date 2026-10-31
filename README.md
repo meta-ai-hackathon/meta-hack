@@ -38,6 +38,7 @@ Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to 
 | `specs/question-spec/` | The intake question spec the app and its tests are built from |
 | `migrations/` | Plain-SQL schema migrations, applied by `pnpm db:migrate` |
 | `scripts/` | Standalone checks — link checker, Meta API smoke test, walkthrough CLI |
+| `docs/` | Deployment, save and resume, the accessibility baseline, and [`docs/runbooks.md`](docs/runbooks.md), what to do when something fails during a demo |
 
 ## Benefits Navigator
 
