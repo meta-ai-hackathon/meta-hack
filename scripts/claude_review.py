@@ -697,9 +697,10 @@ _KEY_LINE_MIN = 16
 # or bare words after an echo. So there a shorter run is a piece of the key
 # too, unless it reads as code. A run that is a whole string, alone between
 # its quotes, is a piece from 2 key characters on, unless it is a word in
-# one case or capitalized, or a number, maybe with digits at its end, or a
-# path of them ("POST", "utf8", "application/json"). A capitalized word
-# stays visible so that copy a person reads ("Approved") can never hide
+# one case, capitalized or camelCase, or a number, maybe with digits at its
+# end, or a path of them ("POST", "utf8", "application/json"). Capitalized
+# and camelCase words stay visible so that copy a person reads ("Approved")
+# and the field names the reviewer judges ("ssnLast4") can never hide
 # between key markers. Any other run is a piece from 4 on,
 # unless the words, numbers and paths in it, with + and = between them, are
 # written the way code names things: lower case, camelCase, capitalized or
@@ -707,7 +708,7 @@ _KEY_LINE_MIN = 16
 # "frozen=True", "//collector").
 _KEY_STRING_PIECE_MIN = 2
 _KEY_BARE_PIECE_MIN = 4
-_KEY_STRING_WORD = re.compile(r"(?:[a-z]+|[A-Z]+|[A-Z][a-z]+)[0-9]*|[0-9]+")
+_KEY_STRING_WORD = re.compile(r"(?:[a-z]+(?:[A-Z][a-z]+)*|[A-Z]+|[A-Z][a-z]+)[0-9]*|[0-9]+")
 _KEY_CODE_WORD = re.compile(r"(?:[a-z]+(?:[A-Z][a-z]+)*|(?:[A-Z][a-z]+)+|[A-Z]+)[0-9]*|[0-9]+")
 _KEY_CODE_JOIN = re.compile(r"[+/=]+")
 # What closes the string a run is the whole of: escaped line breaks or tabs,
@@ -818,7 +819,8 @@ def private_key_spans(text: str) -> list[tuple[int, int]]:
     footer (see is_key_piece). What still reaches the model there: pieces
     under the floors (a string of one key character, a bare run of up to
     three), and pieces that happen to read as code, such as a string piece
-    in one case or capitalized, or a bare piece shaped like a name.
+    in one case, capitalized or camelCase, or a bare piece shaped like a
+    name.
 
     Linear in the text's length. A key's walk ends at its footer or at the
     first piece that is not key material, which any later header is, so no

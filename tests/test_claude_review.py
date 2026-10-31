@@ -1260,12 +1260,10 @@ def around(core: st.SearchStrategy[str], least: int) -> st.SearchStrategy[str]:
 UPPER = st.sampled_from(string.ascii_uppercase)
 LOWER = st.sampled_from(string.ascii_lowercase)
 DIGIT = st.sampled_from(string.digits)
-# Shapes no name or number in code has: a lower-case letter right before a
-# capital, which no word in one case or capitalized word holds; a digit
-# right before a letter, where a name has its digits only at its end; and a
-# lower-case letter before two capitals, which no camelCase or all-caps
+# Shapes no name or number in code has: a digit right before a letter, where
+# a name has its digits only at its end, and a lower-case letter before two
+# capitals, which no word in one case, capitalized, camelCase or all-caps
 # name holds.
-LOWER_THEN_UPPER = st.builds(lambda lower, upper: lower + upper, LOWER, UPPER)
 DIGIT_THEN_LETTER = st.builds(lambda digit, letter: digit + letter, DIGIT, UPPER | LOWER)
 LOWER_THEN_CAPITALS = st.builds(lambda lower, a, b: lower + a + b, LOWER, UPPER, UPPER)
 
@@ -1292,14 +1290,15 @@ CODE_RUNS = st.builds(
     ),
 )
 # What a whole string holds in code or in copy a person reads: a word in one
-# case or capitalized, maybe with a digit at its end, or a number, alone or
-# as a path of two.
+# case, capitalized or camelCase, maybe with a digit at its end, or a
+# number, alone or as a path of two.
 STRING_WORD = st.builds(
     lambda word, digit: word + digit,
     st.one_of(
         st.text(alphabet=string.ascii_lowercase, min_size=1, max_size=5),
         st.text(alphabet=string.ascii_uppercase, min_size=1, max_size=5),
         st.builds(lambda first, rest: first + rest, UPPER, st.text(alphabet=string.ascii_lowercase, min_size=1, max_size=4)),
+        st.builds(lambda first, hump: first + hump, LOWER_WORD, HUMP),
     ),
     st.sampled_from(["", "8"]),
 ) | st.text(alphabet=string.digits, min_size=1, max_size=4)
@@ -1349,7 +1348,7 @@ class ShortKeyPieceProperties(unittest.TestCase):
         self.assertEqual(review.redact_sensitive(out), (out, 0))
 
     @PBT
-    @given(st.one_of(around(LOWER_THEN_UPPER, 0), around(DIGIT_THEN_LETTER, 0)), st.one_of(around(DIGIT_THEN_LETTER, 2), around(LOWER_THEN_CAPITALS, 1)))
+    @given(st.one_of(around(LOWER_THEN_CAPITALS, 0), around(DIGIT_THEN_LETTER, 0)), st.one_of(around(DIGIT_THEN_LETTER, 2), around(LOWER_THEN_CAPITALS, 1)))
     def test_a_piece_no_name_is_shaped_like_is_always_a_key_piece(self, string_piece: str, bare_piece: str) -> None:
         self.assertTrue(review.is_key_piece(string_piece, quoted=True), string_piece)
         self.assertTrue(review.is_key_piece(bare_piece, quoted=False), bare_piece)
@@ -1358,6 +1357,7 @@ class ShortKeyPieceProperties(unittest.TestCase):
     @PBT
     @given(CODE_RUNS, STRING_RUNS, KEY_KINDS)
     @example("Approved", "Approved", "")  # copy a person reads, which fake markers must not hide
+    @example("ssnLast4", "ssnLast4", "")  # a field name the reviewer has to judge
     def test_names_and_numbers_between_key_markers_reach_the_model(self, bare: str, whole_string: str, kind: str) -> None:
         self.assertFalse(review.is_key_piece(bare, quoted=False), bare)
         self.assertFalse(review.is_key_piece(whole_string, quoted=True), whole_string)
