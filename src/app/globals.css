@@ -210,6 +210,49 @@ progress {
   opacity: 0.5;
 }
 
+/* Presence orb (VAL-VJS-005, demo-day directive): the talk stage's ambient
+   decorative presence — a floating teal orb bound to the voice-session
+   state machine. Pure CSS, aria-hidden in the component; every state it
+   depicts is also carried by the state bar caption and the StatusRegion
+   notice. The frame is a fixed square the ball moves inside via transform
+   only — no layout shift, nothing focusable. These base styles ARE the
+   reduced-motion static glow variant (ball + halo, motionless); every
+   animation rule lives ONLY in the prefers-reduced-motion: no-preference
+   block below, where the orb also pauses while the document is hidden. */
+.presence-orb-frame {
+  position: relative;
+  width: 5rem;
+  height: 5rem;
+}
+
+.presence-orb-halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4.75rem;
+  height: 4.75rem;
+  margin: -2.375rem 0 0 -2.375rem;
+  border-radius: 9999px;
+  background: radial-gradient(circle, var(--teal-soft) 0%, transparent 72%);
+  opacity: 0.9;
+}
+
+.presence-orb-ball {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: -1.125rem 0 0 -1.125rem;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle at 35% 30%,
+    var(--teal) 0%,
+    var(--teal-deep) 78%
+  );
+  will-change: transform;
+}
+
 /* BN-07: visible keyboard focus everywhere. Never remove the default outline
    without a replacement; this token-driven ring shows on :focus-visible
    (light and dark) with a small offset so the ring is not clipped. */
@@ -299,6 +342,131 @@ progress {
      read the full list immediately either way. */
   .stagger-item {
     animation: stagger-rise 480ms ease-out backwards;
+  }
+
+  /* Presence orb state motion (VAL-VJS-005): idle = the slowest ambient
+     drift; listening = slow float + gentle pulse; transcribing = quick
+     shimmer; thinking = orbiting/wandering drift; speaking = livelier
+     rhythmic bounce. Transform and opacity only (no layout shift), and
+     only ever reached in this block — the reduced-motion experience is
+     the static glow variant above. */
+  @keyframes orb-idle {
+    0%,
+    100% {
+      transform: translate(0, 0);
+    }
+    50% {
+      transform: translate(0, -5px);
+    }
+  }
+
+  @keyframes orb-listen {
+    0%,
+    100% {
+      transform: translate(0, 0) scale(1);
+    }
+    33% {
+      transform: translate(3px, -6px) scale(1.05);
+    }
+    66% {
+      transform: translate(-3px, -2px) scale(0.98);
+    }
+  }
+
+  @keyframes orb-shimmer {
+    0%,
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    40% {
+      transform: scale(1.1);
+      opacity: 0.75;
+    }
+    70% {
+      transform: scale(0.96);
+      opacity: 1;
+    }
+  }
+
+  @keyframes orb-wander {
+    0%,
+    100% {
+      transform: translate(-6px, 2px);
+    }
+    25% {
+      transform: translate(5px, -6px);
+    }
+    50% {
+      transform: translate(7px, 5px);
+    }
+    75% {
+      transform: translate(-4px, 6px);
+    }
+  }
+
+  @keyframes orb-speak {
+    0%,
+    100% {
+      transform: translate(0, 0) scale(1);
+    }
+    30% {
+      transform: translate(0, -7px) scale(1.14);
+    }
+    55% {
+      transform: translate(0, 3px) scale(0.94);
+    }
+    80% {
+      transform: translate(0, -3px) scale(1.07);
+    }
+  }
+
+  @keyframes orb-halo-breathe {
+    0%,
+    100% {
+      opacity: 0.9;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.55;
+      transform: scale(1.12);
+    }
+  }
+
+  .presence-orb-frame[data-orb-phase="idle"] .presence-orb-ball {
+    animation: orb-idle 6.5s ease-in-out infinite;
+  }
+
+  .presence-orb-frame[data-orb-phase="listening"] .presence-orb-ball {
+    animation: orb-listen 4.6s ease-in-out infinite;
+  }
+
+  .presence-orb-frame[data-orb-phase="listening"] .presence-orb-halo {
+    animation: orb-halo-breathe 4.6s ease-in-out infinite;
+  }
+
+  .presence-orb-frame[data-orb-phase="transcribing"] .presence-orb-ball {
+    animation: orb-shimmer 0.9s ease-in-out infinite;
+  }
+
+  .presence-orb-frame[data-orb-phase="thinking"] .presence-orb-ball {
+    animation: orb-wander 7s ease-in-out infinite;
+  }
+
+  .presence-orb-frame[data-orb-phase="speaking"] .presence-orb-ball {
+    animation: orb-speak 1.3s ease-in-out infinite;
+  }
+
+  .presence-orb-frame[data-orb-phase="speaking"] .presence-orb-halo {
+    animation: orb-halo-breathe 1.3s ease-in-out infinite;
+  }
+
+  /* The orb never animates into a hidden document: the component mirrors
+     document.hidden into the frame attribute and everything pauses in
+     place until the tab returns. */
+  .presence-orb-frame[data-document-hidden="true"] .presence-orb-ball,
+  .presence-orb-frame[data-document-hidden="true"] .presence-orb-halo {
+    animation-play-state: paused;
   }
 }
 

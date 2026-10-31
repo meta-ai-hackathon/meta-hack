@@ -516,3 +516,67 @@ describe("fallback honesty (VAL-TTS2-002)", () => {
     expect(q(container, "voice-fallback-badge")).toBeNull();
   });
 });
+
+describe("the presence orb on the talk stage (VAL-VJS-005)", () => {
+  it("rides mode A and follows the voice session's phase — with the state still announced in text", async () => {
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-only");
+    const orb = q(container, "presence-orb");
+    expect(orb).not.toBeNull();
+    expect(orb?.getAttribute("aria-hidden")).toBe("true");
+    expect(orb?.getAttribute("data-orb-phase")).toBe("idle");
+
+    // The session's phase drives the orb…
+    await actFn(async () => {
+      sessionCallbacks.onPhase("listening");
+    });
+    expect(q(container, "presence-orb")?.getAttribute("data-orb-phase")).toBe(
+      "listening",
+    );
+    // …and the SAME state is announced in text by the state bar — the
+    // orb is never the only signal (never animation-only).
+    expect(q(container, "voice-state-bar")?.textContent).toContain("Listening");
+  });
+
+  it("stays on stage through the mode-B switch to typing, idling when the mic stops", async () => {
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-plus-typing");
+    await actFn(async () => {
+      sessionCallbacks.onPhase("listening");
+    });
+    expect(q(container, "presence-orb")?.getAttribute("data-orb-phase")).toBe(
+      "listening",
+    );
+
+    // Switch to typing at any point (VAL-NCF-002): the orb stays on the
+    // stage — the conversation continues — and, the mic having stopped,
+    // it idles instead of claiming a voice phase.
+    await actFn(async () => {
+      q(container, "switch-to-typing")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    const orb = q(container, "presence-orb");
+    expect(orb).not.toBeNull();
+    expect(orb?.getAttribute("data-orb-phase")).toBe("idle");
+  });
+
+  it("never appears on the entry or results stages", async () => {
+    // Entry: the mode choice — no orb.
+    const entry = await renderChat();
+    await entry.act(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    expect(q(entry.container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("entry");
+    expect(q(entry.container, "presence-orb")).toBeNull();
+
+    // Results: a completed session lands there directly — still no orb.
+    stubFetch(COMPLETE_STATE);
+    const done = await renderChat();
+    await done.act(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    expect(q(done.container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("results");
+    expect(q(done.container, "presence-orb")).toBeNull();
+  });
+});
