@@ -269,6 +269,12 @@ export function ConversationChat() {
   // NOW, not the value from the render that started the previous turn.
   const busyRef = useRef(false);
   const pausedRef = useRef(false);
+  // True from the moment a reply's playback hold starts until the turn
+  // settles: while it stands, NO code path may reopen the microphone —
+  // the endpointer must never hear the assistant's own voice
+  // (claude-review round 3: the invariant is enforced here, not left to
+  // the session's internal paused check alone).
+  const playbackHoldRef = useRef(false);
   const setBusy = useCallback((value: boolean): void => {
     busyRef.current = value;
     setBusyState(value);
@@ -633,6 +639,7 @@ export function ConversationChat() {
         sessionRef.current.endpointNow();
       }
       sessionRef.current?.hold();
+      playbackHoldRef.current = true;
       setVoicePhase("speaking");
       await speakReply(data.assistantTurnId, data.assistantReply);
     }
@@ -652,6 +659,7 @@ export function ConversationChat() {
       // bounded — speechSynthesis quirks must never leave the turn
       // unsettled (claude-review round).
       sessionRef.current?.hold();
+      playbackHoldRef.current = true;
       await Promise.race([
         new Promise<void>((resolve) => {
           const spoke = queueSpeech(RESULTS_WRAP_UP, undefined, resolve);
@@ -744,7 +752,11 @@ export function ConversationChat() {
       pendingVoiceRef.current.push(
         decided === null ? { blob: recorded, timing: null } : { blob: recorded, timing: decided },
       );
-      restartListeningIfActive();
+      // Never reopen the mic while a reply is playing (playbackHoldRef):
+      // the assistant's own voice must not be captured as a user turn.
+      if (!playbackHoldRef.current) {
+        restartListeningIfActive();
+      }
       return;
     }
     setBusy(true);
@@ -810,6 +822,8 @@ export function ConversationChat() {
   // (claude-review round: consent hygiene). One per settle keeps the
   // submissions strictly in spoken order.
   function settleVoiceAfterTurn(): void {
+    // The playback window is over, whatever happened to the turn.
+    playbackHoldRef.current = false;
     if (!pausedRef.current) {
       sessionRef.current?.resume();
     }
@@ -833,6 +847,7 @@ export function ConversationChat() {
   function clearPendingVoice(): void {
     pendingVoiceRef.current = [];
     endpointTimingRef.current = null;
+    playbackHoldRef.current = false;
   }
   // Latest-ref wiring (see the ref's comment): the session callback reads
   // the CURRENT submit function on every utterance. An effect, not a
@@ -918,6 +933,7 @@ export function ConversationChat() {
   }
 
   function resumeSession(): void {
+    playbackHoldRef.current = false;
     setPaused(false);
     setNotice("");
     sessionRef.current?.resume();

@@ -542,6 +542,81 @@ describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
     expect(turnCalls).toHaveLength(2);
   });
 
+  it("VAL-FIX-001: a flushed blob arriving during reply playback queues without reopening the mic", async () => {
+    const { container: _container, act } = await renderChat();
+    await beginMode(_container, act, "voice-only");
+    let releaseTurn1: (() => void) | undefined;
+    const turn1Promise = new Promise<Response>((resolve) => {
+      releaseTurn1 = () => resolve(turnResponse());
+    });
+    // The reply's speak fetch pends until released: "playback in
+    // progress" is observable.
+    let releaseSpeak: (() => void) | undefined;
+    const speakPromise = new Promise<Response>((resolve) => {
+      releaseSpeak = () =>
+        resolve(
+          new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return turnCalls.length === 1 ? turn1Promise : turnResponse();
+        }
+        if (url === "/api/conversation/speak") {
+          return speakPromise;
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["first"], { type: "audio/webm" }),
+      );
+    });
+    expect(turnCalls).toHaveLength(1);
+    // The person is mid-utterance when the reply becomes ready: the open
+    // recording is flushed, then the mic is held for playback.
+    fakeCapturing = true;
+    sessionOps = [];
+    await act(async () => {
+      releaseTurn1?.();
+    });
+    const holdAt = sessionOps.indexOf("hold");
+    expect(holdAt).toBeGreaterThan(sessionOps.indexOf("endpoint"));
+    // Playback is now in progress (the speak fetch is still pending).
+    // The flushed recording's async onstop delivers DURING playback:
+    sessionOps = sessionOps.slice(0, holdAt + 1);
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["flushed"], { type: "audio/webm" }),
+      );
+    });
+    // It was queued WITHOUT any listen: no capture reopens while the
+    // assistant's own voice is playing.
+    expect(sessionOps).not.toContain("listen");
+    expect(turnCalls).toHaveLength(1);
+    // Playback finishes: the turn settles, the mic resumes, and the
+    // queued continuation submits.
+    await act(async () => {
+      releaseSpeak?.();
+    });
+    expect(sessionOps).toContain("resume");
+    expect(turnCalls).toHaveLength(2);
+  });
+
   it("VAL-FIX-001: a user pause outlives a turn — the playback hold never overrides it", async () => {
     const { container, act } = await renderChat();
     await beginMode(container, act, "voice-only");
