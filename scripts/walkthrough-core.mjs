@@ -49,8 +49,8 @@ const TURN_WINDOW_MS = 60_000;
 const TURN_PACE_LIMIT = 11;
 /** Patient turn retries for a throttled or cold-starting model: each
  * attempt waits long enough for a rate-limit window to pass. */
-const TURN_ATTEMPTS = 4;
-const TURN_RETRY_WAIT_MS = 25_000;
+export const TURN_ATTEMPTS = 4;
+export const TURN_RETRY_WAIT_MS = 25_000;
 
 /** Journey exit codes: 0 clean, 1 violation, 2 journey error. All of the
  * failure exits are nonzero by contract (the CLI must exit nonzero on any
@@ -282,6 +282,22 @@ export class Walkthrough {
     this.violations.push({ kind, detail, at: this.stamp() });
   }
 
+  /**
+   * The transcript itself must never become the echo the detectors hunt:
+   * any tracked private value that reaches a logged or quoted string
+   * (an assistant reply, a server error body) is replaced with a marker
+   * before printing.
+   */
+  maskPrivateValues(text) {
+    let masked = String(text);
+    for (const value of this.privateValues) {
+      if (value !== "" && masked.includes(value)) {
+        masked = masked.split(value).join("[private value removed from the transcript]");
+      }
+    }
+    return masked;
+  }
+
   log(line) {
     const stamped = `[${this.stamp()}] ${line}`;
     this.lines.push(stamped);
@@ -417,13 +433,13 @@ export class Walkthrough {
         `RETRY     turn failed with ${response.status} — the model is `
           + `throttling or unavailable; waiting ${TURN_RETRY_WAIT_MS / 1000}s `
           + "before trying again",
-          `waiting ${TURN_RETRY_WAIT_MS / 1000}s before trying again`,
       );
       await this.sleepFn(TURN_RETRY_WAIT_MS);
     }
     if (response.status !== 200) {
       throw new WalkthroughError(
-        `conversation turn rejected: ${response.status} ${response.text.slice(0, 200)}`,
+        `conversation turn rejected: ${response.status} `
+          + this.maskPrivateValues(response.text.slice(0, 200)),
       );
     }
     this.turnsSent += 1;
@@ -712,7 +728,9 @@ export class Walkthrough {
           ` — ${statusLabel}${intentNote}`,
       );
       if (typeof outcome.assistantReply === "string") {
-        this.log(`          the assistant: ${outcome.assistantReply}`);
+        // Masked: a reply that echoed a private value must not have the
+        // transcript print the very value the detector reports by path.
+        this.log(`          the assistant: ${this.maskPrivateValues(outcome.assistantReply)}`);
       }
 
       const afterIds = new Set(newState.questions.map((item) => item.id));
@@ -918,7 +936,6 @@ export class Walkthrough {
       `          pre-fill observed: ${prefilled.length} field(s) from the `
         + `conversation's answers; `
         + `${fields.filter((field) => field.state === "not_applicable").length} not applicable`,
-        `${fields.filter((field) => field.state === "not_applicable").length} not applicable`,
     );
 
     await this.fillForm(formId, unmappedAnswers);

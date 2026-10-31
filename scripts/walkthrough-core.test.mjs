@@ -7,6 +7,8 @@ import {
   EXIT_VIOLATION,
   JOURNEY_PLAN,
   SAMPLE_FORM_ID,
+  TURN_ATTEMPTS,
+  TURN_RETRY_WAIT_MS,
   Walkthrough,
   WalkthroughError,
   deepEqual,
@@ -607,6 +609,122 @@ describe("v2 conversational journey (VAL-WALK2-001 / VAL-X2-001 contract)", () =
     ).resolves.toBe(false);
     expect(walk.violations.map((violation) => violation.kind)).toContain("assistant_banned_claim");
     expect(exitCodeForRun(false)).toBe(EXIT_VIOLATION);
+  });
+
+  it("a transient turn failure retries, re-captures the cookie, and waits the full backoff", async () => {
+    const routes = v2JourneyRoutes();
+    const retryCookie = "bn_session=retry-token; Path=/; HttpOnly";
+    routeOf(routes, "POST", "/api/conversation/turn").respondNext = queue([
+      // First attempt throttles; the error response still carries the
+      // session cookie (the route's orphan-answering behavior).
+      jsonResponse(503, { error: { code: "model_unavailable", message: "busy" } }, {
+        setCookie: retryCookie,
+      }),
+      jsonResponse(
+        200,
+        turnBody({
+          reply: "Thanks. Which county or city area do you live in?",
+          transcript: "It's for myself.",
+          nextQuestionId: "county",
+          state: clientState(
+            [v2Question("application_role"), v2Question("county", { pii: true, type: "text" })],
+            { application_role: { status: "known", value: "self" } },
+            1,
+          ),
+          fresh: true,
+        }),
+      ),
+      jsonResponse(
+        200,
+        turnBody({
+          reply: "That's everything on my list.",
+          transcript: `My county is [redacted answer to "Which county or city area do you live in?"].`,
+          nextQuestionId: null,
+          state: clientState(
+            [v2Question("application_role"), v2Question("county", { pii: true, type: "text" })],
+            {
+              application_role: { status: "known", value: "self" },
+              county: { status: "known" },
+            },
+            null,
+          ),
+        }),
+      ),
+    ]);
+    const slept = [];
+    const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes), (ms) => {
+      slept.push(ms);
+      return Promise.resolve();
+    });
+    await expect(
+      walk.runConversation({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+    ).resolves.toBe(true);
+    // The retry resumed with the cookie from the error response, and the
+    // wait was the full backoff — a shorter wait would hammer a
+    // throttling model.
+    expect(walk.cookie).toBe("bn_session=retry-token");
+    expect(slept).toEqual([TURN_RETRY_WAIT_MS]);
+  });
+
+  it("every attempt transient is a journey error after the last attempt", async () => {
+    const routes = v2JourneyRoutes();
+    routeOf(routes, "POST", "/api/conversation/turn").respondNext = queue(
+      Array.from({ length: TURN_ATTEMPTS }, () =>
+        jsonResponse(502, { error: { code: "internal", message: "bad gateway" } }, {
+          setCookie: "bn_session=retry-token-2; Path=/; HttpOnly",
+        })),
+    );
+    const slept = [];
+    const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes), (ms) => {
+      slept.push(ms);
+      return Promise.resolve();
+    });
+    await expect(
+      walk.runConversation({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+    ).rejects.toBeInstanceOf(WalkthroughError);
+    expect(slept).toEqual(Array.from({ length: TURN_ATTEMPTS - 1 }, () => TURN_RETRY_WAIT_MS));
+    // The cookie from the failed attempts is still captured — a manual
+    // retry by the operator resumes the session instead of orphaning it.
+    expect(walk.cookie).toBe("bn_session=retry-token-2");
+  });
+
+  it("an error body quoting a submitted private value is masked before it reaches the transcript", async () => {
+    const routes = v2JourneyRoutes();
+    const countyQ = v2Question("county", { pii: true, type: "text" });
+    const appRoleQ = v2Question("application_role");
+    routeOf(routes, "POST", "/api/conversation/turn").respondNext = queue([
+      jsonResponse(
+        200,
+        turnBody({
+          reply: "Thanks. Which county or city area do you live in?",
+          transcript: "It's for myself.",
+          nextQuestionId: "county",
+          state: clientState(
+            [appRoleQ, countyQ],
+            { application_role: { status: "known", value: "self" } },
+            1,
+          ),
+          fresh: true,
+        }),
+      ),
+      ...Array.from({ length: TURN_ATTEMPTS }, () =>
+        jsonResponse(503, {
+          error: { code: "model_unavailable", message: "bad upstream echoed: Mecklenburg County" },
+        }, { setCookie: V2_COOKIE })),
+    ]);
+    const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes), () => {
+      return Promise.resolve();
+    });
+    let message = "";
+    try {
+      await walk.runConversation({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED });
+    } catch (error) {
+      message = error.message;
+    }
+    expect(message).not.toBe("");
+    // The thrown message carries the marker, never the value itself.
+    expect(message).not.toContain("Mecklenburg County");
+    expect(message).toContain("[private value removed from the transcript]");
   });
 
   it("an unredacted transcript stops the journey as a redaction failure", async () => {
