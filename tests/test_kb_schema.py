@@ -311,6 +311,9 @@ STEP = st.fixed_dictionaries(
 )
 STEP_LISTS = st.lists(STEP, min_size=1, max_size=6, unique_by=lambda step: str(step["id"]))
 
+# A phone or fax number written out (555-123-4567, 555.123.4567, (555) 123-4567).
+PHONE_NUMBER_RE = re.compile(r"\(?\b\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b")
+
 
 class TestSourcedStepGroups(KbSchemaTestCase):
     """The optional `submission_steps` and `after_you_apply` groups.
@@ -322,6 +325,8 @@ class TestSourcedStepGroups(KbSchemaTestCase):
     step's source_id resolving) are checked here for every shipped entry,
     and in src/lib/kb.ts at load.
     """
+
+    REAL_PATH = ENTRIES_DIR / "nc-medicaid.json"
 
     def step(self, **changes: object) -> dict[str, object]:
         step: dict[str, object] = {
@@ -407,6 +412,48 @@ class TestSourcedStepGroups(KbSchemaTestCase):
                 self.assertEqual(len(ids), len(set(ids)), f"{path.name} {group} repeats a step id")
                 for step in steps:
                     self.assertIn(step["source_id"], source_ids, f"{path.name} {group} {step['id']}")
+
+    def test_the_real_entry_carries_both_groups_from_official_pages(self) -> None:
+        from urllib.parse import urlparse
+
+        real = json.loads(self.REAL_PATH.read_text(encoding="utf-8"))
+        sources = {source["id"]: source for source in real["sources"]}
+        for group in SOURCED_STEP_GROUPS:
+            steps = real["facts"][group]["items"]
+            self.assertGreaterEqual(len(steps), 1, group)
+            for step in steps:
+                if "link" in step:
+                    host = urlparse(step["link"]["url"]).hostname or ""
+                    self.assertTrue(
+                        host in {"dcr.mecknc.gov", "epass.nc.gov"},
+                        f"{step['id']} links {host}, not an official page this entry verified",
+                    )
+                    # The link is the page its own source verified.
+                    self.assertEqual(step["link"]["url"], sources[step["source_id"]]["url"], step["id"])
+
+    def test_the_real_steps_sign_before_any_channel(self) -> None:
+        real = json.loads(self.REAL_PATH.read_text(encoding="utf-8"))
+        ids = [step["id"] for step in real["facts"]["submission_steps"]["items"]]
+        channels = ["drop_off_or_fax_in_county", "take_or_mail_to_county", "apply_online_instead"]
+        for channel in channels:
+            self.assertLess(ids.index("sign_and_date"), ids.index(channel), channel)
+
+    def test_the_real_steps_copy_no_numbers_and_no_legacy_rule(self) -> None:
+        # Addresses, phone and fax numbers stay on the official pages the
+        # steps link (they can change); the 2020 form's three-month
+        # coverage line stays out (no current official page confirms it).
+        real = json.loads(self.REAL_PATH.read_text(encoding="utf-8"))
+        for group in SOURCED_STEP_GROUPS:
+            for step in real["facts"][group]["items"]:
+                text = f"{step['label']} {step['detail']}"
+                self.assertIsNone(PHONE_NUMBER_RE.search(text), step["id"])
+                self.assertNotIn("three months", text.lower(), step["id"])
+                self.assertNotRegex(text.lower(), r"\b(approved|guaranteed|qualify|will receive)\b", step["id"])
+
+    def test_phone_number_check_bites(self) -> None:
+        for text in ["call 555-123-4567", "fax (555) 123-4567", "555.123.4567"]:
+            self.assertIsNotNone(PHONE_NUMBER_RE.search(text), text)
+        self.assertIsNone(PHONE_NUMBER_RE.search("within 1-2 weeks, or 10 calendar days"))
 
 
 class TestOptionalGroups(KbSchemaTestCase):

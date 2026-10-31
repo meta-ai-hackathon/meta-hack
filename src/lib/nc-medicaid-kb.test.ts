@@ -4,7 +4,9 @@ import realEntryJson from "../../kb/entries/nc-medicaid.json";
 import {
   KB_ENTRIES,
   KB_FACT_GROUPS,
+  SOURCED_STEP_KB_FACT_GROUPS,
   citeFactGroup,
+  citeSourcedSteps,
   parseKbEntry,
   validateKbEntry,
 } from "./kb";
@@ -180,6 +182,106 @@ describe("the real NC Medicaid KB entry (VAL-PILOTREAL-003)", () => {
     expect(text).toContain("45 days");
     expect(text).not.toContain("you will be approved");
     expect(text).not.toContain("guaranteed");
+  });
+});
+
+// The handoff steps (HACK-46 signing and sending, HACK-47 what comes
+// after): every step cites the official page it comes from, says in its own
+// words which page that is, and copies no address, phone or fax number and
+// no rule the current official pages do not confirm.
+describe("the real entry's handoff steps (HACK-46, HACK-47)", () => {
+  const entry = parseKbEntry(realEntryJson as unknown);
+  const submission = entry.facts.submission_steps?.items ?? [];
+  const after = entry.facts.after_you_apply?.items ?? [];
+  const allSteps = [...submission, ...after];
+
+  // How each source's steps name it, so a person can tell where a step
+  // comes from without opening the card.
+  const ATTRIBUTION: Readonly<Record<string, RegExp>> = {
+    dhb_5200_form: /\bform\b/i,
+    nc_medicaid_apply_page: /\bofficial guidance\b/i,
+    epass_portal: /\bofficial guidance\b/i,
+    mecklenburg_apply_page: /\bApply for Benefits page\b/,
+  };
+
+  it("carries both groups, every step citing one of the entry's official sources", () => {
+    expect(submission.length).toBeGreaterThan(0);
+    expect(after.length).toBeGreaterThan(0);
+    for (const group of SOURCED_STEP_KB_FACT_GROUPS) {
+      expect(entry.facts[group]?.retrievedAt).toBe(RETRIEVAL_DATE);
+      for (const citation of citeSourcedSteps(entry, group)) {
+        expect(citation.status).toBe("active");
+        expect(citation.entryVersion).toBe(entry.version);
+        const host = new URL(citation.sourceUrl).hostname;
+        expect(
+          OFFICIAL_HOSTS.some(
+            (official) => host === official || host.endsWith(`.${official}`),
+          ),
+          `${citation.step.id} cites ${citation.sourceUrl}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("names its source in every step's own words", () => {
+    for (const step of allSteps) {
+      const attribution = ATTRIBUTION[step.sourceId];
+      expect(attribution, `${step.id} cites an unexpected source`).toBeDefined();
+      expect(step.detail, step.id).toMatch(attribution!);
+    }
+  });
+
+  it("links the county page and the online portal, each cited to the page it links", () => {
+    const byId = new Map(submission.map((step) => [step.id, step]));
+    const county = byId.get("drop_off_or_fax_in_county");
+    expect(county?.sourceId).toBe("mecklenburg_apply_page");
+    expect(new URL(county?.link?.url ?? "https://invalid.example").hostname).toBe(
+      "dcr.mecknc.gov",
+    );
+    const online = byId.get("apply_online_instead");
+    expect(online?.sourceId).toBe("epass_portal");
+    expect(new URL(online?.link?.url ?? "https://invalid.example").hostname).toBe(
+      "epass.nc.gov",
+    );
+    for (const step of allSteps) {
+      if (step.link) {
+        const source = entry.sources.find((candidate) => candidate.id === step.sourceId);
+        expect(step.link.url, step.id).toBe(source?.url);
+      }
+    }
+  });
+
+  it("puts signing and dating before every way of sending it in", () => {
+    const ids = submission.map((step) => step.id);
+    const sign = ids.indexOf("sign_and_date");
+    expect(sign).toBeGreaterThanOrEqual(0);
+    expect(submission[sign]?.sourceId).toBe("dhb_5200_form");
+    for (const channel of [
+      "drop_off_or_fax_in_county",
+      "take_or_mail_to_county",
+      "apply_online_instead",
+    ]) {
+      expect(ids.indexOf(channel), channel).toBeGreaterThan(sign);
+    }
+  });
+
+  it("words every step without an outcome promise or a copied number", () => {
+    for (const step of allSteps) {
+      const text = `${step.label}. ${step.detail}`;
+      expect(() => assertNoBannedClaimsEverySentence(text), step.id).not.toThrow();
+      expect(text, step.id).not.toMatch(/\b(?:approved|guaranteed|will receive|qualify)\b/i);
+      // Phone and fax numbers stay on the official pages, which can change.
+      expect(text, step.id).not.toMatch(/\(?\b\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/);
+      // The 2020 form's three-month coverage line stays out.
+      expect(text.toLowerCase(), step.id).not.toContain("three months");
+    }
+  });
+
+  it("records the passages it relies on in the form's verification note", () => {
+    const form = entry.sources.find((source) => source.id === "dhb_5200_form");
+    for (const fragment of ["HACK-46", "HACK-47", "page 1", "page 20", "page 21", "returned 404"]) {
+      expect(form?.supports, fragment).toContain(fragment);
+    }
   });
 });
 
