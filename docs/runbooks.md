@@ -206,8 +206,15 @@ session that already holds a private answer can't be read again, while new sessi
 An unreadable session doesn't show "Delete my information" either.
 
 Set the key in the Vercel project's environment for production and preview, and don't
-change it mid-pilot. For a session saved under an old key, start over in a fresh private
-window.
+change it mid-pilot. A session saved under an old key still sits on the server, and the page
+can't offer its delete button, so delete it from the same browser before starting over. On
+the chat page, open the browser's developer console and send the request that button sends:
+
+```js
+await fetch("/api/session/purge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirmed: true }) })
+```
+
+It answers with the counts of what it deleted. Then start over in a fresh private window.
 
 Rehearsed on 2026-10-31. With no key, every session read and a first plain answer returned
 500. With a new key, the earlier session stayed unreadable, and the purge route still
