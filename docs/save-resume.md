@@ -129,6 +129,13 @@ and nothing about the journey is stored on the server.
 - **Other tabs:** the page re-reads the store when it comes back into view
   and before confirming "Save and finish later", so a delete or new answers
   from another tab show up instead of being contradicted.
+- **Answers saved before this change:** until HACK-99, `/intake` saved
+  answers to the server session. On load the page asks
+  `GET /api/intake/state` (the cookie only, no answer, no new session)
+  whether this browser still has answers there. If it does, a notice says
+  how many and offers the HACK-80 purge (`POST /api/session/purge`) behind
+  one confirming step, and its outcome copy claims a deletion only when the
+  server confirmed one (`src/app/intake/server-answers-notice.tsx`).
 
 The conversation page still keeps answers on the server, because its match
 and review sections read the server session. Moving them on-device is
@@ -149,3 +156,4 @@ without what the person told the chat.
 | What the page says matches what the browser kept | `src/lib/intake/device-intake.test.ts` (unsupported, failed open, failed read, failed and stalled saves, other tabs) + `src/app/intake/intake-wizard.device.test.tsx` (focus and announcements in the delete flow, the double-click guard) |
 | Device storage holds no plaintext and resumes exactly | `src/lib/intake/device-answer-store.test.ts` (properties over saved answer sequences) + `src/lib/device-kv.test.ts` (sealed store over a fake IndexedDB) |
 | A device delete is verified and never undone by another tab | `src/lib/intake/device-answer-store.test.ts` (purge and racing-save properties) |
+| Answers saved on the server before device mode can be found and deleted | `src/app/intake/server-answers-notice.test.tsx` (cookie-only check, confirmed purge, every purge outcome, no answer in any request) |

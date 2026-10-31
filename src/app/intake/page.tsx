@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DEVICE_INTAKE_COPY } from "../../lib/intake/device-intake";
 import { IntakeWizard } from "./intake-wizard";
+import { ServerAnswersNotice } from "./server-answers-notice";
 
 export const metadata: Metadata = {
   title: "Your application — Benefits Navigator",
@@ -10,7 +11,9 @@ export const metadata: Metadata = {
 
 // The intake flow's page shell (BN-09). One h1; the wizard below renders
 // exactly one question per screen, driven by the question spec. Answers on
-// this page live only on the person's device (HACK-99).
+// this page live only on the person's device (HACK-99). The notice above it
+// shows only when this browser still has answers on the server from before
+// that change, and offers to delete them.
 export default function IntakePage() {
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-12">
@@ -22,6 +25,7 @@ export default function IntakePage() {
           {DEVICE_INTAKE_COPY.pageIntro}
         </p>
       </div>
+      <ServerAnswersNotice />
       <IntakeWizard persistence="device" />
     </div>
   );
