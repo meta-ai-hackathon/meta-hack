@@ -195,6 +195,11 @@ export function ConversationChat() {
   // utterance ends until the turn response lands, "speaking" while the
   // reply plays, null otherwise.
   const [voicePhase, setVoicePhase] = useState<VoiceInterimPhase | null>(null);
+  // Fallback honesty (VAL-TTS2-002): when the server-side voice (ElevenLabs)
+  // fails and the built-in browser voice covers the reply instead, the UI
+  // says so — silent degradation to the OS voice is the exact bug that
+  // caused the ElevenLabs switch (HACK-116).
+  const [builtInVoiceFallback, setBuiltInVoiceFallback] = useState(false);
   const [micBlocked, setMicBlocked] = useState(false);
   // The two entry modes (VAL-NCF-002): the entry choice is a moment, the
   // session state follows it. entryMode null = the choice hasn't been
@@ -437,7 +442,7 @@ export function ConversationChat() {
   }
 
   async function speakReply(turnId: string, subtitle: string): Promise<void> {
-    // Spoken replies (VAL-VOICE-003): Gemini audio for the STORED reply
+    // Spoken replies (VAL-VOICE-003): ElevenLabs audio for the STORED reply
     // (the server speaks the turn by id — never client-supplied text)
     // when voice sharing is ON, browser speechSynthesis otherwise. With
     // voice sharing off the speak route is never called — reply audio is
@@ -447,6 +452,7 @@ export function ConversationChat() {
     // continuous session's next listening cycle never transcribes the
     // assistant's own voice.
     if (voiceSharingOn) {
+      let providerFailed = false;
       try {
         const response = await fetch("/api/conversation/speak", {
           method: "POST",
@@ -455,23 +461,41 @@ export function ConversationChat() {
           ),
           body: JSON.stringify({ turnId }),
         });
-        if (response.ok) {
-          const audio = new Audio(URL.createObjectURL(await response.blob()));
-          await new Promise<void>((resolve) => {
-            audio.onended = () => {
-              URL.revokeObjectURL(audio.src);
-              resolve();
-            };
-            audio.onerror = () => {
-              URL.revokeObjectURL(audio.src);
-              resolve();
-            };
-            audio.play().catch(() => resolve());
-          });
-          return;
+        if (!response.ok) {
+          // The provider call failed (down, rate-limited, unconfigured):
+          // the built-in voice covers below — VISIBLY (VAL-TTS2-002),
+          // never a silent degradation to the OS voice again.
+          providerFailed = true;
+        } else {
+          setBuiltInVoiceFallback(false);
+          try {
+            const audio = new Audio(
+              URL.createObjectURL(await response.blob()),
+            );
+            await new Promise<void>((resolve) => {
+              audio.onended = () => {
+                URL.revokeObjectURL(audio.src);
+                resolve();
+              };
+              audio.onerror = () => {
+                URL.revokeObjectURL(audio.src);
+                resolve();
+              };
+              audio.play().catch(() => resolve());
+            });
+            return;
+          } catch {
+            // Local playback failed after a SUCCESSFUL provider call —
+            // speech is enhancement (the subtitle is the accessible
+            // path), and this is not a provider failure: no badge.
+          }
         }
       } catch {
-        // Fall through to the built-in voice.
+        // The speak route itself was unreachable: a provider failure.
+        providerFailed = true;
+      }
+      if (providerFailed) {
+        setBuiltInVoiceFallback(true);
       }
     }
     try {
@@ -948,6 +972,15 @@ export function ConversationChat() {
           className="flex flex-col gap-2"
         >
           <VoiceInterimState phase={voicePhase} />
+          {builtInVoiceFallback ? (
+            <p
+              data-voice-fallback-badge
+              className="self-start rounded-full border border-amber-ink px-3 py-1 text-sm font-medium text-amber-ink"
+            >
+              Hearing the built-in voice — the assistant&apos;s usual voice is
+              unavailable right now.
+            </p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
             {paused ? (
               <button
