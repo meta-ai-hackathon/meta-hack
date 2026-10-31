@@ -672,7 +672,10 @@ _KEY_MATERIAL_MAX = 8000 + 40
 # How far past a header its footer may start at all: eight times main's
 # bound. A pair of key markers, real or fake, never covers more text than
 # that, and a 4096-bit key written four characters at a time with a line of
-# code each still fits.
+# code each still fits. Past main's bound, where main redacted nothing
+# between the markers, a run of a key line or more goes only when it does
+# not read as code (see is_key_piece), so markers that far apart hide no
+# long name main showed.
 _KEY_FOOTER_REACH = 8 * _KEY_MATERIAL_MAX
 _KEY_PIECE = re.compile(
     r"(?P<footer>-?-----END [A-Z ]*PRIVATE KEY-----)"
@@ -759,14 +762,16 @@ def _key_end(text: str, pos: int) -> int:
             line_start = False
 
 
-def is_key_piece(run: str, quoted: bool) -> bool:
+def is_key_piece(run: str, quoted: bool, near: bool = True) -> bool:
     """Whether a base64 run between a key's markers, after the walk has
     stopped at code, is a piece of the key: a run of a key line or more, or
     a shorter one that does not read as code (see _KEY_STRING_PIECE_MIN).
     quoted says whether the run is a whole string, alone between its
-    quotes."""
+    quotes. near says whether the footer ends within main's bound of the
+    header; when it does not, a run of a key line or more is a piece only
+    when it does not read as code either (see _KEY_FOOTER_REACH)."""
     value = run.replace("\\", "")
-    if len(value) >= _KEY_LINE_MIN:
+    if len(value) >= _KEY_LINE_MIN and near:
         return True
     if quoted:
         parts, word, floor = value.split("/"), _KEY_STRING_WORD, _KEY_STRING_PIECE_MIN
@@ -785,17 +790,17 @@ def _whole_string(text: str, start: int, end: int) -> bool:
     return closer is not None and closer.group(1) == opener
 
 
-def key_piece_at(text: str, start: int, end: int) -> bool:
+def key_piece_at(text: str, start: int, end: int, near: bool = True) -> bool:
     """Whether the base64 run text[start:end] is a piece of a key where it
     stands: is_key_piece, with whether it is a whole string read from text."""
-    return is_key_piece(text[start:end], _whole_string(text, start, end))
+    return is_key_piece(text[start:end], _whole_string(text, start, end), near)
 
 
-def _key_pieces(text: str, start: int, end: int, stop: int) -> list[tuple[int, int]] | None:
+def _key_pieces(text: str, start: int, end: int, stop: int, near: bool) -> list[tuple[int, int]] | None:
     """The pieces of a key between end, where its walk stopped, and stop,
     where a footer starts. None when the key material between start (the
     header's end) and stop is more than one key holds, so the footer is
-    not this key's."""
+    not this key's. near is is_key_piece's."""
     pieces: list[tuple[int, int]] = []
     material = 0
     for run in _KEY_RUN.finditer(text, start, stop):
@@ -805,7 +810,7 @@ def _key_pieces(text: str, start: int, end: int, stop: int) -> list[tuple[int, i
             # it, belongs to the escape and not to the run after it, so an
             # all-caps name right after a \n is still read as a name.
             first += 1
-        if first < last and key_piece_at(text, first, last):
+        if first < last and key_piece_at(text, first, last, near):
             value = text[first:last]
             material += len(value) - value.count("\\")
             if material > _KEY_MATERIAL_MAX:
@@ -830,7 +835,7 @@ def private_key_spans(text: str) -> list[tuple[int, int]]:
     under the floors (a string of one key character, a bare run of up to
     three), and pieces that happen to read as code, such as a string piece
     in one case, capitalized or camelCase, or a bare piece shaped like a
-    name.
+    name, and past main's bound a run of a key line or more shaped that way.
 
     Linear in the text's length. A key's walk ends at its footer or at the
     first piece that is not key material, which any later header is, so no
@@ -854,7 +859,8 @@ def private_key_spans(text: str) -> list[tuple[int, int]]:
             and footer.start() - header.end() <= _KEY_FOOTER_REACH
             and _KEY_HEADER.search(text, header.end(), footer.start()) is None
         ):
-            pieces = _key_pieces(text, header.end(), end, footer.start())
+            near = footer.end() - header.end() <= _KEY_MATERIAL_MAX
+            pieces = _key_pieces(text, header.end(), end, footer.start(), near)
             if pieces is not None:
                 spans += [*pieces, footer.span()]
         header = _KEY_HEADER.search(text, spans[-1][1])

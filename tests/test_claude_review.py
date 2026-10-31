@@ -1309,6 +1309,15 @@ STRING_WORD = st.builds(
 STRING_RUNS = st.builds(
     lambda lead, first, rest: lead + first + rest, st.sampled_from(["", "/"]), STRING_WORD, st.just("") | STRING_WORD.map("/".__add__)
 )
+# camelCase names of a key line or more, maybe with digits at their end,
+# like socialSecurityNumber or householdIncomeMonthly: a lower-case word of
+# 4 or more and 3 or more humps of 4 or more.
+LONG_NAMES = st.builds(
+    lambda first, humps, digits: first + "".join(humps) + digits,
+    st.text(alphabet=string.ascii_lowercase, min_size=4, max_size=8),
+    st.lists(st.builds(lambda upper, rest: upper + rest, UPPER, st.text(alphabet=string.ascii_lowercase, min_size=3, max_size=6)), min_size=3, max_size=5),
+    st.sampled_from(["", "2", "64"]),
+)
 
 
 class ShortKeyPieceProperties(unittest.TestCase):
@@ -1470,6 +1479,31 @@ class ShortKeyPieceProperties(unittest.TestCase):
             shown = [piece for piece in pieces if echo.shown.format(piece=piece) in out]
             self.assertEqual(shown, [] if footer_is_the_keys else pieces, filler)
             self.assertEqual(out.count("echo done >> build.log"), filler)
+
+    @PBT
+    @given(LONG_NAMES, KEY_KINDS)
+    @example("socialSecurityNumber", "")  # a field name the reviewer has to judge
+    def test_long_names_past_mains_bound_reach_the_model(self, name: str, kind: str) -> None:
+        # Past main's 8,040 characters after the header, where main redacted
+        # nothing between a pair of markers, a run of a key line or more goes
+        # only when it does not read as code. So a long name there stays, as
+        # a bare word and as a whole string, and a key line there still goes.
+        key_line = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"
+        lines = [
+            f"echo '-----BEGIN {kind}PRIVATE KEY-----' > key.pem",
+            *["echo done >> build.log"] * 400,
+            f"echo {name} >> build.log",
+            f"echo '{name}' >> build.log",
+            f"echo {key_line} >> key.pem",
+            f"echo '{key_line}' >> key.pem",
+            f"echo '-----END {kind}PRIVATE KEY-----' >> key.pem",
+        ]
+        text = "\n".join(lines)
+        self.assertGreater(text.index("-----END") - text.index("KEY-----") - len("KEY-----"), 8_040)
+        out, count = review.redact_sensitive(text)
+        self.assertIn(f"echo {name} >> build.log\necho '{name}' >> build.log", out)
+        self.assertNotIn(key_line, out)
+        self.assertEqual(count, 4)
 
     def test_short_key_pieces_take_linear_time(self) -> None:
         # Long texts between a header and a footer, after a line of code,
