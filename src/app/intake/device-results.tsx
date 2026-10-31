@@ -72,6 +72,7 @@ export const DEVICE_RESULTS_COPY = {
   handoffBody:
     "You submit the form yourself, through one of the official ways to " +
     "apply below. The app never submits for you.",
+  handoffBodyNoLinks: "You submit the form yourself. The app never submits for you.",
 } as const;
 
 const REQUIREMENT_KIND_LABELS: Readonly<Record<MatchCard["requirements"][number]["kind"], string>> = {
@@ -439,18 +440,24 @@ export function DeviceResults(props: {
         <h2 id="device-handoff-heading" className="font-display text-xl font-bold">
           {DEVICE_RESULTS_COPY.handoffHeading}
         </h2>
-        <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.handoffBody}</p>
-        <ul className="list-disc pl-5" data-handoff-links>
-          {handoffLinks.map((link, index) => (
-            <li key={`${link.url}-${index}`}>
-              <a href={link.url} className="underline" rel="noreferrer">
-                {link.label}
-              </a>
-              <br />
-              <SourceNote source={link.source} />
-            </li>
-          ))}
-        </ul>
+        <p className="text-sm text-muted">
+          {handoffLinks.length > 0
+            ? DEVICE_RESULTS_COPY.handoffBody
+            : DEVICE_RESULTS_COPY.handoffBodyNoLinks}
+        </p>
+        {handoffLinks.length > 0 ? (
+          <ul className="list-disc pl-5" data-handoff-links>
+            {handoffLinks.map((link, index) => (
+              <li key={`${link.url}-${index}`}>
+                <a href={link.url} className="underline" rel="noreferrer">
+                  {link.label}
+                </a>
+                <br />
+                <SourceNote source={link.source} />
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </section>
     </div>
   );

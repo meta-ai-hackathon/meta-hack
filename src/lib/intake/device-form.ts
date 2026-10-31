@@ -9,7 +9,7 @@ import {
   parseCommittedRegistryEntries,
   type FormRegistryEntry,
 } from "../forms/registry-core";
-import { KB_ENTRIES } from "../kb";
+import { KB_ENTRIES, type KbEntry } from "../kb";
 import {
   buildFactsMatchResponse,
   officialLinks,
@@ -60,12 +60,18 @@ export function deviceMatch(answers: ClientAnswerState): MatchResponse {
 }
 
 /**
- * The official ways to apply for the pilot's program, from its knowledge
- * base entries, each citing its source: where the person takes the form
- * they filled. Shown whatever the match says, like the form itself.
+ * The official ways to apply for the pilot's program, each citing its
+ * source: where the person takes the form they filled. Shown whatever the
+ * match says, like the form itself. They come from the pilot's own
+ * knowledge base entries (KB_ENTRIES is the pilot seam's kbEntryIds, the
+ * same seam that names the form), and only from active ones: a stale or
+ * withdrawn entry's links are never presented (BN-29), the rule the match
+ * follows too.
  */
-export function deviceHandoffLinks(): readonly MatchLink[] {
-  return KB_ENTRIES.flatMap((entry) => officialLinks(entry));
+export function deviceHandoffLinks(entries: readonly KbEntry[] = KB_ENTRIES): readonly MatchLink[] {
+  return entries
+    .filter((entry) => entry.status === "active")
+    .flatMap((entry) => officialLinks(entry));
 }
 
 /**

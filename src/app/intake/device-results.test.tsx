@@ -325,11 +325,13 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(card?.textContent).toContain("This explanation quotes the sourced facts above directly.");
     expect(card?.querySelectorAll("a[href^='https://']").length).toBeGreaterThan(0);
 
-    // Where to take the form: the knowledge base's official links, each with its source.
+    // Where to take the form: the active knowledge base entries' official links, each with its source.
     const { KB_ENTRIES } = await import("../../lib/kb");
     const handoff = page.container.querySelector("[data-handoff-links]");
     expect([...(handoff?.querySelectorAll("li > a") ?? [])].map((link) => link.getAttribute("href"))).toEqual(
-      KB_ENTRIES.flatMap((entry) => entry.facts.official_links.items.map((link) => link.url)),
+      KB_ENTRIES.filter((entry) => entry.status === "active").flatMap((entry) =>
+        entry.facts.official_links.items.map((link) => link.url),
+      ),
     );
     expect(handoff?.textContent).toContain("Source:");
 
