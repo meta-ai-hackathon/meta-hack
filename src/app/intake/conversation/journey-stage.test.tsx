@@ -63,7 +63,14 @@ vi.mock("../../../lib/audio/voice-session", () => ({
   },
 }));
 
-const queueSpeechMock = vi.fn(() => true);
+// The mocked built-in voice finishes instantly (the real queueSpeech
+// invokes the end callback when the utterance completes — args[2] here),
+// so a session's next turn can flow without waiting on real audio.
+const queueSpeechMock = vi.fn((...args: unknown[]) => {
+  const onended = args[2] as (() => void) | undefined;
+  onended?.();
+  return true;
+});
 
 vi.mock("../../../lib/audio/capture", () => ({
   queueSpeech: (...args: unknown[]) => queueSpeechMock(...(args as [])),
@@ -182,7 +189,11 @@ const REVIEW_PAYLOAD = {
   ],
 };
 
-function stubFetch(state: IntakeClientState, turnState?: IntakeClientState): void {
+function stubFetch(
+  state: IntakeClientState,
+  turnState?: IntakeClientState,
+  speakStatus = 200,
+): void {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -194,10 +205,17 @@ function stubFetch(state: IntakeClientState, turnState?: IntakeClientState): voi
         return turnResponse(turnState ?? state);
       }
       if (url === "/api/conversation/speak") {
-        return new Response(JSON.stringify({ audio: null }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify(
+            speakStatus === 200
+              ? { audio: null }
+              : { error: { code: "model_unavailable", message: "unavailable" } },
+          ),
+          {
+            status: speakStatus,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       if (url === "/api/match") {
         return new Response(JSON.stringify(MATCH_PAYLOAD), {
@@ -399,5 +417,51 @@ describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
     // The ai-only path is unstaged: sections render inline as before.
     expect(container.textContent).toContain("Your answers so far");
     expect(q(container, "results-stage")).toBeNull();
+  });
+});
+
+describe("fallback honesty (VAL-TTS2-002)", () => {
+  it("a failed speak shows the built-in-voice badge — never silent OS-voice degradation", async () => {
+    // The speak route fails (e.g. the provider is down/rate-limited): the
+    // turn still completes and the built-in voice covers the reply, but
+    // the UI SAYS SO — silent degradation to the OS voice is the exact bug
+    // that caused the ElevenLabs switch (HACK-116).
+    stubFetch(OPEN_STATE, OPEN_STATE, 503);
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-only");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    // The built-in voice actually covered the reply…
+    expect(queueSpeechMock).toHaveBeenCalled();
+    // …visibly: a DOM badge says the built-in voice is in use.
+    expect(q(container, "voice-fallback-badge")).not.toBeNull();
+    expect(container.textContent).toContain("built-in voice");
+  });
+
+  it("a successful provider speak renders no fallback badge", async () => {
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-only");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(q(container, "voice-fallback-badge")).toBeNull();
+  });
+
+  it("a later successful speak clears the badge again", async () => {
+    stubFetch(OPEN_STATE, OPEN_STATE, 503);
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-only");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(q(container, "voice-fallback-badge")).not.toBeNull();
+
+    // The provider recovers: the next spoken reply clears the badge.
+    stubFetch(OPEN_STATE);
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(q(container, "voice-fallback-badge")).toBeNull();
   });
 });

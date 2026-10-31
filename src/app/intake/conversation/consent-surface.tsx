@@ -192,11 +192,11 @@ export function ConsentPanel(props: ConsentPanelProps) {
           )}
           <p className="text-sm text-muted">
             With voice sharing off, the microphone is never started and no
-            audio is ever transmitted. Gemini&apos;s free-tier terms say
-            submitted content may be used to improve Google&apos;s products
-            and ask that personal information not be submitted — so only the
-            assistant&apos;s own reply text ever goes there for reading
-            replies aloud, never anything you said or typed.
+            audio is ever transmitted. The ElevenLabs terms say content may
+            be used to provide and improve its services, with a training
+            opt-out in your account — so only the assistant&apos;s own reply
+            text ever goes there for reading replies aloud, never anything
+            you said or typed.
           </p>
         </div>
       ) : null}
