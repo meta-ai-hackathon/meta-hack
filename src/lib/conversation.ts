@@ -401,7 +401,11 @@ export function buildCombinedTurnPrompt(
     `Reply rules: in the "reply" field, acknowledge in one short sentence what ` +
       "the person just told you, then ask the first question in the list they " +
       "have NOT answered — the question just asked again, naturally, when their " +
-      "message did not clearly answer it. When you ask a question with choices, " +
+      "message did not clearly answer it. Acknowledge in general terms (like " +
+      "\"Thanks for sharing that\") and never restate a specific answer value " +
+      "as settled: the app records answers and marks the ones it is not sure " +
+      "about, so a claimed detail can overstate what was actually saved. When " +
+      "you ask a question with choices, " +
       "offer its plain-language labels (the words after each colon), never the " +
       "internal values. If every question in the list is answered, thank the " +
       "person and say they can continue to the review step.",
@@ -593,9 +597,10 @@ export function parseCombinedEnvelope(
     return null;
   }
   // The declared next question is verified against the spec's ids; an
-  // unknown or missing declaration means the server cannot verify and the
-  // reply stands as-is (per-item tolerance: a malformed declaration never
-  // fails the turn).
+  // unknown declaration is DROPPED here, and the caller treats a missing
+  // one as a mismatch (the deterministic server question replaces the
+  // unverifiable spoken one). A malformed declaration never fails the
+  // turn.
   const declaredNext =
     typeof record.next_question_id === "string" &&
     Object.hasOwn(QUESTION_BY_ID, record.next_question_id)

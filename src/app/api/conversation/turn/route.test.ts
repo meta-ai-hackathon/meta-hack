@@ -8,6 +8,7 @@ import {
   BANNED_CLAIM_FALLBACK_REPLY,
   CHAT_CALL_MAX_TOKENS,
   COMMITTED_REFUSAL,
+  ENVELOPE_MALFORMED_PREFIX,
   PARTIAL_SAVE_FALLBACK_PREFIX,
   PII_ECHO_FALLBACK_REPLY,
   RAW_CASCADE_SAVED_PREFIX,
@@ -380,13 +381,19 @@ describe("POST /api/conversation/turn — extraction persistence (VAL-CONV-003)"
             },
           ],
         }),
+        // The prompt's reply rules forbid restating a specific answer value
+        // as settled — the app marks this save unverified, so a "got it, ONE
+        // senior" ack would overstate. The generic ack stands.
         reply: "Thanks for the detail.",
+        nextQuestionId: "application_role",
       },
     ]);
     const response = await POST(
       turnRequest("My dad lives with us, he is around 67."),
     );
     expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe("Thanks for the detail.");
     const rows = await testDb`
       SELECT value, status, provenance FROM answer
       WHERE question_id = 'household_seniors'
@@ -712,6 +719,33 @@ describe("POST /api/conversation/turn — honest degradation (VAL-CONV-007)", ()
     const data = (await response.json()) as ErrorResponse;
     expect(data.error.code).toBe("rate_limited");
     expect(data.error.wizardFallbackUrl).toBe(WIZARD_FALLBACK_URL);
+  });
+
+  it("answers the deterministic re-ask when the model returns no usable envelope, and persists both turns", async () => {
+    // Content with no JSON object (no braces) → parseCombinedEnvelope null
+    // → the session still exists, NOTHING is saved, and the honest re-ask
+    // is both returned and persisted with the redacted user turn.
+    setModelTransport(async () =>
+      new Response(
+        JSON.stringify(
+          chatCallBody("I don't have verified info on that."),
+        ),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const response = await POST(turnRequest("Hello there."));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(
+      `${ENVELOPE_MALFORMED_PREFIX} ${QUESTION_BY_ID.application_role.prompt}`,
+    );
+    expect(data.nextQuestionId).toBe("application_role");
+    const answerRows = await testDb`
+      SELECT value FROM answer
+    `;
+    expect(answerRows).toHaveLength(0);
+    expect(await userTranscripts()).toEqual(["Hello there."]);
+    expect(await assistantTranscripts()).toEqual([data.assistantReply]);
   });
 });
 
