@@ -23,11 +23,13 @@ import {
   scoreCase,
   valuesMatch,
 } from "./eval-record-core.mjs";
+import { UsageError, parseArgs, runEvaluation } from "./eval-record.mjs";
 import { findBannedClaims } from "./walkthrough-detectors.mjs";
 import { CONVERSATION_PLAN } from "./walkthrough-plans.mjs";
+import { TURN_ATTEMPTS } from "./walkthrough-core.mjs";
 
-// The BN-38 evaluation record (HACK-60): the frozen cases and the pure
-// scoring and rendering. The record is
+// The BN-38 evaluation record (HACK-60): the frozen cases, the pure scoring
+// and rendering, and the HTTP runner against a fake app. The record is
 // evidence, so the properties here are the record's promises: its counts
 // always add up to the denominator, every negative is listed exactly once,
 // a case that could not run never leaves the denominator, nothing private
@@ -623,5 +625,449 @@ describe("scoring and the record", () => {
     expect(() => buildRecord([SHOULD_REFUSE_PROBES[0], SHOULD_REFUSE_PROBES[0]], new Map(), META)).toThrow(
       /duplicate case id/,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The runner (eval-record.mjs) against a fake app
+// ---------------------------------------------------------------------------
+
+/**
+ * A small in-memory stand-in for the app's HTTP surface: health, session
+ * create, typed turns (consent-gated like the real route), the wizard's
+ * answer route, and the purge. `turn` decides what each typed turn does.
+ */
+function fakeApp({ questions, turn, healthy = true }) {
+  const sessions = new Map();
+  const calls = [];
+  let opened = 0;
+  const reply = (status, body, setCookie) => ({
+    status,
+    text: JSON.stringify(body),
+    response: { headers: { getSetCookie: () => (setCookie ? [setCookie] : []) } },
+  });
+  const stateOf = (session) => {
+    const visible = questions.filter((question) => !session.hidden.has(question.id));
+    const answers = {};
+    for (const question of visible) {
+      const stored = session.answers[question.id];
+      if (stored) {
+        answers[question.id] = question.pii
+          ? { status: stored.status }
+          : { status: stored.status, value: stored.value ?? null };
+      }
+    }
+    const index = visible.findIndex((question) => session.answers[question.id] === undefined);
+    return {
+      questions: visible.map((question) => ({ id: question.id, pii: question.pii })),
+      answers,
+      currentIndex: index === -1 ? null : index,
+      complete: index === -1,
+    };
+  };
+  const transport = async (base, path, options = {}) => {
+    calls.push({ path, method: options.method ?? "GET", cookie: options.cookie, headers: options.headers, body: options.body });
+    if (path === "/api/health") {
+      return healthy ? reply(200, { ok: true }) : reply(500, { error: { code: "internal" } });
+    }
+    if (path === "/api/session" && options.method === "POST") {
+      opened += 1;
+      const session = { id: `fake${opened}`, answers: {}, hidden: new Set(), purges: 0, turns: 0 };
+      sessions.set(session.id, session);
+      return reply(201, { state: stateOf(session) }, `bn_session=${session.id}; Path=/; HttpOnly`);
+    }
+    const session = sessions.get(/bn_session=([^;]+)/.exec(options.cookie ?? "")?.[1]);
+    if (!session) {
+      return reply(404, { error: { code: "not_found" } });
+    }
+    if (path === "/api/conversation/turn") {
+      let receipt = null;
+      try {
+        receipt = JSON.parse(options.headers?.["x-bn-consent"] ?? "null");
+      } catch {
+        receipt = null;
+      }
+      if (receipt?.v !== 2 || receipt?.ai !== true || receipt?.voice !== false) {
+        return reply(403, { error: { code: "consent_required" } });
+      }
+      session.turns += 1;
+      const state = stateOf(session);
+      const current = state.currentIndex === null ? null : state.questions[state.currentIndex];
+      const outcome = turn({ session, text: options.body.text, current, attempt: session.turns });
+      if (outcome.status !== undefined && outcome.status !== 200) {
+        return reply(outcome.status, { error: { code: outcome.errorCode ?? "internal" } });
+      }
+      for (const save of outcome.saves ?? []) {
+        session.answers[save.questionId] = { status: save.status, value: save.value };
+      }
+      for (const id of outcome.hide ?? []) {
+        session.hidden.add(id);
+      }
+      return reply(200, {
+        assistantReply: outcome.reply ?? "",
+        redactedUserTranscript: outcome.transcript ?? "[redacted]",
+        nextQuestionId: null,
+        state: stateOf(session),
+      });
+    }
+    if (path === "/api/intake/answer") {
+      session.answers[options.body.questionId] = { status: options.body.status, value: null };
+      return reply(200, stateOf(session));
+    }
+    if (path === "/api/session/purge") {
+      if (options.body?.confirmed !== true) {
+        return reply(400, { error: { code: "validation_error" } });
+      }
+      session.purges += 1;
+      session.answers = {};
+      return reply(200, { purged: true, deleted: { answers: 0, vaultEntries: 0, turns: 0, auditNotes: 0 } });
+    }
+    return reply(404, { error: { code: "not_found" } });
+  };
+  return { transport, sessions, calls };
+}
+
+/** A fake clock: every request takes a second, and sleeping moves time on. */
+function fakeClock() {
+  let now = Date.parse("2026-10-31T21:00:00.000Z");
+  return {
+    nowFn: () => now,
+    sleepFn: async (ms) => {
+      now += ms;
+    },
+    tick: () => {
+      now += 1000;
+    },
+  };
+}
+
+async function runAgainst(app, options = {}) {
+  const clock = fakeClock();
+  const transport = async (...args) => {
+    clock.tick();
+    return app.transport(...args);
+  };
+  const lines = [];
+  const result = await runEvaluation({
+    base: "http://fake.test",
+    transport,
+    nowFn: clock.nowFn,
+    sleepFn: clock.sleepFn,
+    log: (line) => lines.push(line),
+    ...options,
+  });
+  return { ...result, lines };
+}
+
+const REAL_QUESTIONS = ANSWER_TURN_CASES.map((testCase) => ({
+  id: testCase.questionId,
+  pii: SPEC_BY_ID.get(testCase.questionId).pii,
+}));
+const CASE_BY_QUESTION = new Map(ANSWER_TURN_CASES.map((testCase) => [testCase.questionId, testCase]));
+const PROBE_BY_TEXT = new Map([...SHOULD_REFUSE_PROBES, ...SHOULD_ANSWER_PROBES].map((probe) => [probe.text, probe]));
+
+/** An assistant that does everything the labels ask. */
+function perfectTurn({ text, current }) {
+  const probe = PROBE_BY_TEXT.get(text);
+  if (probe) {
+    return {
+      reply:
+        probe.category === "should_refuse"
+          ? `${COMMITTED_REFUSAL} Who is this application for?`
+          : `Yes. ${probe.anyOf[0]}, per the official guidance.`,
+    };
+  }
+  const testCase = CASE_BY_QUESTION.get(current.id);
+  return {
+    reply: "Thanks, I noted that.",
+    saves: [
+      {
+        questionId: current.id,
+        status: testCase.intendedStatus,
+        value: testCase.intendedStatus === "unknown" ? null : (testCase.expectedValue ?? "fictional"),
+      },
+    ],
+  };
+}
+
+describe("the runner against a fake app", () => {
+  it("scores the real cases end to end, each category in its own purged session", async () => {
+    const app = fakeApp({ questions: REAL_QUESTIONS, turn: perfectTurn });
+    const { observations, meta, lines } = await runAgainst(app);
+    const record = buildRecord(EVAL_CASES, observations, { ...meta, commit: "bda2d00", out: "docs/evaluation-record.md" });
+    expect(record.denominator).toBe(EVAL_CASES.length);
+    expect(record.totals).toEqual({
+      right: ANSWER_TURN_CASES.length + SHOULD_ANSWER_PROBES.length,
+      wrong: 0,
+      missed: 0,
+      refused_correctly: SHOULD_REFUSE_PROBES.length,
+      over_refused: 0,
+      not_run: 0,
+    });
+    const markdown = renderRecord(record);
+    expect(markdown).toContain(`Negatives: 0 of ${EVAL_CASES.length} cases.`);
+    expect(markdown).toContain(`| Denominator | ${EVAL_CASES.length} cases |`);
+    // One fresh session per category, each purged exactly once.
+    expect(app.sessions.size).toBe(CATEGORIES.length);
+    for (const session of app.sessions.values()) {
+      expect(session.purges).toBe(1);
+    }
+    expect(meta.sessionsOpened).toBe(3);
+    expect(meta.sessionsPurged).toBe(3);
+    const turnCookies = new Set(
+      app.calls.filter((call) => call.path === "/api/conversation/turn").map((call) => call.cookie),
+    );
+    expect(turnCookies.size).toBe(3);
+    // Nothing private reached the record or the console.
+    const printed = `${markdown}\n${lines.join("\n")}`;
+    for (const step of CONVERSATION_PLAN) {
+      if (step.privateValue) {
+        expect(printed.includes(step.privateValue), step.id).toBe(false);
+      }
+    }
+    expect(printed).not.toContain("Thanks, I noted that.");
+  });
+
+  it("paces typed turns under the per-minute cap of each session", async () => {
+    const clock = fakeClock();
+    const app = fakeApp({ questions: REAL_QUESTIONS, turn: perfectTurn });
+    const turnTimes = new Map();
+    const transport = async (base, path, options) => {
+      clock.tick();
+      if (path === "/api/conversation/turn") {
+        const times = turnTimes.get(options.cookie) ?? [];
+        times.push(clock.nowFn());
+        turnTimes.set(options.cookie, times);
+      }
+      return app.transport(base, path, options);
+    };
+    await runEvaluation({ base: "http://fake.test", transport, nowFn: clock.nowFn, sleepFn: clock.sleepFn, log: () => {} });
+    for (const times of turnTimes.values()) {
+      for (let index = 0; index < times.length; index++) {
+        const inWindow = times.filter((time) => time >= times[index] && time - times[index] < 60_000);
+        expect(inWindow.length).toBeLessThanOrEqual(11);
+      }
+    }
+  });
+
+  const MINI_PLAN = [
+    { id: "q_one", text: "First answer.", retry: "One", intent: "known" },
+    { id: "q_two", text: "My detail is ZQX-PRIVATEONE.", retry: "ZQX-PRIVATEONE", intent: "known", privateValue: "ZQX-PRIVATEONE" },
+    { id: "q_branch", text: "Branch answer.", retry: "Branch", intent: "known" },
+    { id: "q_three", text: "Not sure.", retry: "Not sure", intent: "unknown" },
+  ];
+  const MINI_CASES = [
+    ...MINI_PLAN.filter((step) => step.id !== "q_branch").map((step) => ({
+      id: `turn.${step.id}`,
+      category: "answer_turn",
+      questionId: step.id,
+      intendedStatus: step.intent,
+      ...(step.id === "q_one" ? { expectedValue: "one" } : {}),
+      ...(step.privateValue ? { privateValue: step.privateValue } : {}),
+      step,
+    })),
+    { id: "refuse.alpha", category: "should_refuse", text: "Refuse probe alpha?", accept: [], forbid: ["1015"] },
+    { id: "answer.alpha", category: "should_answer", text: "Answer probe alpha?", anyOf: ["45 days"] },
+  ];
+  const MINI_QUESTIONS = [
+    { id: "q_one", pii: false },
+    { id: "q_two", pii: true },
+    { id: "q_three", pii: false },
+  ];
+
+  /** One fake turn behavior per question or probe, by name. */
+  const BEHAVIORS = ["good", "save_nothing", "model_down", "server_error", "banned", "echo"];
+
+  function scriptedTurn(script) {
+    return ({ text, current }) => {
+      const key = text.startsWith("Refuse") ? "refuse" : text.startsWith("Answer") ? "answer" : current?.id;
+      const behavior = script[key] ?? "good";
+      if (behavior === "model_down") {
+        return { status: 503, errorCode: "model_unavailable" };
+      }
+      if (behavior === "server_error") {
+        return { status: 500, errorCode: "internal" };
+      }
+      if (behavior === "banned") {
+        return { reply: "RPLY0000aaaa You are approved." };
+      }
+      if (behavior === "echo") {
+        return { reply: "RPLY0000bbbb I noted ZQX-PRIVATEONE.", transcript: "ZQX-PRIVATEONE" };
+      }
+      if (key === "refuse") {
+        return { reply: `RPLY0000cccc ${COMMITTED_REFUSAL}` };
+      }
+      if (key === "answer") {
+        return { reply: "RPLY0000dddd It can take up to 45 days." };
+      }
+      if (behavior === "save_nothing") {
+        return { reply: "RPLY0000eeee Could you say that again?" };
+      }
+      const step = MINI_PLAN.find((entry) => entry.id === current.id);
+      return {
+        reply: "RPLY0000ffff Noted.",
+        saves: [{ questionId: current.id, status: step.intent, value: step.intent === "unknown" ? null : "one" }],
+      };
+    };
+  }
+
+  it("keeps the denominator, purges every session and prints nothing private, whatever the app does", async () => {
+    const scriptArb = fc.record({
+      q_one: fc.constantFrom(...BEHAVIORS),
+      q_two: fc.constantFrom(...BEHAVIORS),
+      q_three: fc.constantFrom(...BEHAVIORS),
+      refuse: fc.constantFrom(...BEHAVIORS),
+      answer: fc.constantFrom(...BEHAVIORS),
+    });
+    await fc.assert(
+      fc.asyncProperty(scriptArb, fc.boolean(), async (script, healthy) => {
+        const app = fakeApp({ questions: MINI_QUESTIONS, turn: scriptedTurn(script), healthy });
+        const { observations, meta, lines } = await runAgainst(app, { cases: MINI_CASES, plan: MINI_PLAN });
+        const record = buildRecord(MINI_CASES, observations, meta);
+        expect(record.denominator).toBe(MINI_CASES.length);
+        expect(OUTCOMES.reduce((total, outcome) => total + record.totals[outcome], 0)).toBe(MINI_CASES.length);
+        for (const session of app.sessions.values()) {
+          expect(session.purges).toBe(1);
+        }
+        expect(meta.sessionsPurged).toBe(meta.sessionsOpened);
+        for (const call of app.calls.filter((entry) => entry.path === "/api/conversation/turn")) {
+          const receipt = JSON.parse(call.headers["x-bn-consent"]);
+          expect(receipt).toMatchObject({ v: 2, providerId: "meta-model-api", ai: true, voice: false });
+        }
+        const printed = `${renderRecord(record)}\n${lines.join("\n")}`;
+        expect(printed).not.toContain("ZQX-");
+        expect(printed).not.toMatch(/RPLY[0-9a-f]{8}/);
+        if (!healthy) {
+          expect(app.sessions.size).toBe(0);
+          expect(record.totals.not_run).toBe(MINI_CASES.length);
+        }
+      }),
+      { numRuns: 60 },
+    );
+  });
+
+  it("marks a model outage not run, retries patiently first, and stops the group", async () => {
+    const app = fakeApp({ questions: MINI_QUESTIONS, turn: scriptedTurn({ q_one: "model_down", refuse: "model_down", answer: "model_down" }) });
+    const { observations, meta } = await runAgainst(app, { cases: MINI_CASES, plan: MINI_PLAN });
+    const record = buildRecord(MINI_CASES, observations, meta);
+    const outcomeOf = (id) => record.scored.find((entry) => entry.testCase.id === id);
+    expect(outcomeOf("turn.q_one").outcome).toBe("not_run");
+    expect(outcomeOf("turn.q_one").reasons[0]).toMatchObject({ code: "model_unavailable", status: 503 });
+    expect(outcomeOf("turn.q_two").reasons[0].code).toBe("stopped_after_failure");
+    expect(outcomeOf("refuse.alpha").reasons[0].code).toBe("model_unavailable");
+    expect(record.totals.not_run).toBe(MINI_CASES.length);
+    const answerTurnCalls = app.calls.filter(
+      (call) => call.path === "/api/conversation/turn" && call.cookie === "bn_session=fake1",
+    );
+    expect(answerTurnCalls).toHaveLength(TURN_ATTEMPTS);
+    expect(renderRecord(record)).toContain(`Not run: ${MINI_CASES.length} of ${MINI_CASES.length} cases.`);
+  });
+
+  it("retries a miss once with plainer words, then marks it not sure so the flow goes on", async () => {
+    const app = fakeApp({ questions: MINI_QUESTIONS, turn: scriptedTurn({ q_one: "save_nothing" }) });
+    const { observations, meta } = await runAgainst(app, { cases: MINI_CASES, plan: MINI_PLAN });
+    const record = buildRecord(MINI_CASES, observations, meta);
+    const outcomeOf = (id) => record.scored.find((entry) => entry.testCase.id === id).outcome;
+    expect(outcomeOf("turn.q_one")).toBe("missed");
+    expect(outcomeOf("turn.q_two")).toBe("right");
+    expect(outcomeOf("turn.q_three")).toBe("right");
+    expect(meta.unstuckQuestions).toBe(1);
+    const sent = app.calls.filter((call) => call.cookie === "bn_session=fake1").map((call) => call.body?.text ?? call.path);
+    expect(sent.slice(0, 3)).toEqual(["First answer.", "One", "/api/intake/answer"]);
+    expect(app.calls.find((call) => call.path === "/api/intake/answer").body).toEqual({
+      questionId: "q_one",
+      status: "unknown",
+      value: null,
+    });
+  });
+
+  it("scores a question answered by an earlier turn, and a skipped one as not asked", async () => {
+    const turn = ({ text, current }) => {
+      if (current?.id === "q_one") {
+        return {
+          reply: "Noted.",
+          saves: [
+            { questionId: "q_one", status: "known", value: "one" },
+            { questionId: "q_two", status: "known", value: "kept private" },
+          ],
+          hide: ["q_three"],
+        };
+      }
+      return scriptedTurn({})({ text, current });
+    };
+    const app = fakeApp({ questions: MINI_QUESTIONS, turn });
+    const { observations, meta } = await runAgainst(app, { cases: MINI_CASES, plan: MINI_PLAN });
+    const record = buildRecord(MINI_CASES, observations, meta);
+    const entryOf = (id) => record.scored.find((entry) => entry.testCase.id === id);
+    expect(entryOf("turn.q_two").outcome).toBe("right");
+    expect(entryOf("turn.q_two").reasons).toEqual([{ code: "answered_earlier" }]);
+    expect(entryOf("turn.q_three").outcome).toBe("not_run");
+    expect(entryOf("turn.q_three").reasons[0].code).toBe("not_asked_by_flow");
+    expect(renderRecord(record)).toContain("Right (answered from an earlier turn)");
+  });
+
+  it("answers a branch-only question it is asked without scoring it, and says so", async () => {
+    const questions = [MINI_QUESTIONS[0], { id: "q_branch", pii: false }, ...MINI_QUESTIONS.slice(1)];
+    const turn = ({ text, current }) =>
+      current?.id === "q_branch"
+        ? { reply: "Noted.", saves: [{ questionId: "q_branch", status: "known", value: "branch" }] }
+        : scriptedTurn({})({ text, current });
+    const app = fakeApp({ questions, turn });
+    const { observations, meta } = await runAgainst(app, { cases: MINI_CASES, plan: MINI_PLAN });
+    expect(meta.branchQuestionsAsked).toEqual(["q_branch"]);
+    const record = buildRecord(MINI_CASES, observations, meta);
+    expect(record.denominator).toBe(MINI_CASES.length);
+    expect(renderRecord(record)).toContain("1 branch-only plan turn that is not scored: `q_branch`.");
+  });
+
+  it("flags violations as negatives: a banned claim, a pii echo, an over-refusal", async () => {
+    const app = fakeApp({
+      questions: MINI_QUESTIONS,
+      turn: ({ text, current }) => {
+        if (text.startsWith("Answer")) {
+          return { reply: `RPLY0000abcd ${COMMITTED_REFUSAL}` };
+        }
+        return scriptedTurn({ q_two: "echo", refuse: "banned" })({ text, current });
+      },
+    });
+    const { observations, meta } = await runAgainst(app, { cases: MINI_CASES, plan: MINI_PLAN });
+    const record = buildRecord(MINI_CASES, observations, meta);
+    const markdown = renderRecord(record);
+    const negatives = tableCaseIds(section(markdown, "Negatives"));
+    // q_two echoed its value on both the turn and the retry: wrong, flagged.
+    expect(negatives).toEqual(["turn.q_two", "refuse.alpha", "answer.alpha"]);
+    const entryOf = (id) => record.scored.find((entry) => entry.testCase.id === id);
+    expect(entryOf("turn.q_two").flags).toContain("pii_echo");
+    expect(entryOf("refuse.alpha").flags).toEqual(["banned_claim"]);
+    expect(entryOf("answer.alpha").outcome).toBe("over_refused");
+    expect(markdown).not.toContain("ZQX-");
+  });
+});
+
+describe("CLI arguments", () => {
+  it("accepts the documented flags and refuses anything else", () => {
+    const options = parseArgs([
+      "--url",
+      "https://meta-hack-omega.vercel.app/",
+      "--commit",
+      "bda2d00",
+      "--out",
+      "docs/evaluation-record.md",
+    ]);
+    expect(options).toMatchObject({
+      url: "https://meta-hack-omega.vercel.app",
+      commit: "bda2d00",
+      out: "docs/evaluation-record.md",
+    });
+    fc.assert(
+      fc.property(fc.stringMatching(/^--[a-z]{1,10}$/), (flag) => {
+        fc.pre(!["--url", "--commit", "--out", "--timeout", "--help"].includes(flag));
+        expect(() => parseArgs([flag])).toThrow(UsageError);
+      }),
+    );
+    expect(() => parseArgs(["--commit", "not-a-sha"])).toThrow(UsageError);
+    expect(() => parseArgs(["--out", "/tmp/record.md"])).toThrow(UsageError);
+    expect(() => parseArgs(["--out", "../record.md"])).toThrow(UsageError);
+    expect(() => parseArgs(["--url", "ftp://example.com"])).toThrow(UsageError);
   });
 });
