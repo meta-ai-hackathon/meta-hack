@@ -1070,7 +1070,9 @@ class RedactionProperties(unittest.TestCase):
         # a header, a footer, or a base64 run between them, comes after the
         # one before it, and holds none of the punctuation code is written
         # with, so no code is ever hidden from the model. A run shorter than
-        # a key line is never a lower-case name, which code is written in.
+        # a key line is redacted only when it is a piece of a key where it
+        # stands (review.key_piece_at), and never when it is a lower-case
+        # name, which code is written in.
         previous = 0
         for start, end in review.private_key_spans(text):
             self.assertGreaterEqual(start, previous)
@@ -1082,6 +1084,7 @@ class RedactionProperties(unittest.TestCase):
             )
             self.assertIsNone(CODE_PUNCTUATION.search(text, start, end), text[start:end])
             if is_run and len(value) - value.count("\\") < 16:
+                self.assertTrue(review.key_piece_at(text, start, end), value)
                 self.assertIsNone(re.fullmatch(r"[a-z]+", value), value)
             previous = end
         out, _count = review.redact_sensitive(text)

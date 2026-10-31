@@ -780,6 +780,12 @@ def _whole_string(text: str, start: int, end: int) -> bool:
     return closer is not None and closer.group(1) == opener
 
 
+def key_piece_at(text: str, start: int, end: int) -> bool:
+    """Whether the base64 run text[start:end] is a piece of a key where it
+    stands: is_key_piece, with whether it is a whole string read from text."""
+    return is_key_piece(text[start:end], _whole_string(text, start, end))
+
+
 def _key_pieces(text: str, start: int, end: int, stop: int) -> list[tuple[int, int]] | None:
     """The pieces of a key between end, where its walk stopped, and stop,
     where a footer starts. None when the key material between start (the
@@ -788,8 +794,8 @@ def _key_pieces(text: str, start: int, end: int, stop: int) -> list[tuple[int, i
     pieces: list[tuple[int, int]] = []
     material = 0
     for run in _KEY_RUN.finditer(text, start, stop):
-        value = run.group()
-        if is_key_piece(value, _whole_string(text, run.start(), run.end())):
+        if key_piece_at(text, run.start(), run.end()):
+            value = run.group()
             material += len(value) - value.count("\\")
             if material > _KEY_MATERIAL_MAX:
                 return None
