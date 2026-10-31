@@ -45,8 +45,13 @@ control character (backslash n, r, t, b, f or v), and a character written
 by its code (backslash x and two hex digits, or backslash u and four), the
 way Python's json.dumps writes an em dash, a curly quote or a no-break
 space. So a value right after one inside a string is still found, and so is
-one right after a regex word boundary. A file saved as UTF-16 or UTF-32
-with its byte order mark is read in that encoding.
+one right after a regex word boundary. A no-break space or hyphen, and the
+other spaces and hyphens that keep a typeset number on one line (the
+figure, thin and narrow no-break spaces, the figure dash and the minus
+sign), count as the plain ones, so a number pasted from a web page or a PDF
+is still found, and its value and digest are written with the plain ones.
+An en or em dash still ends a number, since ranges use them. A file saved
+as UTF-16 or UTF-32 with its byte order mark is read in that encoding.
 Lockfiles and binary file types are not read, so a filled form committed as
 a PDF, or an audio recording, is not checked here; those stay synthetic by
 review. Any other file with a NUL byte can't be read as text either (UTF-16
@@ -170,6 +175,13 @@ EMAIL: Final = re.compile(r"(?<![\w.%+-])(?P<local>[A-Za-z0-9._%+-]+)@(?P<domain
 # digits, or u and four), as Python's json.dumps writes every one outside
 # ASCII.
 _ESCAPE: Final = re.compile(r"\\(?:[nrtbfv]|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4})")
+# The spaces and hyphens that keep a typeset number on one line, read as the
+# plain ones: the no-break, figure, thin and narrow no-break spaces, and the
+# hyphen, no-break hyphen, figure dash and minus sign. Each is one character,
+# like the one it reads as.
+_TYPESET: Final = str.maketrans(
+    {chr(code): " " for code in (0x00A0, 0x2007, 0x2009, 0x202F)} | {chr(code): "-" for code in (0x2010, 0x2011, 0x2012, 0x2212)}
+)
 
 FICTIONAL_EMAIL_DOMAINS: Final = ("example.com", "example.org", "example.net", "noreply.github.com")
 FICTIONAL_EMAIL_TLDS: Final = frozenset({"test", "invalid"})
@@ -233,8 +245,9 @@ def ssh_remote(text: str, match: re.Match[str]) -> bool:
 
 def find_pii(text: str) -> list[tuple[int, str, str]]:
     """Each real-looking detail in text, in order: where it starts, its kind and its value."""
-    # Spaces as long as the escape, so every offset stays where it was.
-    text = _ESCAPE.sub(lambda escape: " " * len(escape.group()), text)
+    # Spaces as long as the escape, and a plain space or hyphen for a typeset
+    # one, so every offset stays where it was.
+    text = _ESCAPE.sub(lambda escape: " " * len(escape.group()), text).translate(_TYPESET)
     found = {(match.start(), "ssn", match.group()) for match in SSN.finditer(text) if issuable_ssn(match.group())}
     found |= {(match.start(1), "ssn", match.group(1)) for match in NAMED_SSN.finditer(text) if issuable_ssn(match.group(1))}
     for pattern, group in ((PHONE, 0), (NAMED_PHONE, 1)):
@@ -379,6 +392,9 @@ SURROUNDINGS = st.tuples(FILLER, MARKS, MARKS, FILLER)
 # (dashes, curly quotes, a no-break space, an ellipsis, guillemets), which
 # Python's json.dumps writes only as an escape.
 WIDE_MARKS = st.sampled_from([chr(code) for code in (0x2014, 0x2013, 0x201C, 0x201D, 0x2019, 0x00A0, 0x2026, 0x00AB, 0x00BB)])
+# The spaces and hyphens that keep a typeset number on one line.
+TYPESET_SPACES = st.sampled_from([chr(code) for code in (0x00A0, 0x2007, 0x2009, 0x202F)])
+TYPESET_HYPHENS = st.sampled_from([chr(code) for code in (0x2010, 0x2011, 0x2012, 0x2212)])
 
 # SSNs as (area, group, serial): any the SSA could issue (area 900 to 999
 # included, which ITINs use), and the shapes it never issues.
@@ -603,6 +619,17 @@ class FinderProperties(unittest.TestCase):
         self, number: tuple[int, int, int], form: str, around: tuple[str, str, str, str]
     ) -> None:
         self.assertEqual(find_pii(surround(phone(number, form), around)), [])
+
+    @PBT
+    @given(st.one_of(SSNS, st.builds(phone, REAL_NUMBERS, PHONE_FORMS)), TYPESET_SPACES, TYPESET_HYPHENS, SURROUNDINGS)
+    def test_a_typeset_number_is_found_like_the_plain_one(
+        self, value: str, space: str, hyphen: str, around: tuple[str, str, str, str]
+    ) -> None:
+        # Pasted from a web page or a PDF with each space or hyphen in it
+        # typeset, it is found where the plain one is, as the plain value.
+        plain = find_pii(surround(value, around))
+        self.assertTrue(plain)
+        self.assertEqual(find_pii(surround(value.replace(" ", space).replace("-", hyphen), around)), plain)
 
     @PBT
     @given(MONEY_RANGES, SURROUNDINGS)
