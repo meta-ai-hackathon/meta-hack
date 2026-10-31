@@ -62,8 +62,10 @@ model at all.
 To rehearse a database outage, point `DATABASE_URL` at a port nothing listens on. To
 rehearse a vault key problem, start once with `VAULT_ENC_KEY=` and once with a new key.
 
-`pnpm dev` on Next.js 16.4.3 appends a Next.js block to `AGENTS.md`. Throw that change
-away with `git checkout -- AGENTS.md` before committing.
+`pnpm dev` on Next.js 16.4.3 appends a Next.js block to `AGENTS.md`, from
+`<!-- BEGIN:nextjs-agent-rules -->` to `<!-- END:nextjs-agent-rules -->`. Delete just that
+block before committing, so any edit of your own to `AGENTS.md` stays. Setting
+`agentRules: false` in `next.config.ts` would stop it, which is a team call.
 
 ## The model is unavailable
 
