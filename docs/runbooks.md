@@ -191,15 +191,18 @@ If an official page now says something different from the knowledge base, don't 
 fact on the spot or repeat the new wording from memory. After the demo, a person checks
 the page again. If that can't happen before the next session, a PR that sets the entry's
 `status` to `stale` with a `status_reason` (see `kb/README.md`) takes the program card off
-the match section, since stale entries are never shown. The form and the review keep
-working. That PR is more than the one field. Tests expect the pilot entry to be active
-(in `src/lib/nc-medicaid-kb.test.ts`, `src/lib/match.test.ts`, `src/lib/conversation.test.ts`,
-`src/app/api/match/route.test.ts` and `tests/test_kb_schema.py`), so CI fails until the
-same PR updates them and says why in its body, as AGENTS.md asks.
+the match section, since stale entries are never shown there. The form and the review keep
+working, and the signing and sending steps stay, each source marked "This may be out of
+date" with the reason. That PR is more than the one field. CI fails until it also updates
+the tests that expect the pilot entry to be active and says why in its body, as AGENTS.md
+asks.
 
 Checked by listing every `fetch` in `src` and reading the filter in `src/lib/match.ts`
-that shows only active entries. Marking the entry stale on a scratch copy of `main` at
-7c2239d failed 9 Vitest tests in those four files and 1 pytest test.
+that shows only active entries, and `handoffCompanion` in `src/lib/handoff.ts`, which
+still cites a stale entry with its flag. Marking the entry stale on a scratch copy of
+`main` at d056b4c failed 11 Vitest tests in `src/lib/nc-medicaid-kb.test.ts`,
+`src/lib/match.test.ts`, `src/lib/conversation.test.ts`, `src/lib/handoff.test.ts` and
+`src/app/api/match/route.test.ts`, and 1 pytest test in `tests/test_kb_schema.py`.
 
 ## A wrong answer
 
