@@ -34,6 +34,34 @@ import { ReviewSection } from "./review-section";
 // conversation engine is server-only and must not enter the client bundle.
 const WIZARD_FALLBACK_URL = "/intake";
 
+export type VoiceInterimPhase = "listening" | "transcribing";
+
+/**
+ * The instant perceived-latency states (VAL-VLAT-001): the interim status
+ * renders the moment recording starts ("listening") and the moment it
+ * stops ("transcribing") — synchronously with the click, far inside the
+ * 500 ms budget — so the server wait is visible work, never silence. A
+ * null phase renders nothing (no turn in flight). Deliberately NOT a live
+ * region: the notice (StatusRegion) announces the same phases, and a
+ * second live region would make screen readers announce them twice.
+ */
+export function VoiceInterimState({
+  phase,
+}: {
+  phase: VoiceInterimPhase | null;
+}) {
+  if (phase === null) {
+    return null;
+  }
+  return (
+    <p data-voice-interim-state={phase} className="text-sm font-medium text-muted">
+      {phase === "listening"
+        ? "Listening — speak whenever you're ready."
+        : "Transcribing your recording, then the assistant will reply…"}
+    </p>
+  );
+}
+
 // The conversational intake chat (Mission v2 M1 text, M2 voice, M5 consent).
 // Talk or type — both flow through the same route and the same redaction.
 //
@@ -110,6 +138,10 @@ export function ConversationChat() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
+  // The interim perceived-latency phase (VAL-VLAT-001): "listening" while
+  // the mic is open, "transcribing" from the instant recording stops until
+  // the turn response lands, null otherwise.
+  const [voicePhase, setVoicePhase] = useState<VoiceInterimPhase | null>(null);
   const [micBlocked, setMicBlocked] = useState(false);
   // Consent state (VAL-CONSENT-*): the receipt is an EXTERNAL store —
   // this device's localStorage, subscribed via useSyncExternalStore (SSR
@@ -385,11 +417,17 @@ export function ConversationChat() {
 
   async function submitVoiceTurn(recorded: Blob): Promise<void> {
     if (busy) {
+      setVoicePhase(null);
       return;
     }
     setBusy(true);
     setError(null);
-    setNotice("Processing your recording…");
+    setNotice("Transcribing your recording…");
+    // If the turn is still pending after 5 s, escalate the wait message —
+    // honestly (no phase claim), so a slow turn never reads as a hang.
+    const escalate = setTimeout(() => {
+      setNotice("Still working on your recording — thanks for waiting.");
+    }, 5000);
     try {
       const response = await sendVoiceTurn(recorded);
       await handleTurnResponse(response, true);
@@ -398,6 +436,8 @@ export function ConversationChat() {
         "We couldn't process that recording. Please try again, or type your answer below.",
       );
     } finally {
+      clearTimeout(escalate);
+      setVoicePhase(null);
       setBusy(false);
     }
   }
@@ -448,6 +488,7 @@ export function ConversationChat() {
       recorder.onerror = () => {
         stream.getTracks().forEach((track) => track.stop());
         setRecording(false);
+        setVoicePhase(null);
         setNotice(
           "Recording failed. You can type your answer below instead.",
         );
@@ -455,6 +496,7 @@ export function ConversationChat() {
       recorderRef.current = recorder;
       recorder.start();
       setRecording(true);
+      setVoicePhase("listening");
       setNotice("Listening… press Stop and send when you're done.");
     } catch {
       // Permission denied or device unavailable: the typed path is the
@@ -467,9 +509,14 @@ export function ConversationChat() {
   }
 
   function stopRecording(): void {
+    // The interim "transcribing" state lands SYNCHRONOUSLY with the stop
+    // click (VAL-VLAT-001's 500 ms budget) — before the recorder's async
+    // onstop event even fires.
     recorderRef.current?.stop();
     recorderRef.current = null;
     setRecording(false);
+    setVoicePhase("transcribing");
+    setNotice("Transcribing your recording…");
   }
 
   // The purge's client half (HACK-80): the server rows are gone (the purge
@@ -587,6 +634,9 @@ export function ConversationChat() {
         </div>
       ) : null}
 
+      {zeroSend ? null : (
+      <VoiceInterimState phase={voicePhase} />
+      )}
       {zeroSend ? null : (
       <form
         className="flex flex-col gap-2"
