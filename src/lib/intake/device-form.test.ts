@@ -94,9 +94,14 @@ function templateFor(entry: FormRegistryEntry): Uint8Array {
 // Generated answer sets
 // ---------------------------------------------------------------------------
 
-/** Text a person might give, including some the form's standard font can't draw. */
+/**
+ * Text a person might give, including some the form's standard font can't
+ * draw. Every value carries a digit or a letter outside plain ASCII, so none
+ * can be a word the match route's own copy prints, which its pii gate would
+ * refuse.
+ */
 const textArb = fc.oneof(
-  fc.stringMatching(/^[A-Z][a-z]{2,8}( [A-Za-z0-9#.-]{1,10}){0,2}$/),
+  fc.stringMatching(/^[A-Z][a-z]{2,8} [0-9]{1,4}( [A-Za-z0-9#.-]{1,8})?$/),
   fc.constantFrom("Nguyễn Văn An", "李小龍", "Zoë Ñúñez", "+1 (704) 555-0100", "555-010-9911"),
 );
 
