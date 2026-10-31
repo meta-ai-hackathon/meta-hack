@@ -173,7 +173,7 @@ built-in-voice badge). Not rehearsed end to end, because a voice turn needs the 
 
 The app never fetches an official page while it runs. The only outside calls are the Meta
 model API (`src/lib/model.ts`) and ElevenLabs (`src/lib/tts.ts`). The program facts are
-committed in `kb/entries/nc-medicaid.json` (version 2, retrieved 2026-10-30) and the
+committed in `kb/entries/nc-medicaid.json` (version 3, retrieved 2026-10-30) and the
 DHB-5200 template in `src/lib/forms/fixtures/dhb-5200-ia-9-2020.pdf`. So when an official
 site is down, the match card, the review and the PDF keep working. Only the links out to
 official pages fail for whoever clicks them. Those are every source link and the "Official
