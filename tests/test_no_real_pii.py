@@ -19,10 +19,14 @@ every git-tracked text file and fails on
 - the same digits kept bare, the way an app payload or a transcript keeps
   them, after a word that names them on the same line: nine digits after
   "ssn" or "social", ten (maybe after 1 or +1) after "phone", "mobile",
-  "tel", "cell" or "fax", with up to 24 other characters between. The word
+  "tel", "cell" or "fax". The rest of the key after the word (its letters,
+  digits and underscores, as in social_security_number, phone2 or
+  alt_phone_1) and up to 24 other characters can stand between. The word
   has to start a word or a snake_case part, or be a camelCase hump, so
   "microphone" and "automobile" don't count. A bare number with no such
-  word is left alone, since ids and timestamps look the same;
+  word is left alone, since ids and timestamps look the same. So is one
+  written right against a key that ends in a digit, since the key's digit
+  and the number read as one longer number;
 - an email address outside example.com, example.org and example.net (and
   their subdomains), names under .test and .invalid, and noreply.github.com
   (with its subdomains).
@@ -58,7 +62,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Final, Iterable
 
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -114,10 +118,11 @@ PHONE: Final = re.compile(
 )
 # Bare digits after a word that names them, on the same line. The word
 # starts a word or a snake_case part (no letter right before it) or is a
-# camelCase hump, and the rest of it (as in social_security_number) is
-# skipped along with it. tel, cell and fax must end there, so telemetry,
-# cellar and the like don't count.
-_NAMED = r"[A-Za-z_]*[^\d\n]{0,24}?"
+# camelCase hump, and the rest of the key (letters, digits and underscores,
+# as in social_security_number or phone_1) is skipped along with it. tel,
+# cell and fax must end there, so telemetry, cellar and the like don't
+# count.
+_NAMED = r"[A-Za-z0-9_]*[^\d\n]{0,24}?"
 _SSN_WORD = r"(?:(?<![A-Za-z])(?i:ssn|social)|(?<=[a-z])(?:Ssn|SSN|Social))"
 _PHONE_WORD = (
     r"(?:(?<![A-Za-z])(?:(?i:(?:cell|tele|smart)?phone|mobile)|(?:tel|cell|fax|Tel|Cell|Fax)(?![a-z])|(?:TEL|CELL|FAX)(?![A-Za-z]))"
@@ -338,7 +343,19 @@ MONEY_RANGES = st.builds(lambda low, high: f"${low}-{high}", st.integers(200, 99
 # Bare digits after a word that names them, as a payload or a transcript
 # keeps them: the word, what stands between, and the digits.
 SSN_WORDS = st.sampled_from(
-    ["ssn", "SSN", "ssn_full", "user_ssn", "userSSN", "social", "Social Security", "social_security_number", "socialSecurityNumber"]
+    [
+        "ssn",
+        "SSN",
+        "ssn_full",
+        "user_ssn",
+        "userSSN",
+        "ssn_2",
+        "spouseSsn1",
+        "social",
+        "Social Security",
+        "social_security_number",
+        "socialSecurityNumber",
+    ]
 )
 PHONE_WORDS = st.sampled_from(
     [
@@ -348,6 +365,10 @@ PHONE_WORDS = st.sampled_from(
         "phone_contact",
         "contactPhone",
         "home_phone",
+        "phone2",
+        "phone_1",
+        "alt_phone_1",
+        "mobile2Number",
         "cellphone",
         "telephone",
         "tel",
@@ -359,6 +380,7 @@ PHONE_WORDS = st.sampled_from(
         "cell",
         "fax",
         "office_fax",
+        "FAX_2",
     ]
 )
 NAMED_GAPS = st.sampled_from(["", " ", ": ", "=", '": "', "': '", '":"', " = '", ", ", " is ", " number is ", " (home) "])
@@ -444,6 +466,9 @@ class FinderProperties(unittest.TestCase):
     def test_bare_ssn_digits_after_a_word_that_names_them_are_found(
         self, word: str, gap: str, digits: str, around: tuple[str, str, str, str]
     ) -> None:
+        # A key that ends in a digit, right against the digits, reads as
+        # one longer number.
+        assume(gap or not word[-1].isdigit())
         found = [(kind, value) for _offset, kind, value in find_pii(surround(word + gap + digits, around))]
         self.assertEqual(found, [("ssn", digits)])
 
@@ -452,6 +477,7 @@ class FinderProperties(unittest.TestCase):
     def test_bare_phone_digits_after_a_word_that_names_them_are_found_unless_fictional(
         self, word: str, gap: str, prefix: str, number: tuple[int, int, int], around: tuple[str, str, str, str]
     ) -> None:
+        assume(gap or not word[-1].isdigit())
         digits = prefix + phone(number, "{area}{exchange}{line}")
         found = [(kind, value) for _offset, kind, value in find_pii(surround(word + gap + digits, around))]
         self.assertEqual(found, [] if fictional_phone(digits) else [("phone number", digits)])
