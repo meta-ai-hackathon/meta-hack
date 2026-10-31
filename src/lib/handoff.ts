@@ -125,8 +125,9 @@ const FOLLOW_UP: HandoffAction = {
   title: "Next, the agency reviews your application",
   detail:
     "You told us you sent it in. The steps below say how long a decision " +
-    "can take and how to ask for a review, and the help step says who to " +
-    "ask with questions. Each one shows its official source.",
+    "can take and how to ask for a review, and the last of the signing " +
+    "steps says who to ask with questions. Each one shows its official " +
+    "source.",
   guide: "after_you_apply",
 };
 
