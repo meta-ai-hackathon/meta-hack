@@ -16,6 +16,12 @@ every git-tracked text file and fails on
   it alone, and so it does a number right after a dollar sign, which is a
   sum of money ($500-2000). Write any other range of plain numbers with
   "to" (300 to 1500), or it reads as a local number;
+- the same digits kept bare, the way an app payload or a transcript keeps
+  them, after a word that names them on the same line: nine digits after
+  "ssn" or "social", ten (maybe after 1 or +1) after "phone", "tel",
+  "mobile", "cell" or "fax", with up to 24 other characters between. A
+  bare number with no such word is left alone, since ids and timestamps
+  look the same;
 - an email address outside example.com, example.org and example.net (and
   their subdomains), names under .test and .invalid, and noreply.github.com
   (with its subdomains).
@@ -101,6 +107,13 @@ PHONE: Final = re.compile(
     rf"|{_NXX}-\d{{4}}"
     r")(?![\w-])"
 )
+# Bare digits after a word that names them (the rest of the word too, as
+# in social_security_number), on the same line.
+_NAMED = r"[A-Za-z_]*[^\d\n]{0,24}?"
+NAMED_SSN: Final = re.compile(rf"(?i:\bssn|\bsocial){_NAMED}(?<![\d+])(\d{{9}})(?!\d)")
+NAMED_PHONE: Final = re.compile(
+    rf"(?i:phone|mobile|\btel(?:ephone)?(?![a-z])|\bcell(?![a-z])|\bfax(?![a-z])){_NAMED}(?<![\d+])((?:\+?1)?{_NXX}{_NXX}\d{{4}})(?!\d)"
+)
 EMAIL: Final = re.compile(r"(?<![\w.%+-])[A-Za-z0-9._%+-]+@(?P<domain>[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b")
 # An escaped line break or tab inside a string literal.
 _ESCAPE: Final = re.compile(r"\\[nrt]")
@@ -148,9 +161,11 @@ def fictional_email(domain: str) -> bool:
 def find_pii(text: str) -> list[tuple[int, str, str]]:
     """Each real-looking detail in text, in order: where it starts, its kind and its value."""
     text = _ESCAPE.sub("  ", text)
-    found = [(match.start(), "ssn", match.group()) for match in SSN.finditer(text)]
-    found += [(match.start(), "phone number", match.group()) for match in PHONE.finditer(text) if not fictional_phone(match.group())]
-    found += [(match.start(), "email", match.group()) for match in EMAIL.finditer(text) if not fictional_email(match.group("domain"))]
+    found = {(match.start(), "ssn", match.group()) for match in SSN.finditer(text)}
+    found |= {(match.start(1), "ssn", match.group(1)) for match in NAMED_SSN.finditer(text)}
+    for pattern, group in ((PHONE, 0), (NAMED_PHONE, 1)):
+        found |= {(match.start(group), "phone number", match.group(group)) for match in pattern.finditer(text) if not fictional_phone(match.group(group))}
+    found |= {(match.start(), "email", match.group()) for match in EMAIL.finditer(text) if not fictional_email(match.group("domain"))}
     return sorted(found)
 
 
@@ -297,6 +312,17 @@ def phone(number: tuple[int, int, int], form: str) -> str:
 
 
 MONEY_RANGES = st.builds(lambda low, high: f"${low}-{high}", st.integers(200, 999), st.integers(1000, 9999))
+# Bare digits after a word that names them, as a payload or a transcript
+# keeps them: the word, what stands between, and the digits.
+SSN_WORDS = st.sampled_from(["ssn", "SSN", "ssn_full", "social", "Social Security", "social_security_number", "socialSecurityNumber"])
+PHONE_WORDS = st.sampled_from(["phone", "Phone", "phone_contact", "contactPhone", "cellphone", "telephone", "tel", "TEL", "mobile", "cell", "fax"])
+NAMED_GAPS = st.sampled_from(["", " ", ": ", "=", '": "', "': '", '":"', " = '", ", ", " is ", " number is ", " (home) "])
+BARE_SSNS = st.integers(0, 999_999_999).map("{:09d}".format)
+BARE_PREFIXES = st.sampled_from(["", "1", "+1"])
+# Words that name no such value, some of them only looking like one, and
+# filler that can't spell one.
+OTHER_WORDS = st.sampled_from(["id", "count", "total", "amount", "zip", "page", "timestamp", "version", "telemetry", "cancelled", "Fairfax"])
+KEYLESS_FILLER = st.text(alphabet="dgjkqruvwyz ", max_size=20)
 
 
 LOCAL_PARTS = st.from_regex(r"[a-z0-9][a-z0-9._%+-]{0,15}", fullmatch=True)
@@ -346,6 +372,29 @@ class FinderProperties(unittest.TestCase):
     @given(MONEY_RANGES, SURROUNDINGS)
     def test_a_sum_of_money_is_no_phone_number(self, money: str, around: tuple[str, str, str, str]) -> None:
         self.assertEqual(find_pii(surround(money + "/month", around)), [])
+
+    @PBT
+    @given(SSN_WORDS, NAMED_GAPS, BARE_SSNS, SURROUNDINGS)
+    def test_bare_ssn_digits_after_a_word_that_names_them_are_found(
+        self, word: str, gap: str, digits: str, around: tuple[str, str, str, str]
+    ) -> None:
+        found = [(kind, value) for _offset, kind, value in find_pii(surround(word + gap + digits, around))]
+        self.assertEqual(found, [("ssn", digits)])
+
+    @PBT
+    @given(PHONE_WORDS, NAMED_GAPS, BARE_PREFIXES, REAL_NUMBERS | FICTIONAL_NUMBERS, SURROUNDINGS)
+    def test_bare_phone_digits_after_a_word_that_names_them_are_found_unless_fictional(
+        self, word: str, gap: str, prefix: str, number: tuple[int, int, int], around: tuple[str, str, str, str]
+    ) -> None:
+        digits = prefix + phone(number, "{area}{exchange}{line}")
+        found = [(kind, value) for _offset, kind, value in find_pii(surround(word + gap + digits, around))]
+        self.assertEqual(found, [] if fictional_phone(digits) else [("phone number", digits)])
+
+    @PBT
+    @given(KEYLESS_FILLER, OTHER_WORDS, NAMED_GAPS, BARE_SSNS | st.builds(phone, REAL_NUMBERS, st.just("{area}{exchange}{line}")))
+    def test_bare_numbers_without_such_a_word_pass(self, before: str, word: str, gap: str, digits: str) -> None:
+        # Ids, counts and timestamps look like bare digits too.
+        self.assertEqual(find_pii(before + word + gap + digits), [])
 
     @PBT
     @given(LOCAL_PARTS, REAL_DOMAINS, SURROUNDINGS)
