@@ -311,7 +311,7 @@ describe("a save that fails mid-visit", () => {
     const after = await answerOnDevice(result.intake, later.id, "known", validDraft(QUESTION_BY_ID[later.id]), noPersist);
     expect(after.kind).toBe("saved");
     if (after.kind === "saved") {
-      expect(after.notice).toMatch(/The ones you gave before are still on this device/);
+      expect(after.notice).toMatch(/This answer isn't saved\. Answers saved before stay on this device\./);
     }
     // And that is the truth: a reload brings back exactly the two saved answers.
     const reloaded = await loadDeviceIntake(opener(disk.kv));
@@ -342,7 +342,47 @@ describe("a save that fails mid-visit", () => {
     const pending = answerOnDevice(intake, question.id, "known", validDraft(QUESTION_BY_ID[question.id]), noPersist);
     await vi.advanceTimersByTimeAsync(DEVICE_STORAGE_TIMEOUT_MS + 1);
     const result = await pending;
-    expect(result).toMatchObject({ kind: "saved", notice: DEVICE_INTAKE_COPY.stoppedKeepingNothingStored });
+    expect(result).toMatchObject({ kind: "saved", notice: DEVICE_INTAKE_COPY.saveTimedOut });
+  });
+
+  it("a save that lands after the deadline was only called possibly kept, and a delete still removes it", async () => {
+    vi.useFakeTimers();
+    const disk = memoryKv();
+    let land: (() => void) | undefined;
+    const slow: DeviceKv = {
+      ...disk.kv,
+      setMany: (entries, guard) =>
+        new Promise((resolve) => {
+          land = () => void disk.kv.setMany(entries, guard).then(resolve);
+        }),
+    };
+    const { intake } = await loadDeviceIntake(opener(slow));
+    const question = intake.view.questions[0];
+    const pending = answerOnDevice(intake, question.id, "known", validDraft(QUESTION_BY_ID[question.id]), noPersist);
+    // Let the save reach its write (sealing runs on real crypto), then let
+    // the deadline pass while that write is still in flight.
+    await vi.waitFor(() => expect(land).toBeDefined());
+    await vi.advanceTimersByTimeAsync(DEVICE_STORAGE_TIMEOUT_MS + 1);
+    const result = await pending;
+    expect(result).toMatchObject({ kind: "saved", notice: DEVICE_INTAKE_COPY.saveTimedOut });
+    if (result.kind !== "saved") {
+      return;
+    }
+    // The page never says the answer was not saved, and it treats the
+    // device as possibly holding answers from here on.
+    expect(result.notice).not.toMatch(/isn't saved|aren't saved|won't be/);
+    expect(result.intake.keeping).toBe("stopped");
+    expect(result.intake.stored).toBe(true);
+    expect(keepingBlurb(result.intake)).toBe(DEVICE_INTAKE_COPY.stoppedBlurb);
+    // The write the page gave up on commits anyway...
+    land?.();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(disk.store.size).toBe(2);
+    vi.useRealTimers();
+    // ...and the delete still finds it and removes it.
+    const deleted = await deleteDeviceIntake(result.intake);
+    expect(deleted).toMatchObject({ deleted: true, notice: DEVICE_INTAKE_COPY.deleted });
+    expect(disk.store.size).toBe(0);
   });
 });
 

@@ -1,5 +1,6 @@
 import {
   DEVICE_STORAGE_TIMEOUT_MS,
+  DeviceStorageTimeoutError,
   requestPersistentStorage,
   withDeadline,
 } from "../device-kv";
@@ -69,9 +70,9 @@ export const DEVICE_INTAKE_COPY = {
     "only until you close this page. If you saved answers here before, " +
     "they're still on this device until you delete them.",
   stoppedBlurb:
-    "This browser stopped saving answers. The ones you gave before are " +
-    "still saved on this device, but changes from now on aren't. To remove " +
-    "the saved ones, use Delete my answers from this device.",
+    "This browser stopped saving answers. Answers it already saved stay on " +
+    "this device, but changes from now on aren't saved. To remove them, use " +
+    "Delete my answers from this device.",
   stoppedBlurbNothingStored:
     "This browser stopped saving answers, so they'll be gone when you close " +
     "this page. Nothing is submitted until you decide.",
@@ -93,6 +94,9 @@ export const DEVICE_INTAKE_COPY = {
   stoppedKeepingNothingStored:
     "This browser stopped saving answers, so your answers from now on last " +
     "only until you close this page.",
+  saveTimedOut:
+    "This browser is taking too long to save, so this answer might not be " +
+    "kept. Answers from now on last only until you close this page.",
   purgedElsewhere:
     "Your answers were deleted from this device in another tab or window, " +
     "so the questions start fresh.",
@@ -258,7 +262,7 @@ export function answerNotice(
   switch (intake.keeping) {
     case "stopped":
       return intake.stored
-        ? `${lead} This answer isn't saved. The ones you gave before are still on this device.`
+        ? `${lead} This answer isn't saved. Answers saved before stay on this device.`
         : `${lead} This browser stopped saving answers, so they'll be gone when you close this page.`;
     case "unavailable":
     case "kept":
@@ -317,10 +321,17 @@ export async function answerOnDevice(
       recordDeviceAnswer(intake.store, record, { expectStored: intake.stored }),
       "saving to device storage",
     );
-  } catch {
-    // Storage refused the write (full, blocked, closed, or stalled): keep
-    // going in memory for the rest of this visit, and say what is still
-    // stored and what is not.
+  } catch (error) {
+    if (error instanceof DeviceStorageTimeoutError) {
+      // The deadline gave up on the write but can't abort it, so it may
+      // still land. Say the answer might not be kept, and count the device
+      // as possibly holding answers so the copy and the delete cover it.
+      const next = intakeOf(intake.store, "stopped", true, saveClientAnswer(intake.answers, record));
+      return { kind: "saved", intake: next, notice: DEVICE_INTAKE_COPY.saveTimedOut };
+    }
+    // Storage refused the write (full, blocked, or closed): keep going in
+    // memory for the rest of this visit, and say what is still stored and
+    // what is not.
     const next = intakeOf(intake.store, "stopped", intake.stored, saveClientAnswer(intake.answers, record));
     return {
       kind: "saved",
