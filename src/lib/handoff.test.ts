@@ -224,6 +224,25 @@ describe("nextHandoffAction: honest copy", () => {
     expect("Wait to hear from your county office").toMatch(HELD_BACK);
   });
 
+  it("never points at a part of the page that only some paths show", () => {
+    // The review and its handoff render on the voice results stage, where
+    // the transcript is gone, and on the step-by-step path, which has no
+    // conversation, so no action can send the person to either.
+    const PATH_ONLY =
+      /\b(?:conversation|chat|transcript|wizard|step-by-step questions|microphone|voice)\b/i;
+    fc.assert(
+      fc.property(stateArb, (state) => {
+        for (const text of copyOf(nextHandoffAction(state))) {
+          expect(text).not.toMatch(PATH_ONLY);
+        }
+      }),
+      { numRuns: 200 },
+    );
+    expect("Answer what you can in the conversation or in the boxes above.").toMatch(
+      PATH_ONLY,
+    );
+  });
+
   it("never brings up submitting before the session is handed off", () => {
     const beforeHandoffArb = fc.record({
       sessionStatus: fc.constantFrom<SessionStatus>("draft", "prepared"),

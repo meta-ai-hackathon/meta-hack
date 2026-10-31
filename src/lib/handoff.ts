@@ -153,11 +153,14 @@ function answerRemaining(count: number): HandoffAction {
     kind: "answer_remaining",
     where: "in_app",
     title: "Answer what's still needed",
+    // The review shows on the voice results stage, where the transcript
+    // is gone, and on the step-by-step path, which has no conversation,
+    // so this copy names no part of the page that only some paths show.
     detail:
-      `The form still lists ${items} as needed. Answer what you can in the ` +
-      "conversation or in the boxes above. Anything you leave blank, you " +
-      "can write in by hand before you sign. When it looks right, mark " +
-      "your package prepared.",
+      `The form still lists ${items} as needed, shown in the list above. ` +
+      "Answer what you can, and anything you leave blank you can write in " +
+      "by hand before you sign. When it looks right, mark your package " +
+      "prepared.",
   };
 }
 
