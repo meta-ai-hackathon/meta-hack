@@ -232,6 +232,7 @@ export function IntakeWizard(props: {
   // (the double-click guard), and the latest device state and busy flags
   // for the refresh-on-return listener.
   const advancedAt = useRef(0);
+  const lastPointerAt = useRef(0);
   const deviceRef = useRef<DeviceIntake | null>(null);
   const activityRef = useRef(false);
   const applyRef = useRef<
@@ -276,12 +277,22 @@ export function IntakeWizard(props: {
     }
   }
 
-  /** In device mode, a click that lands just after moving on belongs to the last question. */
+  /**
+   * In device mode, a pointer press that lands just after moving on belongs
+   * to the last question: the second click of a double-click, or a double
+   * tap. Keyboard activation is never held back, so a fast Enter right after
+   * the screen changes still answers the question now on screen.
+   */
   function tooSoonAfterAdvance(): boolean {
     return (
       persistence === "device" &&
+      lastPointerAt.current >= advancedAt.current &&
       performance.now() - advancedAt.current < ADVANCE_SETTLE_MS
     );
+  }
+
+  function notePointer(): void {
+    lastPointerAt.current = performance.now();
   }
 
   useEffect(() => {
@@ -701,7 +712,12 @@ export function IntakeWizard(props: {
       (question) => !state.answers[question.id],
     );
     return (
-      <div data-intake-wizard ref={rootRef} className="flex flex-col gap-6">
+      <div
+        data-intake-wizard
+        ref={rootRef}
+        onPointerDownCapture={notePointer}
+        className="flex flex-col gap-6"
+      >
         {deviceStatus}
         <h2 className="font-display text-2xl font-bold">All questions answered for now</h2>
         <p className="max-w-xl text-muted">
@@ -777,7 +793,12 @@ export function IntakeWizard(props: {
   const { progress } = state;
 
   return (
-    <div data-intake-wizard ref={rootRef} className="flex flex-col gap-6">
+    <div
+      data-intake-wizard
+      ref={rootRef}
+      onPointerDownCapture={notePointer}
+      className="flex flex-col gap-6"
+    >
       {deviceStatus}
       <div className="flex flex-col gap-1">
         <p

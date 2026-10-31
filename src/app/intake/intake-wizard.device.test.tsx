@@ -140,6 +140,14 @@ async function visit() {
     });
     await settle();
   };
+  /** A mouse or touch press: the pointer goes down on the element, then it clicks. */
+  const press = async (element: HTMLElement) => {
+    await act(async () => {
+      element.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      element.click();
+    });
+    await settle();
+  };
   const choose = async (label: string) => {
     const option = [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")].find(
       (input) => input.closest("label")?.textContent?.trim() === label,
@@ -165,6 +173,7 @@ async function visit() {
     text,
     button,
     click,
+    press,
     choose,
     status,
     question,
@@ -198,11 +207,21 @@ describe("the wizard in device mode", () => {
   it("ignores the second click of a double-click, so it can't answer the next question", async () => {
     const page = await visit();
     await page.choose("Me");
-    await page.click(page.button("Continue"));
-    // The double-click's second click lands on the next question's buttons.
-    await page.click(page.button("I'm not sure"));
+    await page.press(page.button("Continue"));
+    // The double-click's second press lands on the next question's buttons.
+    await page.press(page.button("I'm not sure"));
     expect(page.text()).toContain("Answered 1 of 37");
     await pause(450);
+    await page.press(page.button("I'm not sure"));
+    expect(page.text()).toContain("Answered 2 of");
+    await page.unmount();
+  });
+
+  it("never holds back a fast keyboard answer right after the screen changes", async () => {
+    const page = await visit();
+    await page.choose("Me");
+    await page.press(page.button("Continue"));
+    // Enter on a focused button clicks it with no pointer press first.
     await page.click(page.button("I'm not sure"));
     expect(page.text()).toContain("Answered 2 of");
     await page.unmount();
