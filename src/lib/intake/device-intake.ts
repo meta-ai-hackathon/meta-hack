@@ -110,6 +110,10 @@ export const DEVICE_INTAKE_COPY = {
     "pick up where you left off. Private windows, and some browsers after " +
     "about a week without a visit, clear saved answers. Nothing is " +
     "submitted until you decide.",
+  keepPrompt:
+    "When you press Save and finish later, your browser may ask to let this " +
+    "site store data, and saying yes keeps your answers from being cleared " +
+    "to free up space.",
   deleteButton: "Delete my answers from this device",
   deleteConfirm:
     "This deletes every answer saved in this browser for this form. It " +
@@ -297,7 +301,6 @@ export async function answerOnDevice(
   questionId: string,
   status: AnswerStatus,
   value: unknown,
-  persist: () => Promise<boolean> = requestPersistentStorage,
 ): Promise<DeviceAnswerResult> {
   if (!Object.hasOwn(QUESTION_BY_ID, questionId)) {
     return { kind: "invalid", message: DEVICE_INTAKE_COPY.invalidAnswer };
@@ -348,11 +351,6 @@ export async function answerOnDevice(
   }
   switch (result.status) {
     case "saved": {
-      if (!intake.stored) {
-        // Ask once, on the first answer kept, that the browser not evict
-        // the store under storage pressure. Best effort, never awaited.
-        void persist().catch(() => false);
-      }
       const next = intakeOf(intake.store, "kept", true, result.state);
       return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, next) };
     }
@@ -423,6 +421,26 @@ export async function refreshDeviceIntake(intake: DeviceIntake): Promise<DeviceR
 /** The "save and finish later" confirmation, once the answer on screen is saved. */
 export function saveForLaterNotice(intake: DeviceIntake): string {
   return keepsAnswers(intake) ? DEVICE_INTAKE_COPY.savedForLaterKept : keepingBlurb(intake);
+}
+
+/**
+ * Ask the browser to keep this site's storage, so it doesn't clear the
+ * saved answers to free up space (HACK-113). Some browsers, Firefox among
+ * them, answer with a permission prompt, so this is never asked on a plain
+ * answer: the page asks only when the person presses Save and finish
+ * later, after DEVICE_INTAKE_COPY.keepPrompt has said the browser may ask
+ * and why, and only when this device holds their answers. Never awaited,
+ * so a prompt left open can't hold up the save. Returns whether it asked.
+ */
+export function askToKeepAnswers(
+  intake: DeviceIntake,
+  persist: () => Promise<boolean> = requestPersistentStorage,
+): boolean {
+  if (!keepsAnswers(intake) || !intake.stored) {
+    return false;
+  }
+  void persist().catch(() => false);
+  return true;
 }
 
 export interface DeviceDeleteResult {
