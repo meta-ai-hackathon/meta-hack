@@ -183,6 +183,22 @@ describe("the device results, for any answers on the device", () => {
     );
   });
 
+  it("keep typed answers out of the browser's spellcheck and saved form entries", () => {
+    // Enhanced spellcheck in Chrome and Edge sends the text of a field to
+    // the vendor's servers, and these fields take names, addresses, and the
+    // Social Security number. A field marked spellcheck="false" is never sent.
+    fc.assert(
+      fc.property(deviceAnswersArb, (state) => {
+        const { root } = render(state);
+        for (const input of root.querySelectorAll<HTMLInputElement>("[data-review-fields] input")) {
+          expect(input.getAttribute("spellcheck"), input.id).toBe("false");
+          expect(input.getAttribute("autocomplete"), input.id).toBe("off");
+        }
+      }),
+      { numRuns: 30 },
+    );
+  });
+
   it("describe each answer-this-question button with its own field's question", () => {
     fc.assert(
       fc.property(deviceAnswersArb, (state) => {

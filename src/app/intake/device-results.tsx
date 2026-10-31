@@ -377,10 +377,12 @@ export function DeviceResults(props: {
                 ) : null}
                 {typeHere ? (
                   <span className="flex flex-col gap-1">
+                    {/* No spellcheck: a browser's cloud spellcheck sends what is typed off the device. */}
                     <input
                       id={typedId}
                       type="text"
                       autoComplete="off"
+                      spellCheck={false}
                       aria-describedby={typedNoteId}
                       maxLength={MAX_FORM_ANSWER_LENGTH}
                       value={typed[field.fieldName] ?? ""}
