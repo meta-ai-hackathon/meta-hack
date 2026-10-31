@@ -376,7 +376,8 @@ describe("banned claims and privacy at the route (VAL-MATCH-003)", () => {
 // ---------------------------------------------------------------------------
 
 const CONSENTED_AI = JSON.stringify({
-  v: 1,
+  v: 2,
+  providerId: "meta-model-api",
   ai: true,
   voice: false,
   at: "2026-10-30T12:00:00.000Z",

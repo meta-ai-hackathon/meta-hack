@@ -148,19 +148,22 @@ type ModelTransportLike = Parameters<typeof setModelTransport>[0];
 // receipt so the existing suites keep exercising the conversation flow;
 // the gate describe passes explicit receipts (or null) to prove the gate.
 const CONSENTED_AI = JSON.stringify({
-  v: 1,
+  v: 2,
+  providerId: "meta-model-api",
   ai: true,
   voice: false,
   at: "2026-10-30T12:00:00.000Z",
 });
 const CONSENTED_VOICE = JSON.stringify({
-  v: 1,
+  v: 2,
+  providerId: "meta-model-api",
   ai: true,
   voice: true,
   at: "2026-10-30T12:00:00.000Z",
 });
 const DECLINED = JSON.stringify({
-  v: 1,
+  v: 2,
+  providerId: "meta-model-api",
   ai: false,
   voice: false,
   at: "2026-10-30T12:00:00.000Z",

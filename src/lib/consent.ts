@@ -22,12 +22,27 @@
 
 export const CONSENT_HEADER = "x-bn-consent";
 
-export const CONSENT_STORAGE_KEY = "bn-consent-receipt-v1";
+export const CONSENT_STORAGE_KEY = "bn-consent-receipt-v2";
+
+/**
+ * The provider that receives USER content under this receipt: the Meta
+ * Model API (typed words for extraction + reply, voice for transcription).
+ * Gemini TTS receives only the assistant's own reply text, never user
+ * content, and the fax path cannot enable until its vendor is verified --
+ * if either ever becomes a user-content send to a different provider, that
+ * path needs its own provider-bound grant rather than stretching this id.
+ * Swapping the vendor behind the conversation sends means changing this id,
+ * which fails old receipts closed (no consent) instead of letting consent
+ * granted to one provider silently cover another (PR #50 / HACK-96).
+ */
+export const CONSENT_PROVIDER_ID = "meta-model-api" as const;
 
 /** The stored-with-the-user consent decision. No answer data, ever. */
 export interface ConsentReceipt {
   /** Receipt schema version — parsing fails closed on anything else. */
-  readonly v: 1;
+  readonly v: 2;
+  /** Provider this consent was granted to; any other provider parses as no consent. */
+  readonly providerId: typeof CONSENT_PROVIDER_ID;
   /** Typed words may go to the Meta chat model (extraction + reply). */
   readonly ai: boolean;
   /** Voice may additionally go to Meta STT (and replies via Gemini TTS). */
@@ -192,7 +207,7 @@ export function parseConsentReceipt(raw: string | null | undefined): ConsentRece
     return null;
   }
   const record = value as Record<string, unknown>;
-  if (record.v !== 1) {
+  if (record.v !== 2 || record.providerId !== CONSENT_PROVIDER_ID) {
     return null;
   }
   if (typeof record.ai !== "boolean" || typeof record.voice !== "boolean") {
@@ -208,7 +223,8 @@ export function parseConsentReceipt(raw: string | null | undefined): ConsentRece
   // future receipt can never smuggle state through the gate. A missing
   // fax field (older receipts) stays missing, which the gate reads as off.
   return {
-    v: 1,
+    v: 2,
+    providerId: CONSENT_PROVIDER_ID,
     ai: record.ai,
     voice: record.voice,
     ...(record.fax !== undefined ? { fax: record.fax } : {}),
@@ -223,7 +239,7 @@ export function consentReceiptHeader(receipt: ConsentReceipt): string {
 
 /** An explicit all-off receipt — a decision, not an absence of one. */
 export function declinedReceipt(now: Date = new Date()): ConsentReceipt {
-  return { v: 1, ai: false, voice: false, at: now.toISOString() };
+  return { v: 2, providerId: CONSENT_PROVIDER_ID, ai: false, voice: false, at: now.toISOString() };
 }
 
 // ---------------------------------------------------------------------------

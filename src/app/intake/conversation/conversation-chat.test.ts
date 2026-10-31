@@ -113,7 +113,8 @@ describe("the voice fetch carries the consent receipt (VAL-CONSENT-006)", () => 
         fc.record({ ai: fc.boolean(), voice: fc.boolean() }),
         async (decision) => {
           const receipt: ConsentReceipt = {
-            v: 1,
+            v: 2,
+            providerId: "meta-model-api",
             ai: decision.ai,
             voice: decision.voice,
             at: new Date("2026-10-30T12:00:00.000Z").toISOString(),

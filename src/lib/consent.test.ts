@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CONSENT_HEADER,
+  CONSENT_PROVIDER_ID,
   CONSENT_PATHS,
   CONSENT_STORAGE_KEY,
   attachConsentHeader,
@@ -20,7 +21,8 @@ import {
 
 function receiptWith(overrides: Partial<ConsentReceipt> = {}): ConsentReceipt {
   return {
-    v: 1,
+    v: 2,
+    providerId: CONSENT_PROVIDER_ID,
     ai: true,
     voice: false,
     at: "2026-10-30T12:00:00.000Z",
@@ -106,7 +108,8 @@ describe("fax consent path (HACK-88)", () => {
 
   it("parses the fax field fail-closed", () => {
     const raw = JSON.stringify({
-      v: 1,
+      v: 2,
+      providerId: "meta-model-api",
       ai: true,
       voice: false,
       fax: "yes",
@@ -114,7 +117,8 @@ describe("fax consent path (HACK-88)", () => {
     });
     expect(parseConsentReceipt(raw)).toBeNull();
     const good = JSON.stringify({
-      v: 1,
+      v: 2,
+      providerId: "meta-model-api",
       ai: true,
       voice: false,
       fax: true,
@@ -183,6 +187,22 @@ describe("receipt parsing (fail closed)", () => {
       parseConsentReceipt(JSON.stringify({ v: 2, ai: true, voice: false, at: "2026-10-30" })),
     ).toBeNull();
     expect(
+      parseConsentReceipt(
+        JSON.stringify({ v: 3, providerId: CONSENT_PROVIDER_ID, ai: true, voice: false, at: "2026-10-30" }),
+      ),
+    ).toBeNull();
+    expect(
+      parseConsentReceipt(
+        JSON.stringify({ v: 1, providerId: CONSENT_PROVIDER_ID, ai: true, voice: false, at: "2026-10-30" }),
+      ),
+    ).toBeNull();
+    // Consent granted to a different provider never reads as consent here.
+    expect(
+      parseConsentReceipt(
+        JSON.stringify({ v: 2, providerId: "some-other-provider", ai: true, voice: false, at: "2026-10-30" }),
+      ),
+    ).toBeNull();
+    expect(
       parseConsentReceipt(JSON.stringify({ v: 1, ai: "yes", voice: false, at: "2026-10-30" })),
     ).toBeNull();
     expect(
@@ -193,7 +213,8 @@ describe("receipt parsing (fail closed)", () => {
   it("ignores unknown fields so a future receipt cannot smuggle state", () => {
     const parsed = parseConsentReceipt(
       JSON.stringify({
-        v: 1,
+        v: 2,
+        providerId: "meta-model-api",
         ai: true,
         voice: false,
         at: "2026-10-30T12:00:00.000Z",
@@ -201,7 +222,7 @@ describe("receipt parsing (fail closed)", () => {
       }),
     );
     expect(parsed).toEqual(receiptWith());
-    expect(parsed && Object.keys(parsed).sort()).toEqual(["ai", "at", "v", "voice"]);
+    expect(parsed && Object.keys(parsed).sort()).toEqual(["ai", "at", "providerId", "v", "voice"]);
   });
 });
 
@@ -243,7 +264,7 @@ describe("per-device receipt storage", () => {
       string,
       unknown
     >;
-    expect(Object.keys(stored).sort()).toEqual(["ai", "at", "v", "voice"]);
+    expect(Object.keys(stored).sort()).toEqual(["ai", "at", "providerId", "v", "voice"]);
   });
 
   it("loads nothing on a fresh device", () => {
@@ -278,7 +299,8 @@ describe("declined receipt", () => {
   it("is an explicit all-off receipt, not an undecided one", () => {
     const declined = declinedReceipt();
     expect(declined).toEqual({
-      v: 1,
+      v: 2,
+      providerId: CONSENT_PROVIDER_ID,
       ai: false,
       voice: false,
       at: declined.at,

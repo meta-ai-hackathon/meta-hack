@@ -22,7 +22,8 @@ const PACKET: PacketOutcome = {
 
 function receipt(fax: boolean | undefined): ConsentReceipt {
   return {
-    v: 1,
+    v: 2,
+    providerId: "meta-model-api",
     ai: false,
     voice: false,
     ...(fax !== undefined ? { fax } : {}),
