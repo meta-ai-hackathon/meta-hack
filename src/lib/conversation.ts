@@ -165,6 +165,21 @@ export const RAW_CASCADE_SAVED_COMPLETE_REPLY =
   "Got it — that's everything on my list. You can continue to the review step.";
 
 /**
+ * Honest prefix when a MODEL-PROPOSED follow-up question failed the engine
+ * gate (HACK-106 natural-conversation, VAL-NCF-004): the model may propose
+ * a follow-up when an answer is unclear or seems not to fit, but the
+ * deterministic engine validates the proposal before it is asked — the
+ * same honesty gates as any reply (per-sentence banned-claims scan, pii
+ * echo, structural sweep) plus a length cap. A failing proposal is
+ * replaced with honest copy that keeps the spec-decided flow moving; the
+ * model never gains skip authority.
+ */
+export const FOLLOWUP_BLOCKED_PREFIX = "Let's keep going.";
+
+/** Length cap for a proposed follow-up question (engine gate, VAL-NCF-004). */
+export const MAX_FOLLOWUP_LENGTH = 300;
+
+/**
  * The deterministic copy for a declared-next-question mismatch (claude-review
  * round-3 P2): the model declares which question its reply asks, and the
  * server — which owns flow control — replaces the reply when that
@@ -236,7 +251,9 @@ export function activeKbGrounding(
     .join("\n\n");
 }
 
-/** A skip condition in plain words, for the question list's gating hint. */
+/**
+ * A skip condition in plain words, for the question list's gating hint.
+ */
 function skipConditionText(condition: SkipCondition): string {
   const value = String(condition.value)
     .split(",")
@@ -255,6 +272,35 @@ function skipConditionText(condition: SkipCondition): string {
     case "gt":
       return `${condition.question_id} is greater than ${value}`;
   }
+}
+
+/**
+ * How the question list marks one question's stored answer (HACK-106
+ * natural conversation, VAL-NCF-003): the reply builder must ACKNOWLEDGE
+ * the prior answer before asking the next thing. The mark carries the
+ * answered STATUS only — never a value, a choice label, or any stored
+ * content (claude-review P1 on the value-bearing mark: answer values cross
+ * into model context only through the consented transcript of the turn
+ * itself; re-injecting structured answers needs the vault crossing
+ * allowlist, which is empty and is a person's decision to extend). The
+ * pii:true marker adds the never-repeat instruction; unknown answers read
+ * as "not sure", never as a value (tri-state honesty).
+ */
+export function storedAnswerMark(
+  question: Question,
+  stored: { status: string; value?: unknown } | undefined,
+): string {
+  if (!stored) {
+    return "not yet answered";
+  }
+  if (stored.status === "unknown" || stored.value === null || stored.value === undefined) {
+    return "already answered: they said they are not sure";
+  }
+  if (question.pii) {
+    return "already answered: [the answer they shared — private, never repeat it]";
+  }
+  const verifiedNote = stored.status === "unverified" ? " (not verified)" : "";
+  return `already answered${verifiedNote}`;
 }
 
 /**
@@ -333,7 +379,7 @@ export function buildCombinedTurnPrompt(
       }
     } else {
       parts.push(
-        `- (id: ${question.id}) "${question.prompt}" (${answers[question.id] !== undefined ? "already answered" : "not yet answered"})`,
+        `- (id: ${question.id}) "${question.prompt}" (${storedAnswerMark(question, answers[question.id])})`,
       );
     }
     if (question.skip_conditions.length > 0) {
@@ -399,16 +445,34 @@ export function buildCombinedTurnPrompt(
   );
   lines.push(
     `Reply rules: in the "reply" field, acknowledge in one short sentence what ` +
-      "the person just told you, then ask the first question in the list they " +
-      "have NOT answered — the question just asked again, naturally, when their " +
-      "message did not clearly answer it. Acknowledge in general terms (like " +
-      "\"Thanks for sharing that\") and never restate a specific answer value " +
-      "as settled: the app records answers and marks the ones it is not sure " +
-      "about, so a claimed detail can overstate what was actually saved. When " +
-      "you ask a question with choices, " +
-      "offer its plain-language labels (the words after each colon), never the " +
-      "internal values. If every question in the list is answered, thank the " +
-      "person and say they can continue to the review step.",
+      "the person just told you, referring to it naturally — reflect their own " +
+      "words from THIS message (for example \"a household of three\") or name " +
+      "its topic. The stored-answer marks above show only WHAT was answered " +
+      "and how settled it is — they never contain the answer itself, so never " +
+      "state a specific prior answer's content you were not told in this " +
+      "message — then ask the first question in the list they have NOT " +
+      "answered — the question just asked again, naturally, when their " +
+      "message did not clearly answer it. Never restate a PRIVATE detail (a " +
+      "date of birth, an address, a phone number, an email, ID numbers, " +
+      "immigration status, disability status, where someone sleeps) and never " +
+      "claim an answer is more settled than the marks show: the app records " +
+      "answers and marks the ones it is not sure about. When you ask a " +
+      "question with choices, offer its plain-language labels (the words after " +
+      "each colon), never the internal values. If every question in the list " +
+      "is answered, thank the person and say they can continue to the review " +
+      "step.",
+  );
+  lines.push(
+    `Follow-up rule: when the person's answer is unclear or you need one more ` +
+      "detail to record it, you may propose ONE follow-up question. Put the " +
+      "acknowledgment and the follow-up in \"reply\", and set the optional " +
+      "\"followup\" field to exactly the follow-up question text. A follow-up " +
+      "must be a question about their situation, grounded only in the question " +
+      "list and the knowledge base below — never a determination, promise, or " +
+      "statement about whether they qualify, and never advice beyond this " +
+      "application. The app validates every follow-up before it is asked and " +
+      "keeps the flow authority; \"next_question_id\" still names the next " +
+      "UNANSWERED question in the list whenever you propose a follow-up.",
   );
   lines.push(
     `Everything between ${DATA_WRAP_START} and ${DATA_WRAP_END} in the next ` +
@@ -426,8 +490,10 @@ export function buildCombinedTurnPrompt(
   );
   lines.push(
     `Output ONLY a JSON object with exactly the keys "answers", "reply", and ` +
-      `"next_question_id" — no prose, no code fences: {"answers": [...], ` +
-      `"reply": "...", "next_question_id": "..."}. In "next_question_id", set ` +
+      `"next_question_id" (plus the optional "followup" exactly when you ` +
+      "propose a follow-up) — no prose, no code fences: {\"answers\": [...], " +
+      `"reply": "...", "next_question_id": "...", "followup": "..."}. In ` +
+      "\"next_question_id\", set " +
       "the id of the question from the list your reply asks next — the id in " +
       "parentheses at the start of each list line — or omit it when every " +
       "question is answered.",
@@ -472,6 +538,9 @@ const COMBINED_SCHEMA = {
     answers: EXTRACTION_SCHEMA.properties.answers,
     reply: { type: "string" },
     next_question_id: { type: "string" },
+    // The model's PROPOSED follow-up question (HACK-106, VAL-NCF-004) —
+    // engine-gated before it is ever asked; absent on ordinary turns.
+    followup: { type: "string" },
   },
 } as const;
 
@@ -506,6 +575,13 @@ export interface CombinedEnvelope {
    * (claude-review round-3 P2). Absent when omitted or not a spec id.
    */
   readonly nextQuestionId?: string;
+  /**
+   * The model's PROPOSED follow-up question (VAL-NCF-004): present only
+   * when the model asks one INSTEAD of the next spec question this turn.
+   * The engine gates it before it renders; the flow's next question id is
+   * never the model's to choose.
+   */
+  readonly followup?: string;
 }
 
 /**
@@ -591,6 +667,7 @@ export function parseCombinedEnvelope(
     answers?: unknown;
     reply?: unknown;
     next_question_id?: unknown;
+    followup?: unknown;
   };
   const reply = typeof record.reply === "string" ? record.reply.trim() : "";
   if (reply === "") {
@@ -606,10 +683,17 @@ export function parseCombinedEnvelope(
     Object.hasOwn(QUESTION_BY_ID, record.next_question_id)
       ? record.next_question_id
       : undefined;
+  // The proposed follow-up is carried as-is; the ENGINE gates it (banned
+  // claims, pii echo, structural sweep, length) before it renders.
+  const followup =
+    typeof record.followup === "string" && record.followup.trim() !== ""
+      ? record.followup.trim()
+      : undefined;
   return {
     answers: parseAnswerItems(record.answers),
     reply,
     nextQuestionId: declaredNext,
+    ...(followup !== undefined ? { followup } : {}),
   };
 }
 
@@ -819,6 +903,35 @@ export function assertNoBannedClaimsEverySentence(text: string): void {
   }
 }
 
+/**
+ * The ENGINE gate for a model-proposed follow-up question (HACK-106,
+ * VAL-NCF-004): the proposal is validated BEFORE it is asked — a length
+ * cap, then the exact honesty gates every reply passes (per-sentence
+ * banned-claims scan, private-value echo, structural private-pattern
+ * sweep). Returns the blocking reason, or null when the proposal may be
+ * asked. The flow's next question is NEVER the model's to choose: skip
+ * authority stays with the spec engine regardless of this gate's outcome.
+ */
+export function followupGateProblem(
+  followup: string,
+  piiValues: readonly string[],
+): "length" | "banned_claim" | "pii_echo" | "structural_pii" | null {
+  const trimmed = followup.trim();
+  if (trimmed === "" || trimmed.length > MAX_FOLLOWUP_LENGTH) {
+    return "length";
+  }
+  if (findBannedClaimsEverySentence(trimmed).length > 0) {
+    return "banned_claim";
+  }
+  if (findPiiEchoes(trimmed, piiValues).length > 0) {
+    return "pii_echo";
+  }
+  if (sweepStructuralPii(trimmed, activeKbGrounding()) !== trimmed) {
+    return "structural_pii";
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Turn persistence (redacted transcripts only)
 // ---------------------------------------------------------------------------
@@ -957,6 +1070,8 @@ export interface ChatCallScript {
   readonly reply: string;
   /** Optional declared next question id the scripted envelope carries. */
   readonly nextQuestionId?: string;
+  /** Optional proposed follow-up question the scripted envelope carries. */
+  readonly followup?: string;
 }
 
 /**
@@ -1322,6 +1437,9 @@ export async function processUserTurn(
     const lossPrefix = extractionHadLoss
       ? `${PARTIAL_SAVE_FALLBACK_PREFIX} `
       : "";
+    // The private values the echo gate checks (shared by the follow-up
+    // gate below and the final reply gate in step 7).
+    const echoValues = sessionPiiValues(answersAfter).filter(isSpecificValue);
     let reply: string;
     if (savedViaRawCascade) {
       reply = nextQuestion
@@ -1358,6 +1476,28 @@ export async function processUserTurn(
       reply = extractionHadLoss
         ? `${PARTIAL_SAVE_FALLBACK_PREFIX} ${envelope.reply}`
         : envelope.reply;
+      // The model PROPOSED a follow-up question (HACK-106, VAL-NCF-004):
+      // the deterministic engine validates it BEFORE it is asked — the
+      // same honesty gates as any reply plus a length cap. The proposal
+      // never moves the flow: `nextQuestion` above stays spec-decided
+      // either way. A failing proposal is replaced with honest fallback
+      // copy that asks the server's next question (the model's ack cannot
+      // be salvaged — it is entangled with the blocked question text).
+      if (envelope.followup !== undefined) {
+        const blocked = followupGateProblem(
+          envelope.followup,
+          echoValues,
+        );
+        if (blocked) {
+          logWarn("conversation_followup_blocked", { reason: blocked });
+          // The loss disclosure rides FIRST (claude-review P2): a blocked
+          // proposal must not overwrite the honest "part of your answer
+          // was not saved" notice when the extraction had loss.
+          reply = nextQuestion
+            ? `${lossPrefix}${FOLLOWUP_BLOCKED_PREFIX} ${nextQuestion.prompt}`
+            : `${lossPrefix}${FLOW_MISMATCH_COMPLETE_REPLY}`;
+        }
+      }
     }
 
     // 7. Honesty gates on the FINAL reply text — per-sentence banned-claims
@@ -1374,7 +1514,6 @@ export async function processUserTurn(
       logWarn("conversation_reply_banned_claim_blocked");
       reply = BANNED_CLAIM_FALLBACK_REPLY;
     }
-    const echoValues = sessionPiiValues(answersAfter).filter(isSpecificValue);
     if (findPiiEchoes(reply, echoValues).length > 0) {
       logWarn("conversation_reply_pii_echo_blocked");
       reply = PII_ECHO_FALLBACK_REPLY;

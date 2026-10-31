@@ -116,6 +116,10 @@ export async function recordedBlobToWav(blob: Blob): Promise<Blob> {
  * (localService) voice is preferred so the fallback itself keeps reply
  * text on-device; on browsers with async voice loading the default voice
  * is used (claude-review round 2).
+ *
+ * `onEnded` (natural-conversation, HACK-106) fires when the utterance
+ * finishes or fails, so the continuous voice session can hold its next
+ * listening cycle until the fallback speech is done (no self-echo).
  */
 export function queueSpeech(
   text: string,
@@ -124,14 +128,21 @@ export function queueSpeech(
     speak(utterance: {
       text: string;
       voice?: unknown;
+      onend?: unknown;
+      onerror?: unknown;
     }): void;
   } | null,
+  onEnded?: () => void,
 ): boolean {
   const synth = speechSynthesis ?? window.speechSynthesis;
   if (!synth || typeof window.SpeechSynthesisUtterance === "undefined") {
     return false;
   }
   const utterance = new window.SpeechSynthesisUtterance(text);
+  if (onEnded) {
+    utterance.onend = onEnded;
+    utterance.onerror = onEnded;
+  }
   try {
     const voices = synth.getVoices?.() ?? [];
     const local = voices.find((voice) => voice.localService);
