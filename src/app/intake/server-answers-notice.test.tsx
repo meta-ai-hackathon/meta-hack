@@ -221,9 +221,11 @@ describe("the server answers notice", () => {
           // A mouse press can leave focus off the button (Safari doesn't focus a clicked button).
           (document.activeElement as HTMLElement | null)?.blur();
           await page.click(SERVER_ANSWERS_COPY.checkAgain);
-          // The message changes on every failed press, so each one is announced.
+          // The message changes on every failed press, so each one is
+          // announced, and every one still says the delete's outcome is unknown.
           expect([SERVER_ANSWERS_COPY.checkFailed, SERVER_ANSWERS_COPY.checkFailedAgain]).toContain(page.status());
           expect(page.status()).not.toBe(before);
+          expect(page.status()).toContain("whether the delete went through");
           expect(document.activeElement?.textContent).toBe(SERVER_ANSWERS_COPY.checkAgain);
           // Nothing is known to be removed: the count stays and no delete is offered yet.
           expect(page.container.textContent).toContain(SERVER_ANSWERS_COPY.body(2));

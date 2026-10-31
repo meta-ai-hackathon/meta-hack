@@ -50,9 +50,11 @@ export const SERVER_ANSWERS_COPY = {
     "whether it went through. Check again to see where things stand.",
   checkAgain: "Check again",
   goneAfterCheck: "Nothing from this browser is saved on the app's server now.",
-  checkFailed: "We still couldn't reach the app. Try again in a moment.",
-  checkFailedAgain:
+  checkFailed:
     "We still couldn't reach the app, so we can't say whether the delete " +
+    "went through. Try again in a moment.",
+  checkFailedAgain:
+    "Still no answer from the app, so we can't say yet whether the delete " +
     "went through. Try again in a moment.",
 } as const;
 
