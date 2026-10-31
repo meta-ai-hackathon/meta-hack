@@ -358,7 +358,7 @@ describe("banned-claims detector", () => {
     );
     fc.assert(
       fc.property(negated, apostrophe, question, fc.boolean(), (word, mark, rest, capital) => {
-        const auxiliary = (capital ? `${word[0]!.toUpperCase()}${word.slice(1)}` : word).replace("'", mark);
+        const auxiliary = (capital ? `${word[0]!.toUpperCase()}${word.slice(1)}` : word).replaceAll("'", mark);
         const asked = `${auxiliary} ${rest}`;
         expect(findBannedClaims(asked), asked).toEqual([]);
         // The lookbehind looks one word back, so a promise after the
