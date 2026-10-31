@@ -241,10 +241,11 @@ browser before starting over: on the chat page, open the browser's developer con
 send the request that button sends.
 
 ```js
-await fetch("/api/session/purge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirmed: true }) })
+await (await fetch("/api/session/purge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirmed: true }) })).json()
 ```
 
-It answers with the counts of what it deleted. Then start over in a fresh private window.
+The console prints `purged: true` and the counts of what it deleted. Then start over in a
+fresh private window.
 
 Rehearsed on 2026-10-31. With no key, every session read and a first plain answer returned
 500. With a new key, the earlier session stayed unreadable, and the purge route still
