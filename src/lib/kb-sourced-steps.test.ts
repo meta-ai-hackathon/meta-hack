@@ -93,7 +93,9 @@ const groupArb: fc.Arbitrary<RawStepGroup> = fc
   .map(([items, formId]) => ({
     items,
     ...(formId === undefined ? {} : { form_id: formId }),
-    retrieved_at: "2026-10-29",
+    // A day after the sample's sources were retrieved, so a card that
+    // showed the group's date instead of its source's would be caught.
+    retrieved_at: "2026-10-30",
   }));
 
 describe("handoff groups: schema mirror", () => {
@@ -164,7 +166,8 @@ describe("handoff groups: validation and citation", () => {
             expect(citation.sourceId).toBe(item.source_id);
             expect(citation.sourceTitle).toBe(source.title);
             expect(citation.sourceUrl).toBe(source.url);
-            expect(citation.retrievedAt).toBe(group.retrieved_at);
+            expect(source.retrieved_at).not.toBe(group.retrieved_at);
+            expect(citation.retrievedAt).toBe(source.retrieved_at);
             expect(citation.entryVersion).toBe(entry.version);
             expect(citation.status).toBe("active");
             expect(citation.group).toBe(name);

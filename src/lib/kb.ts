@@ -124,7 +124,10 @@ export interface KbSourcedStepGroup {
    * name that form's pages or steps. Omitted: they fit any form.
    */
   readonly formId?: string;
-  /** YYYY-MM-DD date these steps were retrieved from their sources. */
+  /**
+   * YYYY-MM-DD date the list was last checked against its sources. Each
+   * step's citation carries its own source's retrieval date instead.
+   */
   readonly retrievedAt: string;
 }
 
@@ -784,14 +787,17 @@ export interface KbStepCitation {
   readonly sourceId: string;
   readonly sourceTitle: string;
   readonly sourceUrl: string;
+  /** YYYY-MM-DD: when the step's own source was retrieved. */
   readonly retrievedAt: string;
 }
 
 /**
- * Cite every step of a handoff group, in order, each with its own source.
- * The same refusal as citeFactGroup: a stale or withdrawn entry is never
- * cited silently, so its steps need acknowledgeNonActive and still carry
- * the status and reason.
+ * Cite every step of a handoff group, in order, each with its own source
+ * and that source's retrieval date, so one source being re-checked can
+ * never leave another step showing the wrong date. The same refusal as
+ * citeFactGroup: a stale or withdrawn entry is never cited silently, so
+ * its steps need acknowledgeNonActive and still carry the status and
+ * reason.
  */
 export function citeSourcedSteps(
   entry: KbEntry,
@@ -833,7 +839,7 @@ export function citeSourcedSteps(
     sourceId: source.id,
     sourceTitle: source.title,
     sourceUrl: source.url,
-    retrievedAt: facts.retrievedAt,
+    retrievedAt: source.retrievedAt,
   }));
 }
 

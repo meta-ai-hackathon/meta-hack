@@ -169,7 +169,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["items", "retrieved_at"],
-      "description": "Optional handoff groups (BN-24 and BN-26, HACK-46 and HACK-47). submission_steps lists, in order, what a person does with a filled application form to sign it and send it in themselves; after_you_apply says what the official sources say happens after it is sent. Unlike the other groups, every item names its own source, because one list draws on several pages (the form itself, a county page, an online portal). Item ids must be unique within the group, and every item's source_id must name one of the entry's sources (both cross-checked in code and tests; JSON Schema cannot express them).",
+      "description": "Optional handoff groups (BN-24 and BN-26, HACK-46 and HACK-47). submission_steps lists, in order, what a person does with a filled application form to sign it and send it in themselves; after_you_apply says what the official sources say happens after it is sent. Unlike the other groups, every item names its own source, because one list draws on several pages (the form itself, a county page, an online portal); a step's card shows its own source's retrieval date, and the group's retrieved_at records when the list was last checked. Item ids must be unique within the group, and every item's source_id must name one of the entry's sources (both cross-checked in code and tests; JSON Schema cannot express them).",
       "properties": {
         "items": {
           "type": "array",
