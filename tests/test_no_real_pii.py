@@ -34,10 +34,13 @@ every git-tracked text file and fails on
   a server rather than a person, so it passes.
 
 An escaped line break or tab (backslash n, r or t) counts as a space, so a
-value right after one inside a string is still found. Lockfiles and binary
-files (a binary file type, or a NUL byte) are not read, so a filled form
-committed as a PDF, or an audio recording, is not checked here; those stay
-synthetic by review.
+value right after one inside a string is still found. A file saved as
+UTF-16 or UTF-32 with its byte order mark is read in that encoding.
+Lockfiles and binary file types are not read, so a filled form committed as
+a PDF, or an audio recording, is not checked here; those stay synthetic by
+review. Any other file with a NUL byte can't be read as text either (UTF-16
+saved without its mark, say), so a test fails on it until a person saves it
+as UTF-8 or adds its binary type to BINARY_SUFFIXES.
 
 ALLOWED names each value that is meant to be in a file by its kind and its
 SHA-256, with a reason that names the test it sits in, so the list doesn't
@@ -54,6 +57,7 @@ should, and lets the fictional and reserved values through.
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import re
 import string
@@ -70,8 +74,9 @@ from hypothesis import strategies as st
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Files the scan does not read by their name: lockfiles (generated, and full
-# of hashes) and binary file types. Any other file with a NUL byte in it
-# counts as binary too.
+# of hashes) and binary file types. Any other file with a NUL byte and no
+# UTF-16 or UTF-32 byte order mark can't be read either, and a test fails on
+# it so a person looks.
 LOCKFILE_NAMES: Final = frozenset(
     {
         "pnpm-lock.yaml",
@@ -106,6 +111,15 @@ BINARY_SUFFIXES: Final = frozenset(
         ".ttf",
         ".otf",
     }
+)
+# UTF-32 and UTF-16 text holds NUL bytes, so a file that starts with one of
+# their byte order marks is read in that encoding. A UTF-32 little-endian
+# mark starts with the UTF-16 one, so the UTF-32 marks come first.
+TEXT_BYTE_ORDER_MARKS: Final = (
+    (codecs.BOM_UTF32_LE, "utf-32"),
+    (codecs.BOM_UTF32_BE, "utf-32"),
+    (codecs.BOM_UTF16_LE, "utf-16"),
+    (codecs.BOM_UTF16_BE, "utf-16"),
 )
 
 SSN: Final = re.compile(r"(?<![\w-])\d{3}([- ])\d{2}\1\d{4}(?![\w-])")
@@ -218,17 +232,24 @@ class Finding:
         return f"{self.path}:{self.line}:{self.column}: {self.kind}"
 
 
+def skipped_by_name(path: str) -> bool:
+    """Whether the scan leaves a file unread by its name: a lockfile or a binary file type."""
+    name = PurePosixPath(path)
+    return name.name.lower() in LOCKFILE_NAMES or name.suffix.lower() in BINARY_SUFFIXES
+
+
 def read_text(root: Path, path: str) -> str | None:
     """A tracked file's text, or None when the scan does not read it: a
-    lockfile, a binary file type or a file with a NUL byte, a symlink, or
-    a path that is no file in the working tree."""
+    lockfile or a binary file type, a file with a NUL byte and no UTF-16 or
+    UTF-32 byte order mark, a symlink, or a path that is no file in the
+    working tree."""
     file = root / path
-    name = PurePosixPath(path)
-    if name.name.lower() in LOCKFILE_NAMES or name.suffix.lower() in BINARY_SUFFIXES:
-        return None
-    if file.is_symlink() or not file.is_file():
+    if skipped_by_name(path) or file.is_symlink() or not file.is_file():
         return None
     data = file.read_bytes()
+    for mark, codec in TEXT_BYTE_ORDER_MARKS:
+        if data.startswith(mark):
+            return data.decode(codec, errors="replace")
     if b"\0" in data:
         return None
     return data.decode("utf-8", errors="replace")
@@ -292,6 +313,15 @@ class RepoScanTests(unittest.TestCase):
         texts = [path for path in self.paths if path.endswith(text_suffixes) and PurePosixPath(path).name.lower() not in LOCKFILE_NAMES]
         self.assertTrue(texts)
         self.assertEqual([path for path in texts if read_text(REPO_ROOT, path) is None], [])
+
+    def test_only_lockfiles_and_binary_file_types_go_unread(self) -> None:
+        # Any other tracked file with a NUL byte, such as UTF-16 text saved
+        # without its byte order mark, can't be read as text. Save it as
+        # UTF-8, or add its binary type to BINARY_SUFFIXES once a person has
+        # looked at it.
+        files = [path for path in self.paths if not skipped_by_name(path) and (REPO_ROOT / path).is_file() and not (REPO_ROOT / path).is_symlink()]
+        self.assertTrue(files)
+        self.assertEqual([path for path in files if read_text(REPO_ROOT, path) is None], [])
 
     def test_a_listed_value_passes_only_where_it_is_listed(self) -> None:
         # The allowed findings are exactly the listed entries, which holds
@@ -461,6 +491,22 @@ def surround(value: str, around: tuple[str, str, str, str]) -> str:
     return before + left + value + right + after
 
 
+# The ways a text file can be saved that the scan still reads: UTF-8 with or
+# without its mark, and UTF-16 or UTF-32 in either byte order with theirs.
+ENCODINGS = st.sampled_from(["utf-8", "utf-8-sig", "utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be"])
+_MARK_FOR: Final = {
+    "utf-16-le": codecs.BOM_UTF16_LE,
+    "utf-16-be": codecs.BOM_UTF16_BE,
+    "utf-32-le": codecs.BOM_UTF32_LE,
+    "utf-32-be": codecs.BOM_UTF32_BE,
+}
+
+
+def saved(text: str, encoding: str) -> bytes:
+    """text as a file saved in encoding, with its byte order mark."""
+    return _MARK_FOR.get(encoding, b"") + text.encode(encoding)
+
+
 class FinderProperties(unittest.TestCase):
     @PBT
     @given(SSNS, SURROUNDINGS)
@@ -561,14 +607,16 @@ class FinderProperties(unittest.TestCase):
             max_size=4,
         ),
         st.lists(st.sampled_from([".ts", ".md", ".json", ".py", ".txt", ""]), min_size=4, max_size=4),
+        st.lists(ENCODINGS, min_size=4, max_size=4),
         st.integers(0, 3),
     )
     def test_a_planted_value_is_found_where_it_is_in_any_text_file_and_never_shown(
-        self, values: list[str], suffixes: list[str], blank_lines: int
+        self, values: list[str], suffixes: list[str], encodings: list[str], blank_lines: int
     ) -> None:
-        # Each value on its own line of a tracked text file, after a few
-        # other lines; the same values in a lockfile, a binary file type
-        # and a file with a NUL byte are not read.
+        # Each value on its own line of a tracked text file, saved in any
+        # encoding the scan reads, after a few other lines; the same values
+        # in a lockfile, a binary file type, a file with a NUL byte and
+        # UTF-16 without its mark are not read.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             expected = []
@@ -577,7 +625,7 @@ class FinderProperties(unittest.TestCase):
                 path = f"dir{index}/fixture{index}{suffixes[index]}"
                 paths.append(path)
                 (root / path).parent.mkdir(parents=True)
-                (root / path).write_text("first line\n" + "\n" * blank_lines + f"  value = '{value}'\n", encoding="utf-8")
+                (root / path).write_bytes(saved("first line\n" + "\n" * blank_lines + f"  value = '{value}'\n", encodings[index]))
                 kind = find_pii(value)[0][1]
                 expected.append((path, 2 + blank_lines, 12, kind, value))
             text = "".join(f"value = '{value}'\n" for value in values)
@@ -587,6 +635,7 @@ class FinderProperties(unittest.TestCase):
                 ("form.pdf", text.encode()),
                 ("recording.WAV", text.encode()),
                 ("blob.dat", b"\0" + text.encode()),
+                ("transcript.csv", text.encode("utf-16-le")),
             ):
                 paths.append(path)
                 (root / path).parent.mkdir(parents=True, exist_ok=True)
