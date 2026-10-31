@@ -769,6 +769,21 @@ export interface CiteOptions {
 }
 
 /**
+ * What a source card shows for one KB fact (BN-27): the source's title
+ * and official URL, its retrieval date, and the entry's version and
+ * status, with the reason when the entry is not active (BN-29).
+ */
+export interface KbSourceCardView {
+  readonly title: string;
+  readonly url: string;
+  /** YYYY-MM-DD retrieval date. */
+  readonly retrievedAt: string;
+  readonly entryVersion: number;
+  readonly entryStatus: KbEntryStatus;
+  readonly statusReason?: string;
+}
+
+/**
  * One handoff step with the source that backs it (BN-24 and BN-26). Like
  * KbCitation, `status` is required, so a step from a stale or withdrawn
  * entry can never reach the UI without its status and reason.

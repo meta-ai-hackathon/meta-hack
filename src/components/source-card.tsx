@@ -1,28 +1,17 @@
-import type { KbEntryStatus, NonActiveKbStatus } from "../lib/kb";
+import type { KbSourceCardView, NonActiveKbStatus } from "../lib/kb";
 
 // A source card (BN-27): where one fact comes from. It shows the source's
 // title and official URL, the retrieval date, and the KB entry version, so
 // a person can open the page and check the fact themselves. A fact from an
 // entry that is not active carries a visible flag with the reason, never a
-// silent citation (BN-29).
-
-/** Everything a source card shows. The one shape for a fact's source. */
-export interface SourceCardSource {
-  readonly title: string;
-  readonly url: string;
-  /** YYYY-MM-DD retrieval date. */
-  readonly retrievedAt: string;
-  readonly entryVersion: number;
-  readonly entryStatus: KbEntryStatus;
-  readonly statusReason?: string;
-}
+// silent citation (BN-29). The shape it shows is KbSourceCardView in kb.ts.
 
 const NON_ACTIVE_COPY: Readonly<Record<NonActiveKbStatus, string>> = {
   stale: "This may be out of date",
   withdrawn: "This was withdrawn",
 };
 
-export function SourceCard({ source }: { source: SourceCardSource }) {
+export function SourceCard({ source }: { source: KbSourceCardView }) {
   return (
     <p data-source-card className="text-sm text-muted">
       Source: {source.title},{" "}

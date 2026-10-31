@@ -1,9 +1,9 @@
-import type { SourceCardSource } from "../components/source-card";
 import type { SessionStatus } from "./honesty";
 import {
   KB_ENTRIES,
   citeSourcedSteps,
   type KbEntry,
+  type KbSourceCardView,
   type KbSourcedStepGroup,
   type KbStepCitation,
   type SourcedStepKbFactGroupName,
@@ -206,7 +206,7 @@ export interface HandoffStepView {
   readonly detail: string;
   readonly link?: { readonly label: string; readonly url: string };
   /** Exactly what the step's source card shows (BN-27). */
-  readonly source: SourceCardSource;
+  readonly source: KbSourceCardView;
 }
 
 /** Both sourced lists the handoff renders. */

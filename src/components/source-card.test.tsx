@@ -3,13 +3,14 @@ import fc from "fast-check";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../lib/honesty";
-import { SourceCard, type SourceCardSource } from "./source-card";
+import type { KbSourceCardView } from "../lib/kb";
+import { SourceCard } from "./source-card";
 
 // The source card (BN-27): every card shows the source's title and
 // official URL, the retrieval date, and the entry version, and a card from
 // an entry that is not active says so with the reason (BN-29).
 
-function renderCard(source: SourceCardSource): HTMLElement {
+function renderCard(source: KbSourceCardView): HTMLElement {
   const doc = new DOMParser().parseFromString(
     renderToStaticMarkup(<SourceCard source={source} />),
     "text/html",
@@ -21,7 +22,7 @@ function renderCard(source: SourceCardSource): HTMLElement {
   return card;
 }
 
-const sourceArb: fc.Arbitrary<SourceCardSource> = fc.record(
+const sourceArb: fc.Arbitrary<KbSourceCardView> = fc.record(
   {
     title: fc.string({ minLength: 1, maxLength: 60 }),
     url: fc.webUrl({ validSchemes: ["https"] }),
