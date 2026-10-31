@@ -263,6 +263,30 @@ describe("the talk-stage transcript pane (VAL-FIX-002)", () => {
     ).not.toBeNull();
   });
 
+  it("is a positioning context so the absolute sr-only labels stay inside its overflow clip", async () => {
+    const { container, act } = await renderChat();
+    const pane = await beginTalkStage(container, act);
+    installGeometry(pane, {
+      scrollTop: 0,
+      scrollHeight: 1000,
+      clientHeight: 400,
+    });
+    // A turn on the books: its screen-reader label must live in the pane.
+    await act(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(pane.querySelectorAll(".sr-only").length).toBeGreaterThanOrEqual(2);
+    // Tailwind's sr-only is position:absolute. With a fully static
+    // ancestor chain the labels' containing block is the document root,
+    // so they escape the pane's overflow-y-auto clip and each turn's
+    // label grows the PAGE instead of the pane's scroll (real browser:
+    // +114 px per turn — the VAL-FIX-002 defect). jsdom cannot compute
+    // Tailwind CSS, so this guards the class the stylesheet resolves
+    // into a positioning context; scroll geometry is measured in a real
+    // browser per the validator directive.
+    expect(pane.className).toContain("relative");
+  });
+
   it("auto-scrolls the pane to the latest turn while the person is parked at the bottom", async () => {
     const { container, act } = await renderChat();
     const pane = await beginTalkStage(container, act);
