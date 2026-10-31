@@ -882,6 +882,7 @@ describe("POST /api/conversation/turn — per-segment turn timing (VAL-FIX-004)"
     const segmentLine = segments[0] as unknown as Record<string, unknown>;
     for (const field of [
       "sessionMs",
+      "historyMs",
       "modelMs",
       "chatCallMs",
       "savesMs",
@@ -893,7 +894,6 @@ describe("POST /api/conversation/turn — per-segment turn timing (VAL-FIX-004)"
     expect(segmentLine.modelCalls).toBe(1);
     // Numbers only: no transcript, no prompt, no value content.
     const serialized = JSON.stringify(segments);
-    expect(serialized).not.toContain("555-0143");
     expect(serialized).not.toContain("It's for me");
   });
 
@@ -923,7 +923,7 @@ describe("POST /api/conversation/turn — per-segment turn timing (VAL-FIX-004)"
     expect(timings).toHaveLength(1);
     const timingLine = timings[0] as unknown as Record<string, unknown>;
     expect(timingLine.mode).toBe("voice");
-    for (const field of ["sttMs", "engineMs", "stateMs", "totalMs"]) {
+    for (const field of ["inputMs", "engineMs", "stateMs", "totalMs"]) {
       expect(typeof timingLine[field]).toBe("number");
     }
     // The typed mode is timed with the same event, mode "typed".

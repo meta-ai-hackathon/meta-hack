@@ -75,17 +75,18 @@ export async function POST(request: Request): Promise<Response> {
       }
       // Voice turns arrive as multipart audio; typed turns as JSON. Both
       // produce the turn text and share everything downstream.
-      // Per-segment timing (VAL-FIX-004): the STT segment is timed here;
-      // the engine segment wraps processUserTurn; numbers only, never
-      // content.
-      const sttStarted = Date.now();
+      // Per-segment timing (VAL-FIX-004): the INPUT segment is timed here —
+      // STT for a voice turn, JSON parse + validation for a typed one (the
+      // mode field says which) — and the engine segment wraps
+      // processUserTurn; numbers only, never content.
+      const inputStarted = Date.now();
       const userText = isVoice
         ? await transcribeTurnAudio(
             await voiceAudioBytes(request),
             cookieValue,
           )
         : validateTurnText(await parseJsonBody(request));
-      const sttMs = Date.now() - sttStarted;
+      const inputMs = Date.now() - inputStarted;
 
       const engineStarted = Date.now();
       const { sessionId, assistantTurnId, ...outcome } = await processUserTurn(
@@ -102,7 +103,7 @@ export async function POST(request: Request): Promise<Response> {
       logInfo("conversation_turn_received");
       logInfo("conversation_turn_route_timings", {
         mode: isVoice ? "voice" : "typed",
-        sttMs,
+        inputMs,
         engineMs,
         stateMs,
         totalMs: Date.now() - routeStarted,

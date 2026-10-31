@@ -1103,6 +1103,7 @@ async function runCombinedTurn(
   /** Wall time across the call (one call: equals chatCallMs up to parse). */
   modelMs: number;
 }> {
+  const modelStarted = Date.now();
   const messages: ChatMessage[] = [
     {
       role: "system",
@@ -1117,7 +1118,6 @@ async function runCombinedTurn(
       content: `${DATA_WRAP_START}\n${userText}\n${DATA_WRAP_END}`,
     },
   ];
-  const modelStarted = Date.now();
   const result = await chatCompletion(messages, {
     maxTokens: CHAT_CALL_MAX_TOKENS,
   });
@@ -1271,9 +1271,11 @@ export async function processUserTurn(
   // single structured response. It runs BEFORE any session exists for a
   // fresh visitor; its history is the stored REDACTED turns (empty for a
   // fresh visitor), and the raw words ride ONLY here, wrapped as data.
+  const historyStarted = Date.now();
   const history = existingSessionId
     ? await recentTurns(existingSessionId, REPLY_HISTORY_TURNS)
     : [];
+  const historyMs = Date.now() - historyStarted;
   const calls = await runCombinedTurn(
     userText,
     currentQuestion,
@@ -1562,9 +1564,12 @@ export async function processUserTurn(
     // the measurement evidence for the speed pass and the ongoing
     // observability for every turn after it. The demo-day split probe
     // (two parallel calls) did NOT ship — see runCombinedTurn's doc for
-    // the measured numbers; these segments stay shape-stable for it.
+    // the measured numbers; these segments stay shape-stable for it. The
+    // segments account for the whole turn except the sub-millisecond
+    // reply-building/gate CPU between savesMs and persistMs.
     logInfo("conversation_turn_segments", {
       sessionMs,
+      historyMs,
       modelMs: calls.modelMs,
       chatCallMs: calls.chatCallMs,
       savesMs,
