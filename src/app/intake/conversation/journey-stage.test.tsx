@@ -289,14 +289,15 @@ describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
     });
     expect(q(container, "mode-choice")).not.toBeNull();
     expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("entry");
-    // The frame layout: headline, two cards, begin, trust line — and
-    // nothing else from the old scrolling page.
+    // The frame layout: headline, two cards, begin, trust line — and no
+    // journey sections. The PURGE control is the exception: it stays
+    // reachable at every point of the journey (VAL-VJS-003).
     expect(q(container, "conversation-transcript")).toBeNull();
     expect(container.textContent).not.toContain("Your answers so far");
     expect(container.textContent).not.toContain(
       "Benefits that may be worth pursuing",
     );
-    expect(q(container, "purge-wrapper")).toBeNull();
+    expect(q(container, "purge-wrapper")).not.toBeNull();
   });
 
   it("mode A talk stage: bubbles + state bar, no form and no journey sections (VAL-VJS-002)", async () => {
@@ -316,7 +317,8 @@ describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
     expect(container.textContent).not.toContain(
       "Benefits that may be worth pursuing",
     );
-    expect(q(container, "purge-wrapper")).toBeNull();
+    // Purge stays reachable mid-journey (VAL-VJS-003).
+    expect(q(container, "purge-wrapper")).not.toBeNull();
   });
 
   it("mode B talk stage keeps the always-visible switch-to-typing (VAL-VJS-002)", async () => {
@@ -370,5 +372,32 @@ describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
     });
     expect(q(container, "zero-send-mode")).not.toBeNull();
     expect(container.textContent).toContain("Your answers so far");
+  });
+
+  it("an ai-only typed completion never speaks the wrap-up (claude-review P2: speech rides the voice journey)", async () => {
+    // AI sharing ON, voice OFF: the typed single-scroll path — completing
+    // it must not produce audio (and shows the sections inline).
+    stubFetch(OPEN_STATE, COMPLETE_STATE);
+    const { container, act: actFn } = await renderChat();
+    await actFn(async () => {
+      saveConsentReceipt({ ...voiceReceipt(), voice: false });
+    });
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea).not.toBeNull();
+    await actFn(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(textarea, "it is for me");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(queueSpeechMock).not.toHaveBeenCalled();
+    // The ai-only path is unstaged: sections render inline as before.
+    expect(container.textContent).toContain("Your answers so far");
+    expect(q(container, "results-stage")).toBeNull();
   });
 });

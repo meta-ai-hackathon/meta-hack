@@ -9,7 +9,7 @@ import {
   saveConsentReceipt,
   type ConsentReceipt,
 } from "../../../lib/consent";
-import { VoiceInterimState, sendVoiceTurn } from "./conversation-chat";
+import { refineThinkingPhase, VoiceInterimState, sendVoiceTurn } from "./conversation-chat";
 
 // Voice-fetch wiring tests (Mission v2.1 M5, VAL-CONSENT-006): the browser
 // voice client must attach the consent header to the audio POST to
@@ -223,5 +223,21 @@ describe("the interim voice states (VAL-VLAT-001)", () => {
       const html = renderToStaticMarkup(VoiceInterimState({ phase }));
       expect(findBannedClaims(html)).toEqual([]);
     }
+  });
+});
+
+// The state bar's "thinking" refinement (VAL-VJS-002): the pure seam the
+// 4 s in-flight timer applies. It renames ONLY a transcribing window —
+// listening, speaking, and no-turn states are never touched.
+describe("the thinking refinement seam", () => {
+  it("renames a transcribing window to thinking", () => {
+    expect(refineThinkingPhase("transcribing")).toBe("thinking");
+  });
+
+  it("leaves every other phase alone", () => {
+    expect(refineThinkingPhase("listening")).toBe("listening");
+    expect(refineThinkingPhase("speaking")).toBe("speaking");
+    expect(refineThinkingPhase("thinking")).toBe("thinking");
+    expect(refineThinkingPhase(null)).toBeNull();
   });
 });

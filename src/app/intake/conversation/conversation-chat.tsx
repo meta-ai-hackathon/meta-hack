@@ -110,6 +110,22 @@ interface ConversationTurn {
 }
 
 /**
+ * The state bar's "thinking" refinement (VAL-VJS-002, per the frames):
+ * one POST carries STT + extraction + reply, so the in-flight window
+ * starts as "transcribing"; once the wait is long enough that "your
+ * subtitles are coming together" is no longer the whole truth, the
+ * caption honestly renames the same window. A pure seam so the mapping
+ * (and that it never touches any other phase) is unit-testable; the
+ * timer that applies it is a one-liner beside the 5 s escalate notice
+ * (which follows the same untested-timer precedent).
+ */
+export function refineThinkingPhase(
+  current: VoiceInterimPhase | null,
+): VoiceInterimPhase | null {
+  return current === "transcribing" ? "thinking" : current;
+}
+
+/**
  * The short wrap-up spoken when the deterministic engine has no
  * unanswered question left (VAL-VJS-003), and the visible handoff line
  * at the top of the results stage (VAL-VJS-004). One text for both so
@@ -525,8 +541,10 @@ export function ConversationChat() {
     // the results stage — no additional form clicks (the results render
     // from state.complete itself). The wrap-up speaks locally (no send):
     // it is UI copy, not an assistant turn, so the speak route — which
-    // speaks stored turns by id — is not involved.
-    if (data.state.complete && !wasComplete) {
+    // speaks stored turns by id — is not involved. Gated on the VOICE
+    // journey: an ai-only typed completion never hears audio (and its
+    // layout is the single-scroll one, not the results stage).
+    if (data.state.complete && !wasComplete && voiceSharingOn && entryMode !== null) {
       queueSpeech(RESULTS_WRAP_UP);
     }
   }
@@ -598,16 +616,10 @@ export function ConversationChat() {
     setBusy(true);
     setError(null);
     setNotice("Transcribing your recording…");
-    // The state bar's "thinking" refinement (VAL-VJS-002, per the frames):
-    // one POST carries STT + extraction + reply, so the in-flight window
-    // starts as "transcribing"; once the wait is long enough that "your
-    // subtitles are coming together" is no longer the whole truth, the
-    // caption honestly renames the same window — the assistant is taking
-    // a moment with what was shared.
+    // The state bar's "thinking" refinement (VAL-VJS-002, per the
+    // frames): see refineThinkingPhase above.
     const think = setTimeout(() => {
-      setVoicePhase((current) =>
-        current === "transcribing" ? "thinking" : current,
-      );
+      setVoicePhase(refineThinkingPhase);
     }, 4000);
     // If the turn is still pending after 5 s, escalate the wait message —
     // honestly (no phase claim), so a slow turn never reads as a hang.
@@ -1091,6 +1103,15 @@ export function ConversationChat() {
         </section>
       ) : !voiceConsented ? (
         journeySections
+      ) : null}
+
+      {/* Purge stays reachable at EVERY point of the voice journey
+      (VAL-VJS-003): on the entry and talk stages the full journey
+      sections stay off-stage, so the purge section renders on its own
+      here — the results stage and the non-voice paths render it inside
+      journeySections above. */}
+      {voiceConsented && !resultsStage && state ? (
+        <PurgeSection onPurged={purgeClientState} />
       ) : null}
     </div>
   );
