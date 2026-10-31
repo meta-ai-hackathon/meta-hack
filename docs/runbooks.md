@@ -237,8 +237,8 @@ sections don't appear. `/api/health` still answers `{"ok":true}`.
 
 `/intake` keeps working because it saves answers on the device, so show the intake there.
 "Use the wizard instead" at the top of the chat page goes to it. It ends without the
-review or the PDF. Then check the Vercel Postgres store and the
-deployment's environment variables.
+review or the PDF. Then check the Vercel Postgres store and the deployment's environment
+variables.
 
 Rehearsed on 2026-10-31 with `DATABASE_URL` pointed at a closed port. The chat page and its
 questions failed as described, and `/intake` saved an answer with "Saved on this device."
