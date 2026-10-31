@@ -13,6 +13,7 @@ import {
   CHAT_CALL_MAX_TOKENS,
   COMMITTED_REFUSAL,
   ENVELOPE_MALFORMED_PREFIX,
+  MAX_FOLLOWUP_LENGTH,
   MAX_TURN_TEXT_LENGTH,
   PII_ECHO_FALLBACK_REPLY,
   REPLY_SYSTEM_PROMPT_PREFIX,
@@ -24,6 +25,7 @@ import {
   buildCombinedTurnPrompt,
   findBannedClaimsEverySentence,
   findPiiEchoes,
+  followupGateProblem,
   malformedEnvelopeFallback,
   parseCombinedEnvelope,
   PARTIAL_SAVE_FALLBACK_PREFIX,
@@ -31,6 +33,7 @@ import {
   RAW_CASCADE_SAVED_PREFIX,
   FLOW_MISMATCH_COMPLETE_REPLY,
   FLOW_MISMATCH_PREFIX,
+  storedAnswerMark,
   sweepStructuralPii,
   redactPiiValues,
   validateTurnText,
@@ -211,7 +214,10 @@ describe("grounded prompt builders", () => {
     // The single call decides what to ask BEFORE the server has saved
     // anything, so the prompt must carry the stored answers' state (as of
     // turn start) — the deterministic engine still owns nextQuestionId
-    // after the saves; the model mirrors the spec's order.
+    // after the saves; the model mirrors the spec's order. The mark
+    // carries the answer itself in plain language (HACK-106 natural
+    // conversation, VAL-NCF-003: the reply must acknowledge the prior
+    // answer, so the builder grounds it on the stored value).
     const answers: AnswerMap = {
       application_role: { status: "known", value: "self" },
     };
@@ -219,7 +225,9 @@ describe("grounded prompt builders", () => {
       QUESTION_BY_ID["main_goal"],
       answers,
     );
-    expect(prompt).toContain('"Who is this application for?" (already answered)');
+    expect(
+      prompt.includes('"Who is this application for?" (already answered: Me)'),
+    ).toBe(true);
     expect(prompt).toContain(
       '"What kind of help are you looking for right now?" (the question just asked, not yet answered)',
     );
@@ -763,6 +771,139 @@ describe("pii-echo detector (VAL-VOICE-004)", () => {
 function escapeForSplit(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+// ---------------------------------------------------------------------------
+// Natural-conversation properties (HACK-106, VAL-NCF-003/004): the
+// follow-up gate bites on ANY banned proposal, and the prompt's
+// stored-answer mark never carries a pii value.
+// ---------------------------------------------------------------------------
+
+describe("the follow-up engine gate (VAL-NCF-004)", () => {
+  // Banned proposals built from the detectors' own vocabulary: any
+  // phrasing of a determination must be blocked, whatever wraps it.
+  const bannedSeeds = [
+    "you qualify",
+    "you are eligible",
+    "you'll be approved",
+    "you should qualify",
+    "this is guaranteed",
+    "you will get benefits",
+  ] as const;
+  const followupTextArb = fc.string({
+    unit: fc.constantFrom(...SAFE_TEXT_CHARS),
+    minLength: 1,
+    maxLength: 80,
+  });
+
+  it("PROPERTY: any proposed follow-up carrying a banned claim is blocked", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...bannedSeeds),
+        followupTextArb,
+        (seed, wrap) => {
+          const proposal = `${wrap} ${seed} ${wrap}`;
+          expect(followupGateProblem(proposal, [])).toBe("banned_claim");
+        },
+      ),
+    );
+  });
+
+  it("PROPERTY: an over-length proposal is always blocked, whatever it contains", () => {
+    fc.assert(
+      fc.property(
+        fc.string({
+          unit: fc.constantFrom(...SAFE_TEXT_CHARS),
+          minLength: MAX_FOLLOWUP_LENGTH + 1,
+          maxLength: MAX_FOLLOWUP_LENGTH + 200,
+        }),
+        (proposal) => {
+          expect(followupGateProblem(proposal, [])).toBe("length");
+        },
+      ),
+    );
+  });
+
+  it("PROPERTY: ordinary question text from the word pool passes the gate", () => {
+    // A word pool (no digit shapes) so the structural sweep stays out of
+    // the way: the property under test is no FALSE ban of ordinary
+    // questions, not the structural sweep.
+    const words = [
+      "could", "you", "tell", "me", "more", "about", "your", "situation",
+      "how", "many", "people", "what", "kind", "of", "help", "when", "did",
+      "that", "happen", "do", "you", "have", "a", "place", "to", "stay",
+    ] as const;
+    const questionArb = fc.tuple(
+      fc.array(fc.constantFrom(...words), { minLength: 3, maxLength: 12 }),
+    ).map((parts) => `${parts.map((w) => w).join(" ")}?`);
+    fc.assert(
+      fc.property(questionArb, (question) => {
+        expect(followupGateProblem(question, [])).toBeNull();
+      }),
+    );
+  });
+
+  it("PROPERTY: the gate is deterministic — the same proposal always gates the same way", () => {
+    fc.assert(
+      fc.property(followupTextArb, (proposal) => {
+        const first = followupGateProblem(proposal, []);
+        const second = followupGateProblem(proposal, []);
+        expect(first).toBe(second);
+      }),
+    );
+  });
+});
+
+describe("the prompt's stored-answer mark (VAL-NCF-003)", () => {
+  it("PROPERTY: no pii question's value ever appears in its mark, for arbitrary values", () => {
+    const piiQuestions = QUESTIONS.filter((question) => question.pii);
+    expect(piiQuestions.length).toBeGreaterThan(0);
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...piiQuestions),
+        valueArb,
+        (question, value) => {
+          const mark = storedAnswerMark(question, {
+            status: "known",
+            value,
+          });
+          expect(mark).not.toContain(value);
+          expect(mark).toContain("[the answer they shared");
+        },
+      ),
+    );
+  });
+
+  it("PROPERTY: a choice answer's mark speaks the option label, never the raw value", () => {
+    const choiceQuestions = QUESTIONS.filter(
+      (question) => (question.options?.length ?? 0) > 0 && !question.pii,
+    );
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...choiceQuestions),
+        (question) => {
+          const option = question.options![0]!;
+          const mark = storedAnswerMark(question, {
+            status: "known",
+            value: option.value,
+          });
+          expect(mark).toContain(option.label);
+        },
+      ),
+    );
+  });
+
+  it("PROPERTY: an unknown answer is marked as not-sure, never as a value", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...QUESTIONS),
+        (question) => {
+          const mark = storedAnswerMark(question, { status: "unknown" });
+          expect(mark).toContain("not sure");
+        },
+      ),
+    );
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Fixtures

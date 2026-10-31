@@ -129,6 +129,7 @@ function envelopeContent(step: ChatCallScript): string {
     ...(step.nextQuestionId
       ? { next_question_id: step.nextQuestionId }
       : {}),
+    ...(step.followup ? { followup: step.followup } : {}),
   });
 }
 
