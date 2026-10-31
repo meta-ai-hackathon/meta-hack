@@ -19,8 +19,7 @@ Chosen over `src/data/kb/` on purpose:
 | Path | What it is |
 |---|---|
 | `kb/schema.json` | JSON Schema (draft-07) every entry must satisfy |
-| `kb/entries/*.json` | One file per program entry — three pilot-agnostic samples (the base sample plus matching fixtures B and C, so benefit matching has something to rank) plus the locked pilot's real entry, built only from official government sources with per-source claim-verification notes |
-| `kb/pilot/*.json` | Entries for the decided pilot program (HACK-50): real facts from official sources, kept apart from the samples (see `kb/pilot/README.md`) |
+| `kb/entries/*.json` | One file per program entry — three pilot-agnostic samples (the base sample plus matching fixtures B and C, so benefit matching has something to rank) plus the locked pilot's real entries, built only from official government sources with per-source claim-verification notes: the application entry (id `nc_medicaid`) and the renewal entry (id `nc_medicaid_renewal`, HACK-50) |
 | `kb/glossary.json` | Plain-language glossary terms (BN-30), each with an official source and retrieval date |
 | `kb/README.md` | This document |
 
@@ -103,7 +102,7 @@ The rule is encoded twice, on purpose:
   citation still carries the status and reason. There is no code path that
   produces a status-free citation.
 
-## Pilot-agnostic placeholders, and the locked pilot's real entry
+## Pilot-agnostic placeholders, and the locked pilot's real entries
 
 The three shipped sample entries use `{{PILOT_PROGRAM}}` placeholders and
 reserved-domain example URLs (`example.org`); they remain the test fixtures
@@ -114,23 +113,84 @@ notes per source (what was verified, on which page, when). Unresolved
 claims stay out of the entry rather than being guessed. The pytest suite
 still greps the KB surface: the samples, the schema, this README, and the
 consuming module must stay free of program names — only the versioned real
-entry is sanctioned to carry them. Retrieval dates in entries must be real
+entries are sanctioned to carry them. Retrieval dates in entries must be real
 calendar dates (the runtime validator checks the calendar; JSON Schema
 checks the shape).
 
-The one exception is `kb/pilot/`, which holds the decided pilot program's
-entries (HACK-50). The grep skips that directory, and `TestPilotEntries`
-holds it to stricter rules instead. Every file there, the README included,
-carries no placeholders and no real program name other than the pilot's
-own. Every entry there is also schema-valid, cites official state
-government sources over https, and has no future retrieval dates. Entries
-there are not part of the matching dataset (`KB_ENTRIES`).
+Real entries live in `kb/entries/` beside the samples, one pattern for all
+of them (the team's decision on PR #55, Oct 31). The renewal entry
+(`nc_medicaid_renewal`) joins the application entry on the grep's
+sanctioned list, by file, so no directory is skipped.
+
+## The renewal entry
+
+The renewal entry backs the renewal tracker (BN-22 / HACK-50): how often
+the pilot program renews coverage, the January 1, 2027 change for most
+adults ages 19 through 64, who that change does not affect, how long a
+person has to answer a renewal letter, what happens if coverage ends, and
+the steps and links the program gives for renewal time.
+
+- Every source is an official North Carolina government page (`ncdhhs.gov`,
+  `nc.gov`), https only, with the date it was read. `TestRenewalEntry` in
+  `tests/test_kb_schema.py` checks the domains, the schema, that no
+  placeholder or example URL slipped in, and that the entry names no
+  program other than the pilot's own.
+- Facts are restated close to the source wording. When a page changes,
+  update the fact, bump `version`, and set `retrieved_at` to the day you
+  re-read it. When a source can no longer be confirmed, mark the entry
+  `stale` with a `status_reason` instead of leaving it `active`.
+- The entry is not part of the benefit-match dataset (`KB_ENTRIES`, built
+  from `PILOT_CONFIG.kbEntryIds`), so it never changes match ranking or the
+  chat assistant's grounding. The renewal tracker imports it directly
+  (`src/lib/renewal/renewal-facts.ts`).
+- Do not list a page that contains political statements, even uncited. A
+  cited source renders as a link on the tracker, and a later edit could cite
+  any listed source.
+
+### Where the sources disagree
+
+Read these before changing the renewal schedules. Sources are named by
+their `id` in the entry.
+
+- **Who renews every 6 months.** `ncm_medicaid_is_changing` says the 2027
+  changes only affect adults ages 19 through 64, people who are not U.S.
+  citizens, and people applying, and that nothing changes for everyone else
+  as long as they still meet the program's eligibility requirements. Keep
+  that condition with the fact: without it the line reads as a promise of
+  continued coverage. The September 1, 2026 state press release and the
+  toolkit flyer (`ncm_changes_flyer`) aim the 6 month renewal at adults
+  ages 19 through 64 (the press release says people covered through the
+  expansion; the flyer is written for adults in that age group without a
+  disability). `ncm_work_requirement` tells everyone who is exempt from the
+  work rule, a list that includes people younger than 19 and older than
+  64, that they will renew every 6 months. The entry follows the majority
+  reading: the 6 month schedule carries `ages` 19 through 64 and its own
+  `source_id`, `ncm_medicaid_is_changing`, so the scope always shows with a
+  page that states it. The `renewal_cadence` group still cites
+  `ncm_work_requirement`, the source for the once-a-year line for members
+  eligible for Indian Health Services. The tracker asks one question that
+  stays on the device and leaves the 6 month estimate out when the answer
+  is outside those ages, showing that schedule and its source in its
+  place. The flyer is listed for the record, but no fact group or schedule
+  cites it, so it does not render. The press release is not listed because
+  it contains political statements.
+- **When the 6 month schedule starts.** Mecklenburg County's changes page
+  lists December 31, 2026; the state's pages say January 1, 2027. The
+  entry uses the state date. No estimate can land on December 31, 2026, so
+  the difference does not change any date the tracker shows.
+- **Whether a 12 month period granted in 2026 is shortened.** No cited page
+  says. The tracker shows both estimates and says that the first renewal on
+  a new schedule may come at the next scheduled renewal, and that the
+  letter has the real date.
+
+To re-verify, run the commands below, then open each source URL and
+compare it with the facts in the entry.
 
 ## Validating an entry
 
 ```text
 python3 -m pytest tests/test_kb_schema.py -q
-pnpm test -- src/lib/kb.test.ts
+pnpm test -- src/lib/kb.test.ts src/lib/renewal
 ```
 
 The JSON Schema is the machine contract, checked by pytest with the pinned

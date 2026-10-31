@@ -1,4 +1,4 @@
-import pilotRenewalEntryJson from "../../../kb/pilot/nc-medicaid-renewal.json";
+import pilotRenewalEntryJson from "../../../kb/entries/nc-medicaid-renewal.json";
 import {
   KbValidationError,
   citeCadenceSchedule,
@@ -25,8 +25,9 @@ import { isPlainHttpsUrl } from "./ics";
  * and keep their status for the UI to flag (BN-29); a withdrawn entry
  * yields no facts at all, only its status and reason.
  *
- * The decided pilot's entry is the one module-level import of a kb/pilot
- * file; routing it through PILOT_CONFIG belongs to the HACK-16 flip.
+ * The renewal entry is imported here directly, not through
+ * PILOT_CONFIG.kbEntryIds, so it never joins the matching dataset
+ * (KB_ENTRIES) and never changes match ranking.
  */
 
 export interface RenewalSourceView {

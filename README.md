@@ -135,7 +135,7 @@ grounding checks before it renders.
 `/renewal` (linked from the end of the conversation, the wizard's review
 screen, and the home page, each asking "Already have coverage?") keeps track
 of a renewal. It shows what the program publishes about renewal, from the
-pilot's knowledge-base entry in `kb/pilot/`: how often renewal happens, the
+pilot's renewal entry in `kb/entries/nc-medicaid-renewal.json`: how often renewal happens, the
 January 1, 2027 change and who it does not affect, how long a person has to
 answer a renewal letter, what happens if coverage ends, the steps, and the
 official links, each labeled "From NC Medicaid" with its source, retrieval

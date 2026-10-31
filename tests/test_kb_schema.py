@@ -26,10 +26,14 @@ SCHEMA_PATH = KB_DIR / "schema.json"
 ENTRIES_DIR = KB_DIR / "entries"
 SAMPLE_PATH = ENTRIES_DIR / "pilot-program-sample.json"
 KB_CODE_PATH = REPO_ROOT / "src" / "lib" / "kb.ts"
-# Entries for the decided pilot (HACK-50 / BN-22). Real facts with official
-# sources live here, apart from the pilot-agnostic samples in ENTRIES_DIR,
-# and TestPilotEntries holds them to their own rules.
-PILOT_DIR = KB_DIR / "pilot"
+# The renewal tracker's entry (HACK-50 / BN-22): real facts with official
+# sources, in kb/entries/ beside the samples and the application entry (the
+# team's decision on PR #55, Oct 31). TestRenewalEntry holds it to its own
+# rules on top of the ones every entry meets.
+RENEWAL_ENTRY_PATH = ENTRIES_DIR / "nc-medicaid-renewal.json"
+# The versioned real entries: the only KB files sanctioned to name the pilot
+# program (VAL-KB-003 as amended after the HACK-16 lock).
+REAL_ENTRY_PATHS = (ENTRIES_DIR / "nc-medicaid.json", RENEWAL_ENTRY_PATH)
 
 FACT_GROUPS = ["rules", "required_documents", "official_links", "deadlines"]
 
@@ -191,16 +195,18 @@ class TestSchemaAndSample(KbSchemaTestCase):
         self.assertIsInstance(self.sample["version"], int)
         self.assertGreaterEqual(self.sample["version"], 1)
 
-    def test_shipped_entries_are_the_three_samples_plus_the_real_pilot_entry(self):
+    def test_shipped_entries_are_the_three_samples_plus_the_real_pilot_entries(self):
         # Mission v2 M3 added matching fixtures B and C (so matching has
         # something to rank); mission v2.1 M6 added the REAL pilot entry
         # (HACK-16 Done: NC Medicaid) built from official government
-        # sources. All must validate; see also TestOptionalGroups and
-        # TestRealPilotEntry.
+        # sources, and HACK-50 added the renewal tracker's real entry. All
+        # must validate; see also TestOptionalGroups, TestRealPilotEntry and
+        # TestRenewalEntry.
         shipped = sorted(path.name for path in ENTRIES_DIR.glob("*.json"))
         self.assertEqual(
             shipped,
             [
+                "nc-medicaid-renewal.json",
                 "nc-medicaid.json",
                 "pilot-program-sample-b.json",
                 "pilot-program-sample-c.json",
@@ -509,7 +515,7 @@ class TestOptionalGroups(KbSchemaTestCase):
         # The schema cannot cross-reference source_id -> sources (the same
         # limitation the required groups have, checked in the consuming
         # module). Here: every shipped entry's optional groups resolve.
-        for path in sorted(ENTRIES_DIR.glob("*.json")) + sorted(PILOT_DIR.glob("*.json")):
+        for path in sorted(ENTRIES_DIR.glob("*.json")):
             entry = json.loads(path.read_text(encoding="utf-8"))
             source_ids = {source["id"] for source in entry["sources"]}
             for group in ["steps", "match_signals", "renewal_cadence", "if_coverage_ends"]:
@@ -549,28 +555,20 @@ class TestOptionalGroups(KbSchemaTestCase):
 
 class TestPilotAgnostic(KbSchemaTestCase):
     def kb_surface_files(self) -> list[Path]:
-        # kb/pilot/ is the one exception: it holds the decided pilot's real
-        # entries (HACK-50), and TestPilotEntries below checks them instead.
-        # The samples, schema, README, and the consuming module stay free of
-        # program names.
-        files = [
-            path
-            for path in KB_DIR.rglob("*")
-            if path.is_file() and PILOT_DIR not in path.parents
-        ]
+        files = [path for path in KB_DIR.rglob("*") if path.is_file()]
         if KB_CODE_PATH.is_file():
             files.append(KB_CODE_PATH)
         return files
 
     def test_surface_scan_still_covers_the_samples_and_schema(self):
-        # The pilot exclusion must not hollow out the scan.
+        # No directory is skipped: real entries are sanctioned one file at a
+        # time in the scan below, so a new file anywhere under kb/ is
+        # scanned until it is named there (PR #55 review).
         names = {path.name for path in self.kb_surface_files()}
         for expected in ["schema.json", "README.md", "pilot-program-sample.json", "kb.ts"]:
             self.assertIn(expected, names)
-        self.assertFalse(
-            any(PILOT_DIR in path.parents for path in self.kb_surface_files()),
-            "pilot entries are checked by TestPilotEntries, not this scan",
-        )
+        on_disk = {path for path in KB_DIR.rglob("*") if path.is_file()}
+        self.assertEqual(set(self.kb_surface_files()) - {KB_CODE_PATH}, on_disk)
 
     def test_sample_uses_pilot_placeholder(self):
         text = SAMPLE_PATH.read_text(encoding="utf-8")
@@ -594,15 +592,16 @@ class TestPilotAgnostic(KbSchemaTestCase):
     def test_no_real_program_names_outside_the_sanctioned_real_entry(self):
         # Post-lock grep check (VAL-KB-003 as amended by VAL-X2-004, Oct 30):
         # HACK-16 is Done, so real program/jurisdiction names are sanctioned
-        # in exactly ONE KB surface — the committed versioned real entry
-        # (nc-medicaid.json) whose official sources + retrieval dates carry
-        # the verification discipline. The samples, the schema, the README,
+        # only in the committed versioned real entries (REAL_ENTRY_PATHS:
+        # nc-medicaid.json, and the renewal entry the team placed beside it
+        # on Oct 31), whose official sources + retrieval dates carry the
+        # verification discipline. The samples, the schema, the README,
         # and the consuming module stay name-free. The kb/forms/ registry
         # entries are the forms surface, governed by test_forms_registry.
         sanctioned = ENTRIES_DIR / "nc-medicaid.json"
         forms_dir = (KB_DIR / "forms").resolve()
         for path in self.kb_surface_files():
-            if path == sanctioned or forms_dir in path.resolve().parents:
+            if path in REAL_ENTRY_PATHS or forms_dir in path.resolve().parents:
                 continue
             for line_number, line in enumerate(
                 path.read_text(encoding="utf-8").splitlines(), start=1
@@ -634,13 +633,6 @@ def is_official_pilot_host(url: str) -> bool:
     )
 
 
-def pilot_files(directory: Path = PILOT_DIR) -> list[Path]:
-    # Every file under kb/pilot/, not only the JSON entries. The VAL-KB-003
-    # scan skips the whole directory, README and any later notes included,
-    # so the name and placeholder checks have to read all of it.
-    return sorted(path for path in directory.rglob("*") if path.is_file())
-
-
 def other_program_names(paths: list[Path]) -> dict[str, set[str]]:
     """Blocklisted program names other than the pilot's own, by file path."""
     found: dict[str, set[str]] = {}
@@ -653,68 +645,59 @@ def other_program_names(paths: list[Path]) -> dict[str, set[str]]:
     return found
 
 
-class TestPilotEntries(KbSchemaTestCase):
-    """HACK-50: entries for the decided pilot carry real, verified facts.
+class TestRenewalEntry(KbSchemaTestCase):
+    """HACK-50: the renewal tracker's entry carries real, verified facts.
 
-    They live in kb/pilot/, apart from the pilot-agnostic samples, and must
-    validate against the same schema, cite only official North Carolina
+    It lives in kb/entries/ beside the samples and the application entry
+    (the team's decision on PR #55, Oct 31) and validates against the same
+    schema. On top of that it must cite only official North Carolina
     government sources over https, carry no placeholders, and name no real
-    program other than the pilot's own. The last two rules cover every file
-    in the directory, since none of them is on the VAL-KB-003 scan. The
-    renewal_cadence group stays optional, as in the schema: an entry is held
-    to unique schedule ids and real start dates only when it carries the
-    group, so a later entry without renewal schedules (appeal steps, say)
-    passes, while the renewal entry must carry it.
+    program other than the pilot's own; the VAL-KB-003 scan sanctions the
+    file, so that last rule is checked here. The renewal_cadence group stays
+    optional, as in the schema: an entry is held to unique schedule ids and
+    real start dates only when it carries the group, while the renewal entry
+    must carry it.
     """
 
-    def pilot_entries(self) -> list[tuple[Path, dict]]:
-        return [
-            (path, json.loads(path.read_text(encoding="utf-8")))
-            for path in sorted(PILOT_DIR.glob("*.json"))
-        ]
+    def setUp(self) -> None:
+        super().setUp()
+        self.entry = json.loads(RENEWAL_ENTRY_PATH.read_text(encoding="utf-8"))
 
-    def test_ships_the_renewal_entry(self):
-        # assertIn, not an exact list: the next kb/pilot entry adds a file
-        # without loosening this check.
-        names = [path.name for path, _ in self.pilot_entries()]
-        self.assertIn("nc-medicaid-renewal.json", names)
+    def test_ships_beside_the_other_entries(self):
+        self.assertTrue(RENEWAL_ENTRY_PATH.is_file(), f"missing {RENEWAL_ENTRY_PATH}")
+        self.assertEqual(RENEWAL_ENTRY_PATH.parent, ENTRIES_DIR)
 
     def test_cadence_age_ranges_are_ordered(self):
         # The schema cannot compare min with max; kb.ts and this check do.
-        for path, entry in self.pilot_entries():
-            for item in entry["facts"].get("renewal_cadence", {}).get("items", []):
-                if "ages" in item:
-                    self.assertLessEqual(item["ages"]["min"], item["ages"]["max"], path.name)
+        for item in self.entry["facts"].get("renewal_cadence", {}).get("items", []):
+            if "ages" in item:
+                self.assertLessEqual(item["ages"]["min"], item["ages"]["max"], item["id"])
 
-    def test_pilot_entries_validate(self):
-        for path, entry in self.pilot_entries():
-            self.assertEqual(self.schema_errors(entry), [], path.name)
-            self.assertEqual(entry["status"], "active", path.name)
+    def test_entry_validates(self):
+        self.assertEqual(self.schema_errors(self.entry), [])
+        self.assertEqual(self.entry["status"], "active")
 
-    def test_pilot_ids_do_not_collide_with_the_samples(self):
-        sample_ids = {
+    def test_ids_are_unique_across_the_entries(self):
+        ids = [
             json.loads(path.read_text(encoding="utf-8"))["id"]
-            for path in ENTRIES_DIR.glob("*.json")
-        }
-        pilot_ids = [entry["id"] for _, entry in self.pilot_entries()]
-        self.assertEqual(len(pilot_ids), len(set(pilot_ids)))
-        self.assertFalse(sample_ids & set(pilot_ids))
+            for path in sorted(ENTRIES_DIR.glob("*.json"))
+        ]
+        self.assertIn(self.entry["id"], ids)
+        self.assertEqual(len(ids), len(set(ids)))
 
     def test_every_group_cites_a_listed_source(self):
-        for path, entry in self.pilot_entries():
-            source_ids = {source["id"] for source in entry["sources"]}
-            for group, facts in entry["facts"].items():
-                self.assertIn(facts["source_id"], source_ids, f"{path.name} facts.{group}")
-            for item in entry["facts"].get("renewal_cadence", {}).get("items", []):
-                if "source_id" in item:
-                    self.assertIn(item["source_id"], source_ids, f"{path.name} schedule {item['id']}")
+        source_ids = {source["id"] for source in self.entry["sources"]}
+        for group, facts in self.entry["facts"].items():
+            self.assertIn(facts["source_id"], source_ids, f"facts.{group}")
+        for item in self.entry["facts"].get("renewal_cadence", {}).get("items", []):
+            if "source_id" in item:
+                self.assertIn(item["source_id"], source_ids, f"schedule {item['id']}")
 
     def test_sources_and_links_are_official_nc_https(self):
-        for path, entry in self.pilot_entries():
-            for source in entry["sources"]:
-                self.assertTrue(is_official_pilot_host(source["url"]), source["url"])
-            for link in entry["facts"]["official_links"]["items"]:
-                self.assertTrue(is_official_pilot_host(link["url"]), link["url"])
+        for source in self.entry["sources"]:
+            self.assertTrue(is_official_pilot_host(source["url"]), source["url"])
+        for link in self.entry["facts"]["official_links"]["items"]:
+            self.assertTrue(is_official_pilot_host(link["url"]), link["url"])
 
     def test_official_host_check_bites(self):
         for url in [
@@ -727,21 +710,17 @@ class TestPilotEntries(KbSchemaTestCase):
         self.assertTrue(is_official_pilot_host("https://epass.nc.gov/"))
 
     def test_no_placeholders_survive(self):
-        for path in pilot_files():
-            text = path.read_text(encoding="utf-8")
-            self.assertNotIn("{{", text, path.name)
-            self.assertNotIn("example.org", text, path.name)
+        text = RENEWAL_ENTRY_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("{{", text)
+        self.assertNotIn("example.org", text)
 
     def test_names_only_the_pilot_program(self):
-        self.assertEqual(other_program_names(pilot_files()), {})
+        self.assertEqual(other_program_names([RENEWAL_ENTRY_PATH]), {})
 
-    def test_pilot_file_checks_read_every_file_not_only_json(self):
-        # The README is on the list, so the checks above are not vacuous.
-        names = {path.name for path in pilot_files()}
-        self.assertIn("README.md", names)
-        self.assertIn("nc-medicaid-renewal.json", names)
-        # And the name check bites on files that are not entries: the probe
-        # from the HACK-50 review, a README line and a plain text note.
+    def test_name_check_bites(self):
+        # The probe from the HACK-50 review: the check flags every other
+        # program name, in an entry or in any other file, and lets the
+        # pilot's own name through.
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
             (folder / "README.md").write_text(
@@ -749,7 +728,7 @@ class TestPilotEntries(KbSchemaTestCase):
             )
             (folder / "notes.txt").write_text("SNAP\n", encoding="utf-8")
             (folder / "entry.json").write_text('{"title": "NC Medicaid"}\n', encoding="utf-8")
-            found = other_program_names(pilot_files(folder))
+            found = other_program_names(sorted(folder.iterdir()))
         self.assertEqual(
             {Path(name).name: sorted(extra) for name, extra in found.items()},
             {"README.md": ["chip", "snap"], "notes.txt": ["snap"]},
@@ -757,14 +736,13 @@ class TestPilotEntries(KbSchemaTestCase):
 
     def test_dates_are_real_and_never_in_the_future(self):
         today = datetime.date.today()
-        for path, entry in self.pilot_entries():
-            dates = [source["retrieved_at"] for source in entry["sources"]]
-            dates += [facts["retrieved_at"] for facts in entry["facts"].values()]
-            for value in dates:
-                self.assertLessEqual(datetime.date.fromisoformat(value), today, path.name)
-            for item in entry["facts"]["deadlines"]["items"]:
-                if ISO_DATE_RE.match(item["due"]):
-                    datetime.date.fromisoformat(item["due"])
+        dates = [source["retrieved_at"] for source in self.entry["sources"]]
+        dates += [facts["retrieved_at"] for facts in self.entry["facts"].values()]
+        for value in dates:
+            self.assertLessEqual(datetime.date.fromisoformat(value), today, value)
+        for item in self.entry["facts"]["deadlines"]["items"]:
+            if ISO_DATE_RE.match(item["due"]):
+                datetime.date.fromisoformat(item["due"])
 
     def cadence_problems(self, entry: dict) -> list[str]:
         """What is wrong with an entry's renewal_cadence group: nothing when it has none."""
@@ -787,10 +765,10 @@ class TestPilotEntries(KbSchemaTestCase):
         # Checked only where present, as test_optional_group_source_ids_resolve
         # does (HACK-50 third review: this used to fail any pilot entry
         # without renewal_cadence with "needs renewal_cadence").
-        entries = dict(self.pilot_entries())
-        for path, entry in entries.items():
+        for path in sorted(ENTRIES_DIR.glob("*.json")):
+            entry = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(self.cadence_problems(entry), [], path.name)
-        renewal = entries[PILOT_DIR / "nc-medicaid-renewal.json"]
+        renewal = self.entry
         self.assertIn("renewal_cadence", renewal["facts"])
         # An entry without schedules passes; a broken group still fails.
         without = copy.deepcopy(renewal)

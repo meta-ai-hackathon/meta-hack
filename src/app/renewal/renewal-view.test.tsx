@@ -14,7 +14,7 @@ import {
 } from "../../lib/renewal/copy";
 import { AGE_ANSWERS, type AgeAnswer } from "../../lib/renewal/estimate";
 import { buildRenewalFactsView, PILOT_RENEWAL_FACTS } from "../../lib/renewal/renewal-facts";
-import pilotEntryJson from "../../../kb/pilot/nc-medicaid-renewal.json";
+import pilotEntryJson from "../../../kb/entries/nc-medicaid-renewal.json";
 import { RenewalFactsSection, ReportedDateView } from "./renewal-view";
 
 // Label rendering (HACK-50 acceptance): knowledge-base dates and facts are

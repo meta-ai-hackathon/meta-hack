@@ -1,7 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { KbValidationError, parseKbEntry, type KbEntry } from "../kb";
-import pilotEntryJson from "../../../kb/pilot/nc-medicaid-renewal.json";
+import pilotEntryJson from "../../../kb/entries/nc-medicaid-renewal.json";
 import { parseIsoDate } from "./calendar-date";
 import { buildReminderCalendar } from "./reminder-calendar";
 import {
