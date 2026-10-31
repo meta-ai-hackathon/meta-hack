@@ -40,7 +40,9 @@ export type VoiceInterimPhase = "listening" | "transcribing";
  * renders the moment recording starts ("listening") and the moment it
  * stops ("transcribing") — synchronously with the click, far inside the
  * 500 ms budget — so the server wait is visible work, never silence. A
- * null phase renders nothing (no turn in flight).
+ * null phase renders nothing (no turn in flight). Deliberately NOT a live
+ * region: the notice (StatusRegion) announces the same phases, and a
+ * second live region would make screen readers announce them twice.
  */
 export function VoiceInterimState({
   phase,
@@ -51,11 +53,7 @@ export function VoiceInterimState({
     return null;
   }
   return (
-    <p
-      data-voice-interim-state={phase}
-      role="status"
-      className="text-sm font-medium text-muted"
-    >
+    <p data-voice-interim-state={phase} className="text-sm font-medium text-muted">
       {phase === "listening"
         ? "Listening — speak whenever you're ready."
         : "Transcribing your recording, then the assistant will reply…"}

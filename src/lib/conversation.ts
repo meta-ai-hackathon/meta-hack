@@ -142,6 +142,15 @@ export function malformedEnvelopeFallback(
 }
 
 /**
+ * Honest prefix when PART of the extraction was lost (a malformed answer
+ * skipped, or a choice that mapped to nothing) while another answer saved
+ * (claude-review P2): the model wrote its reply before the server knew the
+ * save failed, so its acknowledgment may claim an answer that was dropped.
+ */
+export const PARTIAL_SAVE_FALLBACK_PREFIX =
+  "I couldn't record part of what you said.";
+
+/**
  * Lightweight per-session turn-rate cap (hardening item 3): the turn
  * endpoint is unauthenticated model spend, and voice adds a second
  * expensive path per turn. A person speaking push-to-talk cannot plausibly
@@ -348,9 +357,11 @@ export function buildCombinedTurnPrompt(
       }
     }
   } else {
+    // currentQuestion is null ONLY when every visible question is already
+    // answered (a fresh visitor always has a first question to ask): the
+    // reply thanks the person and points them to the review step.
     lines.push(
-      "The person has not been asked a specific question yet: greet them and " +
-        "ask the first question in the list.",
+      "Every question in the list is answered. In your reply, thank the person and say they can continue to the review step.",
     );
   }
   lines.push(
@@ -613,6 +624,22 @@ function escapeRegExp(text: string): string {
 
 function containsIgnoreCase(haystack: string, needle: string): boolean {
   return haystack.toLowerCase().includes(needle.toLowerCase());
+}
+
+/**
+ * Remove structural private patterns (ISO dates, slash dates, emails, phone
+ * numbers) from assistant text. The reply-side backstop for the single-call
+ * merge (claude-review P1): the reply is written by a model that saw the raw
+ * user words, so a private detail extraction missed could be echoed even
+ * though it was never saved anywhere. Returns the swept text; callers
+ * compare before/after and fall back to honest copy on any change.
+ */
+export function sweepStructuralPii(text: string): string {
+  let output = text;
+  for (const pattern of STRUCTURAL_PII_PATTERNS) {
+    output = output.replace(pattern, STRUCTURAL_MARKER);
+  }
+  return output;
 }
 
 /**
@@ -1057,6 +1084,7 @@ export async function processUserTurn(
     // logged without content, and never fails the turn.
     const sourceByQuestion = new Map<string, RedactionSource>();
     let unmappedChoiceAttempt = false;
+    let skippedAnswerCount = 0;
     let savedAnswerCount = 0;
     const savePlanned = async (
       planned: PlannedAnswer,
@@ -1134,6 +1162,7 @@ export async function processUserTurn(
         // honestly rather than look saved when it was not.
         if (error instanceof AppError && error.code === "validation_error") {
           logWarn("conversation_extraction_answer_skipped");
+          skippedAnswerCount += 1;
         } else {
           throw error;
         }
@@ -1192,30 +1221,41 @@ export async function processUserTurn(
     // turn-start list; this id is the authority the client state carries.)
     const nextQuestion = nextUnansweredQuestion(answersAfter);
 
-    // 6. The reply text. When a choice answer was attempted and NOTHING was
-    // saved this turn, the envelope's reply is replaced with the honest
-    // deterministic copy — an "not saved" plus the question again
-    // (hardening item 6 / BN-11). If some other answer did save, the
-    // grounded envelope reply reports the true state (claude-review P2-3).
-    // An unusable envelope degrades to the deterministic re-ask — never a
-    // fabricated reply, never a failed turn.
+    // 6. The reply text. The model wrote it before the server knew what
+    // would actually save, so a lost extraction (a skipped malformed value,
+    // or a choice that mapped to nothing) must be disclosed honestly:
+    // NOTHING saved → the deterministic re-ask replaces the reply; PART of
+    // the turn saved → the honest loss prefix goes ahead of the reply
+    // (claude-review P2). An unusable envelope degrades to the
+    // deterministic re-ask — never a fabricated reply, never a failed turn.
+    const extractionHadLoss =
+      unmappedChoiceAttempt || skippedAnswerCount > 0;
     let reply: string;
     if (envelope === null) {
       logWarn("conversation_envelope_malformed");
       reply = malformedEnvelopeFallback(currentQuestion);
-    } else if (unmappedChoiceAttempt && currentQuestion && savedAnswerCount === 0) {
-      reply = `${CHOICE_UNMAPPED_FALLBACK_PREFIX} ${currentQuestion.prompt}`;
+    } else if (extractionHadLoss && savedAnswerCount === 0) {
+      reply =
+        unmappedChoiceAttempt && currentQuestion
+          ? `${CHOICE_UNMAPPED_FALLBACK_PREFIX} ${currentQuestion.prompt}`
+          : malformedEnvelopeFallback(currentQuestion);
     } else {
       if (unmappedChoiceAttempt) {
         logWarn("conversation_choice_partially_unmapped");
       }
-      reply = envelope.reply;
+      reply = extractionHadLoss
+        ? `${PARTIAL_SAVE_FALLBACK_PREFIX} ${envelope.reply}`
+        : envelope.reply;
     }
 
     // 7. Honesty gates on the FINAL reply text — per-sentence banned-claims
-    // scan first, then the private-value echo gate — both BEFORE render and
-    // persist; a violating reply is replaced with honest fallback copy and
-    // never shown.
+    // scan first, then the private-value echo gate, then the structural
+    // private-pattern sweep — all BEFORE render and persist; a violating
+    // reply is replaced with honest fallback copy and never shown. The
+    // structural sweep is the single-call backstop (claude-review P1): the
+    // reply is written by a model that saw the raw words, so a private
+    // detail extraction missed could be echoed without ever having been
+    // saved — the sweep catches date/phone/email shapes regardless.
     try {
       assertNoBannedClaimsEverySentence(reply);
     } catch {
@@ -1225,6 +1265,10 @@ export async function processUserTurn(
     const echoValues = sessionPiiValues(answersAfter).filter(isSpecificValue);
     if (findPiiEchoes(reply, echoValues).length > 0) {
       logWarn("conversation_reply_pii_echo_blocked");
+      reply = PII_ECHO_FALLBACK_REPLY;
+    }
+    if (sweepStructuralPii(reply) !== reply) {
+      logWarn("conversation_reply_structural_pii_blocked");
       reply = PII_ECHO_FALLBACK_REPLY;
     }
 
@@ -1255,8 +1299,8 @@ export async function processUserTurn(
       // merge, where it now guards every post-creation failure).
       logWarn("conversation_turn_reply_failed_fresh_session");
       throw new AppError(
-        error instanceof AppError ? error.code : "model_unavailable",
-        error instanceof AppError ? error.message : userMessageFor("model_unavailable"),
+        error instanceof AppError ? error.code : "internal",
+        error instanceof AppError ? error.message : userMessageFor("internal"),
         { cause: { turnSession: { sessionId, fresh } } },
       );
     }

@@ -26,6 +26,7 @@ import {
   findPiiEchoes,
   malformedEnvelopeFallback,
   parseCombinedEnvelope,
+  PARTIAL_SAVE_FALLBACK_PREFIX,
   redactPiiValues,
   validateTurnText,
 } from "./conversation";
@@ -83,6 +84,7 @@ describe("committed refusal and fallback copy", () => {
       ENVELOPE_MALFORMED_PREFIX,
       malformedEnvelopeFallback(QUESTION_BY_ID["application_role"]),
       malformedEnvelopeFallback(null),
+      PARTIAL_SAVE_FALLBACK_PREFIX,
     ]) {
       expect(findBannedClaims(text)).toEqual([]);
       expect(() => assertNoBannedClaimsEverySentence(text)).not.toThrow();
@@ -273,6 +275,14 @@ describe("grounded prompt builders", () => {
     ).toLowerCase();
     expect(prompt).toContain("option value");
     expect(prompt).toContain("exactly");
+  });
+
+  it("makes the null-current-question branch the completed-flow instruction, never a restart", () => {
+    // currentQuestion is null ONLY when every visible question is answered;
+    // the prompt must send the person to review, not greet and restart.
+    const prompt = buildCombinedTurnPrompt(null);
+    expect(prompt).toContain("continue to the review step");
+    expect(prompt).not.toContain("greet them and ask the first question");
   });
 
   it("embeds the data-only marker and the single-envelope output instruction", () => {
@@ -534,7 +544,12 @@ describe("redaction (VAL-CONV-004 invariant)", () => {
           const redacted = redactPiiValues(text, [
             piiSource("date_of_birth", value, value),
           ]);
-          expect(containsIgnoreCase(redacted, value)).toBe(false);
+          // The leak definition matches the implementation's own fail-closed
+          // sweep: a value inside a redaction marker is the marker's own
+          // template text ("personal detail" contains "na"), not a leak.
+          // A value that survives OUTSIDE every marker is a real leak.
+          const outsideMarkers = redacted.replace(/\[redacted[^\]]*\]/g, "");
+          expect(containsIgnoreCase(outsideMarkers, value)).toBe(false);
         },
       ),
     );
@@ -582,7 +597,11 @@ describe("redaction (VAL-CONV-004 invariant)", () => {
             values.map((value) => piiSource("goal_detail", value, value)),
           );
           for (const value of values) {
-            expect(containsIgnoreCase(redacted, value)).toBe(false);
+            // Same leak definition as the single-value property: markers are
+            // the replacement (their template text may embed short values);
+            // only survival OUTSIDE every marker is a leak.
+            const outsideMarkers = redacted.replace(/\[redacted[^\]]*\]/g, "");
+            expect(containsIgnoreCase(outsideMarkers, value)).toBe(false);
           }
         },
       ),

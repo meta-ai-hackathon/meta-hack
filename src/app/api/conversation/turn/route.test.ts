@@ -8,6 +8,8 @@ import {
   BANNED_CLAIM_FALLBACK_REPLY,
   CHAT_CALL_MAX_TOKENS,
   COMMITTED_REFUSAL,
+  PARTIAL_SAVE_FALLBACK_PREFIX,
+  PII_ECHO_FALLBACK_REPLY,
   WIZARD_FALLBACK_URL,
   type ChatCallScript,
 } from "../../../../lib/conversation";
@@ -654,6 +656,30 @@ describe("POST /api/conversation/turn — banned claims (VAL-CONV-002)", () => {
   });
 });
 
+describe("POST /api/conversation/turn — reply privacy backstop (single call, claude-review P1)", () => {
+  it("sweeps a private value the reply echoed that extraction never saved, before render or persist", async () => {
+    // The single call's reply is written by a model that saw the raw words;
+    // if extraction MISSES a private detail, nothing reaches the echo gate's
+    // saved-value list. The structural sweep (dates, phones, emails) is the
+    // backstop: the echoed phone never reaches the client or the DB.
+    installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: "Thanks! I noted your number 555-0143. What is your email address?",
+      },
+    ]);
+    const response = await POST(turnRequest("Call me at 555-0143."));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(PII_ECHO_FALLBACK_REPLY);
+    const bodyText = JSON.stringify(data);
+    expect(bodyText).not.toContain("555-0143");
+    for (const transcript of await assistantTranscripts()) {
+      expect(transcript).not.toContain("555-0143");
+    }
+  });
+});
+
 describe("POST /api/conversation/turn — honest degradation (VAL-CONV-007)", () => {
   it("returns the model_unavailable taxonomy error with a wizard fallback link and persists nothing", async () => {
     setModelTransport(failingChat(503));
@@ -1030,9 +1056,12 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     const second = await POST(turnRequest("I need food.", cookie));
     expect(second.status).toBe(200);
     const data = (await second.json()) as TurnResponse;
-    // The grounded model reply ran (the current answer saved), not the
-    // deterministic fallback.
-    expect(data.assistantReply).toBe("Got it — food. What is your zip code?");
+    // The grounded model reply ran (the current answer saved) — with the
+    // honest loss prefix ahead of it, because the garbage extraction for
+    // the NON-current question was dropped, not saved.
+    expect(data.assistantReply).toBe(
+      `${PARTIAL_SAVE_FALLBACK_PREFIX} Got it — food. What is your zip code?`,
+    );
     const rows = await testDb`
       SELECT question_id, value FROM answer ORDER BY question_id
     `;
@@ -1045,10 +1074,12 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     );
   });
 
-  it("uses the deterministic unmapped copy only when NOTHING saved this turn (claude-review P2-3)", async () => {
+  it("prefixes the model reply with honest loss copy when part of the extraction did not save (claude-review P2)", async () => {
     // The current question's answer fails to map, but another answer in the
-    // same turn saves. The "haven't saved anything yet" copy would be false;
-    // the grounded model reply reports the true state instead.
+    // same turn saves. The model wrote its reply before the server knew,
+    // so its acknowledgment may claim the dropped answer — the honest loss
+    // prefix goes ahead of it (and the "haven't saved anything yet" copy
+    // would be false when something DID save).
     installScript([
       {
         extraction: JSON.stringify({
@@ -1080,7 +1111,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     expect(second.status).toBe(200);
     const data = (await second.json()) as TurnResponse;
     expect(data.assistantReply).toBe(
-      "One answer saved. What kind of help are you looking for?",
+      `${PARTIAL_SAVE_FALLBACK_PREFIX} One answer saved. What kind of help are you looking for?`,
     );
     // The unmapped question stays unanswered, so the server still asks it.
     expect(data.nextQuestionId).toBe("main_goal");
@@ -1088,6 +1119,40 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
       SELECT value FROM answer WHERE question_id = 'main_goal'
     `;
     expect(mainGoal).toHaveLength(0);
+  });
+
+  it("replaces the model reply with the honest re-ask when a skipped malformed answer left nothing saved", async () => {
+    // A malformed value (validation_error skip) with no other save: the
+    // model's reply cannot know the save was dropped — the deterministic
+    // re-ask replaces it.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            {
+              question_id: "household_size",
+              status: "known",
+              value: "not a number at all",
+            },
+          ],
+        }),
+        reply: "All recorded! What is next?",
+      },
+    ]);
+    const response = await POST(turnRequest("We are a troupe."));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toContain("let's try again");
+    // The skipped answer was for a LATER question; the engine's current
+    // question (application_role) is what the honest re-ask repeats.
+    expect(data.assistantReply).toContain(
+      QUESTION_BY_ID.application_role.prompt,
+    );
+    expect(data.nextQuestionId).toBe("application_role");
+    const rows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'household_size'
+    `;
+    expect(rows).toHaveLength(0);
   });
 });
 
@@ -1097,13 +1162,8 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
   // old two-call design had between the saves and the reply is closed.
   // The atomicity guarantee is exercised through the remaining post-creation
   // failure surface: a persistence-layer failure after the model call
-  // succeeded (forced here by hiding the conversation_turn table).
-  async function hideTurnTable(): Promise<void> {
-    await testDb`ALTER TABLE conversation_turn RENAME TO conversation_turn_hidden`;
-  }
-  async function restoreTurnTable(): Promise<void> {
-    await testDb`ALTER TABLE conversation_turn_hidden RENAME TO conversation_turn`;
-  }
+  // succeeded (forced by hiding the conversation_turn table from INSIDE the
+  // scripted transport, so history loading still works up front).
 
   it("persists turns only after the reply succeeds; a persist failure leaves no duplicate transcript on retry", async () => {
     installScript([
@@ -1116,48 +1176,79 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
     expect(first.status).toBe(200);
     const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0].trim();
 
-    // Turn 2: the model call succeeds (an answer is saved), but the
-    // persistence layer fails.
+    // Turn 2: the combined call SUCCEEDS — its scripted transport hides the
+    // turn table as it serves the envelope, so the failure lands AFTER the
+    // model call, in the persistence layer (with one call per turn, that is
+    // the only post-save failure window left).
+    let modelCalled = false;
+    setModelTransport(async () => {
+      if (!modelCalled) {
+        modelCalled = true;
+        await testDb`ALTER TABLE conversation_turn RENAME TO conversation_turn_hidden`;
+        return new Response(
+          JSON.stringify(
+            chatCallBody(
+              envelopeContent({
+                extraction: JSON.stringify({
+                  answers: [
+                    { question_id: "main_goal", status: "known", value: "food" },
+                  ],
+                }),
+                reply: "Got it — food. What is your zip code?",
+              }),
+            ),
+          ),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ error: { message: "down" } }), {
+        status: 503,
+      });
+    });
+
+    const failed = await POST(turnRequest("I need help with food.", cookie));
+    expect(failed.status).toBe(500);
+    // The model call ran and the answer SAVED (the failure was persistence,
+    // not the model).
+    const goalRows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'main_goal'
+    `;
+    expect(goalRows).toHaveLength(1);
+    // NO transcript persisted for the failed turn — a retry cannot
+    // duplicate it (the rows live in the hidden table).
+    const hidden = await testDb`
+      SELECT role, redacted_transcript FROM conversation_turn_hidden
+      ORDER BY created_at ASC, id ASC
+    `;
+    expect(hidden.map((row) => String(row.role))).toEqual([
+      "user",
+      "assistant",
+    ]);
+    expect(String(hidden[0].redacted_transcript)).toBe("Hello there.");
+    await testDb`ALTER TABLE conversation_turn_hidden RENAME TO conversation_turn`;
+
+    // The retry completes cleanly: exactly one copy of the transcript.
     installScript([
       {
         extraction: JSON.stringify({
           answers: [
-            { question_id: "main_goal", status: "known", value: "food" },
+            { question_id: "household_size", status: "known", value: 2 },
           ],
         }),
-        reply: "Got it — food. What is your zip code?",
+        reply: "Got it. How many of those people are under 18?",
       },
     ]);
-    await hideTurnTable();
-    let failed: Response;
-    try {
-      failed = await POST(turnRequest("I need help with food.", cookie));
-      expect(failed.status).toBe(500);
-      // NO transcript persisted for the failed turn — a retry cannot
-      // duplicate it (the rows live in the hidden table).
-      const hidden = await testDb`
-        SELECT role, redacted_transcript FROM conversation_turn_hidden
-        ORDER BY created_at ASC, id ASC
-      `;
-      expect(hidden.map((row) => String(row.role))).toEqual([
-        "user",
-        "assistant",
-      ]);
-      expect(String(hidden[0].redacted_transcript)).toBe("Hello there.");
-    } finally {
-      await restoreTurnTable();
-    }
-
-    // The retry completes cleanly: exactly one copy of the transcript.
-    const retried = await POST(turnRequest("I need help with food.", cookie));
+    const retried = await POST(turnRequest("Two of us.", cookie));
     expect(retried.status).toBe(200);
+    // Exactly one copy of each persisted turn: the FAILED turn's transcript
+    // was never written (atomicity), so only turn 1 and the retry appear.
     expect(await userTranscripts()).toEqual([
       "Hello there.",
-      "I need help with food.",
+      "Two of us.",
     ]);
     expect(await assistantTranscripts()).toEqual([
       "Let's begin. Who is this application for?",
-      "Got it — food. What is your zip code?",
+      "Got it. How many of those people are under 18?",
     ]);
   });
 
@@ -1252,10 +1343,11 @@ describe("POST /api/conversation/turn — deferred session creation (hardening 2
     let failed: Response;
     try {
       failed = await POST(turnRequest("It's for me."));
-      expect(failed.status).toBe(503);
-      // The error response STILL carries the session cookie.
+      // A persistence-layer failure maps to the internal error code (the
+      // taxonomy stays honest — model_unavailable is for model failures).
+      expect(failed.status).toBe(500);
       const data = (await failed.json()) as ErrorResponse;
-      expect(data.error.code).toBe("model_unavailable");
+      expect(data.error.code).toBe("internal");
       expect(data.error.wizardFallbackUrl).toBe(WIZARD_FALLBACK_URL);
     } finally {
       await testDb`ALTER TABLE conversation_turn_hidden RENAME TO conversation_turn`;
