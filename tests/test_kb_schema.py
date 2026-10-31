@@ -30,8 +30,10 @@ SAMPLE_PATH = ENTRIES_DIR / "pilot-program-sample.json"
 KB_CODE_PATH = REPO_ROOT / "src" / "lib" / "kb.ts"
 # The renewal tracker's entry (HACK-50 / BN-22): real facts with official
 # sources, in kb/entries/ beside the samples and the application entry (the
-# team's decision on PR #55, Oct 31). TestRenewalEntry holds it to its own
-# rules on top of the ones every entry meets.
+# team's decision, recorded by a reviewer on PR #55 on Oct 31:
+# https://github.com/meta-ai-hackathon/meta-hack/pull/55#discussion_r4431007644).
+# TestRenewalEntry holds it to its own rules on top of the ones every entry
+# meets.
 RENEWAL_ENTRY_PATH = ENTRIES_DIR / "nc-medicaid-renewal.json"
 # The versioned real entries: the only KB files sanctioned to name the pilot
 # program (VAL-KB-003 as amended after the HACK-16 lock).
@@ -667,7 +669,8 @@ class TestRenewalEntry(KbSchemaTestCase):
     """HACK-50: the renewal tracker's entry carries real, verified facts.
 
     It lives in kb/entries/ beside the samples and the application entry
-    (the team's decision on PR #55, Oct 31) and validates against the same
+    (the team's decision on PR #55, Oct 31; see RENEWAL_ENTRY_PATH for where
+    it is recorded) and validates against the same
     schema. On top of that it must cite only official North Carolina
     government sources over https, carry no placeholders, and name no real
     program other than the pilot's own; the VAL-KB-003 scan sanctions the

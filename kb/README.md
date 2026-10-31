@@ -118,9 +118,10 @@ calendar dates (the runtime validator checks the calendar; JSON Schema
 checks the shape).
 
 Real entries live in `kb/entries/` beside the samples, one pattern for all
-of them (the team's decision on PR #55, Oct 31). The renewal entry
-(`nc_medicaid_renewal`) joins the application entry on the grep's
-sanctioned list, by file, so no directory is skipped.
+of them (the team's decision, which a reviewer recorded
+[on PR #55 on Oct 31](https://github.com/meta-ai-hackathon/meta-hack/pull/55#discussion_r4431007644)).
+The renewal entry (`nc_medicaid_renewal`) joins the application entry on
+the grep's sanctioned list, by file, so no directory is skipped.
 
 ## The renewal entry
 
