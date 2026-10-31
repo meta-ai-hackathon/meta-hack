@@ -6,7 +6,7 @@ import {
   type ConsentReceipt,
 } from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
-import { ConversationChat } from "./conversation-chat";
+import { ConversationChat, MAX_PENDING_VOICE_TURNS } from "./conversation-chat";
 
 // The two-mode conversation surface (HACK-106, VAL-NCF-002): the derived
 // conditions and transitions the rebuild introduced — exactly two entry
@@ -21,6 +21,10 @@ type SessionCallbacks = {
   onUtterance: (blob: Blob) => void;
   onPhase: (phase: "listening" | "transcribing" | null) => void;
   onRecorderError: () => void;
+  onEndpointTiming?: (timing: {
+    speechEndToDecisionMs: number;
+    utteranceMs: number;
+  }) => void;
 };
 const sessionCallbacks: SessionCallbacks = {
   onUtterance: () => undefined,
@@ -28,6 +32,10 @@ const sessionCallbacks: SessionCallbacks = {
   onRecorderError: () => undefined,
 };
 let sessionOps: string[] = [];
+// Whether the fake session reports an open recorder cycle (the real
+// session's isCapturing) — the tests flip this to simulate speech in
+// flight when the reply becomes ready.
+let fakeCapturing = false;
 
 vi.mock("../../../lib/audio/voice-session", () => ({
   DEFAULT_ENDPOINTING: {},
@@ -58,12 +66,24 @@ vi.mock("../../../lib/audio/voice-session", () => ({
       get isPaused() {
         return false;
       },
+      get isCapturing() {
+        return fakeCapturing;
+      },
     };
   },
 }));
 
 vi.mock("../../../lib/audio/capture", () => ({
-  queueSpeech: () => true,
+  // The fallback speech resolves immediately (onended), so a turn's
+  // playback leg settles in tests instead of dangling.
+  queueSpeech: (
+    _text: string,
+    _synth?: unknown,
+    onEnded?: () => void,
+  ) => {
+    onEnded?.();
+    return true;
+  },
   recordedBlobToWav: () => new Blob([new Uint8Array(8)], { type: "audio/wav" }),
   voiceCaptureSupported: () => true,
 }));
@@ -153,6 +173,7 @@ beforeEach(() => {
   };
   localStorage.clear();
   sessionOps = [];
+  fakeCapturing = false;
   turnCalls = [];
   stubFetch();
 });
@@ -322,5 +343,360 @@ describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
     expect(sessionOps).toContain("stop");
     expect(q(container, "voice-session")).toBeNull();
     expect(container.querySelector("textarea")).not.toBeNull();
+  });
+
+  it("VAL-FIX-001: continuations spoken while a turn is processing are queued in order and all submitted (never dropped)", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-only");
+    // The first turn's POST hangs until the test releases it, so
+    // "while the turn is processing" is observable.
+    let releaseTurn1: (() => void) | undefined;
+    const turn1Promise = new Promise<Response>((resolve) => {
+      releaseTurn1 = () => resolve(turnResponse());
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return turnCalls.length === 1 ? turn1Promise : turnResponse();
+        }
+        if (url === "/api/conversation/speak") {
+          return new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    sessionOps = [];
+    // The first utterance ends (the gate reported its decision timing).
+    await act(async () => {
+      sessionCallbacks.onEndpointTiming?.({
+        speechEndToDecisionMs: 412,
+        utteranceMs: 1_234,
+      });
+      sessionCallbacks.onUtterance(
+        new Blob(["first"], { type: "audio/webm" }),
+      );
+    });
+    // Turn 1 is submitted, and capture CONTINUES while it processes —
+    // the session was told to listen again immediately (the endpoint
+    // decision re-opens for whatever the person says next).
+    expect(turnCalls).toHaveLength(1);
+    expect(sessionOps).toContain("listen");
+    // TWO continuation utterances end while turn 1 is still processing.
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["second"], { type: "audio/webm" }),
+      );
+      sessionCallbacks.onUtterance(
+        new Blob(["third"], { type: "audio/webm" }),
+      );
+    });
+    // They are queued — not submitted into the in-flight turn, and not
+    // dropped.
+    expect(turnCalls).toHaveLength(1);
+    // Turn 1 settles: playback HOLDS the mic first (the assistant's own
+    // voice must never be captured as a user turn), then the session
+    // re-opens and the queued continuations submit in spoken order.
+    sessionOps = [];
+    await act(async () => {
+      releaseTurn1?.();
+    });
+    expect(sessionOps).toContain("hold");
+    expect(sessionOps).toContain("resume");
+    expect(turnCalls).toHaveLength(3);
+    // The instrumented endpoint decision evidence is on the surface
+    // (agent-browser DOM evidence for the timing budget).
+    const evidence = q(container, "endpoint-timing")?.getAttribute(
+      "data-endpoint-timing",
+    );
+    expect(evidence ?? "").toContain("412");
+    expect(evidence ?? "").toContain("submit=");
+  });
+
+  it("VAL-FIX-001: revoking voice sharing while a continuation is queued sends nothing further", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-only");
+    let releaseTurn1: (() => void) | undefined;
+    const turn1Promise = new Promise<Response>((resolve) => {
+      releaseTurn1 = () => resolve(turnResponse());
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return turnCalls.length === 1 ? turn1Promise : turnResponse();
+        }
+        if (url === "/api/conversation/speak") {
+          return new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["first"], { type: "audio/webm" }),
+      );
+    });
+    expect(turnCalls).toHaveLength(1);
+    // A continuation is captured and queued mid-turn…
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["second"], { type: "audio/webm" }),
+      );
+    });
+    expect(turnCalls).toHaveLength(1);
+    // …and then the person revokes voice sharing while turn 1 is still
+    // processing: the mic stops (the revoke effect) and the queued
+    // continuation is CLEARED — it must never be uploaded afterwards.
+    await act(async () => {
+      saveConsentReceipt({ ...voiceReceipt(false) });
+    });
+    expect(sessionOps).toContain("stop");
+    await act(async () => {
+      releaseTurn1?.();
+    });
+    expect(turnCalls).toHaveLength(1);
+    expect(q(container, "voice-session")).toBeNull();
+  });
+
+  it("VAL-FIX-001: a mid-utterance continuation is flushed before reply playback, never truncated away", async () => {
+    const { container: _container, act } = await renderChat();
+    await beginMode(_container, act, "voice-only");
+    let releaseTurn1: (() => void) | undefined;
+    const turn1Promise = new Promise<Response>((resolve) => {
+      releaseTurn1 = () => resolve(turnResponse());
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return turnCalls.length === 1 ? turn1Promise : turnResponse();
+        }
+        if (url === "/api/conversation/speak") {
+          return new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["first"], { type: "audio/webm" }),
+      );
+    });
+    expect(turnCalls).toHaveLength(1);
+    // The person resumed speaking while turn 1 processed and is
+    // mid-utterance exactly when the reply becomes ready.
+    fakeCapturing = true;
+    sessionOps = [];
+    await act(async () => {
+      releaseTurn1?.();
+    });
+    // The open recording was flushed GRACEFULLY (endpointNow delivers
+    // it) before the mic was held for playback — flush first, hold
+    // second.
+    const flushAt = sessionOps.indexOf("endpoint");
+    const holdAt = sessionOps.indexOf("hold");
+    expect(flushAt).toBeGreaterThanOrEqual(0);
+    expect(holdAt).toBeGreaterThan(flushAt);
+    // The flushed partial arrives (as the real async onstop would) and
+    // is queued while turn 1 is still settling — then submitted.
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["partial"], { type: "audio/webm" }),
+      );
+    });
+    await act(async () => undefined);
+    expect(turnCalls).toHaveLength(2);
+  });
+
+  it("VAL-FIX-001: a flushed blob arriving during reply playback queues without reopening the mic", async () => {
+    const { container: _container, act } = await renderChat();
+    await beginMode(_container, act, "voice-only");
+    let releaseTurn1: (() => void) | undefined;
+    const turn1Promise = new Promise<Response>((resolve) => {
+      releaseTurn1 = () => resolve(turnResponse());
+    });
+    // The reply's speak fetch pends until released: "playback in
+    // progress" is observable.
+    let releaseSpeak: (() => void) | undefined;
+    const speakPromise = new Promise<Response>((resolve) => {
+      releaseSpeak = () =>
+        resolve(
+          new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return turnCalls.length === 1 ? turn1Promise : turnResponse();
+        }
+        if (url === "/api/conversation/speak") {
+          return speakPromise;
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["first"], { type: "audio/webm" }),
+      );
+    });
+    expect(turnCalls).toHaveLength(1);
+    // The person is mid-utterance when the reply becomes ready: the open
+    // recording is flushed, then the mic is held for playback.
+    fakeCapturing = true;
+    sessionOps = [];
+    await act(async () => {
+      releaseTurn1?.();
+    });
+    const holdAt = sessionOps.indexOf("hold");
+    expect(holdAt).toBeGreaterThan(sessionOps.indexOf("endpoint"));
+    // Playback is now in progress (the speak fetch is still pending).
+    // The flushed recording's async onstop delivers DURING playback:
+    sessionOps = sessionOps.slice(0, holdAt + 1);
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["flushed"], { type: "audio/webm" }),
+      );
+    });
+    // It was queued WITHOUT any listen: no capture reopens while the
+    // assistant's own voice is playing.
+    expect(sessionOps).not.toContain("listen");
+    expect(turnCalls).toHaveLength(1);
+    // Playback finishes: the turn settles, the mic resumes, and the
+    // queued continuation submits.
+    await act(async () => {
+      releaseSpeak?.();
+    });
+    expect(sessionOps).toContain("resume");
+    expect(turnCalls).toHaveLength(2);
+  });
+
+  it("VAL-FIX-001: the continuation queue is bounded and overflow is announced, never silent", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-only");
+    let releaseTurn1: (() => void) | undefined;
+    const turn1Promise = new Promise<Response>((resolve) => {
+      releaseTurn1 = () => resolve(turnResponse());
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return turnCalls.length === 1 ? turn1Promise : turnResponse();
+        }
+        if (url === "/api/conversation/speak") {
+          return new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["first"], { type: "audio/webm" }),
+      );
+    });
+    // Fill the queue to its bound…
+    await act(async () => {
+      for (let i = 0; i < MAX_PENDING_VOICE_TURNS; i += 1) {
+        sessionCallbacks.onUtterance(
+          new Blob([`extra-${i}`], { type: "audio/webm" }),
+        );
+      }
+    });
+    expect(turnCalls).toHaveLength(1);
+    // …then overflow: dropped HONESTLY (a visible notice), not silently.
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["overflow"], { type: "audio/webm" }),
+      );
+    });
+    expect(turnCalls).toHaveLength(1);
+    const notice =
+      container.querySelector('[role="status"]')?.textContent ?? "";
+    expect(notice).toContain("may have missed");
+    // The bound queue still drains in order when the turn settles.
+    await act(async () => {
+      releaseTurn1?.();
+    });
+    expect(turnCalls).toHaveLength(MAX_PENDING_VOICE_TURNS + 1);
+  });
+
+  it("VAL-FIX-001: a user pause outlives a turn — the playback hold never overrides it", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-only");
+    await act(async () => {
+      q(container, "voice-pause")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    sessionOps = [];
+    // A turn settles while the person is paused (e.g. a delivery raced
+    // the pause): its playback still holds the mic, but the settled
+    // cleanup must NOT resume on their behalf — the pause stands.
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["audio"], { type: "audio/webm" }),
+      );
+    });
+    expect(sessionOps).toContain("hold");
+    expect(sessionOps).not.toContain("resume");
+    expect(q(container, "voice-session")?.getAttribute("data-voice-session")).toBe("paused");
   });
 });

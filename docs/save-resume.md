@@ -120,6 +120,12 @@ and nothing about the journey is stored on the server.
   delete on shared computers. Private windows clear the store when closed,
   and Safari clears a site's storage after about a week without a visit, so
   the page never promises an open-ended resume.
+- **Keeping the store:** the page asks the browser to keep this site's
+  storage (`navigator.storage.persist()`) only when the person presses
+  "Save and finish later" with answers saved on the device, and at most once
+  a visit. Answering a question never asks. Firefox answers the request with
+  a permission prompt, so a note by the button says beforehand that the
+  browser may ask and what saying yes does (HACK-113).
 - **Honest copy:** what the page says follows what the browser did. When it
   can't store anything, the page works in memory and says the answers last
   only until it is closed. When storage fails on a visit, it says answers
@@ -129,13 +135,18 @@ and nothing about the journey is stored on the server.
 - **Other tabs:** the page re-reads the store when it comes back into view
   and before confirming "Save and finish later", so a delete or new answers
   from another tab show up instead of being contradicted.
-- **Answers saved before this change:** until HACK-99, `/intake` saved
-  answers to the server session. On load the page asks
-  `GET /api/intake/state` (the cookie only, no answer, no new session)
-  whether this browser still has answers there. If it does, a notice says
-  how many and offers the HACK-80 purge (`POST /api/session/purge`) behind
-  one confirming step, and its outcome copy claims a deletion only when the
-  server confirmed one (`src/app/intake/server-answers-notice.tsx`).
+- **Answers on the app's server:** until HACK-99, `/intake` saved answers
+  to the server session, and the conversation page still does. On load the
+  page asks `GET /api/intake/state` (the cookie only, no answer, no new
+  session) whether this browser has answers there. If it does, a notice
+  says how many, without guessing where they came from or calling them
+  unused, since the person may still be using the chat. It says the delete
+  also removes any chat with the assistant, and it offers the HACK-80 purge
+  (`POST /api/session/purge`) behind one confirming step. Its outcome copy
+  claims a deletion only when the server confirmed one, and a Check again
+  that can't reach the app says so. Only one Check again runs at a time, so
+  a failed check can't overwrite one that reached the app
+  (`src/app/intake/server-answers-notice.tsx`).
 
 The conversation page still keeps answers on the server, because its match
 and review sections read the server session. Moving them on-device is
@@ -156,4 +167,5 @@ without what the person told the chat.
 | What the page says matches what the browser kept | `src/lib/intake/device-intake.test.ts` (unsupported, failed open, failed read, failed and stalled saves, other tabs) + `src/app/intake/intake-wizard.device.test.tsx` (focus and announcements in the delete flow, the double-click guard) |
 | Device storage holds no plaintext and resumes exactly | `src/lib/intake/device-answer-store.test.ts` (properties over saved answer sequences) + `src/lib/device-kv.test.ts` (sealed store over a fake IndexedDB) |
 | A device delete is verified and never undone by another tab | `src/lib/intake/device-answer-store.test.ts` (purge and racing-save properties) |
-| Answers saved on the server before device mode can be found and deleted | `src/app/intake/server-answers-notice.test.tsx` (cookie-only check, confirmed purge, every purge outcome, no answer in any request) |
+| Answers saved on the server can be found and deleted | `src/app/intake/server-answers-notice.test.tsx` (cookie-only check, confirmed purge, every purge outcome, a failed Check again, overlapping Check again presses, no answer in any request) |
+| Only Save and finish later asks the browser to keep the store, after saying so | `src/lib/intake/device-intake.test.ts` (answering never asks; it asks only when the device holds answers) + `src/app/intake/intake-wizard.device.test.tsx` (the note describes the button, one request a visit) |
