@@ -145,19 +145,24 @@ The microphone can't start when permission is denied or the device has none. The
 recording fails mid-session, it says "Recording failed. You can type your answer below
 instead."
 
-When speech to text fails, the person sees the model-unavailable alert. With the typing
-option on, press "Switch to typing" and carry on, which works while the chat model is
-still up. Voice-only mode has no switch button, so turn voice off instead: press "Change
-your choices", untick only the voice box, and press "Continue with these choices". That
-sends less, and sharing typed words stays as the person chose it. If typed turns fail too,
-turn sharing off as in the first runbook.
+When speech to text fails, the person sees the model-unavailable alert. In "Talk, with
+typing anytime", press "Switch to typing" and carry on, which works while the chat model
+is still up. "Talk the whole way" has no switch button, so turn voice off instead: press
+"Change your choices", untick only the voice box, and press "Continue with these choices".
+That sends less, and sharing typed words stays as the person chose it. If typed turns fail
+too, turn sharing off as in the first runbook.
+
+When the model is slow and the person keeps talking, up to three more things they say wait
+for the turn in progress and go in order after it. Past that, the page drops what didn't
+fit and says "We're catching up with what you said", so the person says it again.
 
 When the spoken replies fail (ElevenLabs is down, or `ELEVENLABS_API_KEY` is missing), the
 reply text still appears and the browser's built-in voice reads it, with a "Hearing the
 built-in voice" badge. Nothing needs doing. Typed turns aren't read aloud at all.
 
-Checked in the voice code in `src/app/intake/conversation/conversation-chat.tsx` and the
-tests in `src/app/intake/conversation/journey-stage.test.tsx` (a failed reply shows the
+Checked in the voice code in `src/app/intake/conversation/conversation-chat.tsx` (the
+queue limit is `MAX_PENDING_VOICE_TURNS`) and the tests in
+`src/app/intake/conversation/journey-stage.test.tsx` (a failed reply shows the
 built-in-voice badge). Not rehearsed end to end, because a voice turn needs the model.
 
 ## An official source is down or has changed
