@@ -5,11 +5,17 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
 import { StatusRegion } from "../../../components/status-region";
 import {
-  pickRecorderMimeType,
   queueSpeech,
   recordedBlobToWav,
   voiceCaptureSupported,
 } from "../../../lib/audio/capture";
+import {
+  DEFAULT_ENDPOINTING,
+} from "../../../lib/audio/endpointing";
+import {
+  createVoiceSession,
+  type VoiceSession,
+} from "../../../lib/audio/voice-session";
 import {
   CONSENT_PATHS,
   attachConsentHeader,
@@ -26,24 +32,44 @@ import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { IntakeWizard } from "../intake-wizard";
 import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
 import { MatchSection } from "./match-section";
+import { ModeChoice, type ConversationEntryMode } from "./mode-choice";
 import { PurgeSection } from "./purge-section";
 import { ReviewSection } from "./review-section";
 
-// The wizard fallback path — kept in step with the server's
-// conversationErrorResponse payload (VAL-CONV-008). Defined locally: the
-// conversation engine is server-only and must not enter the client bundle.
+// The conversational intake chat (Mission v2 M1 text, M2 voice, M5 consent,
+// and the HACK-106 natural-conversation rebuild). Two voice entry modes
+// ONLY, chosen at a calm entry moment: (A) talk the whole way — one
+// CONTINUOUS voice session, no per-question record/stop ritual, utterances
+// end by silence endpointing; (B) talk with the switch-to-typing control
+// available at ANY point, mid-session, without losing session state. Talk
+// or type — both flow through the same route and the same redaction.
+//
+// CONSENT GATE (Mission v2.1 M5, HACK-81, VAL-CONSENT-*): nothing is sent
+// anywhere before the user's per-device consent receipt allows it. The
+// consent surface precedes the first send; the voice path sits behind its
+// own additional toggle — with it off, the microphone is never started and
+// no audio is transmitted; with consent declined, the deterministic
+// spec-driven wizard drives the SAME journey on this page with zero API
+// calls carrying user content. HONEST FRAMING: with sharing on, the
+// extraction step sees the raw typed or spoken sentence before anything is
+// hidden — the consent copy discloses that send rather than pretending it
+// does not happen. The receipt lives in the user's localStorage (no answer
+// data attached), is shown in the privacy-choices panel, and revoking
+// stops further sends immediately (every send re-checks it; the server
+// re-checks too, and revoking mid-voice-session stops the microphone).
+
 const WIZARD_FALLBACK_URL = "/intake";
 
-export type VoiceInterimPhase = "listening" | "transcribing";
+export type VoiceInterimPhase = "listening" | "transcribing" | "speaking";
 
 /**
  * The instant perceived-latency states (VAL-VLAT-001): the interim status
  * renders the moment recording starts ("listening") and the moment it
- * stops ("transcribing") — synchronously with the click, far inside the
- * 500 ms budget — so the server wait is visible work, never silence. A
- * null phase renders nothing (no turn in flight). Deliberately NOT a live
- * region: the notice (StatusRegion) announces the same phases, and a
- * second live region would make screen readers announce them twice.
+ * stops ("transcribing") — synchronously with the endpoint, far inside
+ * the 500 ms budget — plus the speaking window while the reply plays. A
+ * null phase renders nothing. Deliberately NOT a live region: the notice
+ * (StatusRegion) announces the same phases, and a second live region
+ * would make screen readers announce them twice.
  */
 export function VoiceInterimState({
   phase,
@@ -56,28 +82,13 @@ export function VoiceInterimState({
   return (
     <p data-voice-interim-state={phase} className="text-sm font-medium text-muted">
       {phase === "listening"
-        ? "Listening — speak whenever you're ready."
-        : "Transcribing your recording, then the assistant will reply…"}
+        ? "Listening — go ahead, we're right here."
+        : phase === "transcribing"
+          ? "Transcribing — your subtitles are coming together."
+          : "Your reply is here to read, too."}
     </p>
   );
 }
-
-// The conversational intake chat (Mission v2 M1 text, M2 voice, M5 consent).
-// Talk or type — both flow through the same route and the same redaction.
-//
-// CONSENT GATE (Mission v2.1 M5, HACK-81, VAL-CONSENT-*): nothing is sent
-// anywhere before the user's per-device consent receipt allows it. The
-// consent surface precedes the first send; the voice path sits behind its
-// own additional toggle — with it off, the microphone is never started and
-// no audio is transmitted; with consent declined, the deterministic
-// spec-driven wizard drives the SAME journey on this page with zero API
-// calls carrying user content (the server independently refuses every send
-// without a receipt). HONEST FRAMING: with sharing on, the extraction step
-// sees the raw typed sentence before anything is hidden — the consent copy
-// discloses that send rather than pretending it does not happen. The
-// receipt lives in the user's localStorage (no answer data attached), is
-// shown in the privacy-choices panel, and revoking stops further sends
-// immediately (every send re-checks it; the server re-checks too).
 
 interface ConversationTurn {
   readonly id: string;
@@ -137,12 +148,21 @@ export function ConversationChat() {
   const [state, setState] = useState<IntakeClientState | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const [recording, setRecording] = useState(false);
   // The interim perceived-latency phase (VAL-VLAT-001): "listening" while
-  // the mic is open, "transcribing" from the instant recording stops until
-  // the turn response lands, null otherwise.
+  // the session's mic is open, "transcribing" from the instant an
+  // utterance ends until the turn response lands, "speaking" while the
+  // reply plays, null otherwise.
   const [voicePhase, setVoicePhase] = useState<VoiceInterimPhase | null>(null);
   const [micBlocked, setMicBlocked] = useState(false);
+  // The two entry modes (VAL-NCF-002): the entry choice is a moment, the
+  // session state follows it. entryMode null = the choice hasn't been
+  // made yet (the choice card shows); paused = the session is holding.
+  const [entryMode, setEntryMode] = useState<ConversationEntryMode | null>(
+    null,
+  );
+  const [sessionOn, setSessionOn] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [typingMode, setTypingMode] = useState(false);
   // Consent state (VAL-CONSENT-*): the receipt is an EXTERNAL store —
   // this device's localStorage, subscribed via useSyncExternalStore (SSR
   // renders the server snapshot: no receipt, surface open, sends off —
@@ -168,8 +188,10 @@ export function ConversationChat() {
   const [notice, setNotice] = useState("");
   const [loaded, setLoaded] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  // The continuous voice session (HACK-106): all mic/recorder/endpointing
+  // wiring lives behind ONE stable ref — the component only maps session
+  // events to UI state and submits the utterances.
+  const sessionRef = useRef<VoiceSession | null>(null);
 
   // The consent surface is open when no decided receipt exists (nothing
   // sent yet) or the user asked to change the choices. Derived — no effect.
@@ -256,6 +278,29 @@ export function ConversationChat() {
   const sharingDeclined = receipt !== null && !receipt.ai;
   const zeroSend = sharingDeclined && !panelOpen;
 
+  // Revoking voice consent mid-session stops the microphone immediately
+  // and lands the person in the typed conversation (never a dead end).
+  useEffect(() => {
+    if (!voiceSharingOn && sessionRef.current !== null) {
+      sessionRef.current.stop();
+      sessionRef.current = null;
+      setSessionOn(false);
+      setPaused(false);
+      setTypingMode(true);
+      setNotice(
+        "Voice sharing turned off, so the microphone is off. Type below — it works exactly the same way.",
+      );
+    }
+  }, [voiceSharingOn]);
+
+  // Full teardown on unmount: no orphaned mic or audio context.
+  useEffect(() => {
+    return () => {
+      sessionRef.current?.stop();
+      sessionRef.current = null;
+    };
+  }, []);
+
   function decideConsent(): void {
     const next: ConsentReceipt = {
       v: 2,
@@ -269,7 +314,7 @@ export function ConversationChat() {
     setNotice(
       next.ai
         ? next.voice
-          ? "Sharing on, including voice. Nothing has been sent to any AI provider yet."
+          ? "Sharing on, including voice. Nothing has been sent to any AI provider yet"
           : "Sharing on for typed answers. Nothing has been sent to any AI provider yet."
         : "Sharing is off. Nothing goes to any AI provider.",
     );
@@ -299,7 +344,10 @@ export function ConversationChat() {
     // when voice sharing is ON, browser speechSynthesis otherwise. With
     // voice sharing off the speak route is never called — reply audio is
     // made locally or not at all (VAL-CONSENT-003). The utterance is
-    // always the EXACT subtitle text shown in the transcript.
+    // always the EXACT subtitle text shown in the transcript. The
+    // promise resolves when playback finishes (or fails), so the
+    // continuous session's next listening cycle never transcribes the
+    // assistant's own voice.
     if (voiceSharingOn) {
       try {
         const response = await fetch("/api/conversation/speak", {
@@ -311,8 +359,17 @@ export function ConversationChat() {
         });
         if (response.ok) {
           const audio = new Audio(URL.createObjectURL(await response.blob()));
-          audio.onended = () => URL.revokeObjectURL(audio.src);
-          await audio.play();
+          await new Promise<void>((resolve) => {
+            audio.onended = () => {
+              URL.revokeObjectURL(audio.src);
+              resolve();
+            };
+            audio.onerror = () => {
+              URL.revokeObjectURL(audio.src);
+              resolve();
+            };
+            audio.play().catch(() => resolve());
+          });
           return;
         }
       } catch {
@@ -320,7 +377,12 @@ export function ConversationChat() {
       }
     }
     try {
-      queueSpeech(subtitle);
+      await new Promise<void>((resolve) => {
+        const spoke = queueSpeech(subtitle, undefined, resolve);
+        if (!spoke) {
+          resolve();
+        }
+      });
     } catch {
       // Speech is enhancement; the subtitle is the accessible path.
     }
@@ -372,7 +434,8 @@ export function ConversationChat() {
         : "All questions are answered.",
     );
     if (spoken && voiceSharingOn) {
-      void speakReply(data.assistantTurnId, data.assistantReply);
+      setVoicePhase("speaking");
+      await speakReply(data.assistantTurnId, data.assistantReply);
     }
   }
 
@@ -418,6 +481,7 @@ export function ConversationChat() {
   async function submitVoiceTurn(recorded: Blob): Promise<void> {
     if (busy) {
       setVoicePhase(null);
+      restartListeningIfActive();
       return;
     }
     setBusy(true);
@@ -439,15 +503,30 @@ export function ConversationChat() {
       clearTimeout(escalate);
       setVoicePhase(null);
       setBusy(false);
+      // The session breathes again: the next listening cycle starts once
+      // the reply has finished playing (or the turn failed honestly).
+      restartListeningIfActive();
     }
   }
 
-  async function startRecording(): Promise<void> {
-    setError(null);
-    setNotice("");
-    // The consent gate for voice (VAL-CONSENT-003): with voice sharing off,
-    // the microphone is NEVER started and no audio is transmitted. The
-    // record button is disabled too — this is the belt to its braces.
+  // ---------------------------------------------------------------------
+  // The continuous voice session (VAL-NCF-001): the mic opens ONCE per
+  // session; each utterance is one recorder cycle ended by silence
+  // endpointing (or the hard cap). No per-question record/stop ritual —
+  // the person just talks.
+  // ---------------------------------------------------------------------
+
+  function restartListeningIfActive(): void {
+    // The session object no-ops when it is stopped or paused; the call is
+    // always safe.
+    sessionRef.current?.listen();
+  }
+
+  async function beginVoiceSession(
+    mode: ConversationEntryMode,
+  ): Promise<void> {
+    // The consent gate for voice (VAL-CONSENT-003): with voice sharing
+    // off, the microphone is NEVER started and no audio is transmitted.
     if (!consentPathEnabled("voice", receipt)) {
       setReopened(true);
       setNotice(
@@ -457,66 +536,84 @@ export function ConversationChat() {
     }
     if (!voiceCaptureSupported()) {
       setMicBlocked(true);
+      setEntryMode(mode);
       setNotice(
         "Voice input isn't available in this browser. You can type your answers below — they work exactly the same way.",
       );
       return;
     }
+    const session = createVoiceSession(
+      {
+        onUtterance: (blob) => void submitVoiceTurn(blob),
+        onPhase: (phase) => setVoicePhase(phase),
+        onRecorderError: () => {
+          // A mid-session recorder failure ends the session and lands the
+          // person in the typed conversation (never a dead end, even in
+          // the voice-only mode — the typed form is the mic fallback).
+          sessionRef.current = null;
+          setSessionOn(false);
+          setMicBlocked(true);
+          setNotice(
+            "Recording failed. You can type your answer below instead.",
+          );
+        },
+      },
+      DEFAULT_ENDPOINTING,
+    );
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = pickRecorderMimeType((type) =>
-        MediaRecorder.isTypeSupported(type),
-      );
-      const recorder = new MediaRecorder(
-        stream,
-        mimeType ? { mimeType } : undefined,
-      );
-      chunksRef.current = [];
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
-      };
-      recorder.onstop = () => {
-        stream.getTracks().forEach((track) => track.stop());
-        const recorded = new Blob(chunksRef.current, {
-          type: recorder.mimeType || "audio/webm",
-        });
-        chunksRef.current = [];
-        void submitVoiceTurn(recorded);
-      };
-      recorder.onerror = () => {
-        stream.getTracks().forEach((track) => track.stop());
-        setRecording(false);
-        setVoicePhase(null);
-        setNotice(
-          "Recording failed. You can type your answer below instead.",
-        );
-      };
-      recorderRef.current = recorder;
-      recorder.start();
-      setRecording(true);
-      setVoicePhase("listening");
-      setNotice("Listening… press Stop and send when you're done.");
+      await session.begin();
+      sessionRef.current = session;
+      setEntryMode(mode);
+      setSessionOn(true);
+      setPaused(false);
+      setTypingMode(false);
     } catch {
       // Permission denied or device unavailable: the typed path is the
       // answer — visible guidance, never a dead end (VAL-VOICE-005).
       setMicBlocked(true);
+      setEntryMode(mode);
       setNotice(
         "Your microphone isn't available. You can type your answers below — they work exactly the same way.",
       );
     }
   }
 
-  function stopRecording(): void {
-    // The interim "transcribing" state lands SYNCHRONOUSLY with the stop
-    // click (VAL-VLAT-001's 500 ms budget) — before the recorder's async
-    // onstop event even fires.
-    recorderRef.current?.stop();
-    recorderRef.current = null;
-    setRecording(false);
-    setVoicePhase("transcribing");
-    setNotice("Transcribing your recording…");
+  function holdSession(): void {
+    // Pause: stop listening and DISCARD any in-flight utterance (a person
+    // pausing doesn't expect a half-thought to send). The session keeps
+    // the mic stream for a quick resume.
+    sessionRef.current?.hold();
+    setPaused(true);
+    setVoicePhase(null);
+    setNotice("Paused — ready whenever you are.");
+  }
+
+  function resumeSession(): void {
+    setPaused(false);
+    setNotice("");
+    sessionRef.current?.resume();
+  }
+
+  function stopSession(): void {
+    sessionRef.current?.stop();
+    sessionRef.current = null;
+    setSessionOn(false);
+    setPaused(false);
+    setVoicePhase(null);
+  }
+
+  function switchToTyping(): void {
+    // The mode-B exit (VAL-NCF-002): works at ANY point — mid-utterance
+    // included — and nothing is lost: the transcript, answers, and session
+    // identity all stay exactly as they were.
+    stopSession();
+    setTypingMode(true);
+    setNotice("Same conversation. Nothing lost. Type your answer below.");
+  }
+
+  function switchBackToVoice(): void {
+    setTypingMode(false);
+    void beginVoiceSession(entryMode ?? "voice-plus-typing");
   }
 
   // The purge's client half (HACK-80): the server rows are gone (the purge
@@ -533,8 +630,34 @@ export function ConversationChat() {
     ? state.questions.filter((question) => state.answers[question.id])
     : [];
 
+  // Surface conditions (the two-mode rule, VAL-NCF-002): the mode choice
+  // is the entry moment for a voice-consented visitor; mode A shows no
+  // typing at all; mode B offers the switch at any point; the typed form
+  // carries the ai-only, switched, and mic-fallback cases.
+  const modeChoiceOpen =
+    !panelOpen &&
+    !zeroSend &&
+    aiSharingOn &&
+    voiceSharingOn &&
+    entryMode === null;
+  const voiceSessionSurface =
+    !panelOpen &&
+    !zeroSend &&
+    sessionOn &&
+    entryMode !== null &&
+    !typingMode;
+  const typedSurface =
+    !panelOpen &&
+    !zeroSend &&
+    aiSharingOn &&
+    (!voiceSharingOn || typingMode || micBlocked);
+
   return (
-    <div data-conversation-chat className="flex flex-col gap-6">
+    <div
+      data-conversation-chat
+      data-entry-mode={entryMode ?? undefined}
+      className="flex flex-col gap-6"
+    >
       <p className="text-sm text-muted">
         Prefer step-by-step questions?{" "}
         <Link
@@ -634,68 +757,89 @@ export function ConversationChat() {
         </div>
       ) : null}
 
-      {zeroSend ? null : (
-      <VoiceInterimState phase={voicePhase} />
-      )}
-      {zeroSend ? null : (
+      {modeChoiceOpen ? (
+        <ModeChoice onBegin={(mode) => void beginVoiceSession(mode)} />
+      ) : null}
+
+      {voiceSessionSurface ? (
+        <div
+          data-voice-session={paused ? "paused" : "active"}
+          className="flex flex-col gap-2"
+        >
+          <VoiceInterimState phase={voicePhase} />
+          <div className="flex flex-wrap items-center gap-2">
+            {paused ? (
+              <button
+                type="button"
+                data-voice-resume
+                onClick={resumeSession}
+                className="min-h-12 flex shrink-0 items-center gap-2 rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal"
+              >
+                Resume listening
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-voice-pause
+                onClick={holdSession}
+                disabled={busy}
+                className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft disabled:opacity-50"
+              >
+                Pause
+              </button>
+            )}
+            {entryMode === "voice-plus-typing" ? (
+              <button
+                type="button"
+                data-switch-to-typing
+                onClick={switchToTyping}
+                className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal bg-surface px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft"
+              >
+                Switch to typing
+              </button>
+            ) : null}
+            <span className="text-sm text-muted">
+              {paused
+                ? "Paused."
+                : entryMode === "voice-only"
+                  ? "Speak freely — the assistant hears when you finish a thought."
+                  : "Speak freely; switch to typing whenever you like."}
+            </span>
+          </div>
+        </div>
+      ) : null}
+
+      {typedSurface ? (
       <form
+        data-typing-mode={typingMode || undefined}
         className="flex flex-col gap-2"
         onSubmit={(event) => {
           event.preventDefault();
           void submitTurn();
         }}
       >
-        <label htmlFor="conversation-input" className="font-medium">
-          {micBlocked || !voiceSharingOn
-            ? "Type your answer"
-            : "Speak or type your answer"}
-        </label>
-        <div className="flex items-stretch gap-2">
+        {typingMode ? (
+          <p
+            data-typing-caption
+            className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"
+          >
+            Same conversation. Nothing lost. Everything you said is right
+            here, and spoken replies stop until you turn the voice back on.
+          </p>
+        ) : null}
+        {entryMode === "voice-plus-typing" && typingMode && !micBlocked ? (
           <button
             type="button"
-            data-voice-toggle
-            aria-pressed={recording}
-            onClick={() => {
-              if (recording) {
-                stopRecording();
-              } else {
-                void startRecording();
-              }
-            }}
-            disabled={busy || !voiceSharingOn}
-            className="flex shrink-0 items-center gap-2 rounded-full border border-teal px-4 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft disabled:opacity-50"
+            data-switch-to-voice
+            onClick={switchBackToVoice}
+            className="self-start rounded-full border border-teal px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft"
           >
-            <span aria-hidden="true">{recording ? "■" : "●"}</span>
-            {recording ? "Stop and send" : "Record an answer"}
+            Use your voice instead
           </button>
-          <span className="self-center text-sm text-muted">
-            {recording
-              ? "Recording — speak now."
-              : voiceSharingOn
-                ? "Hold a short conversation with the assistant using your voice."
-                : "Voice sharing is off, so the microphone is never used."}
-          </span>
-        </div>
-        {!voiceSharingOn ? (
-          <p
-            data-voice-consent-guidance
-            className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"
-          >
-            Voice sharing is off, so the microphone is never started and no
-            audio is ever transmitted. You can turn it on under
-            &ldquo;Your privacy choices&rdquo;, or just type below.
-          </p>
         ) : null}
-        {micBlocked ? (
-          <p
-            data-mic-blocked-guidance
-            className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"
-          >
-            The microphone isn&apos;t available right now. The text box below
-            works exactly the same way — typed answers save, redact, and
-            continue the conversation identically.
-          </p>
-        ) : null}
+        <label htmlFor="conversation-input" className="font-medium">
+          Type your answer
+        </label>
         <textarea
           id="conversation-input"
           name="conversation-input"
@@ -709,7 +853,7 @@ export function ConversationChat() {
           }}
           rows={2}
           maxLength={4000}
-          disabled={busy || !aiSharingOn}
+          disabled={busy}
           aria-describedby="conversation-input-help"
           className="rounded-2xl border border-surface-border bg-surface p-3.5 text-base"
         />
@@ -719,13 +863,34 @@ export function ConversationChat() {
         </p>
         <button
           type="submit"
-          disabled={busy || !aiSharingOn || draft.trim() === ""}
-          className="self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
+          disabled={busy || draft.trim() === ""}
+          className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
         >
           {busy ? "Sending…" : "Send"}
         </button>
       </form>
-      )}
+      ) : null}
+
+      {!voiceSharingOn && aiSharingOn && !panelOpen ? (
+        <p
+          data-voice-consent-guidance
+          className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"
+        >
+          Voice sharing is off, so the microphone is never started and no
+          audio is ever transmitted. You can turn it on under
+          &ldquo;Your privacy choices&rdquo;, or just type above.
+        </p>
+      ) : null}
+      {micBlocked && !panelOpen && aiSharingOn ? (
+        <p
+          data-mic-blocked-guidance
+          className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"
+        >
+          The microphone isn&apos;t available right now. The text box above
+          works exactly the same way — typed answers save, redact, and
+          continue the conversation identically.
+        </p>
+      ) : null}
 
       {receipt !== null && !panelOpen ? (
         <ConsentReceiptPanel
