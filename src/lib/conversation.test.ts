@@ -221,6 +221,25 @@ describe("grounded prompt builders", () => {
     expect(prompt).toContain("exactly");
   });
 
+  it("tells the extractor the value format for option-less questions", () => {
+    // The walkthrough's live journeys caught this: a yes/no question with
+    // no option list gave the extractor no format to hit, so it echoed the
+    // word ("No") and the answer was skipped. Booleans, numbers, and dates
+    // each name their JSON value form. The assertions pin the format
+    // SENTENCES, not the words themselves — the embedded schema already
+    // contains the strings "boolean" and "date", so a word-level check
+    // would pass even if these lines were dropped.
+    expect(buildExtractionPrompt("veteran_status")).toContain(
+      "answered with a JSON boolean: set value to true or false",
+    );
+    expect(buildExtractionPrompt("household_size")).toContain(
+      "answered with a JSON number",
+    );
+    expect(buildExtractionPrompt("date_of_birth")).toContain(
+      "answered with a date in YYYY-MM-DD form",
+    );
+  });
+
   it("never embeds user message text in either system prompt (injection guardrail)", () => {
     // The prompt builders are pure functions of spec data: a user's words can
     // only ever enter a model call as a message, never as instructions.

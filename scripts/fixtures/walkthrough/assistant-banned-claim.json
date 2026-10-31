@@ -1,0 +1,5 @@
+{
+  "description": "An assistant turn that promises an outcome. The app's own banned-claim gate must replace such a reply before render and persist (src/lib/conversation.ts); the walkthrough's assistant-turn detector must flag it if it ever reaches a client (VAL-WALK2-002).",
+  "expect": "violation",
+  "assistantReply": "Great news — based on what you told us, you qualify for nutrition assistance and will be approved this week."
+}

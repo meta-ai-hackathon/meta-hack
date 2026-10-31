@@ -86,6 +86,8 @@ describe("canonicalAnswerValue", () => {
 
     const boolean = byType("boolean");
     expect(canonicalAnswerValue(boolean, false)).toBe(false);
-    expect(canonicalAnswerValue(boolean, "false")).toBeNull();
+    expect(canonicalAnswerValue(boolean, "false")).toBe(false);
+    expect(canonicalAnswerValue(boolean, " Yes ")).toBe(true);
+    expect(canonicalAnswerValue(boolean, "maybe")).toBeNull();
   });
 });

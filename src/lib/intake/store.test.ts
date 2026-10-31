@@ -18,6 +18,7 @@ import {
   recordCaseworkerAssist,
   saveAnswer,
   sessionCookieHeader,
+  validateAnswerInput,
 } from "./store";
 
 // Intake store integration tests (BN-09 / HACK-37). Runs against the real
@@ -375,6 +376,74 @@ describe("loadAnswers round-trip", () => {
   });
 });
 
+describe("boolean answer canonicalization (conversational extraction, deterministic)", () => {
+  // The conversation engine's extractor sees yes/no questions with no
+  // option list to map onto, so it echoes the person's word ("No") — the
+  // same situation the number type solves by coercing "1200". The
+  // canonicalization is deterministic and precedes storage.
+  const booleanQuestions = Object.values(QUESTION_BY_ID).filter(
+    (question) => question.type === "boolean",
+  );
+
+  it("every boolean question in the spec coerces the obvious word spellings", () => {
+    expect(booleanQuestions.map((question) => question.id).sort()).toEqual([
+      "received_benefits_before",
+      "shelter_mail_consent",
+      "veteran_status",
+    ]);
+    for (const question of booleanQuestions) {
+      expect(validateAnswerInput(question.id, "known", true).storedValue).toBe(true);
+      expect(validateAnswerInput(question.id, "known", false).storedValue).toBe(false);
+      expect(validateAnswerInput(question.id, "known", "Yes").storedValue).toBe(true);
+      expect(validateAnswerInput(question.id, "known", " NO ").storedValue).toBe(false);
+      expect(validateAnswerInput(question.id, "known", "true").storedValue).toBe(true);
+      expect(validateAnswerInput(question.id, "known", "False").storedValue).toBe(false);
+    }
+  });
+
+  it("coerces any casing or padding of the affirmative and negative words", () => {
+    const attempts = fc.property(
+      fc.constantFrom("yes", "no", "true", "false"),
+      fc.boolean(),
+      (word, upper) => {
+        const spoken = upper ? word.toUpperCase() : word;
+        const padded = `  ${spoken}\n`;
+        const expected = word.startsWith("y") || word === "true";
+        for (const question of booleanQuestions) {
+          const validated = validateAnswerInput(question.id, "known", padded);
+          expect(validated.storedValue).toBe(expected);
+        }
+        return true;
+      },
+    );
+    fc.assert(attempts, { numRuns: 40 });
+  });
+
+  it("still rejects everything that is not an obvious yes/no", () => {
+    for (const value of ["maybe", "idk", "military", "", "  ", "nope nope", 1, 0, null]) {
+      for (const question of booleanQuestions) {
+        const rejection = (() => {
+          try {
+            validateAnswerInput(question.id, "known", value);
+            return false;
+          } catch {
+            return true;
+          }
+        })();
+        expect(rejection, `expected rejection for ${JSON.stringify(value)}`).toBe(true);
+      }
+    }
+  });
+
+  it("unknown answers still store no value, whatever was submitted", () => {
+    for (const question of booleanQuestions) {
+      expect(
+        validateAnswerInput(question.id, "unknown", "yes").storedValue,
+      ).toBeNull();
+    }
+  });
+});
+
 describe("saveAnswer validation", () => {
   let sessionId: string;
 
@@ -455,8 +524,10 @@ describe("saveAnswer validation", () => {
     await expectValidationError(
       saveAnswer(sessionId, "household_size", "known", Number.NaN),
     );
+    // Boolean strings now coerce ("yes" → true) for the conversational
+    // extractor; a word that is not an obvious yes/no still rejects.
     await expectValidationError(
-      saveAnswer(sessionId, "veteran_status", "known", "yes"),
+      saveAnswer(sessionId, "veteran_status", "known", "maybe"),
     );
     await expectValidationError(
       saveAnswer(sessionId, "date_of_birth", "known", "01/31/1990"),

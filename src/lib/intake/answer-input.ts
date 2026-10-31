@@ -46,7 +46,24 @@ export function canonicalAnswerValue(
       return numeric;
     }
     case "boolean": {
-      return typeof value === "boolean" ? value : null;
+      if (typeof value === "boolean") {
+        return value;
+      }
+      // Conversational answers arrive as words: the extractor sees a
+      // yes/no question with no option list to map onto, so it echoes
+      // what the person said ("No", "yes"). Coerce the obvious spellings
+      // the same way number answers coerce "1200" — deterministically,
+      // before anything is stored; anything else is not a valid answer.
+      if (typeof value === "string") {
+        const word = value.trim().toLowerCase();
+        if (["true", "yes", "y", "yeah", "yep"].includes(word)) {
+          return true;
+        }
+        if (["false", "no", "n", "nope"].includes(word)) {
+          return false;
+        }
+      }
+      return null;
     }
     case "date": {
       if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
