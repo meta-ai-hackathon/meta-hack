@@ -1,13 +1,17 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import fc from "fast-check";
 import { findBannedClaims } from "../../../lib/honesty";
 import {
   PURGE_DONE_NOTICE,
+  PURGE_NO_SESSION_DEVICE_KEPT_NOTICE,
+  PURGE_NO_SESSION_NOTICE,
   PURGE_REFUSED_NOTICE,
   PURGE_REMOVING_NOTICE,
   PURGE_UNKNOWN_NOTICE,
   PurgeConfirmation,
   PurgeSurface,
+  createPurgeClickHandler,
   requestPurge,
 } from "./purge-section";
 
@@ -16,9 +20,11 @@ import {
 // display heading, the erased/never-existed cards, the danger panel), the
 // removing sequence carries the mandated phrase, the confirmation states
 // EXACTLY what remains and what is gone, and everything is banned-claim
-// clean. The click sequencing itself is thin wiring over requestPurge +
-// removeStoredAnswers and is browser-verified (agent-browser); the wiring
-// pieces are unit-tested here with an injectable fetch.
+// clean. The two-step delete's decision wiring (first click confirms and
+// sends NOTHING, explicit confirmation purges) is unit-tested via
+// createPurgeClickHandler; the request wiring is unit-tested with an
+// injectable fetch; the interactive surface is browser-verified
+// (agent-browser).
 
 function markupWithBannedClaims(html: string): string[] {
   return findBannedClaims(html).map(
@@ -29,7 +35,12 @@ function markupWithBannedClaims(html: string): string[] {
 describe("PurgeSurface (the ready phase)", () => {
   it("renders the cleanup design: eyebrow, heading, both cards, danger panel", () => {
     const html = renderToStaticMarkup(
-      <PurgeSurface busy={false} onDelete={() => undefined} />,
+      <PurgeSurface
+        busy={false}
+        confirming={false}
+        onDelete={() => undefined}
+        onKeep={() => undefined}
+      />,
     );
     expect(html).toContain("data-purge-section");
     expect(html).toContain("Your data, your call");
@@ -54,12 +65,22 @@ describe("PurgeSurface (the ready phase)", () => {
 
   it("renders a real button (keyboard operable), disabled while busy", () => {
     const ready = renderToStaticMarkup(
-      <PurgeSurface busy={false} onDelete={() => undefined} />,
+      <PurgeSurface
+        busy={false}
+        confirming={false}
+        onDelete={() => undefined}
+        onKeep={() => undefined}
+      />,
     );
     expect(ready).toContain('data-purge-button');
     expect(ready).not.toContain("disabled=");
     const busy = renderToStaticMarkup(
-      <PurgeSurface busy onDelete={() => undefined} />,
+      <PurgeSurface
+        busy
+        confirming={false}
+        onDelete={() => undefined}
+        onKeep={() => undefined}
+      />,
     );
     expect(busy).toContain("disabled=");
     // The deliberate on-screen beat reads while the purge runs.
@@ -69,7 +90,12 @@ describe("PurgeSurface (the ready phase)", () => {
 
   it("keeps a hierarchical heading outline (h2, then h3)", () => {
     const html = renderToStaticMarkup(
-      <PurgeSurface busy={false} onDelete={() => undefined} />,
+      <PurgeSurface
+        busy={false}
+        confirming={false}
+        onDelete={() => undefined}
+        onKeep={() => undefined}
+      />,
     );
     const levels = [...html.matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
     expect(levels[0]).toBe(2);
@@ -80,9 +106,100 @@ describe("PurgeSurface (the ready phase)", () => {
 
   it("carries zero banned claims", () => {
     const html = renderToStaticMarkup(
-      <PurgeSurface busy={false} onDelete={() => undefined} />,
+      <PurgeSurface
+        busy={false}
+        confirming={false}
+        onDelete={() => undefined}
+        onKeep={() => undefined}
+      />,
     );
     expect(markupWithBannedClaims(html)).toEqual([]);
+  });
+
+  it("shows the approved confirm state: question and both choices, no delete button", () => {
+    const html = renderToStaticMarkup(
+      <PurgeSurface
+        busy={false}
+        confirming
+        onDelete={() => undefined}
+        onKeep={() => undefined}
+      />,
+    );
+    // The two-step delete from the approved cleanup design: the question
+    // and the explicit pair of choices replace the single button before
+    // any request exists.
+    expect(html).toContain("data-purge-confirm-question");
+    expect(html).toContain("Are you sure? This erases everything for good.");
+    expect(html).toContain("data-purge-confirm-button");
+    expect(html).toContain("Yes, delete everything");
+    expect(html).toContain("data-purge-keep-button");
+    expect(html).toContain("Keep my information");
+    // The download reassurance stays visible at the decision point, so
+    // "erases everything" cannot be read against the kept download.
+    expect(html).toContain("a download you&#x27;ve saved stays yours");
+    // The single delete button is replaced, not accompanied, and the
+    // removing beat has not started.
+    expect(html).not.toContain("data-purge-button");
+    expect(html).not.toContain("data-purge-removing");
+    expect(markupWithBannedClaims(html)).toEqual([]);
+  });
+});
+
+describe("the two-step delete", () => {
+  it("the first click shows the confirm state and sends no purge request", () => {
+    let confirmRequests = 0;
+    let purgeRequests = 0;
+    const firstClick = createPurgeClickHandler(false, {
+      requestConfirm: () => {
+        confirmRequests += 1;
+      },
+      runPurge: () => {
+        purgeRequests += 1;
+      },
+    });
+    firstClick();
+    expect(confirmRequests).toBe(1); // the confirm state shows
+    expect(purgeRequests).toBe(0); // NO purge request was sent
+  });
+
+  it("only the explicit confirmation runs the purge", () => {
+    let confirmRequests = 0;
+    let purgeRequests = 0;
+    const confirmClick = createPurgeClickHandler(true, {
+      requestConfirm: () => {
+        confirmRequests += 1;
+      },
+      runPurge: () => {
+        purgeRequests += 1;
+      },
+    });
+    confirmClick();
+    expect(confirmRequests).toBe(0);
+    expect(purgeRequests).toBe(1); // exactly one purge request
+  });
+
+  it("property: any number of clicks from the ready state sends zero purge requests", () => {
+    fc.assert(
+      fc.property(fc.nat(25), (readyClicks) => {
+        let confirmRequests = 0;
+        let purgeRequests = 0;
+        // The handler the component builds while the confirm question is
+        // NOT showing: every click is a first click.
+        const click = createPurgeClickHandler(false, {
+          requestConfirm: () => {
+            confirmRequests += 1;
+          },
+          runPurge: () => {
+            purgeRequests += 1;
+          },
+        });
+        for (let index = 0; index < readyClicks; index += 1) {
+          click();
+        }
+        expect(purgeRequests).toBe(0);
+        expect(confirmRequests).toBe(readyClicks);
+      }),
+    );
   });
 });
 
@@ -117,9 +234,47 @@ describe("purge notices", () => {
     expect(PURGE_REMOVING_NOTICE).toBe(
       "Removing your answers from this device…",
     );
-    expect(PURGE_DONE_NOTICE).not.toBe("");
-    expect(PURGE_REFUSED_NOTICE).not.toBe("");
-    expect(PURGE_UNKNOWN_NOTICE).not.toBe("");
+  });
+
+  it("keeps the done and unknown notices word-identical", () => {
+    expect(PURGE_DONE_NOTICE).toBe(
+      "Your answers are gone. This screen lists exactly what remains.",
+    );
+    expect(PURGE_UNKNOWN_NOTICE).toBe(
+      "We couldn't reach the app to finish the delete, so we can't say " +
+        "whether it went through. Reload the page to see where things stand " +
+        "— nothing more is lost by checking.",
+    );
+  });
+
+  it("states what happened per refusal outcome, without false promises", () => {
+    // A 404 found no session: nothing was removed and nothing was there,
+    // so the copy must not claim the answers are "still saved" — the
+    // person's confirmed intent is honored by erasing the on-device
+    // copies, and the notice says so.
+    expect(PURGE_NO_SESSION_NOTICE).toBe(
+      "There was no active session on the server to delete, so nothing " +
+        "was removed there. Any answers kept on this device are erased too.",
+    );
+    expect(PURGE_NO_SESSION_NOTICE).not.toContain("still saved");
+    expect(PURGE_NO_SESSION_NOTICE).not.toContain("Try again");
+    // If the device erase could not be verified, the notice must not
+    // claim the on-device copies are gone either.
+    expect(PURGE_NO_SESSION_DEVICE_KEPT_NOTICE).toBe(
+      "There was no active session on the server to delete, so nothing " +
+        "was removed there — and this device's saved copy couldn't be " +
+        "erased just now.",
+    );
+    expect(PURGE_NO_SESSION_DEVICE_KEPT_NOTICE).not.toContain(
+      "are erased",
+    );
+    // A refused delete (the validation or cross-site gate) removed nothing
+    // — but a cross-site retry can never succeed, so none is suggested.
+    expect(PURGE_REFUSED_NOTICE).toBe(
+      "The delete was refused — nothing was removed, and your answers are " +
+        "still saved.",
+    );
+    expect(PURGE_REFUSED_NOTICE).not.toContain("Try again");
   });
 });
 
@@ -156,5 +311,35 @@ describe("requestPurge wiring", () => {
       throw new Error("network down");
     }) as unknown as typeof fetch;
     expect(await requestPurge(failing)).toBe("unknown");
+  });
+
+  it("separates a missing session (404) from a refusal", async () => {
+    // A 404 means no active session was found: its own outcome, so the
+    // client can say exactly that instead of claiming the answers are
+    // "still saved".
+    const missing = (async () =>
+      new Response(
+        JSON.stringify({ error: { code: "not_found" } }),
+        { status: 404 },
+      )) as unknown as typeof fetch;
+    expect(await requestPurge(missing)).toBe("no_session");
+  });
+
+  it("property: every status maps to the one honest outcome", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.integer({ min: 200, max: 599 }), async (status) => {
+        const outcome = await requestPurge((async () =>
+          new Response(null, { status: status })) as unknown as typeof fetch);
+        const expected =
+          status < 300
+            ? "purged"
+            : status === 404
+              ? "no_session"
+              : status < 500
+                ? "refused"
+                : "unknown";
+        return outcome === expected;
+      }),
+    );
   });
 });
