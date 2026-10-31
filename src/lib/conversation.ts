@@ -87,10 +87,16 @@ const REPLY_HISTORY_TURNS = 8;
  * enough here — live-verified: reasoning tokens are part of the completion
  * budget, and a single extraction or reply can burn 800+ reasoning tokens
  * before writing content, starving a 1024 budget into null content with
- * finish_reason "length". 2048 is the per-call cap (cost discipline: usage
- * is logged per call; actual usage stays far below the cap).
+ * finish_reason "length". 2048 held for the M1/M2 scripted flows, but the
+ * walkthrough's live end-to-end journeys (Mission v2 M5) hit the same
+ * starvation as the match explanation did: as the conversation grows (8
+ * history turns + the full answer context), reply-call reasoning bursts
+ * exhaust a 2048 budget into null content — model_unavailable on every
+ * attempt from roughly the twelfth turn. 4096 is the per-call cap (the
+ * match explanation's floor for the same reason); usage is logged per
+ * call, and actual usage stays far below it (cost discipline).
  */
-export const CHAT_CALL_MAX_TOKENS = 2048;
+export const CHAT_CALL_MAX_TOKENS = 4096;
 
 /** Honest replacement when a model reply carries promise language. */
 export const BANNED_CLAIM_FALLBACK_REPLY =
@@ -297,6 +303,21 @@ export function buildExtractionPrompt(
         "set value to that option value EXACTLY. If their words do not " +
         "clearly mean one of the acceptable answers, extract nothing for it.",
     );
+  } else if (current) {
+    // Option-less questions have no option list to map onto, so the value
+    // format must be stated: the schema accepts any JSON type, and an
+    // unprompted model echoes a yes/no answer as the word it heard.
+    if (current.type === "boolean") {
+      lines.push(
+        "That question is answered with a JSON boolean: set value to true or false.",
+      );
+    } else if (current.type === "number") {
+      lines.push("That question is answered with a JSON number.");
+    } else if (current.type === "date") {
+      lines.push(
+        "That question is answered with a date in YYYY-MM-DD form.",
+      );
+    }
   }
   lines.push(`Schema: ${JSON.stringify(EXTRACTION_SCHEMA)}`);
   lines.push(

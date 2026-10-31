@@ -463,10 +463,25 @@ function canonicalValue(
       return numeric;
     }
     case "boolean": {
-      if (typeof value !== "boolean") {
-        throw validationError();
+      if (typeof value === "boolean") {
+        return value;
       }
-      return value;
+      // Conversational answers arrive as words: the extractor sees a
+      // yes/no question with no option list to map onto, so it echoes
+      // what the person said ("No", "yes"). Coerce the obvious spellings
+      // the same way number answers coerce "1200" — deterministically,
+      // before anything is stored; anything else stays a validation error
+      // (the turn honestly skips it).
+      if (typeof value === "string") {
+        const word = value.trim().toLowerCase();
+        if (["true", "yes", "y", "yeah", "yep"].includes(word)) {
+          return true;
+        }
+        if (["false", "no", "n", "nope"].includes(word)) {
+          return false;
+        }
+      }
+      throw validationError();
     }
     case "date": {
       if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {

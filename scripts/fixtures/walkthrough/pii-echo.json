@@ -1,0 +1,17 @@
+{
+  "description": "A client payload (a conversation turn response) that echoes a submitted private value inside the redacted transcript. Every string in ANY client payload — replies, subtitles, transcripts, state, cards — is scanned by the pii-echo detector; the value's path is reported, never the value itself (VAL-WALK2-002).",
+  "expect": "violation",
+  "privateValues": ["1990-05-14", "jamie.watts@example.com"],
+  "payload": {
+    "assistantReply": "Thanks! And when is the best time to reach you?",
+    "redactedUserTranscript": "My date of birth is 1990-05-14.",
+    "nextQuestionId": "best_time_to_reach",
+    "state": {
+      "questions": [],
+      "answers": {},
+      "progress": { "answered": 1, "remaining": 1, "total": 2 },
+      "currentIndex": 0,
+      "complete": false
+    }
+  }
+}
