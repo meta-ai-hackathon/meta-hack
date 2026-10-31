@@ -799,13 +799,19 @@ def _key_pieces(text: str, start: int, end: int, stop: int) -> list[tuple[int, i
     pieces: list[tuple[int, int]] = []
     material = 0
     for run in _KEY_RUN.finditer(text, start, stop):
-        if key_piece_at(text, run.start(), run.end()):
-            value = run.group()
+        first, last = run.span()
+        if text[first - 1] == "\\" and text[first] in "nrt":
+            # The letter of an escaped line break or tab, as the walk reads
+            # it, belongs to the escape and not to the run after it, so an
+            # all-caps name right after a \n is still read as a name.
+            first += 1
+        if first < last and key_piece_at(text, first, last):
+            value = text[first:last]
             material += len(value) - value.count("\\")
             if material > _KEY_MATERIAL_MAX:
                 return None
-            if run.start() >= end:
-                pieces.append(run.span())
+            if first >= end:
+                pieces.append((first, last))
     return pieces
 
 
