@@ -397,6 +397,40 @@ describe("/intake to the review and the filled form, on the device", () => {
     await again.unmount();
   }, 60_000);
 
+  it("after a download, deletes the answers without claiming the downloaded file is gone", async () => {
+    const page = await visit();
+    await page.answerEverything();
+    await page.type(page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!, TYPED_NAME);
+    const filled = await page.download();
+    expect(filled.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
+
+    const { act } = await import("react");
+    const { DEVICE_INTAKE_COPY } = await import("../../lib/intake/device-intake");
+    const deleteButton = page.container.querySelector<HTMLButtonElement>("[data-delete-from-device]")!;
+    await act(async () => {
+      deleteButton.click();
+    });
+    const confirm = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === DEVICE_INTAKE_COPY.deleteYes,
+    )!;
+    await act(async () => {
+      confirm.click();
+    });
+    await page.waitFor(() => page.text().includes(DEVICE_INTAKE_COPY.deleted), "the delete confirmation");
+
+    // The answers and their key are gone from the browser, and the typed name with the screen.
+    expect(device.stores.get("kv")?.has("intake-answers")).toBe(false);
+    expect(device.stores.get("kv")?.has("intake-answers-key")).toBe(false);
+    expect(page.container.querySelector("[data-device-results]")).toBeNull();
+    expect(page.text()).not.toContain(TYPED_NAME);
+    // The file already saved to the device is outside the delete, and the page says so.
+    expect(downloads).toHaveLength(1);
+    expect(DEVICE_INTAKE_COPY.deleted).toContain("downloaded the filled form");
+    expect(page.text()).not.toContain("left on this device");
+    expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
+    await page.unmount();
+  }, 60_000);
+
   it("says nothing was filled when the blank form can't be fetched, and sends nothing", async () => {
     const page = await visit();
     await page.answerEverything();
