@@ -230,3 +230,75 @@ progress {
     scroll-behavior: auto !important;
   }
 }
+
+/* VAL-VJS2-001 motion (voice deck waveform, live caret, results stagger):
+   every animation is defined ONLY inside the no-preference block, so
+   prefers-reduced-motion: reduce users get the static variants — bars at
+   their true heights, caret solid, stagger items fully visible — with no
+   hidden-then-popped content and no motion. The wave bars alternate two
+   scale keyframes (different tempos), per the owner spec's
+   "alternating scale keyframes" waveform. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes voice-wave-a {
+    0%,
+    100% {
+      transform: scaleY(1);
+    }
+    50% {
+      transform: scaleY(0.45);
+    }
+  }
+
+  @keyframes voice-wave-b {
+    0%,
+    100% {
+      transform: scaleY(0.55);
+    }
+    50% {
+      transform: scaleY(1);
+    }
+  }
+
+  .voice-wave-bar-a {
+    animation: voice-wave-a 900ms ease-in-out infinite;
+    transform-origin: center;
+  }
+
+  .voice-wave-bar-b {
+    animation: voice-wave-b 1300ms ease-in-out infinite;
+    transform-origin: center;
+  }
+
+  @keyframes caret-blink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0;
+    }
+  }
+
+  .live-caret {
+    animation: caret-blink 1s step-end infinite;
+  }
+
+  @keyframes stagger-rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* backwards fill keeps an item from flashing before its delay; opacity
+     never removes content from the accessibility tree, so screen readers
+     read the full list immediately either way. */
+  .stagger-item {
+    animation: stagger-rise 480ms ease-out backwards;
+  }
+}
+

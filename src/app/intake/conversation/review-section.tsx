@@ -82,7 +82,7 @@ export const REVIEW_UNAVAILABLE_NOTICE =
   "The application review is unavailable right now. Your answers are " +
   "safe; try again after your next message.";
 
-export function ReviewSection({ refreshKey }: { refreshKey: number }) {
+export function ReviewSection({ refreshKey, stagger = false }: { refreshKey: number; stagger?: boolean }) {
   const [data, setData] = useState<ReviewDataView | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -118,7 +118,7 @@ export function ReviewSection({ refreshKey }: { refreshKey: number }) {
 
   return (
     <>
-      {data ? <ReviewSectionContent data={data} /> : null}
+      {data ? <ReviewSectionContent data={data} stagger={stagger} /> : null}
       <StatusRegion
         message={failed ? REVIEW_UNAVAILABLE_NOTICE : ""}
         className="text-sm text-muted"
@@ -129,9 +129,18 @@ export function ReviewSection({ refreshKey }: { refreshKey: number }) {
 
 /**
  * The pure presentation for one review payload. Exported for tests: the
- * detector scans render this markup for fixture payloads.
+ * detector scans render this markup for fixture payloads. `stagger` (the
+ * results stage's real-data fill reveal, VAL-VJS2-001) staggers the mapped
+ * field list — the fields, states, provenance, and counts stay exactly the
+ * payload's, never simulated.
  */
-export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
+export function ReviewSectionContent({
+  data,
+  stagger = false,
+}: {
+  data: ReviewDataView;
+  stagger?: boolean;
+}) {
   // The session's lifecycle status: the server's value until THIS component
   // advances it locally (derived state — no setState-in-effect cascade).
   const [localStatus, setLocalStatus] = useState<string | null>(null);
@@ -248,12 +257,36 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
           never submits for you. Preparing it is not a benefits decision;
           only the agency decides that.
         </p>
+        {/* The real-data fill reveal (VAL-VJS2-001, owner master spec):
+        "Filling your application · X of N fields" — X and N read the ACTUAL
+        review payload (prefilled count over the real mapped fields); the
+        stagger below only paces the presentation of the same real fields.
+        Nothing is simulated, and the "still needed" list stays visible. */}
+        <p
+          data-fill-reveal
+          className="flex flex-wrap items-baseline gap-2 text-sm font-medium"
+        >
+          Filling your application
+          <span
+            data-fill-count={`${data.counts.prefilled} of ${data.fields.length} fields`}
+            className="font-mono text-xs text-muted"
+          >
+            {data.counts.prefilled} of {data.fields.length} fields
+          </span>
+        </p>
         <ul className="flex flex-col gap-3" data-review-fields>
-          {data.fields.map((field) => (
+          {data.fields.map((field, index) => (
             <li
               key={field.fieldName}
               data-review-field={field.fieldName}
-              className="flex flex-col gap-1 rounded-xl border border-surface-border bg-surface p-4"
+              style={
+                stagger ? { animationDelay: `${index * 90}ms` } : undefined
+              }
+              className={
+                stagger
+                  ? "stagger-item flex flex-col gap-1 rounded-xl border border-surface-border bg-surface p-4"
+                  : "flex flex-col gap-1 rounded-xl border border-surface-border bg-surface p-4"
+              }
             >
               <span className="font-medium">{field.question}</span>
               <span className="flex flex-wrap items-center gap-2 text-sm">
