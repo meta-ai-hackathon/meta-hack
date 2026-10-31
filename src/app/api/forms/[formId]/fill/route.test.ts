@@ -8,6 +8,11 @@ import { closeDb } from "../../../../../lib/db";
 import { runMigrations } from "../../../../../lib/migrate";
 import { setLogSink, type LogLine } from "../../../../../lib/telemetry";
 import { saveAnswer } from "../../../../../lib/intake/store";
+import { fillForSession } from "../../../../../lib/forms/fill";
+import {
+  getFormRegistryEntry,
+  loadTemplatePdf,
+} from "../../../../../lib/forms/registry";
 import { POST } from "./route";
 
 // POST /api/forms/<formId>/fill route tests (Mission v2 M4,
@@ -183,6 +188,116 @@ describe("POST /api/forms/<formId>/fill", () => {
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error: { code: string } };
     expect(body.error.code).toBe("validation_error");
+  });
+});
+
+describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () => {
+  // The demo persona's unmapped answers, keyed by the DHB-5200's real
+  // AcroForm field names (the review view's draft inputs send exactly
+  // these). SSN, mailing address, and next year's income are deliberately
+  // left unanswered — they must come out blank with an honest report.
+  const DHB_UNMAPPED = {
+    "1 First name Middle name Last name  Suffix": "Jordan A. Tester",
+    "2 Home address Leave blank if you dont have one":
+      "123 Main St, Charlotte, NC 28202",
+  };
+
+  it("fills the committed official bytes from the demo persona; unanswered fields stay blank with the honest report", async () => {
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+    // Mapped answers: pii values (dob, phone) cross the vault through the
+    // entry's allowlist; the wage amount rides the answer table (non-pii).
+    // income_sources keeps job_income_amount inside the flow's visibility.
+    await saveAnswer(sessionId, "date_of_birth", "known", "1980-02-03");
+    await saveAnswer(sessionId, "phone_contact", "known", "555-010-9911");
+    await saveAnswer(sessionId, "income_sources", "known", ["job"]);
+    await saveAnswer(sessionId, "job_income_amount", "known", 1200);
+
+    // NO uploaded template: the registry's committed official DHB-5200
+    // bytes are the template (the UI download path). The unmapped persona
+    // answers ride the request in memory only.
+    const multipart = new FormData();
+    multipart.append("answers", JSON.stringify(DHB_UNMAPPED));
+    const response = await POST(
+      new Request("http://localhost:3100/api/forms/dhb-5200/fill", {
+        method: "POST",
+        headers: { cookie },
+        body: multipart,
+      }),
+      { params: Promise.resolve({ formId: "dhb-5200" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition")).toContain(
+      "dhb-5200.pdf",
+    );
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    // The official document, filled.
+    expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
+
+    const pdf = await PDFDocument.load(bytes);
+    const form = pdf.getForm();
+    // Mapped fields filled from the session's answers.
+    expect(form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe(
+      "1980-02-03",
+    );
+    expect(form.getTextField("14 Phone Number").getText()).toBe(
+      "555-010-9911",
+    );
+    expect(form.getTextField("undefined_10").getText()).toBe("1200");
+    // Unmapped persona answers rode the request and filled their fields.
+    expect(
+      form.getTextField("1 First name Middle name Last name  Suffix").getText(),
+    ).toBe("Jordan A. Tester");
+    expect(
+      form.getTextField("2 Home address Leave blank if you dont have one").getText(),
+    ).toBe("123 Main St, Charlotte, NC 28202");
+    // Unanswered fields stay VISIBLY blank — never guessed.
+    expect(
+      form.getTextField("5 Social Security Number SSN").getText() ?? "",
+    ).toBe("");
+    expect(
+      form
+        .getTextField("8 Mailing Address if different from home address")
+        .getText() ?? "",
+    ).toBe("");
+    expect(
+      form
+        .getTextField(
+          "Your total income next year if you think it will be different",
+        )
+        .getText() ?? "",
+    ).toBe("");
+
+    // The honest unmapped-field report: exactly the unanswered fields,
+    // each carrying its real question for the review surface's
+    // to-resolve list (the route's log mirrors its size).
+    const entry = getFormRegistryEntry("dhb-5200");
+    const outcome = await fillForSession(
+      loadTemplatePdf(entry),
+      entry,
+      sessionId,
+      DHB_UNMAPPED,
+    );
+    expect(outcome.toResolve.map((item) => item.fieldName)).toEqual([
+      "8 Mailing Address if different from home address",
+      "5 Social Security Number SSN",
+      "Your total income next year if you think it will be different",
+    ]);
+    for (const item of outcome.toResolve) {
+      expect(item.reason).toBe("unknown");
+      expect(item.question.length).toBeGreaterThan(0);
+    }
+    expect(outcome.filled.map((filled) => filled.fieldName).sort()).toEqual(
+      [
+        "1 First name Middle name Last name  Suffix",
+        "2 Home address Leave blank if you dont have one",
+        "3 Date of Birth mmddyyyy",
+        "14 Phone Number",
+        "undefined_10",
+      ].sort(),
+    );
   });
 });
 

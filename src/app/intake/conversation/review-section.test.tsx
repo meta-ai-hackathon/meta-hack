@@ -113,13 +113,25 @@ describe("ReviewSectionContent structure", () => {
     expect(html).not.toContain("1990-01-01");
   });
 
-  it("labels the sample form as a demonstration, not a real application", () => {
+  it("describes the real-form export honestly (VAL-RFEX-003)", () => {
     const html = decodeEntities(
       renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
     );
-    expect(html).toContain("data-sample-form-note");
-    expect(html).toContain("This is the demonstration form");
-    expect(html).toContain("do not submit the sample anywhere");
+    // The honest real-form note: what was filled, and the person's own
+    // hands on the finish — review, complete, submit — never the app's.
+    expect(html).toContain("data-real-form-note");
+    expect(html).toContain("filled in the fields we could");
+    expect(html).toContain("you review it, complete it, and submit it yourself");
+    expect(html).toContain("the app never submits for you");
+    // No outcome promise: preparing the form is not a determination.
+    expect(html).toContain("only the agency decides");
+    // The old sample wording is gone from the surface.
+    expect(html).not.toContain("demonstration form");
+    expect(html).not.toContain("do not submit the sample");
+    // And the note itself scans clean of banned claims.
+    const note = html.match(/data-real-form-note[^>]*>([^<]*)</)?.[1] ?? "";
+    expect(note).not.toBe("");
+    expect(findBannedClaims(note)).toEqual([]);
   });
 
   it("keeps a hierarchical heading outline", () => {
