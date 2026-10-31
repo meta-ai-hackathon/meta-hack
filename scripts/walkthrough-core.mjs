@@ -141,7 +141,16 @@ function sleep(ms) {
  * decision only.
  */
 function consentHeaderValue() {
-  return JSON.stringify({ v: 1, ai: true, voice: false, at: new Date().toISOString() });
+  // Receipt v2 (41cd06c bound the receipt to a providerId; the server
+  // fails closed on anything older): the AI toggle on, voice off — the
+  // same grant the consent surface's typed path gives.
+  return JSON.stringify({
+    v: 2,
+    providerId: "meta-model-api",
+    ai: true,
+    voice: false,
+    at: new Date().toISOString(),
+  });
 }
 
 /** fetch with a hard timeout and patient retries for cold starts. */
