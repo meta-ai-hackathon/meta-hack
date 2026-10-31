@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from jsonschema import Draft7Validator
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -93,6 +95,16 @@ SNAP_EXTENSION_RE = re.compile(r"\.snap\b", re.IGNORECASE)
 def find_program_name(line: str) -> "re.Match[str] | None":
     """Scan one KB-surface line for a blocklisted program name."""
     return PROGRAM_NAME_RE.search(SNAP_EXTENSION_RE.sub(" ", line))
+
+
+def program_names_in(text: str) -> set[str]:
+    """Every blocklisted program name in `text`, lowercased, read exactly as
+    find_program_name reads a line: the .snap token stripped, the same regex."""
+    return {
+        match.group(0).lower()
+        for match in PROGRAM_NAME_RE.finditer(SNAP_EXTENSION_RE.sub(" ", text))
+    }
+
 
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -598,7 +610,9 @@ class TestPilotAgnostic(KbSchemaTestCase):
         # verification discipline. The samples, the schema, the README,
         # and the consuming module stay name-free. The kb/forms/ registry
         # entries are the forms surface, governed by test_forms_registry.
-        sanctioned = ENTRIES_DIR / "nc-medicaid.json"
+        # The one real entry kb.ts imports (the renewal entry is imported by
+        # src/lib/renewal/renewal-facts.ts, which is not on the KB surface).
+        imported_entry = ENTRIES_DIR / "nc-medicaid.json"
         forms_dir = (KB_DIR / "forms").resolve()
         for path in self.kb_surface_files():
             if path in REAL_ENTRY_PATHS or forms_dir in path.resolve().parents:
@@ -615,7 +629,7 @@ class TestPilotAgnostic(KbSchemaTestCase):
                 if (
                     path == KB_CODE_PATH
                     and "import" in line
-                    and f"kb/entries/{sanctioned.name}" in line
+                    and f"kb/entries/{imported_entry.name}" in line
                 ):
                     continue
                 self.fail(
@@ -634,11 +648,15 @@ def is_official_pilot_host(url: str) -> bool:
 
 
 def other_program_names(paths: list[Path]) -> dict[str, set[str]]:
-    """Blocklisted program names other than the pilot's own, by file path."""
+    """Blocklisted program names other than the pilot's own, by file path.
+
+    Names are read as the VAL-KB-003 scan reads them (program_names_in), so
+    a file the scan sanctions is held to the scan's own matching, minus only
+    the pilot's own name.
+    """
     found: dict[str, set[str]] = {}
     for path in paths:
-        text = path.read_text(encoding="utf-8")
-        named = {match.group(0).lower() for match in PROGRAM_NAME_RE.finditer(text)}
+        named = program_names_in(path.read_text(encoding="utf-8"))
         extra = named - PILOT_PROGRAM_NAMES
         if extra:
             found[str(path)] = extra
@@ -733,6 +751,34 @@ class TestRenewalEntry(KbSchemaTestCase):
             {Path(name).name: sorted(extra) for name, extra in found.items()},
             {"README.md": ["chip", "snap"], "notes.txt": ["snap"]},
         )
+
+    @settings(database=None, deadline=None, max_examples=300)
+    @given(
+        st.lists(
+            st.tuples(
+                st.one_of(
+                    st.sampled_from(PROGRAM_NAME_BLOCKLIST).flatmap(
+                        lambda name: st.sampled_from([name, name.lower(), name.upper(), name.title()])
+                    ),
+                    st.sampled_from(
+                        [".snap", "card.test.ts.snap", "snapshot", "snaps", "Section", "8", "food", "NC", "renewal"]
+                    ),
+                ),
+                st.sampled_from([" ", "", ".", "-", "_", "/", ",", "\t"]),
+            ),
+            max_size=8,
+        ).map(lambda parts: "".join(piece + gap for piece, gap in parts))
+    )
+    def test_name_check_reads_names_as_the_scan_does(self, line: str):
+        # The renewal entry is sanctioned on the VAL-KB-003 scan, so its own
+        # name check has to read names exactly as that scan does: a line has
+        # a name for one exactly when it has one for the other, and the
+        # scan's first find is among the check's.
+        found = program_names_in(line)
+        first = find_program_name(line)
+        self.assertEqual(first is None, not found, repr(line))
+        if first is not None:
+            self.assertIn(first.group(0).lower(), found, repr(line))
 
     def test_dates_are_real_and_never_in_the_future(self):
         today = datetime.date.today()
