@@ -18,10 +18,11 @@ every git-tracked text file and fails on
   "to" (300 to 1500), or it reads as a local number;
 - the same digits kept bare, the way an app payload or a transcript keeps
   them, after a word that names them on the same line: nine digits after
-  "ssn" or "social", ten (maybe after 1 or +1) after "phone", "tel",
-  "mobile", "cell" or "fax", with up to 24 other characters between. A
-  bare number with no such word is left alone, since ids and timestamps
-  look the same;
+  "ssn" or "social", ten (maybe after 1 or +1) after "phone", "mobile",
+  "tel", "cell" or "fax", with up to 24 other characters between. The word
+  has to start a word or a snake_case part, or be a camelCase hump, so
+  "microphone" and "automobile" don't count. A bare number with no such
+  word is left alone, since ids and timestamps look the same;
 - an email address outside example.com, example.org and example.net (and
   their subdomains), names under .test and .invalid, and noreply.github.com
   (with its subdomains).
@@ -110,13 +111,19 @@ PHONE: Final = re.compile(
     rf"|{_NXX}-\d{{4}}"
     r")(?![\w-])"
 )
-# Bare digits after a word that names them (the rest of the word too, as
-# in social_security_number), on the same line.
+# Bare digits after a word that names them, on the same line. The word
+# starts a word or a snake_case part (no letter right before it) or is a
+# camelCase hump, and the rest of it (as in social_security_number) is
+# skipped along with it. tel, cell and fax must end there, so telemetry,
+# cellar and the like don't count.
 _NAMED = r"[A-Za-z_]*[^\d\n]{0,24}?"
-NAMED_SSN: Final = re.compile(rf"(?i:\bssn|\bsocial){_NAMED}(?<![\d+])(\d{{9}})(?!\d)")
-NAMED_PHONE: Final = re.compile(
-    rf"(?i:phone|mobile|\btel(?:ephone)?(?![a-z])|\bcell(?![a-z])|\bfax(?![a-z])){_NAMED}(?<![\d+])((?:\+?1)?{_NXX}{_NXX}\d{{4}})(?!\d)"
+_SSN_WORD = r"(?:(?<![A-Za-z])(?i:ssn|social)|(?<=[a-z])(?:Ssn|SSN|Social))"
+_PHONE_WORD = (
+    r"(?:(?<![A-Za-z])(?:(?i:(?:cell|tele|smart)?phone|mobile)|(?:tel|cell|fax|Tel|Cell|Fax)(?![a-z])|(?:TEL|CELL|FAX)(?![A-Za-z]))"
+    r"|(?<=[a-z])(?:Phone|Mobile|(?:Tel|Cell|Fax)(?![a-z])))"
 )
+NAMED_SSN: Final = re.compile(rf"{_SSN_WORD}{_NAMED}(?<![\d+])(\d{{9}})(?!\d)")
+NAMED_PHONE: Final = re.compile(rf"{_PHONE_WORD}{_NAMED}(?<![\d+])((?:\+?1)?{_NXX}{_NXX}\d{{4}})(?!\d)")
 EMAIL: Final = re.compile(r"(?<![\w.%+-])[A-Za-z0-9._%+-]+@(?P<domain>[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b")
 # An escaped line break or tab inside a string literal.
 _ESCAPE: Final = re.compile(r"\\[nrt]")
@@ -320,14 +327,57 @@ def phone(number: tuple[int, int, int], form: str) -> str:
 MONEY_RANGES = st.builds(lambda low, high: f"${low}-{high}", st.integers(200, 999), st.integers(1000, 9999))
 # Bare digits after a word that names them, as a payload or a transcript
 # keeps them: the word, what stands between, and the digits.
-SSN_WORDS = st.sampled_from(["ssn", "SSN", "ssn_full", "social", "Social Security", "social_security_number", "socialSecurityNumber"])
-PHONE_WORDS = st.sampled_from(["phone", "Phone", "phone_contact", "contactPhone", "cellphone", "telephone", "tel", "TEL", "mobile", "cell", "fax"])
+SSN_WORDS = st.sampled_from(
+    ["ssn", "SSN", "ssn_full", "user_ssn", "userSSN", "social", "Social Security", "social_security_number", "socialSecurityNumber"]
+)
+PHONE_WORDS = st.sampled_from(
+    [
+        "phone",
+        "Phone",
+        "PHONE",
+        "phone_contact",
+        "contactPhone",
+        "home_phone",
+        "cellphone",
+        "telephone",
+        "tel",
+        "TEL",
+        "telNumber",
+        "TEL_NUMBER",
+        "mobile",
+        "workMobile",
+        "cell",
+        "fax",
+        "office_fax",
+    ]
+)
 NAMED_GAPS = st.sampled_from(["", " ", ": ", "=", '": "', "': '", '":"', " = '", ", ", " is ", " number is ", " (home) "])
 BARE_SSNS = st.integers(0, 999_999_999).map("{:09d}".format)
 BARE_PREFIXES = st.sampled_from(["", "1", "+1"])
 # Words that name no such value, some of them only looking like one, and
 # filler that can't spell one.
-OTHER_WORDS = st.sampled_from(["id", "count", "total", "amount", "zip", "page", "timestamp", "version", "telemetry", "cancelled", "Fairfax"])
+OTHER_WORDS = st.sampled_from(
+    [
+        "id",
+        "count",
+        "total",
+        "amount",
+        "zip",
+        "page",
+        "timestamp",
+        "version",
+        "telemetry",
+        "TELEMETRY",
+        "hotel",
+        "cancelled",
+        "Fairfax",
+        "microphone",
+        "MICROPHONE",
+        "headphone",
+        "automobile",
+        "antisocial",
+    ]
+)
 KEYLESS_FILLER = st.text(alphabet="dgjkqruvwyz ", max_size=20)
 
 
@@ -399,8 +449,9 @@ class FinderProperties(unittest.TestCase):
     @PBT
     @given(KEYLESS_FILLER, OTHER_WORDS, NAMED_GAPS, BARE_SSNS | st.builds(phone, REAL_NUMBERS, st.just("{area}{exchange}{line}")))
     def test_bare_numbers_without_such_a_word_pass(self, before: str, word: str, gap: str, digits: str) -> None:
-        # Ids, counts and timestamps look like bare digits too.
-        self.assertEqual(find_pii(before + word + gap + digits), [])
+        # Ids, counts and timestamps look like bare digits too, and so do
+        # words that only contain a key word, standing on their own.
+        self.assertEqual(find_pii(before + " " + word + gap + digits), [])
 
     @PBT
     @given(LOCAL_PARTS, REAL_DOMAINS, SURROUNDINGS)
