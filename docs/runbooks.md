@@ -10,6 +10,11 @@ answering. The step-by-step questions take over in place, keep every answer the 
 already saved, and still end at the review and the filled DHB-5200. The "Open the wizard"
 link in the error goes somewhere else (see the first runbook).
 
+On that path, like the chat itself, the person's answers stay in the app's server-side
+session until they delete them. AGENTS.md (Legal) says that store doesn't yet meet the
+rule that answers leave the device only through the fax (HACK-87), so a person has to
+confirm this path is acceptable for real pilot data before the pilot relies on it.
+
 Sharing choices belong to the person. The operator can turn sharing off, which only sends
 less, but never turns sharing on or ticks a sharing box for them.
 
