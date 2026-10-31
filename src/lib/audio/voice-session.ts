@@ -75,6 +75,8 @@ export interface VoiceSession {
   stop(): void;
   readonly isActive: boolean;
   readonly isPaused: boolean;
+  /** Whether a recorder cycle is open right now (speech may be in flight). */
+  readonly isCapturing: boolean;
 }
 
 /** The browser implementation of the deps (all real Web Audio APIs). */
@@ -297,6 +299,9 @@ export function createVoiceSession(
     },
     get isPaused(): boolean {
       return paused;
+    },
+    get isCapturing(): boolean {
+      return cycle !== null;
     },
   };
   return session;

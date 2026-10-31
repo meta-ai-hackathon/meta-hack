@@ -256,9 +256,12 @@ export function ConversationChat() {
   // render's submit function — the busy guard, the consent re-check, and
   // the receipt header always read the current values (claude-review P2:
   // no stale closure across a long-lived session).
-  const submitVoiceTurnRef = useRef<((blob: Blob) => Promise<void>) | null>(
-    null,
-  );
+  const submitVoiceTurnRef = useRef<
+    ((
+      blob: Blob,
+      queuedTiming?: { timing: EndpointTiming; decisionAt: number } | null,
+    ) => Promise<void>) | null
+  >(null);
   // Ref mirrors of busy/paused for the VOICE path (VAL-FIX-001): its
   // callbacks re-enter from async hops (recorder onstop, the settled
   // turn's cleanup) where the render closures can be stale — a queued
@@ -276,11 +279,14 @@ export function ConversationChat() {
   }, []);
   // Continuation utterances that ended while a turn was still processing
   // (VAL-FIX-001: speech resuming after an endpoint decision re-opens
-  // cleanly): queued in ORDER and submitted one-by-one as each in-flight
-  // turn settles — nothing the person said is dropped. Cleared wherever
-  // the session ends or voice consent is revoked (never send captured
-  // audio after the person withdrew it).
-  const pendingVoiceRef = useRef<Blob[]>([]);
+  // cleanly): queued in ORDER — each with its own endpoint decision
+  // timing — and submitted one-by-one as each in-flight turn settles.
+  // Nothing the person said is dropped. Cleared wherever the session
+  // ends or voice consent is revoked (never send captured audio after
+  // the person withdrew it).
+  const pendingVoiceRef = useRef<
+    { blob: Blob; timing: { timing: EndpointTiming; decisionAt: number } | null }[]
+  >([]);
   // VAL-FIX-001 instrumentation: the endpoint decision's timing, from
   // the gate through turn submission. Timing only — no transcript, no
   // audio, no PII. Rendered as a data attribute (no visual change) so
@@ -618,8 +624,14 @@ export function ConversationChat() {
       // The reply is about to speak: suspend capture FIRST, so the
       // endpointer can never hear the assistant's own voice — with a
       // 400 ms hangover, a cycle left open during playback would commit
-      // the reply audio as a user turn (self-echo). The settled cleanup
-      // resumes listening (VAL-FIX-001).
+      // the reply audio as a user turn (self-echo). If the person
+      // resumed speaking and is mid-utterance right now, their open
+      // recording is flushed gracefully (endpointNow delivers it — it
+      // queues as a continuation) instead of being truncated silently.
+      // The settled cleanup resumes listening (VAL-FIX-001).
+      if (sessionRef.current?.isCapturing) {
+        sessionRef.current.endpointNow();
+      }
       sessionRef.current?.hold();
       setVoicePhase("speaking");
       await speakReply(data.assistantTurnId, data.assistantReply);
@@ -636,14 +648,21 @@ export function ConversationChat() {
       // Same echo-proof for the spoken wrap-up, and it is AWAITED: the
       // turn settles only after the wrap-up finishes playing, so the
       // settled cleanup's resume really starts after the audio (the
-      // journey-complete effect then ends the session).
+      // journey-complete effect then ends the session). The wait is
+      // bounded — speechSynthesis quirks must never leave the turn
+      // unsettled (claude-review round).
       sessionRef.current?.hold();
-      await new Promise<void>((resolve) => {
-        const spoke = queueSpeech(RESULTS_WRAP_UP, undefined, resolve);
-        if (!spoke) {
-          resolve();
-        }
-      });
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          const spoke = queueSpeech(RESULTS_WRAP_UP, undefined, resolve);
+          if (!spoke) {
+            resolve();
+          }
+        }),
+        new Promise<void>((resolve) =>
+          setTimeout(resolve, Math.max(5_000, 2_000 + RESULTS_WRAP_UP.length * 80)),
+        ),
+      ]);
     }
   }
 
@@ -709,14 +728,22 @@ export function ConversationChat() {
     sessionRef.current?.listen();
   }
 
-  async function submitVoiceTurn(recorded: Blob): Promise<void> {
+  async function submitVoiceTurn(
+    recorded: Blob,
+    queuedTiming?: { timing: EndpointTiming; decisionAt: number } | null,
+  ): Promise<void> {
     if (busyRef.current) {
       // A continuation spoken while a turn is still processing
-      // (VAL-FIX-001): queued in order and submitted when the in-flight
-      // turns settle — speech resuming after an endpoint decision
-      // re-opens the turn cleanly instead of being dropped. Capture
-      // keeps running so whatever comes next is heard too.
-      pendingVoiceRef.current.push(recorded);
+      // (VAL-FIX-001): queued in order — WITH its own endpoint timing —
+      // and submitted when the in-flight turns settle; speech resuming
+      // after an endpoint decision re-opens the turn cleanly instead of
+      // being dropped. Capture keeps running so whatever comes next is
+      // heard too.
+      const decided = queuedTiming ?? endpointTimingRef.current;
+      endpointTimingRef.current = null;
+      pendingVoiceRef.current.push(
+        decided === null ? { blob: recorded, timing: null } : { blob: recorded, timing: decided },
+      );
       restartListeningIfActive();
       return;
     }
@@ -729,12 +756,13 @@ export function ConversationChat() {
     restartListeningIfActive();
     setError(null);
     setNotice("Transcribing your recording…");
-    // VAL-FIX-001 instrumentation: the decision timing the session
-    // reported at the gate fire, completed with the submission leg.
-    // Timing only — no transcript, no audio, no PII.
-    const decided = endpointTimingRef.current;
+    // VAL-FIX-001 instrumentation: the decision timing this turn's gate
+    // fire reported (attached at queue time for continuations),
+    // completed with the submission leg. Timing only — no transcript,
+    // no audio, no PII.
+    const decided = queuedTiming ?? endpointTimingRef.current;
     endpointTimingRef.current = null;
-    if (decided !== null) {
+    if (decided !== null && decided !== undefined) {
       const speechEndToSubmitMs =
         decided.timing.speechEndToDecisionMs + (Date.now() - decided.decisionAt);
       console.debug(
@@ -795,15 +823,16 @@ export function ConversationChat() {
     }
     const next = pendingVoiceRef.current.shift();
     if (next !== undefined) {
-      void submitVoiceTurnRef.current?.(next);
+      void submitVoiceTurnRef.current?.(next.blob, next.timing);
     }
   }
 
   // Wherever the voice session ENDS, captured-but-unsent audio goes with
-  // it (claude-review round: the queue must never outlive the consented
-  // session).
+  // it — and the decision timing captured for it too (claude-review
+  // round: the queue must never outlive the consented session).
   function clearPendingVoice(): void {
     pendingVoiceRef.current = [];
+    endpointTimingRef.current = null;
   }
   // Latest-ref wiring (see the ref's comment): the session callback reads
   // the CURRENT submit function on every utterance. An effect, not a
@@ -851,7 +880,6 @@ export function ConversationChat() {
           sessionRef.current?.stop();
           sessionRef.current = null;
           clearPendingVoice();
-          sessionRef.current = null;
           setSessionOn(false);
           setMicBlocked(true);
           setNotice(

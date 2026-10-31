@@ -32,6 +32,10 @@ const sessionCallbacks: SessionCallbacks = {
   onRecorderError: () => undefined,
 };
 let sessionOps: string[] = [];
+// Whether the fake session reports an open recorder cycle (the real
+// session's isCapturing) — the tests flip this to simulate speech in
+// flight when the reply becomes ready.
+let fakeCapturing = false;
 
 vi.mock("../../../lib/audio/voice-session", () => ({
   DEFAULT_ENDPOINTING: {},
@@ -61,6 +65,9 @@ vi.mock("../../../lib/audio/voice-session", () => ({
       },
       get isPaused() {
         return false;
+      },
+      get isCapturing() {
+        return fakeCapturing;
       },
     };
   },
@@ -166,6 +173,7 @@ beforeEach(() => {
   };
   localStorage.clear();
   sessionOps = [];
+  fakeCapturing = false;
   turnCalls = [];
   stubFetch();
 });
@@ -471,6 +479,67 @@ describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
     });
     expect(turnCalls).toHaveLength(1);
     expect(q(container, "voice-session")).toBeNull();
+  });
+
+  it("VAL-FIX-001: a mid-utterance continuation is flushed before reply playback, never truncated away", async () => {
+    const { container: _container, act } = await renderChat();
+    await beginMode(_container, act, "voice-only");
+    let releaseTurn1: (() => void) | undefined;
+    const turn1Promise = new Promise<Response>((resolve) => {
+      releaseTurn1 = () => resolve(turnResponse());
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return turnCalls.length === 1 ? turn1Promise : turnResponse();
+        }
+        if (url === "/api/conversation/speak") {
+          return new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["first"], { type: "audio/webm" }),
+      );
+    });
+    expect(turnCalls).toHaveLength(1);
+    // The person resumed speaking while turn 1 processed and is
+    // mid-utterance exactly when the reply becomes ready.
+    fakeCapturing = true;
+    sessionOps = [];
+    await act(async () => {
+      releaseTurn1?.();
+    });
+    // The open recording was flushed GRACEFULLY (endpointNow delivers
+    // it) before the mic was held for playback — flush first, hold
+    // second.
+    const flushAt = sessionOps.indexOf("endpoint");
+    const holdAt = sessionOps.indexOf("hold");
+    expect(flushAt).toBeGreaterThanOrEqual(0);
+    expect(holdAt).toBeGreaterThan(flushAt);
+    // The flushed partial arrives (as the real async onstop would) and
+    // is queued while turn 1 is still settling — then submitted.
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["partial"], { type: "audio/webm" }),
+      );
+    });
+    await act(async () => undefined);
+    expect(turnCalls).toHaveLength(2);
   });
 
   it("VAL-FIX-001: a user pause outlives a turn — the playback hold never overrides it", async () => {

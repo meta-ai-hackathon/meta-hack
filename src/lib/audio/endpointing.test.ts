@@ -226,6 +226,7 @@ describe("the endpointing gate (VAL-NCF-001)", () => {
             maxUtteranceMs: 120_000,
           });
           let now = 0;
+          let firstLoudAt: number | null = null;
           let lastLoudAt: number | null = null;
           let everLoud = false;
           for (const rms of samples) {
@@ -233,6 +234,9 @@ describe("the endpointing gate (VAL-NCF-001)", () => {
             const loud = rms > 0.015;
             if (loud) {
               everLoud = true;
+              if (firstLoudAt === null) {
+                firstLoudAt = now;
+              }
               lastLoudAt = now;
             }
             const fired = gate.feed(rms, now);
@@ -240,7 +244,15 @@ describe("the endpointing gate (VAL-NCF-001)", () => {
               expect(everLoud).toBe(true);
               expect(lastLoudAt).not.toBeNull();
               const latency = now - (lastLoudAt as number);
-              if (loud) {
+              // Branch on whether the hard utterance cap was reached
+              // (the cap is checked before the silence branch, so it can
+              // fire on a quiet sample whose silence had not yet
+              // outlasted the hangover): no hangover bound applies there.
+              const capReached =
+                firstLoudAt !== null && now - firstLoudAt >= 120_000;
+              if (capReached) {
+                expect(latency).toBeGreaterThanOrEqual(0);
+              } else if (loud) {
                 // The hard cap fired mid-speech: the decision is not
                 // later than one feed after speech energy (it IS the
                 // loud sample).
