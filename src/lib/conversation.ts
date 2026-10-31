@@ -1081,13 +1081,28 @@ export interface ChatCallScript {
  * turns, and the current turn rides once, wrapped as data, as the final
  * message (turn persistence is deferred until the reply succeeds, so
  * history alone cannot carry it).
+ *
+ * Returns the parsed envelope plus the per-call timing the turn's
+ * segment instrumentation reads (VAL-FIX-004). The demo-day speed pass
+ * MEASURED the parallel-split alternative (two independent calls raced
+ * with Promise.all, prompts halved per path): 20 turns vs 20 on the real
+ * API showed only a ~14% p50 / ~8% mean turn cut, a HEAVIER tail
+ * (max-of-two reasoning bursts), and +20-39% tokens per turn — not the
+ * material cut the keep-only-if-faster bar requires, so the combined
+ * shape stays (numbers recorded in the PR).
  */
 async function runCombinedTurn(
   userText: string,
   currentQuestion: Question | null,
   answersBefore: AnswerMap,
   history: readonly ConversationTurnView[],
-): Promise<CombinedEnvelope | null> {
+): Promise<{
+  envelope: CombinedEnvelope | null;
+  /** The scripted transport's own per-call latency (chatCompletion's). */
+  chatCallMs: number;
+  /** Wall time across the call (one call: equals chatCallMs up to parse). */
+  modelMs: number;
+}> {
   const messages: ChatMessage[] = [
     {
       role: "system",
@@ -1102,10 +1117,16 @@ async function runCombinedTurn(
       content: `${DATA_WRAP_START}\n${userText}\n${DATA_WRAP_END}`,
     },
   ];
+  const modelStarted = Date.now();
   const result = await chatCompletion(messages, {
     maxTokens: CHAT_CALL_MAX_TOKENS,
   });
-  return parseCombinedEnvelope(result.content);
+  const modelMs = Date.now() - modelStarted;
+  return {
+    envelope: parseCombinedEnvelope(result.content),
+    chatCallMs: result.latencyMs,
+    modelMs,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1244,6 +1265,7 @@ export async function processUserTurn(
     ? await loadAnswers(existingSessionId)
     : {};
   const currentQuestion = nextUnansweredQuestion(answersBefore);
+  const sessionMs = Date.now() - turnStarted;
 
   // 1. The ONE combined call: extract the answers AND write the reply in a
   // single structured response. It runs BEFORE any session exists for a
@@ -1252,17 +1274,21 @@ export async function processUserTurn(
   const history = existingSessionId
     ? await recentTurns(existingSessionId, REPLY_HISTORY_TURNS)
     : [];
-  const envelope = await runCombinedTurn(
+  const calls = await runCombinedTurn(
     userText,
     currentQuestion,
     answersBefore,
     history,
   );
+  const envelope = calls.envelope;
 
   // The session identity is hoisted so the catch below can carry it on the
   // error cause (the fresh-session cookie path, claude-review P2-3).
   let sessionId: string | null = null;
   let fresh = false;
+  // 2-5. Session creation, the saves, redaction, and the flow decision —
+  // the DB-heavy middle segment (VAL-FIX-004 instrumentation).
+  const savesStarted = Date.now();
   try {
     // 2. First write of the turn: NOW create the session if needed.
     const session = existingSessionId
@@ -1526,10 +1552,28 @@ export async function processUserTurn(
     // 8. Persist BOTH turns — only after the reply succeeded and passed
     // every gate (hardening item 1). The user turn lands as the redacted
     // words only; the raw text never lands anywhere.
+    const savesMs = Date.now() - savesStarted;
+    const persistStarted = Date.now();
     await persistTurn(activeSessionId, "user", redactedUserTranscript);
     const assistantTurnId = await persistTurn(activeSessionId, "assistant", reply);
+    const persistMs = Date.now() - persistStarted;
+    const totalMs = Date.now() - turnStarted;
+    // Per-segment turn timing (VAL-FIX-004): numbers only, never content —
+    // the measurement evidence for the speed pass and the ongoing
+    // observability for every turn after it. The demo-day split probe
+    // (two parallel calls) did NOT ship — see runCombinedTurn's doc for
+    // the measured numbers; these segments stay shape-stable for it.
+    logInfo("conversation_turn_segments", {
+      sessionMs,
+      modelMs: calls.modelMs,
+      chatCallMs: calls.chatCallMs,
+      savesMs,
+      persistMs,
+      modelCalls: 1,
+      totalMs,
+    });
     logInfo("conversation_turn_completed", {
-      latencyMs: Date.now() - turnStarted,
+      latencyMs: totalMs,
       modelCalls: 1,
     });
     return {

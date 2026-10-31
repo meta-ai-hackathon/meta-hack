@@ -857,6 +857,97 @@ describe("POST /api/conversation/turn — usage logging (VAL-CONV-009)", () => {
   });
 });
 
+describe("POST /api/conversation/turn — per-segment turn timing (VAL-FIX-004)", () => {
+  it("logs the engine's segment timing with numeric fields only, on the typed path", async () => {
+    const logs: LogLine[] = [];
+    setLogSink((line) => logs.push(JSON.parse(line) as LogLine));
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+          ],
+        }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+    ]);
+
+    const response = await POST(turnRequest("It's for me."));
+    expect(response.status).toBe(200);
+
+    const segments = logs.filter(
+      (line) => line.event === "conversation_turn_segments",
+    );
+    expect(segments).toHaveLength(1);
+    const segmentLine = segments[0] as unknown as Record<string, unknown>;
+    for (const field of [
+      "sessionMs",
+      "modelMs",
+      "chatCallMs",
+      "savesMs",
+      "persistMs",
+      "totalMs",
+    ]) {
+      expect(typeof segmentLine[field]).toBe("number");
+    }
+    expect(segmentLine.modelCalls).toBe(1);
+    // Numbers only: no transcript, no prompt, no value content.
+    const serialized = JSON.stringify(segments);
+    expect(serialized).not.toContain("555-0143");
+    expect(serialized).not.toContain("It's for me");
+  });
+
+  it("logs the route's segment timing — STT for voice, engine, client state — with a mode", async () => {
+    const logs: LogLine[] = [];
+    setLogSink((line) => logs.push(JSON.parse(line) as LogLine));
+    installVoiceScript(
+      [{ transcript: "It's for myself." }],
+      [
+        {
+          extraction: JSON.stringify({
+            answers: [
+              { question_id: "application_role", status: "known", value: "self" },
+            ],
+          }),
+          reply: "Got it. What kind of help are you looking for right now?",
+        },
+      ],
+    );
+
+    const response = await POST(voiceRequest(SIXTEEN_K_MONO_WAV));
+    expect(response.status).toBe(200);
+
+    const timings = logs.filter(
+      (line) => line.event === "conversation_turn_route_timings",
+    );
+    expect(timings).toHaveLength(1);
+    const timingLine = timings[0] as unknown as Record<string, unknown>;
+    expect(timingLine.mode).toBe("voice");
+    for (const field of ["sttMs", "engineMs", "stateMs", "totalMs"]) {
+      expect(typeof timingLine[field]).toBe("number");
+    }
+    // The typed mode is timed with the same event, mode "typed".
+    installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: "Let's begin. Who is this application for?",
+      },
+    ]);
+    const typed = await POST(turnRequest("Hello there."));
+    expect(typed.status).toBe(200);
+    const typedTimings = logs.filter(
+      (line) => line.event === "conversation_turn_route_timings",
+    );
+    expect(typedTimings).toHaveLength(2);
+    expect(
+      (typedTimings[1] as unknown as Record<string, unknown>).mode,
+    ).toBe("typed");
+    expect(
+      JSON.stringify(timings),
+    ).not.toContain("It's for myself");
+  });
+});
+
 describe("POST /api/conversation/turn — validation hygiene", () => {
   it("rejects unusable text without creating a session", async () => {
     const peopleBefore = await countOf("person");
