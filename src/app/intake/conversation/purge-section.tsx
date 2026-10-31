@@ -20,20 +20,41 @@ import { removeStoredAnswers } from "../../../lib/intake/client-store";
 // (any filled application the person downloaded — the app never kept a
 // copy — and the bare receipt) and what is gone (every answer, every
 // statement, the whole transcript). The on-device answer store (HACK-94)
-// is emptied too. The parent clears the client state and re-reads the
+// is emptied too (the done announcement fires only when that erase
+// verifiably read back empty — otherwise the notice hedges, because
+// "Your answers are gone" claims this device too; droid-review carried
+// from PR #66). The parent clears the client state and re-reads the
 // journey from the server, which now shows empty: the purge is real, not
 // theater. If the request fails the honest outcome depends on what came
 // back: a definite refusal removed nothing (the server purge is
-// transactional), a missing session (404) was never there to remove —
-// the person's confirmed intent is honored by erasing the on-device
-// copies — and a lost connection means the outcome is unknown — each
-// notice says exactly what happened instead of guessing.
+// transactional), a missing session (a 404 carrying THIS route's own
+// error code — any other 404 is a proxy's word, not the route's, and
+// maps to unknown without touching the device copies; claude-review P2,
+// PR #68) was never there to remove — the person's confirmed intent is
+// honored by erasing the on-device copies — and a lost connection means
+// the outcome is unknown — each notice says exactly what happened
+// instead of guessing.
 
 /** The mandated on-screen beat while the purge runs. */
 export const PURGE_REMOVING_NOTICE = "Removing your answers from this device…";
 
 export const PURGE_DONE_NOTICE =
   "Your answers are gone. This screen lists exactly what remains.";
+
+/**
+ * The server erase IS verified on the purged outcome — the transaction
+ * committed — but the device's own erase could not be verified
+ * (droid-review carried from PR #66): the notice states the verified
+ * half exactly, hedges the device copy, and points at the retry (the
+ * surface stays up, so confirming the delete again re-runs the erase —
+ * a purge of an already-purged session removes nothing further). It
+ * must never carry the verified case's "Your answers are gone"
+ * announcement: that claim includes this device, and here it is not
+ * known to be true.
+ */
+export const PURGE_PURGED_DEVICE_KEPT_NOTICE =
+  "The erase went through on the server — but this device's saved copy " +
+  "couldn't be erased just now. Trying the delete again may clear it.";
 
 /**
  * A definite refusal: the server answered and refused before touching
@@ -47,20 +68,20 @@ export const PURGE_REFUSED_NOTICE =
   "still saved.";
 
 /**
- * A 404: no active session was found to delete, so the server had
- * nothing of the person's to remove. The notice states exactly that —
- * it must not claim the answers are "still saved" (there is no session
- * backing that claim). The person's confirmed delete intent is honored
- * on the device instead: the on-device copies are erased, and the
- * notice says so.
+ * A 404 carrying this route's own error code: no active session was
+ * found to delete, so the server had nothing of the person's to remove.
+ * The notice states exactly that — it must not claim the answers are
+ * "still saved" (there is no session backing that claim). The person's
+ * confirmed delete intent is honored on the device instead: the
+ * on-device copies are erased, and the notice says so.
  */
 export const PURGE_NO_SESSION_NOTICE =
   "There was no active session on the server to delete, so nothing was " +
   "removed there. Any answers kept on this device are erased too.";
 
 /**
- * Same 404 outcome, but the device's own erase could not be verified:
- * the notice may not claim the on-device copies are gone.
+ * Same no-session outcome, but the device's own erase could not be
+ * verified: the notice may not claim the on-device copies are gone.
  */
 export const PURGE_NO_SESSION_DEVICE_KEPT_NOTICE =
   "There was no active session on the server to delete, so nothing was " +
@@ -78,6 +99,46 @@ export const PURGE_UNKNOWN_NOTICE =
   "— nothing more is lost by checking.";
 
 /**
+ * What the purge's completion may honestly show and announce, decided
+ * as a pure function of the route outcome and the device-erase signal
+ * so the branch wiring is unit-provable without a DOM (the
+ * createPurgeClickHandler precedent). `done` — the confirmation screen
+ * — fires ONLY for a verified purge, because the screen's own words
+ * ("Your answers are gone", "Gone, from this device and the app's
+ * records") claim the device copy too (droid-review carried from
+ * PR #66): with the device erase unverifiable, the surface stays up so
+ * the delete can be retried, and the hedged notice says exactly what
+ * is and is not known. The device signal is consulted only where a
+ * device erase was sanctioned at all (a refused or unknown outcome
+ * never touches the device stores, so their answers stay resumable —
+ * exactly what those notices claim).
+ */
+export interface PurgeResolution {
+  readonly done: boolean;
+  readonly notice: string;
+}
+
+export function resolvePurgeOutcome(
+  outcome: PurgeRequestOutcome,
+  deviceCleared: boolean,
+): PurgeResolution {
+  switch (outcome) {
+    case "purged":
+      return deviceCleared
+        ? { done: true, notice: PURGE_DONE_NOTICE }
+        : { done: false, notice: PURGE_PURGED_DEVICE_KEPT_NOTICE };
+    case "no_session":
+      return deviceCleared
+        ? { done: false, notice: PURGE_NO_SESSION_NOTICE }
+        : { done: false, notice: PURGE_NO_SESSION_DEVICE_KEPT_NOTICE };
+    case "refused":
+      return { done: false, notice: PURGE_REFUSED_NOTICE };
+    case "unknown":
+      return { done: false, notice: PURGE_UNKNOWN_NOTICE };
+  }
+}
+
+/**
  * The purge request's wiring, injectable-fetch like the voice path: the
  * manual control always sends the explicit confirmation. The four
  * outcomes separate what the honesty spine may claim:
@@ -85,13 +146,18 @@ export const PURGE_UNKNOWN_NOTICE =
  * - "refused": a definite 4xx refusal (validation gate or cross-site) —
  *   the server deletes nothing on those paths, so "nothing was removed"
  *   is exact.
- * - "no_session": a 404 — no active session was found, so nothing was
- *   removed AND there was nothing on the server to remove; the copy may
- *   not claim the answers are "still saved".
- * - "unknown": no answer, or a 5xx (this route's own 500s roll the
+ * - "no_session": a 404 carrying THIS route's own error code
+ *   (errorResponse's `error.code === "not_found"`) — no active session
+ *   was found, so nothing was removed AND there was nothing on the
+ *   server to remove; the copy may not claim the answers are "still
+ *   saved".
+ * - "unknown": no answer, a 5xx (this route's own 500s roll the
  *   transaction back, but a proxy or platform timeout can produce a 5xx
- *   AFTER a commit) — the purge may or may not have happened, and the
- *   copy must not claim either way.
+ *   AFTER a commit), or a 404 WITHOUT the route's own error-code body —
+ *   a proxy/platform/rewrite 404 says nothing about this session, and
+ *   erasing the device copies on it could destroy answers the server
+ *   still holds (claude-review P2, PR #68) — the purge may or may not
+ *   have happened, and the copy must not claim either way.
  */
 export type PurgeRequestOutcome =
   | "purged"
@@ -102,21 +168,51 @@ export type PurgeRequestOutcome =
 export async function requestPurge(
   fetchImpl: typeof fetch = fetch,
 ): Promise<PurgeRequestOutcome> {
+  let response: Response;
   try {
-    const response = await fetchImpl("/api/session/purge", {
+    response = await fetchImpl("/api/session/purge", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ confirmed: true }),
     });
-    if (response.ok) {
-      return "purged";
-    }
-    if (response.status === 404) {
-      return "no_session";
-    }
-    return response.status < 500 ? "refused" : "unknown";
   } catch {
     return "unknown";
+  }
+  if (response.ok) {
+    return "purged";
+  }
+  if (response.status === 404) {
+    // Only THIS route's own 404 (the errorResponse shape with the
+    // route's not_found code) is the "no session" answer a client may
+    // act on by erasing the device copies. Any other 404 — a proxy or
+    // platform page, an empty body, some other API's error shape — is
+    // not evidence the session is gone, so it maps to unknown and the
+    // device copies stay (claude-review P2, PR #68).
+    return (await carriesRouteNotFoundCode(response))
+      ? "no_session"
+      : "unknown";
+  }
+  return response.status < 500 ? "refused" : "unknown";
+}
+
+/**
+ * True when a 404 response body carries THIS route's own error code
+ * (`{ error: { code: "not_found" } }`, the errorResponse shape). A body
+ * that fails to parse as JSON (an HTML error page, an empty body) or
+ * that lacks the code is NOT the route's answer.
+ */
+async function carriesRouteNotFoundCode(
+  response: Response,
+): Promise<boolean> {
+  try {
+    const body: unknown = await response.json();
+    return (
+      typeof body === "object" &&
+      body !== null &&
+      (body as { error?: { code?: unknown } }).error?.code === "not_found"
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -429,37 +525,28 @@ export function PurgeSection({ onPurged }: { onPurged: () => void }) {
     setBusy(true);
     announce(PURGE_REMOVING_NOTICE);
     const outcome = await requestPurge();
-    if (outcome === "purged") {
-      // The device-side stores go too: the on-device answer store's slot
-      // and the parent's client state (via onPurged, which re-reads the
-      // empty journey from the server).
-      removeStoredAnswers();
+    // The device-side stores go only under the outcomes that sanction
+    // erasing them — a verified purge, or the route's own no-session
+    // 404 (the person confirmed the delete and the server reports no
+    // session at all: nothing server-side exists to lose by erasing the
+    // device's own copies, claude-review P2, PR #68). A refused or
+    // unknown outcome touches nothing, so the answers stay intact and
+    // resumable — exactly what those notices claim.
+    const erasesDeviceStores = outcome === "purged" || outcome === "no_session";
+    // removeStoredAnswers returns true only when the slot verifiably
+    // reads back empty; its signal decides whether the completion may
+    // claim the device copies are gone (droid-review carried from
+    // PR #66 — the purged path no longer ignores it).
+    const deviceCleared = erasesDeviceStores ? removeStoredAnswers() : false;
+    if (erasesDeviceStores) {
+      // onPurged re-reads the truth — a purged or session-less history
+      // shows the empty state.
       onPurged();
-      setDone(true);
-      setBusy(false);
-      announce(PURGE_DONE_NOTICE);
-    } else if (outcome === "no_session") {
-      // The person confirmed the delete and the server reports no session
-      // at all: nothing server-side exists to lose by erasing the
-      // device's own copies, and leaving them would contradict the
-      // confirmed intent (claude-review P2, PR #68). onPurged re-reads
-      // the truth — a session-less history fails open to the empty state.
-      const deviceCleared = removeStoredAnswers();
-      onPurged();
-      setBusy(false);
-      announce(
-        deviceCleared
-          ? PURGE_NO_SESSION_NOTICE
-          : PURGE_NO_SESSION_DEVICE_KEPT_NOTICE,
-      );
-    } else {
-      setBusy(false);
-      announce(
-        outcome === "refused"
-          ? PURGE_REFUSED_NOTICE
-          : PURGE_UNKNOWN_NOTICE,
-      );
     }
+    setBusy(false);
+    const resolution = resolvePurgeOutcome(outcome, deviceCleared);
+    setDone(resolution.done);
+    announce(resolution.notice);
   }
 
   // The two-step delete decision (unit-tested via createPurgeClickHandler):

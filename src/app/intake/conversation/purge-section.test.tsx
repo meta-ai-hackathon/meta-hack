@@ -6,6 +6,7 @@ import {
   PURGE_DONE_NOTICE,
   PURGE_NO_SESSION_DEVICE_KEPT_NOTICE,
   PURGE_NO_SESSION_NOTICE,
+  PURGE_PURGED_DEVICE_KEPT_NOTICE,
   PURGE_REFUSED_NOTICE,
   PURGE_REMOVING_NOTICE,
   PURGE_UNKNOWN_NOTICE,
@@ -13,7 +14,9 @@ import {
   PurgeSurface,
   createPurgeClickHandler,
   requestPurge,
+  resolvePurgeOutcome,
 } from "./purge-section";
+import type { PurgeRequestOutcome } from "./purge-section";
 
 // Purge section tests (HACK-80 / VAL-DEMOEXP-006/007 client surface): the
 // destructive surface renders per the approved cleanup design (eyebrow,
@@ -178,26 +181,37 @@ describe("the two-step delete", () => {
     expect(purgeRequests).toBe(1); // exactly one purge request
   });
 
-  it("property: any number of clicks from the ready state sends zero purge requests", () => {
+  it("property: click sequences follow the two-state machine — a purge runs only on a confirming-state click", () => {
     fc.assert(
-      fc.property(fc.nat(25), (readyClicks) => {
+      fc.property(fc.nat(40), (clicks) => {
+        // The component's real wiring, modeled: `confirming` is state
+        // between clicks, and the click decision is rebuilt from the
+        // CURRENT state every click (the surface re-renders between
+        // clicks), so requestConfirm feeds back into the next click —
+        // the transition the previous fixed-confirming property could
+        // not model (claude-review P3, PR #68's adjudication).
+        let confirming = false;
         let confirmRequests = 0;
-        let purgeRequests = 0;
-        // The handler the component builds while the confirm question is
-        // NOT showing: every click is a first click.
-        const click = createPurgeClickHandler(false, {
-          requestConfirm: () => {
-            confirmRequests += 1;
-          },
-          runPurge: () => {
-            purgeRequests += 1;
-          },
-        });
-        for (let index = 0; index < readyClicks; index += 1) {
+        let purgeRuns = 0;
+        for (let index = 0; index < clicks; index += 1) {
+          const click = createPurgeClickHandler(confirming, {
+            requestConfirm: () => {
+              confirming = true;
+              confirmRequests += 1;
+            },
+            runPurge: () => {
+              confirming = false;
+              purgeRuns += 1;
+            },
+          });
           click();
         }
-        expect(purgeRequests).toBe(0);
-        expect(confirmRequests).toBe(readyClicks);
+        // The two-state machine's invariant: every purge consumed an
+        // earlier confirm (nothing purges from the ready state), and
+        // the confirm question stands exactly when an opened confirm
+        // has not yet been consumed by a purge.
+        expect(purgeRuns).toBeLessThanOrEqual(confirmRequests);
+        expect(confirmRequests - purgeRuns).toBe(confirming ? 1 : 0);
       }),
     );
   });
@@ -275,6 +289,73 @@ describe("purge notices", () => {
         "still saved.",
     );
     expect(PURGE_REFUSED_NOTICE).not.toContain("Try again");
+    // The server erase IS verified on the purged outcome; only the
+    // device copy's erase is unverifiable. The hedge must say the first
+    // exactly and must not carry the verified case's announcement.
+    expect(PURGE_PURGED_DEVICE_KEPT_NOTICE).toBe(
+      "The erase went through on the server — but this device's saved " +
+        "copy couldn't be erased just now. Trying the delete again may " +
+        "clear it.",
+    );
+    expect(PURGE_PURGED_DEVICE_KEPT_NOTICE).not.toBe(PURGE_DONE_NOTICE);
+    expect(PURGE_PURGED_DEVICE_KEPT_NOTICE).not.toContain("are gone");
+  });
+});
+
+describe("resolvePurgeOutcome (the completion decision)", () => {
+  it("shows the done screen with the done notice only when the device erase is verified", () => {
+    const verified = resolvePurgeOutcome("purged", true);
+    expect(verified.done).toBe(true);
+    expect(verified.notice).toBe(PURGE_DONE_NOTICE);
+    // An unverifiable device erase may not announce "Your answers are
+    // gone" (droid-review carried from PR #66): the surface stays up —
+    // the delete can be retried — and the notice hedges.
+    const unverifiable = resolvePurgeOutcome("purged", false);
+    expect(unverifiable.done).toBe(false);
+    expect(unverifiable.notice).toBe(PURGE_PURGED_DEVICE_KEPT_NOTICE);
+  });
+
+  it("keeps the no-session pair honest on both sides of the device signal", () => {
+    const verified = resolvePurgeOutcome("no_session", true);
+    expect(verified.done).toBe(false);
+    expect(verified.notice).toBe(PURGE_NO_SESSION_NOTICE);
+    const unverifiable = resolvePurgeOutcome("no_session", false);
+    expect(unverifiable.done).toBe(false);
+    expect(unverifiable.notice).toBe(PURGE_NO_SESSION_DEVICE_KEPT_NOTICE);
+  });
+
+  it("refused and unknown never show the done screen whatever the device signal", () => {
+    const refused = resolvePurgeOutcome("refused", true);
+    expect(refused.done).toBe(false);
+    expect(refused.notice).toBe(PURGE_REFUSED_NOTICE);
+    const unknown = resolvePurgeOutcome("unknown", false);
+    expect(unknown.done).toBe(false);
+    expect(unknown.notice).toBe(PURGE_UNKNOWN_NOTICE);
+  });
+
+  it("property: the done announcement fires only for a verified purge", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom<PurgeRequestOutcome>(
+          "purged",
+          "refused",
+          "no_session",
+          "unknown",
+        ),
+        fc.boolean(),
+        (outcome, deviceCleared) => {
+          const resolution = resolvePurgeOutcome(outcome, deviceCleared);
+          if (outcome === "purged" && deviceCleared) {
+            return (
+              resolution.done && resolution.notice === PURGE_DONE_NOTICE
+            );
+          }
+          // Every other pairing must neither show the done screen nor
+          // carry the "answers are gone" announcement.
+          return !resolution.done && resolution.notice !== PURGE_DONE_NOTICE;
+        },
+      ),
+    );
   });
 });
 
@@ -314,9 +395,10 @@ describe("requestPurge wiring", () => {
   });
 
   it("separates a missing session (404) from a refusal", async () => {
-    // A 404 means no active session was found: its own outcome, so the
-    // client can say exactly that instead of claiming the answers are
-    // "still saved".
+    // A 404 carrying THIS route's own error-code body (the errorResponse
+    // shape, error.code "not_found") means no active session was found:
+    // its own outcome, so the client can say exactly that instead of
+    // claiming the answers are "still saved".
     const missing = (async () =>
       new Response(
         JSON.stringify({ error: { code: "not_found" } }),
@@ -325,21 +407,81 @@ describe("requestPurge wiring", () => {
     expect(await requestPurge(missing)).toBe("no_session");
   });
 
-  it("property: every status maps to the one honest outcome", async () => {
+  it("maps a 404 WITHOUT the route's error-code body to unknown, never no_session", async () => {
+    // A proxy/platform/rewrite 404 — an HTML error page, an empty body,
+    // or some other API's error shape — is not this route's answer: it
+    // says nothing about whether the session's rows exist, so erasing
+    // the device copies on it could destroy answers the server still
+    // holds (claude-review P2, PR #68 adjudication). The honest outcome
+    // is unknown.
+    const proxy404 = (async () =>
+      new Response(
+        "<html>Not Found</html>",
+        { status: 404 },
+      )) as unknown as typeof fetch;
+    expect(await requestPurge(proxy404)).toBe("unknown");
+    const empty404 = (async () =>
+      new Response(null, { status: 404 })) as unknown as typeof fetch;
+    expect(await requestPurge(empty404)).toBe("unknown");
+    const otherCode404 = (async () =>
+      new Response(
+        JSON.stringify({ error: { code: "gone" } }),
+        { status: 404 },
+      )) as unknown as typeof fetch;
+    expect(await requestPurge(otherCode404)).toBe("unknown");
+  });
+
+  it("property: every non-404 status maps to the one honest outcome", async () => {
     await fc.assert(
-      fc.asyncProperty(fc.integer({ min: 200, max: 599 }), async (status) => {
-        const outcome = await requestPurge((async () =>
-          new Response(null, { status: status })) as unknown as typeof fetch);
-        const expected =
-          status < 300
-            ? "purged"
-            : status === 404
-              ? "no_session"
+      fc.asyncProperty(
+        // Direct construction, not a filtered range (the property skill's
+        // shape rule): 404 is excluded here because its mapping depends
+        // on the BODY, not the status alone — it gets its own property
+        // below, which samples it on every run instead of by the ~20%
+        // chance a 400-value range offers.
+        fc.oneof(
+          fc.integer({ min: 200, max: 403 }),
+          fc.integer({ min: 405, max: 599 }),
+        ),
+        async (status) => {
+          const outcome = await requestPurge((async () =>
+            new Response(null, { status: status })) as unknown as typeof fetch);
+          const expected =
+            status < 300
+              ? "purged"
               : status < 500
                 ? "refused"
                 : "unknown";
-        return outcome === expected;
-      }),
+          return outcome === expected;
+        },
+      ),
+    );
+  });
+
+  it("property: a 404 maps to no_session only when the body carries the route's own code", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        // Foreign-body variants: an empty body, a proxy's HTML error
+        // page, another API's error shape, and an object without the
+        // error envelope — none is this route's answer. (The route's
+        // own shape is pinned deterministically above; here every
+        // foreign variant must land on unknown. Concrete shapes, not
+        // random JSON: the discriminator is one specific deep field,
+        // and a random value could collide with it.)
+        fc.constantFrom(
+          null,
+          "<html>Not Found</html>",
+          JSON.stringify({ error: { code: "gone" } }),
+          JSON.stringify({ purged: false }),
+        ),
+        async (body) => {
+          const outcome = await requestPurge((async () =>
+            new Response(body, {
+              status: 404,
+            })) as unknown as typeof fetch);
+          return outcome === "unknown";
+        },
+      ),
     );
   });
 });
