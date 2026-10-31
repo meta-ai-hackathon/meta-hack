@@ -206,6 +206,19 @@ describe("the wizard in device mode", () => {
     await page.unmount();
   });
 
+  it("returns focus to the delete button when the confirmation is cancelled", async () => {
+    const page = await visit();
+    await page.choose("Me");
+    await page.click(page.button("Continue"));
+    await page.click(page.button(page.copy.deleteButton));
+    expect(document.activeElement?.textContent).toBe(page.copy.deleteNo);
+    await page.click(page.button(page.copy.deleteNo));
+    expect(page.text()).not.toContain(page.copy.deleteConfirm);
+    expect(document.activeElement?.textContent).toBe(page.copy.deleteButton);
+    expect(device.stores.get("kv")?.has("intake-answers")).toBe(true);
+    await page.unmount();
+  });
+
   it("'Save and finish later' saves the answer on screen before saying it's saved", async () => {
     const page = await visit();
     await page.choose("A family member");

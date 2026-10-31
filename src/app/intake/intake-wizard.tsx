@@ -362,8 +362,9 @@ export function IntakeWizard(props: {
     };
   }, [persistence]);
 
-  // After a delete, put focus somewhere useful instead of losing it with the
-  // confirmation that just closed.
+  // When the delete confirmation closes (after a delete, or on Keep them),
+  // put focus somewhere useful instead of losing it with the button that
+  // just disappeared.
   useEffect(() => {
     if (focusAfterDelete === null) {
       return;
@@ -658,7 +659,13 @@ export function IntakeWizard(props: {
           busy={deleting || busy}
           onAsk={() => setConfirmingDelete(true)}
           onConfirm={() => void deleteFromThisDevice()}
-          onCancel={() => setConfirmingDelete(false)}
+          onCancel={() => {
+            setConfirmingDelete(false);
+            setFocusAfterDelete((previous) => ({
+              target: "delete",
+              seq: (previous?.seq ?? 0) + 1,
+            }));
+          }}
         />
       ) : null}
     </SaveForLater>
