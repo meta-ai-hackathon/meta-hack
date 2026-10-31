@@ -54,7 +54,7 @@ import string
 import subprocess
 import tempfile
 import unittest
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Final, Iterable
 
@@ -193,7 +193,8 @@ class Finding:
     line: int
     column: int
     kind: str
-    value: str
+    # Never in the repr, so no test output (pytest -l included) can show it.
+    value: str = field(repr=False)
 
     def where(self) -> str:
         """Where the finding is and what kind it is, without its value."""
@@ -518,6 +519,7 @@ class FinderProperties(unittest.TestCase):
             self.assertEqual([(f.path, f.line, f.column, f.kind, f.value) for f in findings], expected)
             for finding in findings:
                 self.assertNotIn(finding.value, finding.where())
+                self.assertNotIn(finding.value, repr(finding))
                 self.assertFalse(allowed(finding))
 
 
