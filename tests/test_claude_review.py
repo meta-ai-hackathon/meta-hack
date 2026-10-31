@@ -1262,10 +1262,12 @@ def around(core: st.SearchStrategy[str], least: int) -> st.SearchStrategy[str]:
 UPPER = st.sampled_from(string.ascii_uppercase)
 LOWER = st.sampled_from(string.ascii_lowercase)
 DIGIT = st.sampled_from(string.digits)
-# Shapes no name or number in code has: a digit right before a letter, where
-# a name has its digits only at its end, and a lower-case letter before two
-# capitals, which no word in one case, capitalized, camelCase or all-caps
-# name holds.
+# Shapes the rule never reads as a name or a number: a digit right before a
+# letter, where a name it keeps has its digits only at its end, and a
+# lower-case letter before two capitals, which no word in one case,
+# capitalized, camelCase or all-caps name holds. Some names in code have
+# them all the same, such as Uint8Array, b64decode, toJSON and innerHTML,
+# and between key markers those go like a key piece.
 DIGIT_THEN_LETTER = st.builds(lambda digit, letter: digit + letter, DIGIT, UPPER | LOWER)
 LOWER_THEN_CAPITALS = st.builds(lambda lower, a, b: lower + a + b, LOWER, UPPER, UPPER)
 
