@@ -3,8 +3,8 @@
 This page says what to do when something breaks in front of a person, whether in the pilot,
 the filmed demo or a rehearsal. Each runbook says when the failure happens, what the person
 sees, what the operator does, and how the steps were checked. Every step, label and file
-named here was checked against `main` at 7c2239d on 2026-10-31. The rehearsals described
-below ran on `main` at 0abdb20 the same day, and the server side was run again at 7c2239d
+named here was checked against `main` at d056b4c on 2026-10-31. The rehearsals described
+below ran on `main` at 0abdb20 the same day, and the server side was run again at d056b4c
 with no model key: a typed turn, two saved answers, the review, the filled PDF, the purge
 and `pnpm walkthrough`.
 
