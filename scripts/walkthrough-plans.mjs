@@ -43,6 +43,16 @@ export const CONVERSATION_PLAN = [
     intent: "known",
   },
   {
+    // Skipped when main_goal ≠ other — covered because the extraction can
+    // answer main_goal differently than intended, and the plan must
+    // cover every question the flow can then ask.
+    id: "goal_detail",
+    text: "Honestly, help with the paperwork itself would be the biggest thing.",
+    retry: "Help with the paperwork",
+    intent: "known",
+    privateValue: "Honestly, help with the paperwork itself would be the biggest thing",
+  },
+  {
     id: "state",
     text: "I live in North Carolina.",
     retry: "North Carolina",
@@ -50,10 +60,17 @@ export const CONVERSATION_PLAN = [
   },
   {
     id: "county",
-    text: "Mecklenburg County.",
-    retry: "Mecklenburg County",
+    // A real North Carolina county the committed knowledge base never
+    // names: the pilot's own public content (KB link labels, the pilot
+    // seam) says "Mecklenburg County", and a submitted value the app
+    // publishes elsewhere cannot be value-matched for echoes. Every other
+    // pii value's echo check stays at full strength, and the county's
+    // structural boundary (no value under a pii:true question) is
+    // enforced by the leak detector either way.
+    text: "Wake County.",
+    retry: "Wake County",
     intent: "known",
-    privateValue: "Mecklenburg County",
+    privateValue: "Wake County",
   },
   {
     // The genuine-inference attempt: the value is derived, not stated, so
@@ -132,6 +149,15 @@ export const CONVERSATION_PLAN = [
     intent: "known",
   },
   {
+    // Skipped unless income_sources includes family_friends/child_support/
+    // other — covered because the extraction can hear a source differently
+    // than intended, and the plan must cover what the flow then asks.
+    id: "other_income_amount",
+    text: "Maybe 100 from family some months.",
+    retry: "100",
+    intent: "known",
+  },
+  {
     id: "housing_status",
     text: "In a place I rent.",
     retry: "In a place I rent or own",
@@ -166,6 +192,15 @@ export const CONVERSATION_PLAN = [
     text: "Yes, I have a photo ID.",
     retry: "I have one",
     intent: "known",
+  },
+  {
+    // Skipped when id_status = have_id — covered for the branch case where
+    // the extraction records a different ID status than intended.
+    id: "id_issue_detail",
+    text: "I lost my ID when I moved.",
+    retry: "I lost my ID when I moved",
+    intent: "known",
+    privateValue: "I lost my ID when I moved",
   },
   {
     id: "date_of_birth",
@@ -211,10 +246,27 @@ export const CONVERSATION_PLAN = [
     intent: "known",
   },
   {
+    // Skipped unless mailing_situation = shelter — covered for the branch
+    // case where the extraction records a different mailing situation.
+    id: "shelter_mail_consent",
+    text: "Yes, the shelter agreed to hold my mail.",
+    retry: "Yes",
+    intent: "known",
+  },
+  {
     id: "contact_preference",
     text: "Email is best.",
     retry: "Email",
     intent: "known",
+  },
+  {
+    // Skipped unless contact_preference is call or text — covered for the
+    // branch case where the extraction records a different preference.
+    id: "phone_contact",
+    text: "My phone number is 555-0100.",
+    retry: "555-0100",
+    intent: "known",
+    privateValue: "555-0100",
   },
   {
     id: "email_contact",
@@ -254,6 +306,14 @@ export const FORM_JOURNEY_PLAN = [
     intent: "known",
   },
   {
+    // Skipped when main_goal ≠ other — covered for the branch case.
+    id: "goal_detail",
+    text: "Honestly, help with the paperwork itself would be the biggest thing.",
+    retry: "Help with the paperwork",
+    intent: "known",
+    privateValue: "Honestly, help with the paperwork itself would be the biggest thing",
+  },
+  {
     id: "state",
     text: "North Carolina.",
     retry: "North Carolina",
@@ -261,10 +321,17 @@ export const FORM_JOURNEY_PLAN = [
   },
   {
     id: "county",
-    text: "Mecklenburg County.",
-    retry: "Mecklenburg County",
+    // A real North Carolina county the committed knowledge base never
+    // names: the pilot's own public content (KB link labels, the pilot
+    // seam) says "Mecklenburg County", and a submitted value the app
+    // publishes elsewhere cannot be value-matched for echoes. Every other
+    // pii value's echo check stays at full strength, and the county's
+    // structural boundary (no value under a pii:true question) is
+    // enforced by the leak detector either way.
+    text: "Wake County.",
+    retry: "Wake County",
     intent: "known",
-    privateValue: "Mecklenburg County",
+    privateValue: "Wake County",
   },
   {
     // The genuine-inference attempt (see CONVERSATION_PLAN): the value is
@@ -339,6 +406,15 @@ export const FORM_JOURNEY_PLAN = [
     id: "benefits_income_frequency",
     text: "Once a month.",
     retry: "Monthly",
+    intent: "known",
+  },
+  {
+    // Skipped unless income_sources includes family_friends/child_support/
+    // other — covered because the extraction can hear a source differently
+    // than intended, and the plan must cover what the flow then asks.
+    id: "other_income_amount",
+    text: "Maybe 100 from family some months.",
+    retry: "100",
     intent: "known",
   },
   {
@@ -445,6 +521,15 @@ export const FORM_JOURNEY_PLAN = [
     retry: "555-0100",
     intent: "known",
     privateValue: "555-0100",
+  },
+  {
+    // Skipped unless contact_preference = email — covered for the branch
+    // case where the extraction records a different preference.
+    id: "email_contact",
+    text: "My email is jamie.watts@example.com.",
+    retry: "jamie.watts@example.com",
+    intent: "known",
+    privateValue: "jamie.watts@example.com",
   },
   {
     id: "best_time_to_reach",

@@ -48,6 +48,10 @@ export const BN25_SESSION_STATUSES = Object.freeze([
  * 12 user turns per rolling 60s. The journeys pace under it. */
 const TURN_WINDOW_MS = 60_000;
 const TURN_PACE_LIMIT = 11;
+/** Patient turn retries for a throttled or cold-starting model: each
+ * attempt waits long enough for a rate-limit window to pass. */
+const TURN_ATTEMPTS = 4;
+const TURN_RETRY_WAIT_MS = 25_000;
 
 /** Journey exit codes: 0 clean, 1 violation, 2 journey error. All of the
  * failure exits are nonzero by contract (the CLI must exit nonzero on any
@@ -377,7 +381,7 @@ export class Walkthrough {
   async conversationTurn(userText) {
     await this.paceTurns();
     let response;
-    for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+    for (let attempt = 1; attempt <= TURN_ATTEMPTS; attempt++) {
       response = await this.transport(
         this.base,
         "/api/conversation/turn",
@@ -389,12 +393,25 @@ export class Walkthrough {
         },
         this.timeoutMs,
       );
-      if (response.status !== 429 || attempt === RETRY_ATTEMPTS) {
+      // The route issues/refreshes the session cookie on error responses
+      // too (a fresh visitor whose reply failed keeps their saved
+      // answers) — capture it so a retry resumes instead of orphaning.
+      const retryCookie = sessionCookieFrom(response.response);
+      if (retryCookie) {
+        this.cookie = retryCookie;
+      }
+      const transient = [429, 502, 503, 504].includes(response.status);
+      if (!transient || attempt === TURN_ATTEMPTS) {
         break;
       }
-      // A shared rate-limit window: wait it out instead of failing the
-      // journey — the pacing above keeps this rare.
-      await this.sleepFn(15_000);
+      // A throttled or cold-starting model: wait it out. Retrying the
+      // turn is safe — a failed turn persists no transcript (the route's
+      // atomicity), and saved answers update rather than duplicate.
+      this.log(
+        `RETRY     turn failed with ${response.status} (the model is throttling or unavailable); ` +
+          `waiting ${TURN_RETRY_WAIT_MS / 1000}s before trying again`,
+      );
+      await this.sleepFn(TURN_RETRY_WAIT_MS);
     }
     if (response.status !== 200) {
       throw new WalkthroughError(
