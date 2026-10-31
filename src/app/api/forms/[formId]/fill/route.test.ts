@@ -238,9 +238,11 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
 
     const pdf = await PDFDocument.load(bytes);
     const form = pdf.getForm();
-    // Mapped fields filled from the session's answers.
+    // Mapped fields filled from the session's answers — the DOB in the
+    // mm/dd/yyyy format the form itself prints (the field is labelled
+    // mmddyyyy; the review P2 fix formats the ISO date for the print).
     expect(form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe(
-      "1980-02-03",
+      "02/03/1980",
     );
     expect(form.getTextField("14 Phone Number").getText()).toBe(
       "555-010-9911",

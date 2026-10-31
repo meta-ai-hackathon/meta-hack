@@ -61,6 +61,7 @@
       "label": "3. Date of Birth (mm/dd/yyyy):",
       "question": "What is this person's date of birth, in the mm/dd/yyyy format the form prints?",
       "spec_question_id": "date_of_birth",
+      "display_format": "mm/dd/yyyy",
       "pii_likely": true,
       "required": true,
       "pages": [3]
