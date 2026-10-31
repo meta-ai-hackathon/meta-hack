@@ -69,6 +69,33 @@ configured, otherwise through the browser's built-in `speechSynthesis`. The
 step-by-step wizard stays reachable as the fallback from the chat and from
 every error state.
 
+**Consent comes first** (HACK-81): a plain-language consent surface precedes
+the first send. It names what leaves the device, to which provider (the
+Meta chat model and Meta STT; Gemini TTS for replies), and for what, with
+links to the vendors' verified data-handling terms — and typed-only +
+subtitles is the zero-send path that still completes the whole journey.
+Voice sits behind its own additional toggle. A declined consent never
+blocks the application.
+
+### Prepared forms
+
+The application form itself is part of the conversation. A committed,
+reviewable form-registry entry (source URL + retrieval date + version)
+drives three surfaces:
+
+- **Form-driven questions** join the conversation; fields mapped to
+  questions you already answered pre-fill from the session's answers ("we
+  already know this"), and the flow's skip logic applies to them.
+- **Review** (`GET /api/forms/<formId>/review`) is the prepared-package
+  view: every field with its state (pre-filled / still needed / not
+  applicable) and provenance, a to-resolve list of everything still needed,
+  and the ordered handoff steps — the app prepares, you review and submit
+  yourself.
+- **Download** (`POST /api/forms/<formId>/fill`) fills the registered
+  template and returns the PDF as an attachment, generated on the fly and
+  never persisted server-side. Unknown answers stay visibly blank and are
+  listed as to-resolve.
+
 ### Benefit match
 
 After a few answers, the conversation page shows the ranked match
@@ -84,30 +111,49 @@ grounding checks before it renders.
 
 ### Walkthrough CLI
 
-`pnpm walkthrough` drives a full user journey over HTTP against a running app —
+`pnpm walkthrough` drives full user journeys over HTTP against a running app —
 the local dev server by default, or any deployed URL (Vercel production or a
 PR preview). No browser and no extra dependencies:
 
 ```bash
-pnpm walkthrough                                              # localhost:3100
-pnpm walkthrough --url https://meta-hack-omega.vercel.app     # production
-pnpm walkthrough --url https://<preview-deployment-url>       # a PR preview
+pnpm walkthrough                                              # wizard, localhost:3100
+pnpm walkthrough --mode conversation                          # the v2 conversational journey
+pnpm walkthrough --mode form                                  # the v2 form-driven journey
+pnpm walkthrough --url https://meta-hack-omega.vercel.app     # any mode, production
 ```
 
-The walk: create a session, answer the intake questions with a realistic mix
-(known answers that trigger skips and follow-ups, "I'm not sure" answers, and
-best-guess "not verified" answers), observe the skip behavior after every
-answer, save, exit, resume from the session token, and print a timestamped
-transcript whose labels match the app's own honest statuses ("You told us",
-"You're not sure", "Answered but not verified").
+Three modes:
+
+- **wizard** (default): create a session, answer the intake questions with a
+  realistic mix (known answers that trigger skips and follow-ups, "I'm not
+  sure" answers, and best-guess "not verified" answers), observe the skip
+  behavior after every answer, save, exit, resume from the session token, and
+  print a timestamped transcript whose labels match the app's own honest
+  statuses ("You told us", "You're not sure", "Answered but not verified").
+- **conversation** (v2, text mode): the full journey through the
+  conversation — typed turns driving the real extraction model with the same
+  tri-state mix, the benefit match, the prepared-form review with the skip
+  behavior, save, exit, resume via the session token (the stored transcript
+  and state must agree), then the PDF download leg. Typed turns send the AI
+  consent receipt (voice off) — the same grant the consent surface's typed
+  path gives — and the turns pace themselves under the server's per-minute
+  turn cap. Use `--timeout 90000` semantics (the default for this mode):
+  each typed turn runs two live model calls.
+- **form** (v2): the committed sample form's questions asked through the
+  conversation, mapped fields pre-filled from the session's answers, the
+  review's to-resolve list asserted consistent with the served state, then
+  the filled-PDF download.
 
 While it walks, the CLI scans every response for violations: banned promise
-language and client-visible private (`pii: true`) content — a value shipped
-under a private question, or a submitted private value echoed back. Exit
-codes: `0` clean journey, `1` violation detected (the transcript names what
-and where), `2` journey error (bad URL, failed request, unexpected question).
-The detectors are unit-tested with fixtures in
-`scripts/walkthrough-detectors.test.mjs`, so the checks provably bite.
+language (including on assistant turns specifically — a reply that promises
+an outcome means the app's own gate failed to fire), client-visible private
+(`pii: true`) content — a value shipped under a private question, a submitted
+private value echoed back in any payload field (subtitles, transcripts,
+state, cards), or a typed private value that survived redaction into the
+delivered transcript. Exit codes: `0` clean journey, `1` violation detected
+(the transcript names what and where), `2` journey error (bad URL, failed
+request, unexpected question). The detectors are unit-tested with committed
+fixtures in `scripts/fixtures/walkthrough/`, so the checks provably bite.
 Teammates can run it against any preview URL without a browser.
 
 ### Production
