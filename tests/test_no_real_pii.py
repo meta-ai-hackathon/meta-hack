@@ -13,7 +13,9 @@ every git-tracked text file and fails on
   without a leading 1 or +1, or +1 and ten digits) or as a seven-digit
   local number with a dash. A number whose exchange starts with 0 or 1 can
   never ring anyone (the fill-route fixtures use one), so the scan leaves
-  it alone;
+  it alone, and so it does a number right after a dollar sign, which is a
+  sum of money ($500-2000). Write any other range of plain numbers with
+  "to" (300 to 1500), or it reads as a local number;
 - an email address outside example.com, example.org and example.net (and
   their subdomains), names under .test and .invalid, and noreply.github.com
   (with its subdomains).
@@ -93,7 +95,7 @@ SSN: Final = re.compile(r"(?<![\w-])\d{3}([- ])\d{2}\1\d{4}(?![\w-])")
 # A NANP area code or exchange: never 0 or 1 first.
 _NXX = r"[2-9]\d{2}"
 PHONE: Final = re.compile(
-    r"(?<![\w+.-])(?:"
+    r"(?<![\w+.$-])(?:"
     rf"(?:\+?1[ .-]?)?(?:\({_NXX}\)[ .-]?|{_NXX}[ .-]){_NXX}[ .-]\d{{4}}"
     rf"|\+1{_NXX}{_NXX}\d{{4}}"
     rf"|{_NXX}-\d{{4}}"
@@ -294,6 +296,9 @@ def phone(number: tuple[int, int, int], form: str) -> str:
     return form.format(area=f"{area:03d}", exchange=f"{exchange:03d}", line=f"{line:04d}")
 
 
+MONEY_RANGES = st.builds(lambda low, high: f"${low}-{high}", st.integers(200, 999), st.integers(1000, 9999))
+
+
 LOCAL_PARTS = st.from_regex(r"[a-z0-9][a-z0-9._%+-]{0,15}", fullmatch=True)
 REAL_DOMAINS = st.one_of(
     st.sampled_from(["gmail.com", "outlook.com", "yahoo.com", "icloud.com", "proton.me", "cornell.edu", "dhhs.nc.gov", "github.com"]),
@@ -336,6 +341,11 @@ class FinderProperties(unittest.TestCase):
         self, number: tuple[int, int, int], form: str, around: tuple[str, str, str, str]
     ) -> None:
         self.assertEqual(find_pii(surround(phone(number, form), around)), [])
+
+    @PBT
+    @given(MONEY_RANGES, SURROUNDINGS)
+    def test_a_sum_of_money_is_no_phone_number(self, money: str, around: tuple[str, str, str, str]) -> None:
+        self.assertEqual(find_pii(surround(money + "/month", around)), [])
 
     @PBT
     @given(LOCAL_PARTS, REAL_DOMAINS, SURROUNDINGS)
