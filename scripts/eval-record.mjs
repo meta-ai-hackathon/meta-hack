@@ -21,9 +21,11 @@
 // outcome codes, and the record shows the probes' own text, outcome codes
 // and HTTP status codes. Replies and response bodies stay in memory.
 //
-// Exit codes: 0 record written and every session purged, 1 record written
-// but a purge failed (synthetic rows may be left behind), 2 usage error or
-// the run could not finish.
+// Exit codes: 0 record written and every session purged, 1 a purge failed
+// (synthetic rows may be left behind), 2 usage error or the run could not
+// finish, 3 no case ran at all. A run where nothing ran never overwrites
+// the --out file unless --force is given, so an outage cannot replace a
+// real record with an empty one.
 //
 // Node built-ins only. Node >= 22.
 
@@ -52,6 +54,7 @@ import {
 export const EXIT_OK = 0;
 export const EXIT_PURGE_FAILED = 1;
 export const EXIT_USAGE = 2;
+export const EXIT_NOTHING_RAN = 3;
 
 /** The conversation engine's cap is 12 user turns per rolling 60s per
  * session (src/lib/conversation.ts); the harness paces one under it, the
@@ -210,12 +213,10 @@ class EvalRun {
    * still fails is a not-run outcome for the case, never a guess.
    */
   async sendTurn(session, text) {
-    await this.pace(session);
     let failure = null;
     for (let attempt = 1; attempt <= TURN_ATTEMPTS; attempt++) {
-      if (attempt > 1) {
-        session.turnTimes.push(this.nowFn());
-      }
+      // Every attempt is a real server turn, so retries are paced too.
+      await this.pace(session);
       let response;
       try {
         response = await this.transport(
@@ -483,7 +484,7 @@ export class UsageError extends Error {
 
 export function usage() {
   return [
-    "Usage: node scripts/eval-record.mjs [--url <base-url>] [--commit <sha>] [--out <file>] [--timeout <ms>]",
+    "Usage: node scripts/eval-record.mjs [--url <base-url>] [--commit <sha>] [--out <file>] [--force] [--timeout <ms>]",
     "",
     "Runs the frozen, labeled cases in scripts/eval-cases.mjs against a running",
     "Benefits Navigator over HTTP, scores each one, and writes the BN-38",
@@ -497,22 +498,44 @@ export function usage() {
     "                     app does not report its build, so check the head of",
     "                     main and its finished production deployment first.",
     "  --out <file>       Write the record here (relative path) instead of stdout.",
+    "  --force            Write --out even when no case ran (an outage).",
     `  --timeout <ms>     Per-request timeout (default: ${V2_TIMEOUT_MS}).`,
     "  --help             Show this help.",
     "",
-    "Exit codes: 0 record written and every session purged, 1 record written",
-    "but a purge failed, 2 usage error or the run could not finish.",
+    "Exit codes: 0 record written and every session purged, 1 a purge failed,",
+    "2 usage error or the run could not finish, 3 no case ran (then --out is",
+    "left untouched unless --force is given).",
   ].join("\n");
+}
+
+/**
+ * What to do with a finished run: whether to write the --out file, and the
+ * exit code. A failed purge outranks everything, because synthetic rows may
+ * be left in a shared database. A run where no case ran leaves --out alone
+ * unless --force is given.
+ */
+export function finishRun(record, meta, options) {
+  const nothingRan = record.denominator > 0 && record.totals.not_run === record.denominator;
+  const purgeFailed = meta.sessionsPurged !== meta.sessionsOpened;
+  return {
+    writeOut: options.out !== null && (!nothingRan || options.force === true),
+    exitCode: purgeFailed ? EXIT_PURGE_FAILED : nothingRan ? EXIT_NOTHING_RAN : EXIT_OK,
+    nothingRan,
+  };
 }
 
 /** Parse CLI arguments; null when --help was handled. */
 export function parseArgs(argv) {
-  const options = { url: DEFAULT_URL, commit: null, out: null, timeoutMs: V2_TIMEOUT_MS };
+  const options = { url: DEFAULT_URL, commit: null, out: null, timeoutMs: V2_TIMEOUT_MS, force: false };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--help") {
       console.log(usage());
       return null;
+    }
+    if (arg === "--force") {
+      options.force = true;
+      continue;
     }
     if (arg === "--url" || arg === "--commit" || arg === "--out" || arg === "--timeout") {
       const value = argv[++index];
@@ -569,9 +592,14 @@ export async function main(argv = process.argv.slice(2)) {
       out: options.out,
     });
     const markdown = renderRecord(record);
-    if (options.out !== null) {
+    const finish = finishRun(record, meta, options);
+    if (finish.writeOut) {
       await writeFile(options.out, markdown, "utf8");
       console.log(`[${new Date().toISOString()}] WROTE     ${options.out}`);
+    } else if (options.out !== null) {
+      console.error(
+        `[${new Date().toISOString()}] NOTHING RAN ${options.out} left untouched; pass --force to write it anyway`,
+      );
     } else {
       process.stdout.write(markdown);
     }
@@ -582,7 +610,7 @@ export async function main(argv = process.argv.slice(2)) {
       `[${new Date().toISOString()}] SUMMARY   ${record.denominator} cases: ${totals}; `
         + `negatives ${record.negatives.length}; sessions purged ${meta.sessionsPurged} of ${meta.sessionsOpened}`,
     );
-    process.exitCode = meta.sessionsPurged === meta.sessionsOpened ? EXIT_OK : EXIT_PURGE_FAILED;
+    process.exitCode = finish.exitCode;
   } catch (error) {
     // Only the error's kind: no message from a failed run may quote a body.
     console.error(`[${new Date().toISOString()}] EVAL ERROR ${error instanceof Error ? error.name : "unknown"}`);

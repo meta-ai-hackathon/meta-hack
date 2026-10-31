@@ -24,7 +24,7 @@ import {
   scoreCase,
   valuesMatch,
 } from "./eval-record-core.mjs";
-import { UsageError, parseArgs, runEvaluation } from "./eval-record.mjs";
+import { EXIT_NOTHING_RAN, EXIT_OK, EXIT_PURGE_FAILED, UsageError, finishRun, parseArgs, runEvaluation } from "./eval-record.mjs";
 import { findBannedClaims } from "./walkthrough-detectors.mjs";
 import { CONVERSATION_PLAN } from "./walkthrough-plans.mjs";
 import { TURN_ATTEMPTS } from "./walkthrough-core.mjs";
@@ -796,8 +796,8 @@ function fakeApp({ questions, turn, healthy = true }) {
   return { transport, sessions, calls };
 }
 
-/** A fake clock: every request takes a second, and sleeping moves time on. */
-function fakeClock() {
+/** A fake clock: every request takes `tickMs`, and sleeping moves time on. */
+function fakeClock(tickMs = 1000) {
   let now = Date.parse("2026-10-31T21:00:00.000Z");
   return {
     nowFn: () => now,
@@ -805,7 +805,7 @@ function fakeClock() {
       now += ms;
     },
     tick: () => {
-      now += 1000;
+      now += tickMs;
     },
   };
 }
@@ -911,6 +911,50 @@ describe("the runner against a fake app", () => {
       return app.transport(base, path, options);
     };
     await runEvaluation({ base: "http://fake.test", transport, nowFn: clock.nowFn, sleepFn: clock.sleepFn, log: () => {} });
+    for (const times of turnTimes.values()) {
+      for (let index = 0; index < times.length; index++) {
+        const inWindow = times.filter((time) => time >= times[index] && time - times[index] < 60_000);
+        expect(inWindow.length).toBeLessThanOrEqual(11);
+      }
+    }
+  });
+
+  it("paces retries too, so a throttled model never pushes a session past the cap", async () => {
+    // Fast replies fill the window, then one turn is throttled three times
+    // before it goes through: unpaced retries would land 13 turn requests
+    // inside 60 seconds.
+    const clock = fakeClock(100);
+    const throttledText = ANSWER_TURN_CASES[10].step.text;
+    let throttled = 0;
+    const app = fakeApp({
+      questions: REAL_QUESTIONS,
+      turn: (args) => {
+        if (args.text === throttledText && throttled < 3) {
+          throttled += 1;
+          return { status: 429, errorCode: "rate_limited" };
+        }
+        return perfectTurn(args);
+      },
+    });
+    const turnTimes = new Map();
+    const transport = async (base, path, options) => {
+      clock.tick();
+      if (path === "/api/conversation/turn") {
+        const times = turnTimes.get(options.cookie) ?? [];
+        times.push(clock.nowFn());
+        turnTimes.set(options.cookie, times);
+      }
+      return app.transport(base, path, options);
+    };
+    const { observations } = await runEvaluation({
+      base: "http://fake.test",
+      transport,
+      nowFn: clock.nowFn,
+      sleepFn: clock.sleepFn,
+      log: () => {},
+    });
+    expect(throttled).toBe(3);
+    expect(buildRecord(EVAL_CASES, observations, META).totals.not_run).toBe(0);
     for (const times of turnTimes.values()) {
       for (let index = 0; index < times.length; index++) {
         const inWindow = times.filter((time) => time >= times[index] && time - times[index] < 60_000);
@@ -1140,6 +1184,29 @@ describe("the runner against a fake app", () => {
   });
 });
 
+describe("finishing a run", () => {
+  it("never lets a run where nothing ran overwrite the record, and reports a failed purge first", () => {
+    fc.assert(
+      fc.property(
+        fc.nat({ max: 5 }),
+        fc.nat({ max: 5 }),
+        fc.nat({ max: 3 }),
+        fc.boolean(),
+        fc.boolean(),
+        (ran, notRun, unpurged, force, hasOut) => {
+          const record = { denominator: ran + notRun, totals: { not_run: notRun } };
+          const meta = { sessionsOpened: 3, sessionsPurged: 3 - unpurged };
+          const options = { out: hasOut ? "docs/evaluation-record.md" : null, force };
+          const nothingRan = ran + notRun > 0 && ran === 0;
+          const finish = finishRun(record, meta, options);
+          expect(finish.writeOut).toBe(hasOut && (!nothingRan || force));
+          expect(finish.exitCode).toBe(unpurged > 0 ? EXIT_PURGE_FAILED : nothingRan ? EXIT_NOTHING_RAN : EXIT_OK);
+        },
+      ),
+    );
+  });
+});
+
 describe("CLI arguments", () => {
   it("accepts the documented flags and refuses anything else", () => {
     const options = parseArgs([
@@ -1157,13 +1224,59 @@ describe("CLI arguments", () => {
     });
     fc.assert(
       fc.property(fc.stringMatching(/^--[a-z]{1,10}$/), (flag) => {
-        fc.pre(!["--url", "--commit", "--out", "--timeout", "--help"].includes(flag));
+        fc.pre(!["--url", "--commit", "--out", "--timeout", "--help", "--force"].includes(flag));
         expect(() => parseArgs([flag])).toThrow(UsageError);
       }),
     );
+    expect(parseArgs([]).force).toBe(false);
+    expect(parseArgs(["--force"]).force).toBe(true);
     expect(() => parseArgs(["--commit", "not-a-sha"])).toThrow(UsageError);
     expect(() => parseArgs(["--out", "/tmp/record.md"])).toThrow(UsageError);
     expect(() => parseArgs(["--out", "../record.md"])).toThrow(UsageError);
     expect(() => parseArgs(["--url", "ftp://example.com"])).toThrow(UsageError);
+  });
+});
+
+describe("the committed record", () => {
+  /** A table row's cells, split on the pipes no backslash escapes. */
+  function cellsOf(line) {
+    const cells = [];
+    let current = "";
+    let backslashes = 0;
+    for (const char of line.trim().slice(1, -1)) {
+      if (char === "|" && backslashes % 2 === 0) {
+        cells.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+      backslashes = char === "\\" ? backslashes + 1 : 0;
+    }
+    cells.push(current.trim());
+    return cells;
+  }
+
+  it("is what the current harness renders, apart from the run's own results", () => {
+    const committed = readFileSync(new URL("../docs/evaluation-record.md", import.meta.url), "utf8");
+    const fresh = renderRecord(buildRecord(EVAL_CASES, new Map(), META));
+    // The title and the opening paragraph.
+    expect(committed.split("\n").slice(0, 3)).toEqual(fresh.split("\n").slice(0, 3));
+    // The run table's labels and the sentence under it.
+    const runLabels = (text) =>
+      section(text, "Run").split("\n").filter((line) => line.startsWith("| ")).map((line) => cellsOf(line)[0]);
+    const runNote = (text) =>
+      section(text, "Run").split("\n").filter((line) => line !== "" && !line.startsWith("|")).join("\n");
+    expect(runLabels(committed)).toEqual(runLabels(fresh));
+    expect(runNote(committed)).toBe(runNote(fresh));
+    // Every case's id, category, input and expectation, in order.
+    const caseRows = (text) =>
+      section(text, "Every case")
+        .split("\n")
+        .filter((line) => line.startsWith("| `"))
+        .map((line) => cellsOf(line).slice(0, 4));
+    expect(caseRows(committed)).toEqual(caseRows(fresh));
+    // The scoring rules, the limits and the pilot section, word for word.
+    const tail = (text) => text.slice(text.indexOf("\n## Scoring rules\n"));
+    expect(tail(committed)).toBe(tail(fresh));
   });
 });
