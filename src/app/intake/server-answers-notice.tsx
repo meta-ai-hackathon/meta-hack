@@ -4,28 +4,35 @@ import { useEffect, useRef, useState } from "react";
 import { StatusRegion } from "../../components/status-region";
 import { requestPurge, type PurgeRequestOutcome } from "./conversation/purge-section";
 
-// Answers this browser saved on the server before the step-by-step page
-// kept them on the device (HACK-99, from the PR #67 review). Until then,
-// /intake saved every answer to the server session behind the bn_session
-// cookie. The page now reads only the device, so those older answers would
-// sit on the server unseen, while the page says nothing entered here is
-// sent and that its delete clears this device.
+// Answers this browser has saved on the app's server (HACK-99, from the
+// PR #67 review). Until HACK-99, /intake saved every answer to the server
+// session behind the bn_session cookie, and the conversation page still
+// does: its chat and its step-by-step fallback write to that same session.
+// This page reads only the device, so answers there would sit on the server
+// unseen, while the page says nothing entered here is sent and that its
+// delete clears this device.
 //
 // This notice closes that gap. On load it asks the read-only state route
 // whether this browser's session holds answers. The request carries only
 // the cookie, never an answer, and creates no session. When answers are
-// there it says so and offers the server purge from HACK-80
-// (POST /api/session/purge, through requestPurge), behind one confirming
-// step. The outcome copy follows requestPurge's four outcomes exactly: it
-// claims a deletion only when the server confirmed one. When the check
-// itself fails, the notice stays hidden: there is nothing true to say.
+// there it says how many, without guessing where they came from or calling
+// them unused, because the person may still be using the chat (HACK-113).
+// It says the delete also removes the chat, because the HACK-80 purge
+// (POST /api/session/purge, through requestPurge) deletes the session's
+// conversation turns too, and it runs that purge only behind one
+// confirming step. The outcome copy follows requestPurge's four outcomes
+// exactly: it claims a deletion only when the server confirmed one. When
+// the check on load fails, the notice stays hidden: there is nothing true
+// to say. When Check again fails after a delete of unknown outcome, the
+// notice says it couldn't reach the app, so the press is never silent.
+// Only one Check again runs at a time, so a failed check can never land
+// after one that reached the app and overwrite what it found.
 
 export const SERVER_ANSWERS_COPY = {
   heading: "Answers saved on the app's server",
   body: (count: number) =>
-    `Before this page kept answers only on your device, it saved them on ` +
-    `the app's server. This browser still has ${count === 1 ? "1 answer" : `${count} answers`} ` +
-    `saved there. This page no longer uses them, so you can delete them.`,
+    `This browser has ${count === 1 ? "1 answer" : `${count} answers`} saved on ` +
+    `the app's server. Deleting them also deletes any chat you had with the assistant.`,
   deleteButton: "Delete them from the app's server",
   confirm:
     "This deletes everything this browser saved on the app's server, " +
@@ -45,6 +52,12 @@ export const SERVER_ANSWERS_COPY = {
     "whether it went through. Check again to see where things stand.",
   checkAgain: "Check again",
   goneAfterCheck: "Nothing from this browser is saved on the app's server now.",
+  checkFailed:
+    "We still couldn't reach the app, so we can't say whether the delete " +
+    "went through. Try again in a moment.",
+  checkFailedAgain:
+    "Still no answer from the app, so we can't say yet whether the delete " +
+    "went through. Try again in a moment.",
 } as const;
 
 /**
@@ -98,6 +111,8 @@ export function ServerAnswersNotice() {
     null,
   );
   const rootRef = useRef<HTMLElement>(null);
+  // Set while a Check again waits on the app, so only one runs at a time.
+  const checkingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,7 +152,17 @@ export function ServerAnswersNotice() {
   }
 
   async function checkAgain(count: number): Promise<void> {
-    const latest = await checkServerAnswers();
+    if (checkingRef.current) {
+      // A press while a check is out waits for that check's answer.
+      return;
+    }
+    checkingRef.current = true;
+    let latest: number | null = null;
+    try {
+      latest = await checkServerAnswers();
+    } finally {
+      checkingRef.current = false;
+    }
     if (latest === 0) {
       setNotice({ phase: "settled", count, outcome: "purged" });
       setMessage(SERVER_ANSWERS_COPY.goneAfterCheck);
@@ -146,6 +171,17 @@ export function ServerAnswersNotice() {
       setNotice({ phase: "found", count: latest });
       setMessage("");
       focusNext("delete");
+    } else {
+      // The check itself failed (offline, an error, a proxy page). Say so
+      // instead of changing nothing, and alternate the wording so a repeat
+      // press is announced too: StatusRegion announces only a changed
+      // message. Focus stays on Check again for the next try.
+      setMessage((previous) =>
+        previous === SERVER_ANSWERS_COPY.checkFailed
+          ? SERVER_ANSWERS_COPY.checkFailedAgain
+          : SERVER_ANSWERS_COPY.checkFailed,
+      );
+      focusNext("check-again");
     }
   }
 
