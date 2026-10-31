@@ -13,6 +13,7 @@ import {
   handoffCompanionForForm,
   nextHandoffAction,
   showsAfterYouApply,
+  type HandoffActionKind,
   type HandoffCompanion,
   type HandoffState,
 } from "../../../lib/handoff";
@@ -325,6 +326,57 @@ describe("HandoffSection inside the review section", () => {
     // The existing handoff pieces are still there, unchanged.
     expect(doc.querySelector("[data-handoff-steps]")).not.toBeNull();
     expect(doc.querySelector("[data-portal-links]")).not.toBeNull();
+  });
+
+  // The review section's control each next step asks the person to use,
+  // by its data-action name. A step that happens outside the app names
+  // none.
+  const CONTROL_FOR: Readonly<Partial<Record<HandoffActionKind, string>>> = {
+    // "When it looks right, mark your package prepared."
+    answer_remaining: "prepare",
+    mark_prepared: "prepare",
+    download: "download",
+    mark_handed_off: "hand-off",
+    // "When you've sent it, tell us you submitted it yourself."
+    sign_and_send: "report-submitted",
+  };
+
+  /** The control the next step asks for, when the page has it switched off. */
+  function switchedOffControl(doc: Document): string | null {
+    const kind = doc.querySelector("[data-next-action]")?.getAttribute("data-next-action");
+    const control = kind ? CONTROL_FOR[kind as HandoffActionKind] : undefined;
+    if (control === undefined) {
+      return null;
+    }
+    const button = doc.querySelector(`[data-action="${control}"]`);
+    return button === null || button.hasAttribute("disabled") ? control : null;
+  }
+
+  // Every status, with the form still listing items as needed and with
+  // nothing left, so each next step the review section can show on its
+  // first render is covered. The download is covered after a real one.
+  it.each(SESSION_STATUSES.flatMap((status) => [[status, false], [status, true]] as const))(
+    "never asks for a control the review section has switched off (%s, nothing needed: %s)",
+    (status, nothingNeeded) => {
+      const data = reviewData(FORM, status);
+      const doc = render(
+        <ReviewSectionContent data={nothingNeeded ? { ...data, toResolve: [] } : data} />,
+      );
+      expect(doc.querySelector("[data-next-action]")).not.toBeNull();
+      expect(switchedOffControl(doc)).toBeNull();
+    },
+  );
+
+  it("bites: the control check flags a next step whose button is off", () => {
+    const doc = render(
+      <div>
+        <button type="button" data-action="hand-off" disabled>
+          Mark it handed off
+        </button>
+        <HandoffSection formId={FORM} sessionStatus="prepared" downloaded stillNeededCount={0} />
+      </div>,
+    );
+    expect(switchedOffControl(doc)).toBe("hand-off");
   });
 
   describe("after a real download", () => {
