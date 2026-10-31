@@ -657,6 +657,10 @@ class _Detector:
 # piece is matched once, where the last one ended, and its runs are
 # possessive, so the walk takes linear time.
 _KEY_HEADER = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+_KEY_FOOTER = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
+_KEY_RUN = re.compile(r"(?:[A-Za-z0-9+/=]|\\++/)++")
+# How far past a header a footer still counts as that key's footer (main's bound).
+_KEY_FOOTER_WINDOW = 8000 + 40
 _KEY_PIECE = re.compile(
     r"(?P<footer>-?-----END [A-Z ]*PRIVATE KEY-----)"
     r"|(?P<line_break>\r\n?+|\n|\\++[nr])"
@@ -685,9 +689,11 @@ def _key_end(text: str, pos: int) -> int:
     """Where the redaction of a key whose header ends at pos stops: at the
     end of its footer when every line before the footer is key material, and
     otherwise at the end of the last whole line of key material right after
-    the header (the header's own end when there is none). So the first line
-    that is not key material, such as a line of code, and everything after
-    it reach the model."""
+    the header (the header's own end when there is none). So when no footer
+    follows within the bound, the first line that is not key material, such
+    as a line of code, and everything after it reach the model; when one
+    does follow, private_key_spans also redacts the key material and the
+    footer after that line (see there)."""
     end = pos  # the header and every whole line of key material after it
     pending = False  # a short run ended a line, so only the footer may follow
     line_end: int | None = None  # the end of the current line's last full run
@@ -722,11 +728,28 @@ def private_key_spans(text: str) -> list[tuple[int, int]]:
     """Where each private key in text starts and where its redaction ends
     (see _key_end), in order. Linear in the text's length: a key's walk ends
     at its footer or at the first piece that is not key material, which any
-    later header is, so no two walks cover the same text."""
+    later header is, so no two walks cover the same text. When a footer
+    follows a header within the bound but the walk stopped early -- a key
+    written as code, one base64 line per echo or one string piece per line
+    joined with a dot -- the code skeleton stays visible, but every base64
+    run of a key line or more between the walk's end and the footer, and
+    the footer itself, are redacted too."""
     spans: list[tuple[int, int]] = []
     header = _KEY_HEADER.search(text)
     while header is not None:
-        spans.append((header.start(), _key_end(text, header.end())))
+        end = _key_end(text, header.end())
+        spans.append((header.start(), end))
+        footer = _KEY_FOOTER.search(text, header.end(), header.end() + _KEY_FOOTER_WINDOW)
+        if footer is not None and _KEY_HEADER.search(text, header.end(), footer.start()) is not None:
+            # A later header comes first, so this footer is that key's, not
+            # this one's; leave both to the later header's own walk.
+            footer = None
+        if footer is not None and end <= footer.start():
+            for run in _KEY_RUN.finditer(text, end, footer.start()):
+                value = run.group()
+                if len(value) - value.count("\\") >= _KEY_LINE_MIN:
+                    spans.append(run.span())
+            spans.append((footer.start(), footer.end()))
         header = _KEY_HEADER.search(text, spans[-1][1])
     return spans
 
@@ -2922,9 +2945,11 @@ class Reviewer:
     ) -> int:
         """Post a finished review (reply is None when no model ran)."""
         latest = pr
+        reread_failed = False
         try:
             latest = self.rt.github.get_pull(self.options.pr)
         except ReviewError as exc:
+            reread_failed = True
             self.warn(f"could not re-read the PR after the review ({exc})")
         has_p1 = any(f.severity == "P1" for f in findings)
         # The label decides nothing without a P1, so who added it is read only then.
@@ -2945,6 +2970,10 @@ class Reviewer:
             if not written.landed:
                 # The approval points to the comment, so it needs the comment.
                 problem = "this run could not update its comment"
+            elif reread_failed:
+                # latest is the stale copy read before the review, so its
+                # head and base prove nothing about the PR as it is now.
+                problem = "could not re-read the PR after the review"
             elif latest.base_ref != pr.base_ref:
                 problem = "the PR's base branch changed during the review"
             # The override label plays no part here (see approval_for).

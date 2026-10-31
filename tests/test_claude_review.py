@@ -916,14 +916,28 @@ class RedactionProperties(unittest.TestCase):
     def test_code_between_key_markers_always_reaches_the_model(
         self, kind: str, above: list[str], below: list[str], code: str, marker: str
     ) -> None:
-        # Code between a key's header and footer is no key, so it is never
-        # redacted, nor is anything after it; the base64 lines between the
-        # header and the code still are.
+        # Code between a key's header and footer is no key, so the code
+        # itself is never redacted; the base64 lines between the header and
+        # the code still are, and so is any key material of a line or more
+        # between the code and the footer -- only the skeleton reaches the
+        # model when a footer follows.
         lines = [f"-----BEGIN {kind}PRIVATE KEY-----", *above, code, *below, f"-----END {kind}PRIVATE KEY-----"]
         text = "\n".join(marker + line for line in lines)
-        out, _count = review.redact_sensitive(text)
-        tail = "\n".join(marker + line for line in [code, *below, lines[-1]])
-        self.assertEqual(out, marker + review.redaction_marker("private key") + "\n" + tail)
+        out, count = review.redact_sensitive(text)
+        marker_text = review.redaction_marker("private key")
+        # A '+' diff marker is a base64 character too, so it joins the run
+        # after it and is redacted with a run that reaches the bound only
+        # with it; any other marker stays outside the run.
+        def render(line: str) -> str:
+            if len(line) + (1 if marker == "+" else 0) >= 16:
+                return marker_text if marker == "+" else marker + marker_text
+            return marker + line
+
+        below_out = [render(line) for line in below]
+        tail = "\n".join([marker + code, *below_out, marker + marker_text])
+        self.assertEqual(out, marker + marker_text + "\n" + tail)
+        self.assertEqual(count, 1 + sum(1 for line in below_out if marker_text in line) + 1)
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
 
     def test_odd_key_bodies_take_linear_time(self) -> None:
         # Bodies that are almost a key, and are long, with no footer or one
@@ -1000,13 +1014,40 @@ class RedactionProperties(unittest.TestCase):
         self, kind: str, above: list[str], below: list[str], code: str, form: KeyForm, before: str, after: str
     ) -> None:
         # A line of code between a key's header and footer, written like
-        # the key's lines, ends the redaction: the key lines above it go,
-        # and the code and everything after it reach the model unchanged.
+        # the key's lines, ends the walk: the key lines above it go, and
+        # the code itself reaches the model, but the key material below
+        # it and the footer do not when a footer follows.
         lines = [f"-----BEGIN {kind}PRIVATE KEY-----", *above, code, *below, f"-----END {kind}PRIVATE KEY-----"]
         split = 1 + len(above)
         rest = form.write(lines[split:], first=split) + form.end + after
         out, count = review.redact_sensitive(before + form.starts[0] + form.write(lines[:split]) + rest)
-        self.assertEqual((out, count), (before + form.starts[0] + review.redaction_marker("private key") + rest, 1))
+        self.assertIn(code, out)
+        for line in below:
+            if len(line) >= 16:
+                self.assertNotIn(line.replace("/", form.slash), out)
+        self.assertNotIn("-----BEGIN", out)
+        self.assertNotIn("-----END", out)
+        self.assertGreaterEqual(count, 2)
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    def test_a_key_written_as_code_lines_still_loses_its_body(self) -> None:
+        # A key written as code, one base64 line per echo or one string
+        # piece per line joined with a dot, keeps its skeleton but loses
+        # every line of its body and both its markers.
+        body = ["MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSj", "aBcDeFgHiJkLMnOpQrStUvWxYz0123456789+/Ab"]
+        echo = "-----BEGIN PRIVATE KEY-----\n" + "\n".join(f'echo "{line}" >> key.pem' for line in body) + "\n-----END PRIVATE KEY-----"
+        php_body = '" . "'.join(body)
+        php = f'$key = "-----BEGIN PRIVATE KEY-----" . "{php_body}" . "-----END PRIVATE KEY-----";'
+        echo_out, _count = review.redact_sensitive(echo)
+        php_out, _count = review.redact_sensitive(php)
+        for out in (echo_out, php_out):
+            for line in body:
+                self.assertNotIn(line, out)
+            self.assertNotIn("-----BEGIN", out)
+            self.assertNotIn("-----END", out)
+            self.assertEqual(review.redact_sensitive(out), (out, 0))
+        self.assertIn(">> key.pem", echo_out)
+        self.assertIn('" . "', php_out)
 
     @PBT
     @given(keys_with_no_code_inside())
@@ -1024,13 +1065,19 @@ class RedactionProperties(unittest.TestCase):
     @PBT
     @given(KEY_TEXTS)
     def test_a_redaction_never_holds_code(self, text: str) -> None:
-        # Any mix of key pieces and code: each redaction starts at a header,
-        # comes after the one before it, and holds none of the punctuation
-        # code is written with, so no code is ever hidden from the model.
+        # Any mix of key pieces and code: each redaction is a key walk from
+        # a header, a footer, or a base64 run between them, comes after the
+        # one before it, and holds none of the punctuation code is written
+        # with, so no code is ever hidden from the model.
         previous = 0
         for start, end in review.private_key_spans(text):
             self.assertGreaterEqual(start, previous)
-            self.assertTrue(text.startswith("-----BEGIN ", start))
+            value = text[start:end]
+            is_run = bool(re.fullmatch(r"(?:[A-Za-z0-9+/=]|\\++/)+", value)) and len(value) - value.count("\\") >= 16
+            self.assertTrue(
+                text.startswith("-----BEGIN ", start) or text.startswith("-----END ", start) or is_run,
+                (start, value),
+            )
             self.assertIsNone(CODE_PUNCTUATION.search(text, start, end), text[start:end])
             previous = end
         out, _count = review.redact_sensitive(text)
@@ -2880,6 +2927,24 @@ class ApprovalTests(unittest.TestCase):
         self.assertEqual((again.code, len(github.review_calls)), (0, 1))
         self.assertEqual(approved_commits(github), [HEAD])
         self.assertNotIn("reviews", github.reads[reads:])
+
+    def test_a_failed_re_read_after_the_review_does_not_approve(self) -> None:
+        # The re-read after the review failing leaves only the stale copy
+        # read before it, whose head and base prove nothing about the PR
+        # as it is now, so a clean verdict approves nothing.
+        class RereadFails(FakeGitHub):
+            def get_pull(self, number: int) -> review.PullRequest:
+                if self._pull_reads >= 1:
+                    raise review.GitHubError("fake re-read failure")
+                return super().get_pull(number)
+
+        github = RereadFails(make_pr(), FILES)
+        run = Run(github, FakeModel(reply_with([])))
+        self.assertEqual(run.code, 0)
+        self.assertEqual(state_of(github.comments[0].body), (HEAD, "reviewed"))
+        self.assertNotIn("APPROVE", [call[0] for call in github.review_calls])
+        self.assertEqual(approved_commits(github), [])
+        self.assertIn("could not re-read the PR after the review", run.output)
 
     def test_an_active_approval_of_the_same_commit_is_never_duplicated(self) -> None:
         # A new reviewer reviews a commit again that the bot already approves.
