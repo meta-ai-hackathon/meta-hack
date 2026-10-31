@@ -192,6 +192,14 @@ export function ConversationChat() {
   // wiring lives behind ONE stable ref — the component only maps session
   // events to UI state and submits the utterances.
   const sessionRef = useRef<VoiceSession | null>(null);
+  // The session's onUtterance callback is captured once at begin(); routing
+  // it through a latest-ref keeps every utterance running with THIS
+  // render's submit function — the busy guard, the consent re-check, and
+  // the receipt header always read the current values (claude-review P2:
+  // no stale closure across a long-lived session).
+  const submitVoiceTurnRef = useRef<((blob: Blob) => Promise<void>) | null>(
+    null,
+  );
 
   // The consent surface is open when no decided receipt exists (nothing
   // sent yet) or the user asked to change the choices. Derived — no effect.
@@ -324,7 +332,7 @@ export function ConversationChat() {
     setNotice(
       next.ai
         ? next.voice
-          ? "Sharing on, including voice. Nothing has been sent to any AI provider yet"
+          ? "Sharing on, including voice. Nothing has been sent to any AI provider yet."
           : "Sharing on for typed answers. Nothing has been sent to any AI provider yet."
         : "Sharing is off. Nothing goes to any AI provider.",
     );
@@ -488,6 +496,25 @@ export function ConversationChat() {
     }
   }
 
+  // Latest-ref wiring (see the ref's comment): the session callback reads
+  // the CURRENT submit function on every utterance. An effect, not a
+  // render-time write: the session delivers an utterance only after real
+  // speech + silence (≥ seconds), never inside the commit-to-effect gap.
+  useEffect(() => {
+    submitVoiceTurnRef.current = submitVoiceTurn;
+  });
+
+  // The continuous voice session (VAL-NCF-001): the mic opens ONCE per
+  // session; each utterance is one recorder cycle ended by silence
+  // endpointing (or the hard cap). No per-question record/stop ritual —
+  // the person just talks.
+
+  function restartListeningIfActive(): void {
+    // The session object no-ops when it is stopped or paused; the call is
+    // always safe.
+    sessionRef.current?.listen();
+  }
+
   async function submitVoiceTurn(recorded: Blob): Promise<void> {
     if (busy) {
       setVoicePhase(null);
@@ -518,19 +545,13 @@ export function ConversationChat() {
       restartListeningIfActive();
     }
   }
-
-  // ---------------------------------------------------------------------
-  // The continuous voice session (VAL-NCF-001): the mic opens ONCE per
-  // session; each utterance is one recorder cycle ended by silence
-  // endpointing (or the hard cap). No per-question record/stop ritual —
-  // the person just talks.
-  // ---------------------------------------------------------------------
-
-  function restartListeningIfActive(): void {
-    // The session object no-ops when it is stopped or paused; the call is
-    // always safe.
-    sessionRef.current?.listen();
-  }
+  // Latest-ref wiring (see the ref's comment): the session callback reads
+  // the CURRENT submit function on every utterance. An effect, not a
+  // render-time write: the session delivers an utterance only after real
+  // speech + silence (≥ seconds), never inside the commit-to-effect gap.
+  useEffect(() => {
+    submitVoiceTurnRef.current = submitVoiceTurn;
+  });
 
   async function beginVoiceSession(
     mode: ConversationEntryMode,
@@ -554,12 +575,15 @@ export function ConversationChat() {
     }
     const session = createVoiceSession(
       {
-        onUtterance: (blob) => void submitVoiceTurn(blob),
+        onUtterance: (blob) => void submitVoiceTurnRef.current?.(blob),
         onPhase: (phase) => setVoicePhase(phase),
         onRecorderError: () => {
           // A mid-session recorder failure ends the session and lands the
           // person in the typed conversation (never a dead end, even in
           // the voice-only mode — the typed form is the mic fallback).
+          // stop() releases the mic stream and audio context (claude-review
+          // P2: no orphaned hardware while the UI says to type).
+          sessionRef.current?.stop();
           sessionRef.current = null;
           setSessionOn(false);
           setMicBlocked(true);
@@ -783,7 +807,11 @@ export function ConversationChat() {
                 type="button"
                 data-voice-resume
                 onClick={resumeSession}
-                className="min-h-12 flex shrink-0 items-center gap-2 rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal"
+                // A resume while a turn is in flight would start a second
+                // recorder cycle alongside the turn's own (claude-review
+                // P2): resume waits for the turn to settle.
+                disabled={busy}
+                className="min-h-12 flex shrink-0 items-center gap-2 rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Resume listening
               </button>

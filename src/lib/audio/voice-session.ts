@@ -175,6 +175,10 @@ export function createVoiceSession(
   let cycle: VoiceSessionRecorderCycle | null = null;
   let active = false;
   let paused = false;
+  // Set by stop(): after teardown, a recorder cycle whose async onstop was
+  // already in flight must not deliver audio the person believed was
+  // stopped (claude-review P2: late delivery after revoke).
+  let stopped = false;
 
   function stopPoll(): void {
     cancelPoll?.();
@@ -186,6 +190,19 @@ export function createVoiceSession(
     cycle = null;
   }
 
+  function deliver(blob: Blob): void {
+    if (!stopped) {
+      callbacks.onUtterance(blob);
+    }
+  }
+
+  function teardownStream(): void {
+    analyser?.close();
+    analyser = null;
+    stream?.getTracks().forEach((track) => track.stop());
+    stream = null;
+  }
+
   const session: VoiceSession = {
     async begin(): Promise<void> {
       const mic = await deps.getUserMedia({ audio: true });
@@ -194,19 +211,30 @@ export function createVoiceSession(
       gate = createEndpointingGate(config);
       active = true;
       paused = false;
+      stopped = false;
       session.listen();
     },
     listen(): void {
       if (!active || paused || !stream) {
         return;
       }
+      // Never orphan a running cycle (claude-review P2): a second listen
+      // while one recorder cycle is still open would leave the first
+      // recording and delivering after teardown. The turn flow calls
+      // listen() again after every turn, so the next cycle always starts.
+      if (cycle !== null) {
+        return;
+      }
       gate?.reset();
-      cycle = deps.createRecorderCycle(stream, callbacks.onUtterance, () => {
-        // A mid-cycle recorder failure stops the session; the component
-        // lands the person in the typed conversation.
+      cycle = deps.createRecorderCycle(stream, deliver, () => {
+        // A mid-cycle recorder failure stops the session and RELEASES the
+        // microphone (claude-review P2: the stream and analyser must not
+        // outlive the session); the component lands the person in the
+        // typed conversation.
         stopPoll();
         cycle = null;
         active = false;
+        teardownStream();
         callbacks.onPhase(null);
         callbacks.onRecorderError();
       });
@@ -243,15 +271,13 @@ export function createVoiceSession(
       session.listen();
     },
     stop(): void {
+      stopped = true;
       stopPoll();
       stopCycle(false);
       active = false;
       paused = false;
       callbacks.onPhase(null);
-      analyser?.close();
-      analyser = null;
-      stream?.getTracks().forEach((track) => track.stop());
-      stream = null;
+      teardownStream();
     },
     get isActive(): boolean {
       return active;

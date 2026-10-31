@@ -215,9 +215,10 @@ describe("grounded prompt builders", () => {
     // anything, so the prompt must carry the stored answers' state (as of
     // turn start) — the deterministic engine still owns nextQuestionId
     // after the saves; the model mirrors the spec's order. The mark
-    // carries the answer itself in plain language (HACK-106 natural
-    // conversation, VAL-NCF-003: the reply must acknowledge the prior
-    // answer, so the builder grounds it on the stored value).
+    // carries the answered STATUS only (claude-review P1: answer values
+    // cross into model context only through the consented transcript of
+    // the turn itself — re-injecting structured answers needs the empty
+    // vault crossing allowlist, a person's decision to extend).
     const answers: AnswerMap = {
       application_role: { status: "known", value: "self" },
     };
@@ -226,7 +227,7 @@ describe("grounded prompt builders", () => {
       answers,
     );
     expect(
-      prompt.includes('"Who is this application for?" (already answered: Me)'),
+      prompt.includes('"Who is this application for?" (already answered)'),
     ).toBe(true);
     expect(prompt).toContain(
       '"What kind of help are you looking for right now?" (the question just asked, not yet answered)',
@@ -809,6 +810,10 @@ describe("the follow-up engine gate (VAL-NCF-004)", () => {
   });
 
   it("PROPERTY: an over-length proposal is always blocked, whatever it contains", () => {
+    // Wrapped in a non-whitespace guard: the gate judges the TRIMMED
+    // proposal (a 301-char generation ending in spaces trims to the cap
+    // and is rightly accepted), so the property pins over-length-AFTER-
+    // trim is always blocked.
     fc.assert(
       fc.property(
         fc.string({
@@ -817,7 +822,7 @@ describe("the follow-up engine gate (VAL-NCF-004)", () => {
           maxLength: MAX_FOLLOWUP_LENGTH + 200,
         }),
         (proposal) => {
-          expect(followupGateProblem(proposal, [])).toBe("length");
+          expect(followupGateProblem(`x${proposal}x`, [])).toBe("length");
         },
       ),
     );
@@ -887,20 +892,38 @@ describe("the prompt's stored-answer mark (VAL-NCF-003)", () => {
     );
   });
 
-  it("PROPERTY: a choice answer's mark speaks the option label, never the raw value", () => {
-    const choiceQuestions = QUESTIONS.filter(
-      (question) => (question.options?.length ?? 0) > 0 && !question.pii,
-    );
+  it("PROPERTY: no mark ever carries a value or an option label (status only)", () => {
+    // Claude-review P1 on the value-bearing mark: the prompt carries WHAT
+    // was answered and its settledness, never the answer itself — for
+    // pii and non-pii questions alike (values cross only through the
+    // consented transcript of the turn itself).
     fc.assert(
       fc.property(
-        fc.constantFrom(...choiceQuestions),
-        (question) => {
-          const option = question.options![0]!;
+        fc.constantFrom(...QUESTIONS),
+        valueArb,
+        (question, value) => {
           const mark = storedAnswerMark(question, {
             status: "known",
-            value: option.value,
+            value,
           });
-          expect(mark).toContain(option.label);
+          expect(mark.startsWith("already answered")).toBe(true);
+          // The mark's TEMPLATES are its whole content, so a needle that is
+          // a substring of the template is a false positive, not a leak
+          // (the same exclusion the redaction property makes for its
+          // markers — e.g. "p" inside "[the answer they shared — private…").
+          const templates = question.pii
+            ? ["[the answer they shared — private, never repeat it]"]
+            : ["already answered", "already answered (not verified)"];
+          const needles = [
+            ...(value !== undefined ? [typeof value === "string" ? value : JSON.stringify(value)] : []),
+            ...(question.options ?? []).map((option) => option.label),
+            ...(question.options ?? []).map((option) => option.value),
+          ].filter(
+            (needle) => !templates.some((t) => containsIgnoreCase(t, needle)),
+          );
+          for (const needle of needles) {
+            expect(containsIgnoreCase(mark, needle)).toBe(false);
+          }
         },
       ),
     );

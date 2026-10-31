@@ -274,32 +274,17 @@ function skipConditionText(condition: SkipCondition): string {
   }
 }
 
-/** The canonical answer text for a choice question's stored value(s). */
-function choiceLabelTexts(
-  question: Question,
-  value: unknown,
-): string[] | null {
-  if (!question.options || question.options.length === 0) {
-    return null;
-  }
-  const selected = Array.isArray(value)
-    ? value.map((item) => String(item))
-    : [String(value)];
-  const labels = selected.map((item) => {
-    const option = question.options?.find((candidate) => candidate.value === item);
-    return option ? option.label : null;
-  });
-  return labels.every((label) => label !== null) ? labels : null;
-}
-
 /**
  * How the question list marks one question's stored answer (HACK-106
  * natural conversation, VAL-NCF-003): the reply builder must ACKNOWLEDGE
- * the prior answer before asking the next thing, so the prompt carries
- * what was answered — in plain language for non-private questions, and as
- * a shared hidden marker for every pii:true question (the value itself
- * never enters any prompt). Unknown answers read as "not sure", never as
- * a value (tri-state honesty).
+ * the prior answer before asking the next thing. The mark carries the
+ * answered STATUS only — never a value, a choice label, or any stored
+ * content (claude-review P1 on the value-bearing mark: answer values cross
+ * into model context only through the consented transcript of the turn
+ * itself; re-injecting structured answers needs the vault crossing
+ * allowlist, which is empty and is a person's decision to extend). The
+ * pii:true marker adds the never-repeat instruction; unknown answers read
+ * as "not sure", never as a value (tri-state honesty).
  */
 export function storedAnswerMark(
   question: Question,
@@ -314,11 +299,8 @@ export function storedAnswerMark(
   if (question.pii) {
     return "already answered: [the answer they shared — private, never repeat it]";
   }
-  const valueText =
-    choiceLabelTexts(question, stored.value)?.join(", ") ??
-    (typeof stored.value === "string" ? stored.value : JSON.stringify(stored.value));
   const verifiedNote = stored.status === "unverified" ? " (not verified)" : "";
-  return `already answered: ${valueText}${verifiedNote}`;
+  return `already answered${verifiedNote}`;
 }
 
 /**
@@ -463,19 +445,22 @@ export function buildCombinedTurnPrompt(
   );
   lines.push(
     `Reply rules: in the "reply" field, acknowledge in one short sentence what ` +
-      "the person just told you, referring to it naturally — you may reflect a " +
-      "non-private answer (like \"a household of three\") or name its topic, " +
-      "using the stored-answer marks above for what they said before — then " +
-      "ask the first question in the list they have NOT answered — the " +
-      "question just asked again, naturally, when their message did not " +
-      "clearly answer it. Never restate a PRIVATE detail (a date of birth, an " +
-      "address, a phone number, an email, ID numbers, immigration status, " +
-      "disability status, where someone sleeps) and never claim an answer is " +
-      "more settled than the marks show: the app records answers and marks " +
-      "the ones it is not sure about. When you ask a question with choices, " +
-      "offer its plain-language labels (the words after each colon), never the " +
-      "internal values. If every question in the list is answered, thank the " +
-      "person and say they can continue to the review step.",
+      "the person just told you, referring to it naturally — reflect their own " +
+      "words from THIS message (for example \"a household of three\") or name " +
+      "its topic. The stored-answer marks above show only WHAT was answered " +
+      "and how settled it is — they never contain the answer itself, so never " +
+      "state a specific prior answer's content you were not told in this " +
+      "message — then ask the first question in the list they have NOT " +
+      "answered — the question just asked again, naturally, when their " +
+      "message did not clearly answer it. Never restate a PRIVATE detail (a " +
+      "date of birth, an address, a phone number, an email, ID numbers, " +
+      "immigration status, disability status, where someone sleeps) and never " +
+      "claim an answer is more settled than the marks show: the app records " +
+      "answers and marks the ones it is not sure about. When you ask a " +
+      "question with choices, offer its plain-language labels (the words after " +
+      "each colon), never the internal values. If every question in the list " +
+      "is answered, thank the person and say they can continue to the review " +
+      "step.",
   );
   lines.push(
     `Follow-up rule: when the person's answer is unclear or you need one more ` +
@@ -1505,9 +1490,12 @@ export async function processUserTurn(
         );
         if (blocked) {
           logWarn("conversation_followup_blocked", { reason: blocked });
+          // The loss disclosure rides FIRST (claude-review P2): a blocked
+          // proposal must not overwrite the honest "part of your answer
+          // was not saved" notice when the extraction had loss.
           reply = nextQuestion
-            ? `${FOLLOWUP_BLOCKED_PREFIX} ${nextQuestion.prompt}`
-            : FLOW_MISMATCH_COMPLETE_REPLY;
+            ? `${lossPrefix}${FOLLOWUP_BLOCKED_PREFIX} ${nextQuestion.prompt}`
+            : `${lossPrefix}${FLOW_MISMATCH_COMPLETE_REPLY}`;
         }
       }
     }

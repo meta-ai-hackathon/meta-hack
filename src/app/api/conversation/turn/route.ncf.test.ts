@@ -8,12 +8,12 @@ import {
   FLOW_MISMATCH_PREFIX,
   FOLLOWUP_BLOCKED_PREFIX,
   MAX_FOLLOWUP_LENGTH,
+  PARTIAL_SAVE_FALLBACK_PREFIX,
   type ChatCallScript,
 } from "../../../../lib/conversation";
 import {
   PII_QUESTION_IDS_IN_SPEC,
 } from "../../../../lib/intake/spec";
-import { SESSION_COOKIE } from "../../../../lib/intake/store";
 import { CONSENT_HEADER } from "../../../../lib/consent";
 import { POST } from "./route";
 
@@ -248,13 +248,14 @@ async function assistantTranscripts(): Promise<string[]> {
 // open) → state → county → household_size → household_children →
 // household_seniors → ...
 
-const SIZE_TO_NUMBER: Record<string, number> = { three: 3, five: 5 };
+const GOAL_WORDS = ["healthcare", "food"] as const;
 
 /**
  * The reactive script shape for the acknowledgment fixtures: turn 1 opens
- * (application_role), turn 2 answers household_size from the spoken words,
- * turn 3 adds detail and its reply echoes the household_size answer the
- * PROMPT carried.
+ * (application_role), turn 2 answers main_goal from the spoken words, and
+ * turn 3 adds detail while the prompt shows main_goal answered STATUS-ONLY.
+ * Every declared next question matches the server's spec-decided flow, so
+ * the replies (not the mismatch fallback) reach the client.
  */
 const ACK_REACTIVE = (
   systemPrompt: string,
@@ -273,68 +274,69 @@ const ACK_REACTIVE = (
           },
         ],
       }),
-      reply: "Got it. How many people do you buy and share food with?",
-      nextQuestionId: "household_size",
+      reply: "Got it. What kind of help are you looking for right now?",
+      nextQuestionId: "main_goal",
     };
   }
   if (callIndex === 1) {
-    const spoken = Object.keys(SIZE_TO_NUMBER).find((word) =>
-      userMessage.includes(word),
-    );
+    const spoken = GOAL_WORDS.find((word) => userMessage.includes(word));
     return {
       extraction: JSON.stringify({
         answers: [
           {
-            question_id: "household_size",
+            question_id: "main_goal",
             status: "known",
-            value: SIZE_TO_NUMBER[spoken ?? "three"],
+            value: spoken ?? "healthcare",
           },
         ],
       }),
-      reply: "Got it — and how many of them are under 18?",
-      nextQuestionId: "household_children",
+      // The acknowledgment reflects the person's OWN WORDS from this
+      // turn's message (the consented channel — the extraction input),
+      // not a re-injected stored value.
+      reply: `Got it — ${spoken ?? "that"} is what you need most. Which state do you live in?`,
+      nextQuestionId: "state",
     };
   }
   const prior = systemPrompt.match(
-    /\(id: household_size\) "[^"]*" \(already answered: (\d+)\)/,
+    /\(id: main_goal\) "[^"]*" \(already answered\)/,
   );
   expect(prior).not.toBeNull();
   return {
     extraction: JSON.stringify({
       answers: [
         {
-          question_id: "household_children",
+          question_id: "state",
           status: "known",
-          value: 2,
+          value: "NC",
         },
       ],
     }),
-    // The flow's next question is still main_goal (never answered in this
-    // session — household_size was a volunteered answer); the scripted
-    // acknowledgment echoes the prior answer the prompt carried.
-    reply: `Thanks — I've noted your household of ${prior?.[1] ?? "unknown"} people. What kind of help are you looking for right now?`,
-    nextQuestionId: "main_goal",
+    // The flow's next question is county (state answered); the scripted
+    // acknowledgment names the answered TOPIC the status mark carried.
+    reply: `Thanks for sharing where you live. Which county or city area do you live in?`,
+    nextQuestionId: "county",
   };
 };
 
-/** Drive the three-turn acknowledgment session; return the final reply. */
-async function runAckSession(spokenSize: "three" | "five"): Promise<string> {
+/** Drive the three-turn acknowledgment session; return turn 2's reply. */
+async function runAckSession(spokenGoal: "healthcare" | "food"): Promise<string> {
   installReactive(ACK_REACTIVE);
-  return (await postAckTurns(spokenSize)) as string;
+  return (await postAckTurns(spokenGoal)) as string;
 }
 
 /** The shared POSTs for the acknowledgment session (transport pre-installed). */
-async function postAckTurns(spokenSize: "three" | "five"): Promise<unknown> {
+async function postAckTurns(spokenGoal: "healthcare" | "food"): Promise<unknown> {
   const first = await POST(turnRequest("Hi — it's for me."));
   expect(first.status).toBe(200);
   const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0].trim();
   const second = await POST(
-    turnRequest(`There are ${spokenSize} of us.`, cookie),
+    turnRequest(`I need ${spokenGoal}.`, cookie),
   );
   expect(second.status).toBe(200);
-  const third = await POST(turnRequest("Two of them are kids.", cookie));
+  const acknowledged = (await second.json() as TurnResponse).assistantReply;
+  const third = await POST(turnRequest("North Carolina.", cookie));
   expect(third.status).toBe(200);
-  return (await third.json() as TurnResponse).assistantReply;
+  return acknowledged;
 }
 
 // ---------------------------------------------------------------------------
@@ -342,28 +344,40 @@ async function postAckTurns(spokenSize: "three" | "five"): Promise<unknown> {
 // ---------------------------------------------------------------------------
 
 describe("contextual replies grounded on stored answers (VAL-NCF-003)", () => {
-  it("carries the prior answer into the reply prompt and echoes it back", async () => {
+  it("grounds the reply on the person's own words and marks prior answers status-only", async () => {
     const calls = installReactive(ACK_REACTIVE);
-    const reply = (await postAckTurns("three")) as string;
-    // The scripted reply echoed the prior answer the prompt carried, and
-    // the engine let the acknowledgment through to the client unchanged.
-    expect(reply).toBe(
-      "Thanks — I've noted your household of 3 people. What kind of help are you looking for right now?",
+    const turnTwoReply = (await postAckTurns("healthcare")) as string;
+    // Turn 2's reply acknowledged the person's own words from that turn's
+    // message (the consented channel), and the engine let it through to
+    // the client unchanged.
+    expect(turnTwoReply).toBe(
+      "Got it — healthcare is what you need most. Which state do you live in?",
     );
-    // The prompt for the third call really carried the prior answer.
-    expect(calls[2]?.systemPrompt).toContain("(id: household_size)");
-    expect(calls[2]?.systemPrompt).toContain("already answered: 3");
+    // The turn-2 model call carried the person's words as the extraction
+    // input — the grounding for the acknowledgment.
+    expect(
+      (calls[1]?.messages ?? []).some((message) =>
+        message.content.includes("I need healthcare."),
+      ),
+    ).toBe(true);
+    // The stored-answer mark for the prior answer carries the answered
+    // STATUS only — never the value or its label (claude-review P1: the
+    // vault crossing allowlist is empty and only a person may extend it).
+    expect(calls[2]?.systemPrompt).toContain("(id: main_goal)");
+    expect(calls[2]?.systemPrompt).toMatch(
+      /\(id: main_goal\) "[^"]*" \(already answered\)/,
+    );
+    expect(calls[2]?.systemPrompt).not.toContain("(already answered: Healthcare)");
+    expect(calls[2]?.systemPrompt).not.toContain("(already answered: healthcare)");
   });
 
-  it("writes different acknowledgments for different prior answers", async () => {
-    const replyThree = await runAckSession("three");
-    const replyFive = await runAckSession("five");
-    // The reactive script echoes the digit the prompt carried ("3" / "5");
-    // the replies differ exactly because the stored answers differ — a
-    // generic re-ask would be identical.
-    expect(replyThree).not.toBe(replyFive);
-    expect(replyThree).toContain("3");
-    expect(replyFive).toContain("5");
+  it("writes different acknowledgments for different spoken answers", async () => {
+    const replyHealthcare = await runAckSession("healthcare");
+    const replyFood = await runAckSession("food");
+    // The turn-2 replies differ exactly because the person's words
+    // differed — the acknowledgment is grounded on what they said, never
+    // a generic re-ask.
+    expect(replyHealthcare).not.toBe(replyFood);
   });
 
   it("hides stored pii values from the reply prompt behind the shared marker", async () => {
@@ -637,6 +651,58 @@ describe("engine-gated model follow-ups (VAL-NCF-004)", () => {
     expect(data.assistantReply).toContain("What kind of help are you looking for right now?");
   });
 
+  it("keeps the loss disclosure when a blocked follow-up replaces a lossy reply (claude-review P2)", async () => {
+    // The extraction had loss (an unmappable answer was dropped) AND the
+    // proposed follow-up is banned: the fallback must keep BOTH honest
+    // copies — the part-not-saved disclosure ahead of the replaced
+    // follow-up — never the disclosure alone, never the follow-up alone.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+          ],
+        }),
+        reply: "Got it. What kind of help are you looking for right now?",
+        nextQuestionId: "main_goal",
+      },
+      {
+        extraction: JSON.stringify({
+          answers: [
+            {
+              question_id: "application_role",
+              status: "known",
+              value: "construction work",
+            },
+            { question_id: "main_goal", status: "known", value: "food" },
+          ],
+        }),
+        reply: "You're not sure — but you're not eligible for much, so let's move on.",
+        followup:
+          "You're not sure — but you're not eligible for much, so let's move on.",
+        nextQuestionId: "state",
+      },
+    ]);
+    const first = await POST(turnRequest("Hi, applying for myself."));
+    const cookie = (first.headers.get("set-cookie") ?? "")
+      .split(";")[0]
+      .trim();
+    const second = await POST(turnRequest("I need food.", cookie));
+    expect(second.status).toBe(200);
+    const data = (await second.json()) as TurnResponse;
+    expect(data.assistantReply.startsWith(PARTIAL_SAVE_FALLBACK_PREFIX)).toBe(
+      true,
+    );
+    expect(
+      data.assistantReply.includes(
+        `${PARTIAL_SAVE_FALLBACK_PREFIX} ${FOLLOWUP_BLOCKED_PREFIX}`,
+      ),
+    ).toBe(true);
+    expect(data.assistantReply).toContain("Which state do you live in?");
+    // The flow never moved: the model's proposal did not touch it.
+    expect(data.nextQuestionId).toBe("state");
+  });
+
   it("never lets a follow-up proposal override the fail-closed flow declaration", async () => {
     installScript([
       {
@@ -693,7 +759,7 @@ describe("engine-gated model follow-ups (VAL-NCF-004)", () => {
 // ---------------------------------------------------------------------------
 
 describe("the combined turn prompt grounds acknowledgment and follow-ups", () => {
-  it("marks stored answers with their plain-language values and states the follow-up rule", async () => {
+  it("marks stored answers status-only and states the follow-up rule", async () => {
     const calls = installScript([
       {
         extraction: JSON.stringify({
@@ -722,11 +788,14 @@ describe("the combined turn prompt grounds acknowledgment and follow-ups", () =>
     await POST(turnRequest("Thanks.", cookie));
 
     const prompt = calls[1]?.systemPrompt ?? "";
-    // The stored-answer mark for a non-pii choice question carries the
-    // plain-language label the model may acknowledge.
+    // The stored-answer mark carries the answered STATUS only (claude-review
+    // P1): what was answered and how settled it is — never the value or the
+    // option label the answer maps to.
     expect(prompt).toMatch(
-      /\(id: application_role\) "[^"]*" \(already answered: Me\)/,
+      /\(id: application_role\) "[^"]*" \(already answered\)/,
     );
+    expect(prompt).not.toContain("(already answered: Me)");
+    expect(prompt).not.toContain("(already answered: self)");
     // The follow-up rule is stated: proposals are allowed, the engine
     // keeps the flow.
     expect(prompt).toContain("followup");
