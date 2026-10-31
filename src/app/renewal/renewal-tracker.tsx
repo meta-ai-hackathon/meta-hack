@@ -386,7 +386,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
             <button
               type="button"
               onClick={() => handleDownload(saved, saved.calendarId)}
-              className="rounded-md bg-zinc-900 px-4 py-2 text-base font-semibold text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              className="rounded-md bg-zinc-900 px-4 py-2 text-base font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
             >
               {DOWNLOAD_BUTTON}
             </button>
@@ -527,7 +527,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
                     type="submit"
                     disabled={busy}
                     aria-describedby={askedToKeep ? undefined : "renewal-save-note"}
-                    className="rounded-md bg-zinc-900 px-4 py-2 text-base font-semibold text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                    className="rounded-md bg-zinc-900 px-4 py-2 text-base font-semibold text-zinc-50 hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
                   >
                     {SAVE_BUTTON}
                   </button>
