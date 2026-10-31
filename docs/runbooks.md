@@ -202,11 +202,13 @@ that shows only active entries. Marking the entry stale on a scratch copy of `ma
 When the chat saved the wrong value, the person can say what's right in the chat, and the
 next turn can save the new value over the old one. That depends on the model, so it
 wasn't rehearsed. The reliable fix is to turn sharing off, press "Back" in the step-by-step
-questions until the question shows (with the saved answer filled in), change it, and press
-"Continue". The new answer replaces the old one, and the questions return to where they
-were. Once every question is answered, the list of answers has a "Review this answer"
-button next to each one that does the same. "I'm not sure" marks a question as open, and a
-private value given earlier is deleted.
+questions until the question shows, change the answer, and press "Continue". A saved
+answer shows filled in, except a private one, which the page never shows again, so type
+that one in full. The new answer replaces the old one, and the questions move on to the
+next one still unanswered. Once every question is answered, the list of answers has a
+"Review this answer" button next to each one that does the same. "I'm not sure" saves the
+question as "You're not sure", which leaves it blank on the form, and deletes a private
+value given earlier.
 
 Every reply is checked for promise language and replaced with honest copy when it fails,
 and the assistant is told to answer topics outside the knowledge base with "I don't have
