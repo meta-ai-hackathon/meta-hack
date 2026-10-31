@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
 import { StatusRegion } from "../../../components/status-region";
 import { PILOT_CONFIG } from "../../../lib/pilot";
+import { HandoffSection } from "./handoff-section";
 
 // The review + handoff section (Mission v2 M4, BN-18/21/23/24/25): the
 // prepared-package view under the conversation. Every form field shows its
@@ -395,6 +396,11 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
             I submitted it myself
           </button>
         </div>
+        <HandoffSection
+          sessionStatus={sessionStatus}
+          downloaded={downloaded}
+          stillNeededCount={data.toResolve.length}
+        />
         <div className="flex flex-col gap-1">
           <h3 className="font-medium">Official portal (submit here yourself)</h3>
           <ul className="list-disc pl-5" data-portal-links>
