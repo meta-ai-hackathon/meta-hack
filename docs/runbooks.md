@@ -24,7 +24,10 @@ less, but never turns sharing on or ticks a sharing box for them.
 
 2. Check the path that needs no model, and leave nothing behind. In a fresh private
    window, open the chat page, press "Don't send anything", and answer the first two
-   questions. "Your answers so far" should count them, and "Your application, prepared
+   questions. Both are choices ("Who is this application for?" and "What kind of help are
+   you looking for right now?"), so pick any option and type nothing about yourself. If a
+   later question gets answered too, use only the fictional walkthrough persona's values.
+   "Your answers so far" should count them, and "Your application, prepared
    from your answers" should appear below. Then press "Delete my information" at the
    bottom and "Yes, delete everything". The page says "Your answers are gone." This checks
    the database and the vault key without calling the model. `pnpm walkthrough` checks the
