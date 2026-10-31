@@ -51,7 +51,7 @@ export function Field({
       {help ? (
         <p
           id={helpId}
-          className="text-sm text-zinc-600 dark:text-zinc-400"
+          className="text-sm text-muted"
         >
           {help}
         </p>
@@ -66,7 +66,7 @@ export function Field({
         <p
           id={errorId}
           role="alert"
-          className="text-sm font-medium text-red-700 dark:text-red-400"
+          className="text-sm font-medium text-danger"
         >
           {error}
         </p>

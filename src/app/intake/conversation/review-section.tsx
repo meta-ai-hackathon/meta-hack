@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
 import { StatusRegion } from "../../../components/status-region";
+import { PILOT_CONFIG } from "../../../lib/pilot";
 
 // The review + handoff section (Mission v2 M4, BN-18/21/23/24/25): the
 // prepared-package view under the conversation. Every form field shows its
@@ -89,7 +90,12 @@ export function ReviewSection({ refreshKey }: { refreshKey: number }) {
     let cancelled = false;
     async function loadReview() {
       try {
-        const response = await fetch("/api/forms/sample-application-form/review");
+        // The REAL pilot form (owner demo-day decision 2026-10-31): the
+        // review + fill surface targets the pilot seam's registered form —
+        // the official DHB-5200 — never a hardcoded id here.
+        const response = await fetch(
+          `/api/forms/${PILOT_CONFIG.formRegistryId}/review`,
+        );
         if (!response.ok) {
           throw new Error("review unavailable");
         }
@@ -115,7 +121,7 @@ export function ReviewSection({ refreshKey }: { refreshKey: number }) {
       {data ? <ReviewSectionContent data={data} /> : null}
       <StatusRegion
         message={failed ? REVIEW_UNAVAILABLE_NOTICE : ""}
-        className="text-sm text-zinc-600 dark:text-zinc-400"
+        className="text-sm text-muted"
       />
     </>
   );
@@ -212,7 +218,8 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
       URL.revokeObjectURL(url);
       setDownloaded(true);
       announce(
-        "The sample application downloaded. Nothing was saved on our side.",
+        "Your application downloaded. The filled form itself wasn't " +
+          "saved on our side.",
       );
     } catch {
       announce("The download didn't go through. Try again in a moment.");
@@ -224,37 +231,40 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
   return (
     <div data-review-section className="flex flex-col gap-6">
       <section aria-labelledby="review-heading" className="flex flex-col gap-3">
-        <h2 id="review-heading" className="text-lg font-semibold">
+        <h2 id="review-heading" className="font-display text-2xl font-bold">
           Your application, prepared from your answers
         </h2>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-muted">
           {data.form.title} — source:{" "}
           <a href={data.form.sourceUrl} className="underline" rel="noreferrer">
             {data.form.sourceUrl}
           </a>{" "}
           (retrieved {data.form.retrievedAt}, form version {data.form.version})
         </p>
-        <p data-sample-form-note className="text-sm text-amber-700 dark:text-amber-400">
-          This is the demonstration form. Your program&apos;s real form replaces
-          it once the pilot is locked — do not submit the sample anywhere.
+        <p data-real-form-note className="text-sm font-medium text-amber-ink">
+          We filled in the fields we could from what you told us, and left
+          the rest blank for you to finish. This is the official application
+          form: you review it, complete it, and submit it yourself — the app
+          never submits for you. Preparing it is not a benefits decision;
+          only the agency decides that.
         </p>
         <ul className="flex flex-col gap-3" data-review-fields>
           {data.fields.map((field) => (
             <li
               key={field.fieldName}
               data-review-field={field.fieldName}
-              className="flex flex-col gap-1 rounded-md border border-zinc-200 p-3 dark:border-zinc-700"
+              className="flex flex-col gap-1 rounded-xl border border-surface-border bg-surface p-4"
             >
               <span className="font-medium">{field.question}</span>
               <span className="flex flex-wrap items-center gap-2 text-sm">
-                <span data-field-state={field.state} className="text-zinc-600 dark:text-zinc-400">
+                <span data-field-state={field.state} className="text-muted">
                   {stateCopyFor(field)}
                 </span>
                 {field.status ? <AnswerStatusBadge status={field.status} /> : null}
                 {field.provenance && field.state === "prefilled" ? (
                   <span
                     data-field-provenance={field.provenance}
-                    className="text-zinc-600 dark:text-zinc-400"
+                    className="text-muted"
                   >
                     ({PROVENANCE_COPY[field.provenance]})
                   </span>
@@ -281,11 +291,11 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
                         [field.fieldName]: event.target.value,
                       }))
                     }
-                    className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-800"
+                    className="rounded-lg border border-surface-border bg-surface px-2 py-1"
                   />
                   <span
                     data-draft-note={field.fieldName}
-                    className="text-xs text-zinc-500 dark:text-zinc-400"
+                    className="text-xs text-muted"
                   >
                     Used for this download only — nothing is stored on our
                     side.
@@ -293,7 +303,7 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
                 </span>
               ) : null}
               {field.state === "asked" && field.specQuestionId !== null ? (
-                <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                <span className="text-sm text-muted">
                   Keep answering in the conversation — your answer lands here.
                 </span>
               ) : null}
@@ -306,12 +316,12 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
         <section
           aria-labelledby="form-to-resolve-heading"
           data-form-to-resolve
-          className="flex flex-col gap-2 rounded-md border border-zinc-200 p-4 dark:border-zinc-700"
+          className="flex flex-col gap-2 rounded-2xl border border-dashed border-amber-line bg-amber-soft p-5"
         >
-          <h2 id="form-to-resolve-heading" className="text-lg font-semibold">
+          <h2 id="form-to-resolve-heading" className="font-display text-xl font-bold text-amber-ink">
             Still needed on the form
           </h2>
-          <p className="text-zinc-600 dark:text-zinc-400">
+          <p className="text-amber-ink">
             These are left blank on the prepared form — nothing is guessed.
           </p>
           <ul className="list-disc pl-5">
@@ -325,12 +335,12 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
       <section
         aria-labelledby="handoff-heading"
         data-handoff
-        className="flex flex-col gap-3 rounded-md border border-zinc-200 p-4 dark:border-zinc-700"
+        className="flex flex-col gap-3 rounded-2xl border border-surface-border bg-surface p-6"
       >
-        <h2 id="handoff-heading" className="text-lg font-semibold">
+        <h2 id="handoff-heading" className="font-display text-2xl font-bold">
           Getting it done
         </h2>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-muted">
           Where you are: <span data-session-status={sessionStatus}>{SESSION_STATUS_COPY[sessionStatus] ?? sessionStatus}</span>
         </p>
         <ol className="flex flex-col gap-2 pl-5" data-handoff-steps>
@@ -339,7 +349,7 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
               <span className="font-medium">
                 {index + 1}. {step.title}
               </span>
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">
+              <span className="text-sm text-muted">
                 {step.detail}
               </span>
             </li>
@@ -351,7 +361,7 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
             disabled={busy || sessionStatus !== "draft"}
             onClick={() => void advance({ status: "prepared" })}
             data-action="prepare"
-            className="rounded bg-zinc-800 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-900"
+            className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
           >
             Mark my package prepared
           </button>
@@ -360,7 +370,7 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
             disabled={busy}
             onClick={() => void downloadFilledPdf()}
             data-action="download"
-            className="rounded bg-zinc-800 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-900"
+            className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
           >
             Download the filled PDF
           </button>
@@ -369,7 +379,7 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
             disabled={busy || !downloaded || sessionStatus !== "prepared"}
             onClick={() => void advance({ status: "handed_off" })}
             data-action="hand-off"
-            className="rounded bg-zinc-800 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-900"
+            className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
           >
             I picked up my application — mark handed off
           </button>
@@ -380,7 +390,7 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
               void advance({ userReportedStatus: "user_reported_submitted" })
             }
             data-action="report-submitted"
-            className="rounded border border-zinc-400 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-zinc-500"
+            className="rounded-full border border-surface-border bg-surface px-4 py-2 text-sm font-semibold hover:bg-teal-soft disabled:opacity-50"
           >
             I submitted it myself
           </button>
@@ -401,7 +411,7 @@ export function ReviewSectionContent({ data }: { data: ReviewDataView }) {
 
       <StatusRegion
         message={notice}
-        className="text-sm text-zinc-600 dark:text-zinc-400"
+        className="text-sm text-muted"
       />
     </div>
   );

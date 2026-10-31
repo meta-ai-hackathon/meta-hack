@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
 import { StatusRegion } from "../../../components/status-region";
+import { attachConsentHeader } from "../../../lib/consent";
 
 // The match section (Mission v2 M3): the ranked benefit match under the
 // conversation, fetched from /api/match after turns change. Every claim on
@@ -74,7 +75,7 @@ const REQUIREMENT_KIND_LABELS: Readonly<Record<MatchRequirementView["kind"], str
 
 function SourceNote({ source }: { source: MatchSourceView }) {
   return (
-    <span className="text-sm text-zinc-600 dark:text-zinc-400">
+    <span className="text-sm text-muted">
       Source:{" "}
       <a
         href={source.sourceUrl}
@@ -96,11 +97,11 @@ export function MatchSectionContent({ data }: { data: MatchDataView }) {
   return (
     <div data-match-section className="flex flex-col gap-6">
       <section aria-labelledby="match-heading" className="flex flex-col gap-3">
-        <h2 id="match-heading" className="text-lg font-semibold">
+        <h2 id="match-heading" className="font-display text-2xl font-bold">
           Benefits that may be worth pursuing
         </h2>
         {data.matches.length === 0 ? (
-          <p className="text-zinc-600 dark:text-zinc-400">
+          <p className="text-muted">
             As you answer questions, the programs that may fit your situation
             show up here with their official sources.
           </p>
@@ -109,16 +110,16 @@ export function MatchSectionContent({ data }: { data: MatchDataView }) {
           <article
             key={card.entryId}
             data-match-card={card.entryId}
-            className="flex flex-col gap-3 rounded-md border border-zinc-200 p-4 dark:border-zinc-700"
+            className="flex flex-col gap-3 rounded-2xl border border-surface-border bg-surface p-6"
           >
-            <h3 className="font-semibold">{card.entryTitle}</h3>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            <h3 className="font-display text-2xl font-bold">{card.entryTitle}</h3>
+            <p className="text-sm text-muted">
               {card.framing} Facts from entry version {card.entryVersion}.
             </p>
             {card.reasons.length > 0 ? (
               <div className="flex flex-col gap-1">
                 <h4 className="font-medium">Why this may fit</h4>
-                <ul className="list-disc pl-5">
+                <ul className="list-disc pl-5 marker:text-teal">
                   {card.reasons.map((reason, index) => (
                     <li key={`${reason.questionId ?? "reason"}-${index}`}>
                       {reason.text}
@@ -134,7 +135,7 @@ export function MatchSectionContent({ data }: { data: MatchDataView }) {
             ) : null}
             <div className="flex flex-col gap-1">
               <h4 className="font-medium">What you would need</h4>
-              <ul className="list-disc pl-5" data-match-requirements={card.entryId}>
+              <ul className="list-disc pl-5 marker:text-teal" data-match-requirements={card.entryId}>
                 {card.requirements.map((requirement, index) => (
                   <li key={`${requirement.kind}-${index}`}>
                     <span className="font-medium">
@@ -150,10 +151,10 @@ export function MatchSectionContent({ data }: { data: MatchDataView }) {
             {card.links.length > 0 ? (
               <div className="flex flex-col gap-1">
                 <h4 className="font-medium">Official application links</h4>
-                <ul className="list-disc pl-5">
+                <ul className="list-disc pl-5 marker:text-teal">
                   {card.links.map((link, index) => (
                     <li key={`${link.url}-${index}`}>
-                      <a href={link.url} className="underline" rel="noreferrer">
+                      <a href={link.url} className="text-teal underline hover:opacity-80" rel="noreferrer">
                         {link.label}
                       </a>
                       <br />
@@ -168,7 +169,7 @@ export function MatchSectionContent({ data }: { data: MatchDataView }) {
               <p data-match-explanation={card.entryId}>
                 {card.explanation.text}
               </p>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              <p className="text-sm text-muted">
                 {card.explanation.source === "model"
                   ? "This explanation was generated from the sourced facts above and checked against them."
                   : "This explanation quotes the sourced facts above directly."}
@@ -200,12 +201,12 @@ export function MatchSectionContent({ data }: { data: MatchDataView }) {
         <section
           aria-labelledby="to-resolve-heading"
           data-to-resolve
-          className="flex flex-col gap-2 rounded-md border border-zinc-200 p-4 dark:border-zinc-700"
+          className="flex flex-col gap-2 rounded-2xl border border-dashed border-amber-line bg-amber-soft p-5"
         >
-          <h2 id="to-resolve-heading" className="text-lg font-semibold">
+          <h2 id="to-resolve-heading" className="font-display text-xl font-bold text-amber-ink">
             To resolve
           </h2>
-          <p className="text-zinc-600 dark:text-zinc-400">
+          <p className="text-amber-ink">
             These answers are missing or not verified yet. Nothing below is
             assumed — the programs are only suggested, and the official rules
             decide.
@@ -249,7 +250,12 @@ export function MatchSection({ refreshKey }: { refreshKey: number }) {
     let cancelled = false;
     async function loadMatch() {
       try {
-        const response = await fetch("/api/match");
+        // The consent receipt rides along: with sharing declined the route
+        // spends zero model calls and explains from the entry facts
+        // (Mission v2.1 M5, VAL-CONSENT-001).
+        const response = await fetch("/api/match", {
+          headers: attachConsentHeader(new Headers()),
+        });
         if (!response.ok) {
           throw new Error("match unavailable");
         }
@@ -275,7 +281,7 @@ export function MatchSection({ refreshKey }: { refreshKey: number }) {
       {data && !failed ? <MatchSectionContent data={data} /> : null}
       <StatusRegion
         message={failed ? MATCH_UNAVAILABLE_NOTICE : ""}
-        className="text-sm text-zinc-600 dark:text-zinc-400"
+        className="text-sm text-muted"
       />
     </>
   );

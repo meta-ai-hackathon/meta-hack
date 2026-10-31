@@ -12,6 +12,25 @@ import type { FormRegistryField } from "./registry";
  * storage vocabulary), booleans map onto checkbox state, everything else is
  * its canonical string.
  */
+/**
+ * A display_format renders an ISO date answer in the format the form
+ * itself prints ("mm/dd/yyyy" on the DHB-5200): the mm/dd/yyyy tokens are
+ * replaced with the zero-padded date parts. Returns null for anything
+ * that is not an ISO yyyy-mm-dd string, so non-date answers fall through
+ * to the ordinary display path unchanged.
+ */
+function formatDateByPattern(iso: string, pattern: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) {
+    return null;
+  }
+  const [, year, month, day] = match;
+  return pattern
+    .replace("yyyy", year)
+    .replace("mm", month)
+    .replace("dd", day);
+}
+
 export function displayValueFor(
   field: FormRegistryField,
   raw: unknown,
@@ -28,6 +47,13 @@ export function displayValueFor(
       return "unchecked";
     }
     return null;
+  }
+  // The form's printed date format, when the entry declares one.
+  if (field.displayFormat !== undefined && typeof raw === "string") {
+    const formatted = formatDateByPattern(raw, field.displayFormat);
+    if (formatted !== null) {
+      return formatted;
+    }
   }
   const question =
     field.specQuestionId !== null ? QUESTION_BY_ID[field.specQuestionId] : undefined;

@@ -4,6 +4,7 @@ import { AppError } from "../telemetry";
 import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID } from "../intake/spec";
 import acroformEntryJson from "../../../kb/forms/sample-form-acroform.json";
 import flatEntryJson from "../../../kb/forms/sample-form-flat.json";
+import dhb5200EntryJson from "../../../kb/forms/dhb-5200.json";
 
 // Form registry (Mission v2 M4 / HACK-74, BN-27 discipline): the reviewed,
 // committed description of every application form the pipeline can fill.
@@ -34,6 +35,12 @@ export interface FormRegistryField {
   readonly question: string;
   /** Spec question this field pre-fills from; null when the spec doesn't ask it. */
   readonly specQuestionId: string | null;
+  /**
+   * Optional printed-date format for a mapped date question (e.g.
+   * "mm/dd/yyyy" on the DHB-5200): ISO date answers render in the format
+   * the form itself prints, so the person hands the agency a legible date.
+   */
+  readonly displayFormat?: string;
   /** Identity-like data: value is sensitive-by-default (omitted from client views). */
   readonly piiLikely: boolean;
   readonly required: boolean;
@@ -128,6 +135,14 @@ function parseEntry(raw: unknown): FormRegistryEntry {
     if (specQuestionId !== null && typeof specQuestionId !== "string") {
       throw registryError(`entry.fields[${index}].spec_question_id must be a string or null`);
     }
+    const displayFormat = item.display_format;
+    if (
+      displayFormat !== undefined &&
+      displayFormat !== null &&
+      (typeof displayFormat !== "string" || displayFormat.trim() === "")
+    ) {
+      throw registryError(`entry.fields[${index}].display_format must be a non-empty string`);
+    }
     const pages = item.pages;
     if (
       !Array.isArray(pages) ||
@@ -158,6 +173,9 @@ function parseEntry(raw: unknown): FormRegistryEntry {
       piiLikely: item.pii_likely === true,
       required: item.required === true,
       pages: pages as readonly number[],
+      ...(typeof displayFormat === "string" && displayFormat.trim() !== ""
+        ? { displayFormat: displayFormat.trim() }
+        : {}),
       ...(answerBox ? { answerBox } : {}),
     };
   });
@@ -207,6 +225,11 @@ function assertEntryConsistent(entry: FormRegistryEntry): FormRegistryEntry {
 const COMMITTED_ENTRIES: readonly FormRegistryEntry[] = [
   assertEntryConsistent(parseEntry(acroformEntryJson)),
   assertEntryConsistent(parseEntry(flatEntryJson)),
+  // The real pilot form (HACK-16 Done, mission v2.1 M6): an OFFICIAL source
+  // entry — the state's published application as-is, parsed honestly. Its
+  // registry subset is re-verified field-by-field against the committed
+  // bytes by the dhb5200-registry test suite.
+  assertEntryConsistent(parseEntry(dhb5200EntryJson)),
 ];
 
 /** Every committed registry entry, in load order. */

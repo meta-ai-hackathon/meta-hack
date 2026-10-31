@@ -9,29 +9,58 @@ import { AppError, logInfo, logWarn, userMessageFor } from "./telemetry";
 // - Key: GEMINI_API_KEY (never logged). Not configured → model_unavailable;
 //   the client UI then falls back to browser speechSynthesis, so the
 //   feature degrades instead of breaking.
-// - Output: the API returns base64 inlineData audio. For gemini TTS that is
-//   raw little-endian 16-bit PCM ("audio/L16;rate=24000") — wrapped here
+// - Output: the API returns base64 inlineData audio. Gemini 3.8 TTS returns
+//   a complete WAV ("audio/wav", 24 kHz mono 16-bit PCM, RIFF header
+//   included) on unary requests — passed through untouched. Headerless L16
+//   PCM ("audio/L16;rate=24000", the older models' shape) is still wrapped
 //   into a canonical RIFF/WAVE file (the same encoder the browser capture
-//   path uses). If a WAV mime type ever comes back, it passes through
-//   untouched (never wrapped twice).
+//   path uses) so both response shapes stay playable.
 // - Failures map onto the closed taxonomy (429s → rate_limited, everything
 //   else → model_unavailable) with timeout + bounded retries. Latency and
 //   audio size are logged per call; the TEXT never is (it is assistant
 //   output, but the log surface stays free of content regardless).
 
-export const GEMINI_TTS_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
-export const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
-/** A prebuilt Gemini voice; overridable per call. */
-export const DEFAULT_TTS_VOICE = "Kore";
 /**
- * The TTS model reads the prompt as speech direction; without a directive
- * frame it intermittently tries to answer in text (live-verified 400). The
- * committed prefix keeps delivery verbatim: the spoken reply is always the
- * EXACT subtitle text (VAL-VOICE-003).
+ * Spoken-reply model + voice (HACK-106, natural-conversation milestone):
+ * Gemini 3.8 Flash TTS — Google's current maximum-fidelity TTS model
+ * ("nuanced acting and expressive control" per the TTS docs, 2026-10-28
+ * edition) — and the Callirrhoe prebuilt voice, chosen for naturalness
+ * ("easy-going, relaxed, and casual … recommended for friendly guides",
+ * Conversational / Companion-&-Peer persona). The shipped default Kore is
+ * cataloged as "firm, direct, authoritative" — the "very AI" complaint.
+ *
+ * BOTH are defined HERE and nowhere else. The model names into the URL, so
+ * one constant carries both; each can be overridden per environment
+ * (GEMINI_TTS_MODEL / GEMINI_TTS_VOICE) without touching code — e.g. to
+ * A/B a voice or roll back without a redeploy.
+ *
+ * Verbatim delivery (VAL-VOICE-003): Gemini 3.8 treats the request text
+ * STRICTLY as a verbatim transcript — the old "Read the following text out
+ * loud exactly as written: " prefix of the 2.5 model would now be READ
+ * ALOUD, so it is gone; the text field carries the exact subtitle and the
+ * model contract speaks it exactly as written.
  */
-export const TTS_PROMPT_PREFIX =
-  "Read the following text out loud exactly as written: ";
+export const GEMINI_TTS_MODEL = "gemini-3.8-flash-tts";
+export const GEMINI_TTS_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent`;
+/** The committed prebuilt voice; overridable per environment. */
+export const DEFAULT_TTS_VOICE = "Callirrhoe";
+
+/** The configured voice: GEMINI_TTS_VOICE override, else the constant. */
+export function configuredTtsVoice(): string {
+  const override = process.env.GEMINI_TTS_VOICE;
+  return override && override.trim() !== "" ? override.trim() : DEFAULT_TTS_VOICE;
+}
+
+/** The configured model: GEMINI_TTS_MODEL override, else the constant. */
+export function configuredTtsModel(): string {
+  const override = process.env.GEMINI_TTS_MODEL;
+  return override && override.trim() !== "" ? override.trim() : GEMINI_TTS_MODEL;
+}
+
+/** The endpoint for the configured model (same shape as GEMINI_TTS_URL). */
+export function configuredTtsUrl(): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${configuredTtsModel()}:generateContent`;
+}
 /** Assistant replies are short; this also bounds the unauthenticated route. */
 export const MAX_SPEAK_TEXT_LENGTH = 1000;
 /**
@@ -141,7 +170,7 @@ function pcmToWav(pcm: Uint8Array, sampleRate: number): Uint8Array {
  */
 export async function speakText(
   text: string,
-  voice: string = DEFAULT_TTS_VOICE,
+  voice: string = configuredTtsVoice(),
 ): Promise<SpeakResult> {
   const trimmed = text.trim();
   if (trimmed === "" || trimmed.length > MAX_SPEAK_TEXT_LENGTH) {
@@ -152,12 +181,15 @@ export async function speakText(
     );
   }
   const key = ttsApiKey();
+  // Gemini 3.8 contract: the text field is a STRICT verbatim transcript —
+  // no delivery prefix, or the prefix itself would be read aloud. The
+  // configured voice rides in speechConfig (single-speaker shape).
   const body = JSON.stringify({
-    contents: [{ parts: [{ text: `${TTS_PROMPT_PREFIX}${trimmed}` }] }],
+    contents: [{ parts: [{ text: trimmed }] }],
     generationConfig: {
       responseModalities: ["AUDIO"],
       speechConfig: {
-        voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } },
+        voiceConfig: { voice },
       },
     },
   });
@@ -167,7 +199,7 @@ export async function speakText(
   for (let attempt = 1; attempt <= TTS_MAX_ATTEMPTS; attempt += 1) {
     const attemptStarted = Date.now();
     try {
-      const response = await activeTtsTransport()(GEMINI_TTS_URL, {
+      const response = await activeTtsTransport()(configuredTtsUrl(), {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -204,7 +236,8 @@ export async function speakText(
               : pcmToWav(bytes, pcmRateFromMimeType(mimeType));
           const latencyMs = Date.now() - attemptStarted;
           logInfo("model_tts_call", {
-            model: GEMINI_TTS_MODEL,
+            model: configuredTtsModel(),
+            voice,
             attempt,
             latencyMs,
             audioBytes: audio.byteLength,
@@ -223,7 +256,7 @@ export async function speakText(
   }
 
   logWarn("model_tts_failed", {
-    model: GEMINI_TTS_MODEL,
+    model: configuredTtsModel(),
     attempts: TTS_MAX_ATTEMPTS,
     outcome: exhaustedAs,
     latencyMs: Date.now() - started,

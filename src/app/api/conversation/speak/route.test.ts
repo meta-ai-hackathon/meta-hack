@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, afterEach, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { closeDb } from "../../../../lib/db";
@@ -6,6 +7,7 @@ import { persistTurn } from "../../../../lib/conversation";
 import { resetTtsTransport, setTtsTransport, type TtsTransport } from "../../../../lib/tts";
 import { parseWavHeader } from "../../../../lib/audio/wav";
 import { setLogSink, type LogLine } from "../../../../lib/telemetry";
+import { CONSENT_HEADER } from "../../../../lib/consent";
 import { POST } from "./route";
 
 // Spoken-reply route tests (Mission v2 M2): the server proxies Gemini TTS
@@ -67,12 +69,17 @@ async function seedTurns(): Promise<{ sessionId: string; turnIds: string[] }> {
   return { sessionId: String(session.id), turnIds: [first, second] };
 }
 
-function speakRequest(turnId: string | null, cookie?: string): Request {
+function speakRequest(
+  turnId: string | null,
+  cookie?: string,
+  consent: string | null = CONSENTED_VOICE,
+): Request {
   return new Request("http://localhost:3100/api/conversation/speak", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       ...(cookie ? { cookie } : {}),
+      ...(consent === null ? {} : { [CONSENT_HEADER]: consent }),
     },
     body: JSON.stringify({ turnId }),
   });
@@ -177,7 +184,10 @@ describe("POST /api/conversation/speak — turn-id contract", () => {
     const malformed = await POST(
       new Request("http://localhost:3100/api/conversation/speak", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          [CONSENT_HEADER]: CONSENTED_VOICE,
+        },
         body: "not json",
       }),
     );
@@ -259,5 +269,154 @@ describe("POST /api/conversation/speak — turn-id contract", () => {
     const serialized = JSON.stringify(logs);
     expect(serialized).not.toContain("What kind of help are you looking");
     expect(serialized).not.toContain(SENTINEL_KEY);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Consent gate (Mission v2.1 M5, HACK-81, VAL-CONSENT-003): spoken replies
+// via Gemini TTS are a send — they ride behind the voice toggle, and a
+// request without the voice consent never reaches the TTS provider. The
+// client falls back to browser speechSynthesis (local, no send).
+// ---------------------------------------------------------------------------
+
+const CONSENTED_VOICE = JSON.stringify({
+  v: 2,
+  providerId: "meta-model-api",
+  ai: true,
+  voice: true,
+  at: "2026-10-30T12:00:00.000Z",
+});
+const CONSENTED_AI_ONLY = JSON.stringify({
+  v: 2,
+  providerId: "meta-model-api",
+  ai: true,
+  voice: false,
+  at: "2026-10-30T12:00:00.000Z",
+});
+
+describe("POST /api/conversation/speak — consent gate (VAL-CONSENT-003)", () => {
+  it("refuses a speak request with no receipt before any provider call", async () => {
+    const { sessionId, turnIds } = await seedTurns();
+    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    let called = false;
+    setTtsTransport((async () => {
+      called = true;
+      return new Response("{}", { status: 200 });
+    }) as TtsTransport);
+
+    const response = await POST(
+      speakRequest(turnIds[0], cookieFor(sessionId), null),
+    );
+    expect(response.status).toBe(403);
+    const data = (await response.json()) as { error: { code: string } };
+    expect(data.error.code).toBe("consent_required");
+    expect(called).toBe(false);
+  });
+
+  it("refuses a speak request whose receipt lacks the voice toggle", async () => {
+    const { sessionId, turnIds } = await seedTurns();
+    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+    let called = false;
+    setTtsTransport((async () => {
+      called = true;
+      return new Response("{}", { status: 200 });
+    }) as TtsTransport);
+
+    const response = await POST(
+      speakRequest(turnIds[0], cookieFor(sessionId), CONSENTED_AI_ONLY),
+    );
+    expect(response.status).toBe(403);
+    expect((await response.json() as { error: { code: string } }).error.code).toBe(
+      "consent_required",
+    );
+    expect(called).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TTS payload hygiene (natural-conversation milestone, VAL-VTTS-003): the
+// ONLY text that ever reaches the Gemini TTS transport is the STORED
+// assistant reply — a full-population check that no pii:true value and no
+// user-turn text appears in any provider payload.
+// ---------------------------------------------------------------------------
+
+const SPEC_PATH = new URL(
+  "../../../../../specs/question-spec/generic-questions.json",
+  import.meta.url,
+);
+const SPEC_PII_FIELDS: readonly string[] = (
+  JSON.parse(readFileSync(SPEC_PATH, "utf8")) as {
+    questions: { id: string; pii: boolean }[];
+  }
+).questions
+  .filter((question) => question.pii)
+  .map((question) => question.id);
+
+describe("POST /api/conversation/speak — TTS payload hygiene (VAL-VTTS-003)", () => {
+  it("sends zero pii:true values and zero user-turn text to the provider (full population)", async () => {
+    expect(SPEC_PII_FIELDS.length).toBeGreaterThan(0);
+    const { sessionId } = await seedTurns();
+    process.env.GEMINI_API_KEY = SENTINEL_KEY;
+
+    // A user turn seeded with EVERY pii:true value in the spec, followed by
+    // the assistant reply the route is asked to speak.
+    const piiUserText = SPEC_PII_FIELDS.map(
+      (id) => `My ${id} is pii-sentinel-${id}`,
+    ).join(" And ");
+    await persistTurn(sessionId, "user", piiUserText);
+    const replyId = await persistTurn(
+      sessionId,
+      "assistant",
+      "Thanks. What is your email address?",
+    );
+
+    const payloadBodies: string[] = [];
+    setTtsTransport((async (_url, init) => {
+      payloadBodies.push(String(init.body));
+      const pcm = new Int16Array(240);
+      const bytes = new Uint8Array(pcm.buffer.slice(0));
+      let binary = "";
+      for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+      }
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: "audio/L16;rate=24000",
+                      data: btoa(binary),
+                    },
+                  },
+                ],
+                role: "model",
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as TtsTransport);
+
+    const response = await POST(speakRequest(replyId, cookieFor(sessionId)));
+    expect(response.status).toBe(200);
+    expect(payloadBodies).toHaveLength(1);
+
+    // The payload carries the assistant reply text — and nothing else.
+    const payload = JSON.parse(payloadBodies[0]) as {
+      contents: { parts: { text: string }[] }[];
+    };
+    expect(payload.contents[0]?.parts[0]?.text).toBe(
+      "Thanks. What is your email address?",
+    );
+    // No user-turn text: none of the pii sentinels, none of the phrasing.
+    for (const id of SPEC_PII_FIELDS) {
+      expect(payloadBodies[0]).not.toContain(`pii-sentinel-${id}`);
+      expect(payloadBodies[0]).not.toContain(`My ${id} is`);
+    }
+    expect(payloadBodies[0]).not.toContain("And ");
   });
 });

@@ -6,8 +6,13 @@ import { setLogSink, type LogLine } from "../../../../lib/telemetry";
 import { CHAT_MODEL, setModelTransport } from "../../../../lib/model";
 import {
   BANNED_CLAIM_FALLBACK_REPLY,
+  CHAT_CALL_MAX_TOKENS,
   COMMITTED_REFUSAL,
-  EXTRACTION_SYSTEM_PROMPT_PREFIX,
+  ENVELOPE_MALFORMED_PREFIX,
+  PARTIAL_SAVE_FALLBACK_PREFIX,
+  PII_ECHO_FALLBACK_REPLY,
+  RAW_CASCADE_SAVED_PREFIX,
+  FLOW_MISMATCH_PREFIX,
   WIZARD_FALLBACK_URL,
   type ChatCallScript,
 } from "../../../../lib/conversation";
@@ -17,6 +22,7 @@ import {
   QUESTION_BY_ID,
 } from "../../../../lib/intake/spec";
 import { SESSION_COOKIE } from "../../../../lib/intake/store";
+import { CONSENT_HEADER } from "../../../../lib/consent";
 import { GET as historyGet } from "../history/route";
 import { POST } from "./route";
 
@@ -70,11 +76,13 @@ afterEach(() => {
 
 // ---------------------------------------------------------------------------
 // Scripted model transport: each queued ChatCallScript serves one turn —
-// extraction first (raw text allowed there ONLY), then the reply (redacted).
+// ONE combined call per turn (VAL-VLAT-003): the helper wraps the script's
+// extraction half and reply half into the single envelope the model now
+// returns. Extraction-half raw text is allowed ONLY in that call.
 // ---------------------------------------------------------------------------
 
 interface RecordedCall {
-  readonly kind: "extraction" | "reply";
+  readonly kind: "combined";
   readonly body: {
     model: string;
     max_tokens: number;
@@ -102,21 +110,36 @@ function chatCallBody(content: string): unknown {
   };
 }
 
+/** Wrap a script step's halves into the combined envelope the model emits.
+ * The script's extraction field is the old extraction PAYLOAD ({answers});
+ * the envelope carries that payload's answers array + the reply. */
+function envelopeContent(step: ChatCallScript): string {
+  let answers: unknown = [];
+  try {
+    const parsed = JSON.parse(step.extraction) as { answers?: unknown };
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.answers)) {
+      answers = parsed.answers;
+    }
+  } catch {
+    answers = [];
+  }
+  return JSON.stringify({
+    answers,
+    reply: step.reply,
+    ...(step.nextQuestionId
+      ? { next_question_id: step.nextQuestionId }
+      : {}),
+    ...(step.followup ? { followup: step.followup } : {}),
+  });
+}
+
 function installScript(steps: readonly ChatCallScript[]): RecordedCall[] {
   const calls: RecordedCall[] = [];
-  // Two queues: every turn contributes one extraction call and one reply
-  // call, in that order per queue.
-  const extractionQueue = steps.map((step) => step.extraction);
-  const replyQueue = steps.map((step) => step.reply);
+  // One queue: every turn consumes exactly one combined call.
+  const queue = steps.map(envelopeContent);
   setModelTransport(async (_url, init) => {
     const parsed = JSON.parse(String(init.body)) as RecordedCall["body"];
-    const kind = parsed.messages[0]?.content.startsWith(
-      EXTRACTION_SYSTEM_PROMPT_PREFIX,
-    )
-      ? "extraction"
-      : "reply";
-    calls.push({ kind, body: parsed });
-    const queue = kind === "extraction" ? extractionQueue : replyQueue;
+    calls.push({ kind: "combined", body: parsed });
     const content = queue.shift();
     if (content === undefined) {
       return new Response(JSON.stringify({ error: { message: "exhausted" } }), {
@@ -142,12 +165,49 @@ type ModelTransportLike = Parameters<typeof setModelTransport>[0];
 // Request helpers
 // ---------------------------------------------------------------------------
 
-function turnRequest(text: string, cookie?: string): Request {
+// Consent receipts (Mission v2.1 M5): since the consent gate, every send
+// must carry the per-device receipt. The helpers default to a CONSENTED
+// receipt so the existing suites keep exercising the conversation flow;
+// the gate describe passes explicit receipts (or null) to prove the gate.
+const CONSENTED_AI = JSON.stringify({
+  v: 2,
+  providerId: "meta-model-api",
+  ai: true,
+  voice: false,
+  at: "2026-10-30T12:00:00.000Z",
+});
+const CONSENTED_VOICE = JSON.stringify({
+  v: 2,
+  providerId: "meta-model-api",
+  ai: true,
+  voice: true,
+  at: "2026-10-30T12:00:00.000Z",
+});
+const DECLINED = JSON.stringify({
+  v: 2,
+  providerId: "meta-model-api",
+  ai: false,
+  voice: false,
+  at: "2026-10-30T12:00:00.000Z",
+});
+
+function consentHeaders(consent: string | null | undefined): Record<string, string> {
+  return consent === undefined || consent === null
+    ? {}
+    : { [CONSENT_HEADER]: consent };
+}
+
+function turnRequest(
+  text: string,
+  cookie?: string,
+  consent: string | null = CONSENTED_AI,
+): Request {
   return new Request("http://localhost:3100/api/conversation/turn", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       ...(cookie ? { cookie } : {}),
+      ...consentHeaders(consent),
     },
     body: JSON.stringify({ text }),
   });
@@ -202,6 +262,7 @@ describe("POST /api/conversation/turn — grounded flow (VAL-CONV-001)", () => {
       {
         extraction: JSON.stringify({ answers: [] }),
         reply: "Let's begin. Who is this application for?",
+        nextQuestionId: "application_role",
       },
       {
         extraction: JSON.stringify({
@@ -215,6 +276,7 @@ describe("POST /api/conversation/turn — grounded flow (VAL-CONV-001)", () => {
           ],
         }),
         reply: "Got it. What kind of help are you looking for right now?",
+        nextQuestionId: "main_goal",
       },
     ]);
 
@@ -323,13 +385,19 @@ describe("POST /api/conversation/turn — extraction persistence (VAL-CONV-003)"
             },
           ],
         }),
+        // The prompt's reply rules forbid restating a specific answer value
+        // as settled — the app marks this save unverified, so a "got it, ONE
+        // senior" ack would overstate. The generic ack stands.
         reply: "Thanks for the detail.",
+        nextQuestionId: "application_role",
       },
     ]);
     const response = await POST(
       turnRequest("My dad lives with us, he is around 67."),
     );
     expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe("Thanks for the detail.");
     const rows = await testDb`
       SELECT value, status, provenance FROM answer
       WHERE question_id = 'household_seniors'
@@ -413,6 +481,10 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       { questionId: "shelter_mail_consent", text: "The shelter agreed to hold my mail", value: true, verbatim: "agreed to hold my mail", vaultValue: "true", wholeBodyCheck: false },
       { questionId: "phone_contact", text: "You can call me at 555-0143", value: "555-0143", verbatim: "555-0143", vaultValue: "555-0143", wholeBodyCheck: true },
       { questionId: "email_contact", text: "My email is person@example.com", value: "person@example.com", verbatim: "person@example.com", vaultValue: "person@example.com", wholeBodyCheck: true },
+      // NB: the value must not be the spec help text's own example ("March
+      // 2025") — that ships to the client as public help, so it can never
+      // satisfy the whole-body check. "June 2024" appears nowhere in the spec.
+      { questionId: "prior_employer_last_month", text: "I last got paid by that employer in June 2024", value: "June 2024", verbatim: "June 2024", vaultValue: "June 2024", wholeBodyCheck: true },
     ];
 
     // The full population: exactly every pii:true question in the spec.
@@ -465,12 +537,16 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       expect(answerRows[0].status).toBe("known");
       expect(answerRows[0].provenance).toBe("user_supplied");
 
-      // 3. The vault holds the value.
+      // 3. The vault holds the value — encrypted at rest (VAL-VAULTENC-001):
+      // an AES-GCM envelope, never the plaintext (round-trip identity is
+      // proven in vault.test.ts through the sanctioned read paths).
       const vaultRows = await testDb`
         SELECT value FROM vault_entry WHERE field = ${fixture.questionId}
       `;
       expect(vaultRows).toHaveLength(1);
-      expect(String(vaultRows[0].value)).toBe(fixture.vaultValue);
+      const storedValue = String(vaultRows[0].value);
+      expect(storedValue).not.toBe(fixture.vaultValue);
+      expect(storedValue).toMatch(/^enc1\./);
 
       // 4. No stored transcript carries the verbatim words or the value.
       for (const transcript of await userTranscripts()) {
@@ -482,17 +558,32 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
         );
       }
 
-      // 5. The reply model call never sees the value: only the extraction
-      // call may carry the raw words, and its output is the redaction source.
-      const replyCall = calls.find((call) => call.kind === "reply");
-      expect(replyCall).toBeDefined();
-      const replyPromptText = JSON.stringify(replyCall?.body.messages);
-      expect(replyPromptText.toLowerCase()).not.toContain(
-        fixture.verbatim.toLowerCase(),
-      );
-      expect(replyPromptText.toLowerCase()).not.toContain(
-        fixture.vaultValue.toLowerCase(),
-      );
+      // 5. The ONE combined call carries the raw words ONLY as the wrapped
+      // final message (the extraction channel): the system prompt and any
+      // history messages never contain the person's private data. The
+      // combined prompt legitimately carries the spec's PUBLIC choice
+      // vocabulary for every question (the same vocab the wizard ships), so
+      // where a fixture's value/verbatim is itself spec vocabulary (the
+      // wholeBodyCheck=false cases — "shelter", "yes") the message scan is
+      // vacuous and skipped; private free-text values and the person's own
+      // words are always scanned.
+      const combinedCall = calls.find((call) => call.kind === "combined");
+      expect(combinedCall).toBeDefined();
+      const messages = combinedCall?.body.messages ?? [];
+      const finalMessage = messages[messages.length - 1];
+      expect(finalMessage?.role).toBe("user");
+      expect(finalMessage?.content).toContain("<<<DATA>>>");
+      if (fixture.wholeBodyCheck) {
+        const messagesWithoutData = messages.slice(0, -1);
+        for (const message of messagesWithoutData) {
+          expect(message.content.toLowerCase()).not.toContain(
+            fixture.verbatim.toLowerCase(),
+          );
+          expect(message.content.toLowerCase()).not.toContain(
+            fixture.vaultValue.toLowerCase(),
+          );
+        }
+      }
 
       // 6. Whole-body cleanliness where the value is not public spec vocabulary.
       if (fixture.wholeBodyCheck) {
@@ -549,6 +640,7 @@ describe("POST /api/conversation/turn — ungrounded topic refusal (VAL-CONV-006
       {
         extraction: JSON.stringify({ answers: [] }),
         reply: "I don't have verified info on that. Who is this application for?",
+        nextQuestionId: "application_role",
       },
     ]);
     const response = await POST(
@@ -557,9 +649,9 @@ describe("POST /api/conversation/turn — ungrounded topic refusal (VAL-CONV-006
     expect(response.status).toBe(200);
     const data = (await response.json()) as TurnResponse;
     expect(data.assistantReply).toContain(COMMITTED_REFUSAL);
-    // The refusal instruction is part of the grounded system prompt.
-    const replyCall = calls.find((call) => call.kind === "reply");
-    expect(replyCall?.body.messages[0]?.content).toContain(COMMITTED_REFUSAL);
+    // The refusal instruction is part of the grounded combined prompt.
+    const combinedCall = calls[0];
+    expect(combinedCall?.body.messages[0]?.content).toContain(COMMITTED_REFUSAL);
   });
 });
 
@@ -569,6 +661,7 @@ describe("POST /api/conversation/turn — banned claims (VAL-CONV-002)", () => {
       {
         extraction: JSON.stringify({ answers: [] }),
         reply: "Great news, you qualify for benefits right away!",
+        nextQuestionId: "application_role",
       },
     ]);
     const response = await POST(turnRequest("So can you help me?"));
@@ -583,6 +676,31 @@ describe("POST /api/conversation/turn — banned claims (VAL-CONV-002)", () => {
     expect(stored).not.toContain(
       "Great news, you qualify for benefits right away!",
     );
+  });
+});
+
+describe("POST /api/conversation/turn — reply privacy backstop (single call, claude-review P1)", () => {
+  it("sweeps a private value the reply echoed that extraction never saved, before render or persist", async () => {
+    // The single call's reply is written by a model that saw the raw words;
+    // if extraction MISSES a private detail, nothing reaches the echo gate's
+    // saved-value list. The structural sweep (dates, phones, emails) is the
+    // backstop: the echoed phone never reaches the client or the DB.
+    installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: "Thanks! I noted your number 555-0143. What is your email address?",
+        nextQuestionId: "application_role",
+      },
+    ]);
+    const response = await POST(turnRequest("Call me at 555-0143."));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(PII_ECHO_FALLBACK_REPLY);
+    const bodyText = JSON.stringify(data);
+    expect(bodyText).not.toContain("555-0143");
+    for (const transcript of await assistantTranscripts()) {
+      expect(transcript).not.toContain("555-0143");
+    }
   });
 });
 
@@ -605,6 +723,99 @@ describe("POST /api/conversation/turn — honest degradation (VAL-CONV-007)", ()
     const data = (await response.json()) as ErrorResponse;
     expect(data.error.code).toBe("rate_limited");
     expect(data.error.wizardFallbackUrl).toBe(WIZARD_FALLBACK_URL);
+  });
+
+  it("answers the deterministic re-ask when the model returns no usable envelope, and persists both turns", async () => {
+    // Content with no JSON object (no braces) → parseCombinedEnvelope null
+    // → the session still exists, NOTHING is saved, and the honest re-ask
+    // is both returned and persisted with the redacted user turn.
+    setModelTransport(async () =>
+      new Response(
+        JSON.stringify(
+          chatCallBody("I don't have verified info on that."),
+        ),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const response = await POST(turnRequest("Hello there."));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(
+      `${ENVELOPE_MALFORMED_PREFIX} ${QUESTION_BY_ID.application_role.prompt}`,
+    );
+    expect(data.nextQuestionId).toBe("application_role");
+    const answerRows = await testDb`
+      SELECT value FROM answer
+    `;
+    expect(answerRows).toHaveLength(0);
+    expect(await userTranscripts()).toEqual(["Hello there."]);
+    expect(await assistantTranscripts()).toEqual([data.assistantReply]);
+  });
+});
+
+describe("POST /api/conversation/turn — one model call per turn (VAL-VLAT-003)", () => {
+  it("fires exactly one chat-completion call per successful typed turn", async () => {
+    const calls = installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+          ],
+        }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+    ]);
+    const response = await POST(turnRequest("It's for me."));
+    expect(response.status).toBe(200);
+    // The merged extraction+reply envelope: ONE call, carrying both halves.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.kind).toBe("combined");
+    const content = String(
+      (
+        (calls[0]?.body as { messages: { content: string }[] }).messages[0] ?? {}
+      ).content ?? "",
+    );
+    expect(content).toContain("Acceptable answers");
+    expect(content).toContain("Schema:");
+  });
+
+  it("fires exactly one chat-completion call per successful voice turn, after the single STT call", async () => {
+    const { calls } = installVoiceScript(
+      [{ transcript: "It's for myself." }],
+      [
+        {
+          extraction: JSON.stringify({
+            answers: [
+              {
+                question_id: "application_role",
+                status: "known",
+                value: "self",
+              },
+            ],
+          }),
+          reply: "Got it. What kind of help are you looking for right now?",
+        },
+      ],
+    );
+    const response = await POST(voiceRequest(SIXTEEN_K_MONO_WAV));
+    expect(response.status).toBe(200);
+    expect(calls.filter((call) => call.kind === "stt")).toHaveLength(1);
+    expect(calls.filter((call) => call.kind === "combined")).toHaveLength(1);
+  });
+
+  it("sends the combined envelope at the full conversation completion budget", async () => {
+    // The envelope carries BOTH halves (answers array + JSON-escaped reply)
+    // on top of the reasoning burst: it needs MORE completion tokens, not
+    // fewer — MIN_CHAT_MAX_TOKENS's floor still applies underneath.
+    const calls = installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: "Let's begin. Who is this application for?",
+      },
+    ]);
+    await POST(turnRequest("Hello there."));
+    expect(calls[0]?.body.max_tokens).toBe(CHAT_CALL_MAX_TOKENS);
+    expect(calls[0]?.body.max_tokens).toBeGreaterThanOrEqual(2048);
   });
 });
 
@@ -632,7 +843,7 @@ describe("POST /api/conversation/turn — usage logging (VAL-CONV-009)", () => {
     expect(response.status).toBe(200);
 
     const callLines = logs.filter((line) => line.event === "model_chat_call");
-    expect(callLines).toHaveLength(2);
+    expect(callLines).toHaveLength(1);
     for (const line of callLines) {
       expect(line.promptTokens).toBe(20);
       expect(line.completionTokens).toBe(30);
@@ -660,7 +871,10 @@ describe("POST /api/conversation/turn — validation hygiene", () => {
       const response = await POST(
         new Request("http://localhost:3100/api/conversation/turn", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...consentHeaders(CONSENTED_AI),
+          },
           body: JSON.stringify(body),
         }),
       );
@@ -801,7 +1015,11 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
 
   it("saves the raw turn text when the extractor returned nothing at all", async () => {
     // The live-observed failure: extraction yields NO answer for a spoken
-    // phrasing; the canonicalization layer maps the raw words instead.
+    // phrasing; the canonicalization layer maps the raw words instead. The
+    // model's reply was written under the no-save belief (it re-asks the
+    // just-saved question), so the deterministic ack + the SERVER's next
+    // question replaces it (claude-review P2: spoken question must agree
+    // with nextQuestionId).
     installScript([
       {
         extraction: JSON.stringify({ answers: [] }),
@@ -811,6 +1029,11 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
 
     const response = await POST(turnRequest("It's for myself."));
     expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(
+      `${RAW_CASCADE_SAVED_PREFIX} ${QUESTION_BY_ID.main_goal.prompt}`,
+    );
+    expect(data.nextQuestionId).toBe("main_goal");
     const rows = await testDb`
       SELECT value FROM answer WHERE question_id = 'application_role'
     `;
@@ -818,7 +1041,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     expect(rows[0].value).toBe("self");
   });
 
-  it("answers honestly when nothing maps: no implied save, no reply model call, nothing persisted", async () => {
+  it("answers honestly when nothing maps: no implied save, the scripted reply discarded, nothing persisted", async () => {
     const calls = installScript([
       {
         extraction: JSON.stringify({
@@ -844,13 +1067,15 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     );
     expect(findBannedClaims(data.assistantReply)).toEqual([]);
     expect(data.nextQuestionId).toBe("application_role");
-    // No answer row, and the scripted "Perfect, all saved!" reply never ran
-    // (only the extraction call happened).
+    // No answer row. The combined call ran ONCE (it is also the extraction
+    // half), but its scripted "Perfect, all saved!" reply was discarded for
+    // the honest unsaved copy.
     const answerRows = await testDb`
       SELECT value FROM answer WHERE question_id = 'application_role'
     `;
     expect(answerRows).toHaveLength(0);
-    expect(calls.every((call) => call.kind === "extraction")).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls.every((call) => call.kind === "combined")).toBe(true);
     // Both turns persist atomically after the honest reply.
     expect(await userTranscripts()).toHaveLength(1);
     expect(await assistantTranscripts()).toEqual([data.assistantReply]);
@@ -882,6 +1107,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
           ],
         }),
         reply: "Got it — food. What is your zip code?",
+        nextQuestionId: "state",
       },
     ]);
     const first = await POST(turnRequest("Hi, applying for myself."));
@@ -891,9 +1117,12 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     const second = await POST(turnRequest("I need food.", cookie));
     expect(second.status).toBe(200);
     const data = (await second.json()) as TurnResponse;
-    // The grounded model reply ran (the current answer saved), not the
-    // deterministic fallback.
-    expect(data.assistantReply).toBe("Got it — food. What is your zip code?");
+    // The grounded model reply ran (the current answer saved) — with the
+    // honest loss prefix ahead of it, because the garbage extraction for
+    // the NON-current question was dropped, not saved.
+    expect(data.assistantReply).toBe(
+      `${PARTIAL_SAVE_FALLBACK_PREFIX} Got it — food. What is your zip code?`,
+    );
     const rows = await testDb`
       SELECT question_id, value FROM answer ORDER BY question_id
     `;
@@ -906,10 +1135,12 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     );
   });
 
-  it("uses the deterministic unmapped copy only when NOTHING saved this turn (claude-review P2-3)", async () => {
+  it("prefixes the model reply with honest loss copy when part of the extraction did not save (claude-review P2)", async () => {
     // The current question's answer fails to map, but another answer in the
-    // same turn saves. The "haven't saved anything yet" copy would be false;
-    // the grounded model reply reports the true state instead.
+    // same turn saves. The model wrote its reply before the server knew,
+    // so its acknowledgment may claim the dropped answer — the honest loss
+    // prefix goes ahead of it (and the "haven't saved anything yet" copy
+    // would be false when something DID save).
     installScript([
       {
         extraction: JSON.stringify({
@@ -931,6 +1162,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
           ],
         }),
         reply: "One answer saved. What kind of help are you looking for?",
+        nextQuestionId: "main_goal",
       },
     ]);
     const first = await POST(turnRequest("Hi, applying for myself."));
@@ -941,7 +1173,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     expect(second.status).toBe(200);
     const data = (await second.json()) as TurnResponse;
     expect(data.assistantReply).toBe(
-      "One answer saved. What kind of help are you looking for?",
+      `${PARTIAL_SAVE_FALLBACK_PREFIX} One answer saved. What kind of help are you looking for?`,
     );
     // The unmapped question stays unanswered, so the server still asks it.
     expect(data.nextQuestionId).toBe("main_goal");
@@ -950,36 +1182,159 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     `;
     expect(mainGoal).toHaveLength(0);
   });
+
+  it("replaces the model reply with the honest re-ask when a skipped malformed answer left nothing saved", async () => {
+    // A malformed value (validation_error skip) with no other save: the
+    // model's reply cannot know the save was dropped — the deterministic
+    // re-ask replaces it.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            {
+              question_id: "household_size",
+              status: "known",
+              value: "not a number at all",
+            },
+          ],
+        }),
+        reply: "All recorded! What is next?",
+      },
+    ]);
+    const response = await POST(turnRequest("We are a troupe."));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toContain("let's try again");
+    // The skipped answer was for a LATER question; the engine's current
+    // question (application_role) is what the honest re-ask repeats.
+    expect(data.assistantReply).toContain(
+      QUESTION_BY_ID.application_role.prompt,
+    );
+    expect(data.nextQuestionId).toBe("application_role");
+    const rows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'household_size'
+    `;
+    expect(rows).toHaveLength(0);
+  });
+
+  it("replaces the spoken question when a volunteered answer closes it (claude-review round-3 P2)", async () => {
+    // Turn 2 answers the CURRENT question (main_goal) AND volunteers a
+    // later answer (income_sources = none) that flips income_kind's skip
+    // condition. The model — writing from the turn-start list — declared
+    // income_kind as its next question; the server's post-save flow state
+    // says "state". The server owns flow control: the spoken question is
+    // replaced with the server's.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+          ],
+        }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "main_goal", status: "known", value: "food" },
+            {
+              question_id: "income_sources",
+              status: "known",
+              value: ["none"],
+            },
+          ],
+        }),
+        reply: "Got it. What kind of income do you have?",
+        nextQuestionId: "income_kind",
+      },
+    ]);
+    const first = await POST(turnRequest("Hi, applying for myself."));
+    const cookie = (first.headers.get("set-cookie") ?? "")
+      .split(";")[0]
+      .trim();
+    const second = await POST(
+      turnRequest("Food. And I have no income at all right now.", cookie),
+    );
+    expect(second.status).toBe(200);
+    const data = (await second.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(
+      `${FLOW_MISMATCH_PREFIX} ${QUESTION_BY_ID.state.prompt}`,
+    );
+    expect(data.nextQuestionId).toBe("state");
+    const kinds = await testDb`
+      SELECT value FROM answer WHERE question_id = 'income_kind'
+    `;
+    expect(kinds).toHaveLength(0);
+  });
+
+  it("replaces the spoken question when the envelope omits the declaration (fail-closed, round-4 P2)", async () => {
+    // An absent or invalid declaration leaves the spoken question
+    // UNVERIFIABLE — it may acknowledge an answer extraction returned
+    // nothing for. The server's deterministic question replaces it.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+          ],
+        }),
+        reply: "All recorded! So, how many people live with you?",
+      },
+    ]);
+    const response = await POST(turnRequest("Hi, applying for myself."));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(
+      `${FLOW_MISMATCH_PREFIX} ${QUESTION_BY_ID.main_goal.prompt}`,
+    );
+    expect(data.nextQuestionId).toBe("main_goal");
+    const rows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'application_role'
+    `;
+    expect(rows).toHaveLength(1);
+  });
 });
 
 describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () => {
-  it("persists the user turn only after the reply succeeds; a reply failure leaves no duplicate transcript on retry", async () => {
+  // With ONE combined call per turn, a MODEL failure now always happens
+  // BEFORE the session exists (deferred creation) — the failure window the
+  // old two-call design had between the saves and the reply is closed.
+  // The atomicity guarantee is exercised through the remaining post-creation
+  // failure surface: a persistence-layer failure after the model call
+  // succeeded (forced by hiding the conversation_turn table from INSIDE the
+  // scripted transport, so history loading still works up front).
+
+  it("persists turns only after the reply succeeds; a persist failure leaves no duplicate transcript on retry", async () => {
     installScript([
       {
         extraction: JSON.stringify({ answers: [] }),
         reply: "Let's begin. Who is this application for?",
+        nextQuestionId: "application_role",
       },
     ]);
     const first = await POST(turnRequest("Hello there."));
     expect(first.status).toBe(200);
     const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0].trim();
 
-    // Turn 2: extraction succeeds (an answer is saved), the reply call dies.
-    setModelTransport(async (_url, init) => {
-      const parsed = JSON.parse(String(init.body)) as {
-        messages: { content: string }[];
-      };
-      const isExtraction = parsed.messages[0]?.content.startsWith(
-        EXTRACTION_SYSTEM_PROMPT_PREFIX,
-      );
-      if (isExtraction) {
+    // Turn 2: the combined call SUCCEEDS — its scripted transport hides the
+    // turn table as it serves the envelope, so the failure lands AFTER the
+    // model call, in the persistence layer (with one call per turn, that is
+    // the only post-save failure window left).
+    let modelCalled = false;
+    setModelTransport(async () => {
+      if (!modelCalled) {
+        modelCalled = true;
+        await testDb`ALTER TABLE conversation_turn RENAME TO conversation_turn_hidden`;
         return new Response(
           JSON.stringify(
             chatCallBody(
-              JSON.stringify({
-                answers: [
-                  { question_id: "main_goal", status: "known", value: "food" },
-                ],
+              envelopeContent({
+                extraction: JSON.stringify({
+                  answers: [
+                    { question_id: "main_goal", status: "known", value: "food" },
+                  ],
+                }),
+                reply: "Got it — food. What is your zip code?",
               }),
             ),
           ),
@@ -992,38 +1347,62 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
     });
 
     const failed = await POST(turnRequest("I need help with food.", cookie));
-    expect(failed.status).toBe(503);
-    // NO user turn persisted for the failed reply — a retry cannot duplicate
-    // the transcript.
-    expect(await userTranscripts()).toEqual(["Hello there."]);
-    expect(await assistantTranscripts()).toEqual([
-      "Let's begin. Who is this application for?",
-    ]);
+    expect(failed.status).toBe(500);
+    try {
+      // The model call ran and the answer SAVED (the failure was
+      // persistence, not the model).
+      const goalRows = await testDb`
+        SELECT value FROM answer WHERE question_id = 'main_goal'
+      `;
+      expect(goalRows).toHaveLength(1);
+      // NO transcript persisted for the failed turn — a retry cannot
+      // duplicate it (the rows live in the hidden table).
+      const hidden = await testDb`
+        SELECT role, redacted_transcript FROM conversation_turn_hidden
+        ORDER BY created_at ASC, id ASC
+      `;
+      expect(hidden.map((row) => String(row.role))).toEqual([
+        "user",
+        "assistant",
+      ]);
+      expect(String(hidden[0].redacted_transcript)).toBe("Hello there.");
+    } finally {
+      await testDb`ALTER TABLE conversation_turn_hidden RENAME TO conversation_turn`;
+    }
 
     // The retry completes cleanly: exactly one copy of the transcript.
     installScript([
       {
         extraction: JSON.stringify({
           answers: [
-            { question_id: "main_goal", status: "known", value: "food" },
+            { question_id: "household_size", status: "known", value: 2 },
           ],
         }),
-        reply: "Got it — food. What is your zip code?",
+        reply: "Got it. How many of those people are under 18?",
+        nextQuestionId: "application_role",
       },
     ]);
     const retried = await POST(turnRequest("I need help with food.", cookie));
     expect(retried.status).toBe(200);
+    // Retrying the SAME failed turn yields exactly one copy of its
+    // transcript (counted, not pinned, because the stored form is the
+    // redacted rendering), and turn 1 appears once.
+    const retryCopies = await testDb`
+      SELECT COUNT(*)::int AS n FROM conversation_turn
+      WHERE role = 'user' AND redacted_transcript LIKE '%I need help with%'
+    `;
+    expect(Number(retryCopies[0].n)).toBe(1);
     expect(await userTranscripts()).toEqual([
       "Hello there.",
       "I need help with food.",
     ]);
     expect(await assistantTranscripts()).toEqual([
       "Let's begin. Who is this application for?",
-      "Got it — food. What is your zip code?",
+      "Got it. How many of those people are under 18?",
     ]);
   });
 
-  it("passes the redacted turn explicitly as the final reply message, never raw", async () => {
+  it("carries the raw turn exactly once, wrapped as data, with the system prompt and history redacted", async () => {
     const calls = installScript([
       {
         extraction: JSON.stringify({
@@ -1041,15 +1420,24 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
     ]);
     const response = await POST(turnRequest("Call me at 555-0143."));
     expect(response.status).toBe(200);
-    const replyCall = calls.find((call) => call.kind === "reply");
-    expect(replyCall).toBeDefined();
-    const replyMessages = replyCall?.body.messages ?? [];
-    // The final message is THIS turn's REDACTED words (deferred persistence
-    // means history alone cannot carry it), never the raw value.
-    const finalMessage = replyMessages[replyMessages.length - 1];
+    const combinedCall = calls.find((call) => call.kind === "combined");
+    expect(combinedCall).toBeDefined();
+    const messages = combinedCall?.body.messages ?? [];
+    // The final message is THIS turn's RAW words inside the data markers —
+    // the extraction input, and the ONLY place the raw value appears (the
+    // reply is built from the system grounding plus redacted history).
+    const finalMessage = messages[messages.length - 1];
     expect(finalMessage?.role).toBe("user");
-    expect(finalMessage?.content).not.toContain("555-0143");
-    expect(finalMessage?.content).toContain("[redacted answer to");
+    expect(finalMessage?.content).toContain("<<<DATA>>>");
+    expect(finalMessage?.content).toContain("555-0143");
+    // Exactly one copy of the raw value across the whole call, and it is
+    // the wrapped data message — never the system prompt.
+    const occurrences = messages.filter((message) =>
+      message.content.includes("555-0143"),
+    );
+    expect(occurrences).toHaveLength(1);
+    expect(occurrences[0]?.content).toContain("<<<DATA>>>");
+    expect(messages[0]?.content).not.toContain("555-0143");
   });
 });
 
@@ -1066,7 +1454,7 @@ describe("POST /api/conversation/turn — deferred session creation (hardening 2
     expect(await userTranscripts()).toHaveLength(0);
   });
 
-  it("creates the session only after extraction succeeds, then persists everything", async () => {
+  it("creates the session only after the combined call succeeds, then persists everything", async () => {
     const peopleBefore = await countOf("person");
     const sessionsBefore = await countOf("session");
     installScript([
@@ -1086,37 +1474,34 @@ describe("POST /api/conversation/turn — deferred session creation (hardening 2
     expect(await userTranscripts()).toEqual(["It's for me."]);
   });
 
-  it("hands a fresh visitor their session cookie even when the reply fails, so a retry resumes instead of orphaning (claude-review P2-3)", async () => {
-    // Extraction succeeds (answers saved), the reply call fails.
-    setModelTransport(async (_url, init) => {
-      const parsed = JSON.parse(String(init.body)) as {
-        messages: { content: string }[];
-      };
-      const isExtraction = parsed.messages[0]?.content.startsWith(
-        EXTRACTION_SYSTEM_PROMPT_PREFIX,
-      );
-      if (isExtraction) {
-        return new Response(
-          JSON.stringify(
-            chatCallBody(
-              JSON.stringify({
-                answers: [
-                  { question_id: "application_role", status: "known", value: "self" },
-                ],
-              }),
-            ),
-          ),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response(JSON.stringify({ error: { message: "down" } }), {
-        status: 503,
-      });
-    });
-
-    const failed = await POST(turnRequest("It's for me."));
-    expect(failed.status).toBe(503);
-    // The error response STILL carries the session cookie.
+  it("hands a fresh visitor their session cookie even when a post-creation step fails, so a retry resumes instead of orphaning (claude-review P2-3, VAL-VLAT-003)", async () => {
+    // The combined call succeeds (answers saved) but the persistence layer
+    // fails BEFORE any turn row is written. The fresh visitor still gets
+    // the session cookie via the turnSessionContext path on the AppError
+    // cause — the data stays reachable, and a retry resumes the session.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+          ],
+        }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+    ]);
+    await testDb`ALTER TABLE conversation_turn RENAME TO conversation_turn_hidden`;
+    let failed: Response;
+    try {
+      failed = await POST(turnRequest("It's for me."));
+      // A persistence-layer failure maps to the internal error code (the
+      // taxonomy stays honest — model_unavailable is for model failures).
+      expect(failed.status).toBe(500);
+      const data = (await failed.json()) as ErrorResponse;
+      expect(data.error.code).toBe("internal");
+      expect(data.error.wizardFallbackUrl).toBe(WIZARD_FALLBACK_URL);
+    } finally {
+      await testDb`ALTER TABLE conversation_turn_hidden RENAME TO conversation_turn`;
+    }
     const cookie = (failed.headers.get("set-cookie") ?? "").split(";")[0].trim();
     expect(cookie).toContain(`${SESSION_COOKIE}=`);
 
@@ -1196,7 +1581,11 @@ const {
 } = await import("../../../../lib/model");
 const { encodeWavPcm16Mono } = await import("../../../../lib/audio/wav");
 
-function voiceRequest(wav: Uint8Array, cookie?: string): Request {
+function voiceRequest(
+  wav: Uint8Array,
+  cookie?: string,
+  consent: string | null = CONSENTED_VOICE,
+): Request {
   const form = new FormData();
   form.append(
     "audio",
@@ -1205,28 +1594,30 @@ function voiceRequest(wav: Uint8Array, cookie?: string): Request {
   );
   return new Request("http://localhost:3100/api/conversation/turn", {
     method: "POST",
-    headers: { ...(cookie ? { cookie } : {}) },
+    headers: {
+      ...(cookie ? { cookie } : {}),
+      ...consentHeaders(consent),
+    },
     body: form,
   });
 }
 
 interface AnyRecordedCall {
-  readonly kind: "stt" | "extraction" | "reply";
+  readonly kind: "stt" | "combined";
   readonly url: string;
   readonly body?: unknown;
 }
 
 /**
- * Script every model surface for one voice turn: the STT call (by URL) plus
- * the two chat calls, in order per queue.
+ * Script every model surface for one voice turn: the STT call (by URL)
+ * plus the ONE combined chat call per turn, in order per queue.
  */
 function installVoiceScript(
   stt: { status?: number; transcript?: string; audioDurationMs?: number }[],
   chat: readonly ChatCallScript[],
 ): { calls: AnyRecordedCall[] } {
   const calls: AnyRecordedCall[] = [];
-  const extractionQueue = chat.map((step) => step.extraction);
-  const replyQueue = chat.map((step) => step.reply);
+  const chatQueue = chat.map(envelopeContent);
   const sttQueue = [...stt];
   setModelTransport(async (url, init) => {
     if (url.startsWith(STT_URL)) {
@@ -1247,15 +1638,11 @@ function installVoiceScript(
         { status: step.status ?? 200, headers: { "content-type": "application/json" } },
       );
     }
-    const parsed = JSON.parse(String(init.body)) as {
-      messages: { content: string }[];
+    const parsed = JSON.parse(String(init.body)) as AnyRecordedCall & {
+      body: unknown;
     };
-    const isExtraction = parsed.messages[0]?.content.startsWith(
-      EXTRACTION_SYSTEM_PROMPT_PREFIX,
-    );
-    calls.push({ kind: isExtraction ? "extraction" : "reply", url, body: parsed });
-    const queue = isExtraction ? extractionQueue : replyQueue;
-    const content = queue.shift();
+    calls.push({ kind: "combined", url, body: parsed });
+    const content = chatQueue.shift();
     if (content === undefined) {
       return new Response(JSON.stringify({ error: { message: "exhausted" } }), {
         status: 500,
@@ -1345,12 +1732,25 @@ describe("POST /api/conversation/turn — voice mode (VAL-VOICE-001/004)", () =>
     for (const transcript of await userTranscripts()) {
       expect(transcript).not.toContain("555-0143");
     }
-    const replyCall = calls.find((call) => call.kind === "reply");
-    expect(JSON.stringify(replyCall?.body)).not.toContain("555-0143");
+    // The ONE combined call carries the raw spoken words ONLY inside the
+    // wrapped data message (the extraction channel): the system prompt and
+    // any history messages never see the value.
+    const combinedCall = calls.find((call) => call.kind === "combined");
+    const voiceMessages =
+      (combinedCall?.body as { messages?: { role: string; content: string }[] })
+        ?.messages ?? [];
+    const voiceFinal = voiceMessages[voiceMessages.length - 1];
+    expect(voiceFinal?.content).toContain("<<<DATA>>>");
+    expect(voiceFinal?.content).toContain("555-0143");
+    for (const message of voiceMessages.slice(0, -1)) {
+      expect(message.content).not.toContain("555-0143");
+    }
     const vaultRows = await testDb`
       SELECT value FROM vault_entry WHERE field = 'phone_contact'
     `;
-    expect(String(vaultRows[0].value)).toBe("555-0143");
+    // Encrypted at rest (VAL-VAULTENC-001): envelope, never the plaintext.
+    expect(String(vaultRows[0].value)).not.toBe("555-0143");
+    expect(String(vaultRows[0].value)).toMatch(/^enc1\./);
     const answerRows = await testDb`
       SELECT value FROM answer WHERE question_id = 'phone_contact'
     `;
@@ -1445,10 +1845,86 @@ describe("POST /api/conversation/turn — voice failure modes (VAL-VOICE-006)", 
     const response = await POST(
       new Request("http://localhost:3100/api/conversation/turn", {
         method: "POST",
+        headers: consentHeaders(CONSENTED_VOICE),
         body: form,
       }),
     );
     expect(response.status).toBe(400);
     expect((await response.json() as ErrorResponse).error.code).toBe("validation_error");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Consent gate (Mission v2.1 M5, HACK-81, VAL-CONSENT-001/003): the route
+// refuses ANY send before the per-device receipt allows it. The scripted
+// transport doubles as the network-capture witness: it is the app's ONLY
+// egress path to the providers, so zero recorded calls = zero API requests
+// carrying user content, at the network level.
+// ---------------------------------------------------------------------------
+
+describe("POST /api/conversation/turn — consent gate (VAL-CONSENT-001/003)", () => {
+  it("refuses a typed turn with no receipt before any model call", async () => {
+    const { calls } = installVoiceScript([], []);
+    const response = await POST(turnRequest("I am 34 years old.", undefined, null));
+    expect(response.status).toBe(403);
+    expect((await response.json() as ErrorResponse).error.code).toBe(
+      "consent_required",
+    );
+    // ZERO provider API requests: nothing read the user's words.
+    expect(calls).toHaveLength(0);
+    expect(await countOf("person")).toBe(0);
+    expect(await countOf("session")).toBe(0);
+  });
+
+  it("refuses a declined receipt the same way — declining never reaches a provider", async () => {
+    const { calls } = installVoiceScript([], []);
+    const response = await POST(turnRequest("I am 34 years old.", undefined, DECLINED));
+    expect(response.status).toBe(403);
+    expect((await response.json() as ErrorResponse).error.code).toBe(
+      "consent_required",
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("treats a malformed receipt as no consent", async () => {
+    const { calls } = installVoiceScript([], []);
+    const response = await POST(turnRequest("garbage receipt", undefined, "not-json"));
+    expect(response.status).toBe(403);
+    expect((await response.json() as ErrorResponse).error.code).toBe(
+      "consent_required",
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("refuses a voice turn whose receipt lacks the voice toggle before any STT call", async () => {
+    const { calls } = installVoiceScript([], []);
+    const response = await POST(
+      voiceRequest(SIXTEEN_K_MONO_WAV, undefined, CONSENTED_AI),
+    );
+    expect(response.status).toBe(403);
+    expect((await response.json() as ErrorResponse).error.code).toBe(
+      "consent_required",
+    );
+    // No STT request, no chat request: the audio never left.
+    expect(calls).toHaveLength(0);
+    expect(await countOf("session")).toBe(0);
+  });
+
+  it("refuses a voice turn with no receipt at all", async () => {
+    const { calls } = installVoiceScript([], []);
+    const response = await POST(voiceRequest(SIXTEEN_K_MONO_WAV, undefined, null));
+    expect(response.status).toBe(403);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("never blocks the read-only journey: history still answers after refusals", async () => {
+    installVoiceScript([], []);
+    await POST(turnRequest("I am 34 years old.", undefined, DECLINED));
+    const history = await historyGet(
+      new Request("http://localhost:3100/api/conversation/history"),
+    );
+    expect(history.status).toBe(200);
+    const data = (await history.json()) as { turns: unknown[] };
+    expect(data.turns).toEqual([]);
   });
 });

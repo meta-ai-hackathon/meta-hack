@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../../../lib/honesty";
+import { SAMPLE_KB_ENTRIES, KB_ENTRIES } from "../../../lib/kb";
 import type { AnswerMap } from "../../../lib/intake/flow";
 import { buildMatchResponse, matchCardText } from "../../../lib/match";
 import { MATCH_UNAVAILABLE_NOTICE, MatchSection, MatchSectionContent } from "./match-section";
@@ -33,8 +34,18 @@ const stubExplainer = async () => ({
 
 async function matchData(answers: AnswerMap) {
   // The route spreads hasSession over the payload; tests use the
-  // session-present shape the client receives.
-  return { hasSession: true, ...(await buildMatchResponse(answers, { explainer: stubExplainer })) };
+  // session-present shape the client receives. The card-rendering tests
+  // exercise the FULL shipped population (production entries plus the
+  // test-only samples, VAL-PILOTREAL-004): the production default carries
+  // the real pilot entry only, so the samples pass through the explicit
+  // entries option here.
+  return {
+    hasSession: true,
+    ...(await buildMatchResponse(answers, {
+      entries: [...SAMPLE_KB_ENTRIES, ...KB_ENTRIES],
+      explainer: stubExplainer,
+    })),
+  };
 }
 
 describe("MatchSectionContent structure", () => {

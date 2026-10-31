@@ -71,6 +71,23 @@ afterAll(async () => {
 
 const { POST } = await import("./route");
 
+// Live requests carry an explicit consent receipt: the gate sits in front
+// of the real Meta chat + STT calls (Mission v2.1 M5, HACK-81).
+const CONSENTED_VOICE = JSON.stringify({
+  v: 2,
+  providerId: "meta-model-api",
+  ai: true,
+  voice: true,
+  at: "2026-10-30T12:00:00.000Z",
+});
+const CONSENTED_AI = JSON.stringify({
+  v: 2,
+  providerId: "meta-model-api",
+  ai: true,
+  voice: false,
+  at: "2026-10-30T12:00:00.000Z",
+});
+
 function voiceRequest(wav: Uint8Array, cookie?: string): Request {
   const form = new FormData();
   form.append(
@@ -80,7 +97,10 @@ function voiceRequest(wav: Uint8Array, cookie?: string): Request {
   );
   return new Request("http://localhost:3100/api/conversation/turn", {
     method: "POST",
-    headers: { ...(cookie ? { cookie } : {}) },
+    headers: {
+      ...(cookie ? { cookie } : {}),
+      "x-bn-consent": CONSENTED_VOICE,
+    },
     body: form,
   });
 }
@@ -91,6 +111,7 @@ function textRequest(text: string, cookie?: string): Request {
     headers: {
       "content-type": "application/json",
       ...(cookie ? { cookie } : {}),
+      "x-bn-consent": CONSENTED_AI,
     },
     body: JSON.stringify({ text }),
   });

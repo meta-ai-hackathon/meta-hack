@@ -1,14 +1,48 @@
 @import "tailwindcss";
 
+/* Design tokens — the polished visual language (frontend-polish, VAL-
+   DEMOEXP-008): warm paper, ink text, deep teal accents, serif display
+   headings. Every text/background pairing is gated by
+   src/components/contrast-tokens.test.ts against the PRE-POLISH baselines:
+   default text 18.05:1 light / 16.91:1 dark (>= the pre-polish 17.93 / 16.91),
+   muted text 9.42:1 light (>= pre-polish 7.81), and every component pair at
+   WCAG AAA. The dark scheme preserves the pre-polish dark palette. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8f4ec;
+  --foreground: #0a0a0a;
+  --surface: #ffffff;
+  --surface-border: #dcd5c6;
+  --muted: #444036;
+  --teal: #0f3d3e;
+  --teal-soft: #ecf2ee;
+  --teal-deep: #123b38;
+  --teal-contrast: #ffffff;
+  --amber-soft: #fcf6e3;
+  --amber-line: #b98a1f;
+  --amber-ink: #5c4708;
+  --danger: #7f2718;
+  --danger-soft: #fef3f0;
+  --danger-contrast: #ffffff;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-border: var(--surface-border);
+  --color-muted: var(--muted);
+  --color-teal: var(--teal);
+  --color-teal-soft: var(--teal-soft);
+  --color-teal-deep: var(--teal-deep);
+  --color-teal-contrast: var(--teal-contrast);
+  --color-amber-soft: var(--amber-soft);
+  --color-amber-line: var(--amber-line);
+  --color-amber-ink: var(--amber-ink);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-contrast: var(--danger-contrast);
   --font-sans: var(--font-geist-sans);
+  --font-display: var(--font-serif-display);
   --font-mono: var(--font-geist-mono);
 }
 
@@ -16,13 +50,164 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --surface: #111111;
+    --surface-border: #3f3f46;
+    --muted: #a1a1aa;
+    --teal: #93e2d2;
+    --teal-soft: #13221f;
+    --teal-deep: #d5f0e9;
+    --teal-contrast: #0a0a0a;
+    --amber-soft: #241d0c;
+    --amber-line: #8a6a1f;
+    --amber-ink: #efcf6e;
+    --danger: #f0b0a6;
+    --danger-soft: #2a120e;
+    --danger-contrast: #2a120e;
   }
+}
+
+/* HACK-84: high contrast (user toggle, `data-contrast="high"` on <html>).
+   Pure black on white in light scheme, pure white on black in dark:
+   21:1, measurably above the ~17:1 BN-07 baseline (THEME_PAIRS in
+   src/lib/display.ts holds the same values; src/lib/display.test.ts proves
+   the ratios and asserts this file carries them).
+
+   PAIR-SAFETY IS BY ROLE, NOT BY SHADE (PR #51 reviews): one palette
+   variable serves text, background and border utilities at once, so no
+   shade-based remap can keep every pair legible — `text-zinc-600
+   dark:text-zinc-400` is the site's dominant muted-text pattern and any
+   single mapping breaks one scheme. Instead, high contrast overrides
+   the UTILITY CLASSES by role: every zinc text color becomes the
+   foreground, every zinc background the background, every zinc border
+   the foreground. Any combination of those utilities — including
+   inherited text over a zinc panel, and dark: variants, which are just
+   more specific instances of the same classes under a media query and
+   lose to these !important role rules — renders as foreground on
+   background, 21:1 in both schemes. Hover on interactive elements
+   inverts the pair explicitly. Opacity dimming is disabled — gray
+   borders and faded disabled controls must not survive the mode that
+   exists for people who cannot see them. */
+:root[data-contrast="high"] {
+  --background: #ffffff;
+  --foreground: #000000;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-contrast="high"] {
+    --background: #000000;
+    --foreground: #ffffff;
+  }
+}
+
+/* Role overrides: text → foreground, surfaces → background, borders →
+   foreground. The class list mirrors the zinc utilities the app actually
+   uses; display.test.ts greps the components for zinc classes and fails
+   if a new one appears without a matching role rule here. */
+:root[data-contrast="high"] :is(.text-zinc-50, .text-zinc-100, .text-zinc-200, .text-zinc-300, .text-zinc-400, .text-zinc-500, .text-zinc-600, .text-zinc-700, .text-zinc-800, .text-zinc-900) {
+  color: var(--foreground) !important;
+}
+
+:root[data-contrast="high"] :is(.bg-zinc-50, .bg-zinc-100, .bg-zinc-200, .bg-zinc-300, .bg-zinc-400, .bg-zinc-500, .bg-zinc-600, .bg-zinc-700, .bg-zinc-800, .bg-zinc-900) {
+  background-color: var(--background) !important;
+}
+
+:root[data-contrast="high"] :is(.border-zinc-100, .border-zinc-200, .border-zinc-300, .border-zinc-400, .border-zinc-500, .border-zinc-600, .border-zinc-700, .border-zinc-800, .border-zinc-900) {
+  border-color: var(--foreground) !important;
+}
+
+/* Inverted "filled" surfaces stay filled, inverted: elements that pair a
+   dark background utility with a light text utility in the same class
+   list are the app's primary-button idiom; the role rules above would
+   flatten them to background-with-foreground-text, which is still 21:1
+   and reads as an outlined button — legible, if plainer. */
+
+/* Pair-safety net: inherited text and the page surface are the theme pair. */
+:root[data-contrast="high"] body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* Hover/focus feedback in high contrast must invert, not just recolor:
+   hovering a control flips it to foreground background with background
+   text, which stays 21:1 in both schemes. */
+:root[data-contrast="high"] :is(button, [role="button"], a):hover {
+  background-color: var(--foreground);
+  color: var(--background);
+}
+
+/* High contrast never dims: a disabled control must stay legible. The
+   disabled state itself is signalled without color or opacity: a dashed
+   border (drawn in the foreground by the role rule above) plus a
+   not-allowed cursor, so it is visible to sighted users too. */
+:root[data-contrast="high"] :disabled {
+  opacity: 1;
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+/* HACK-84: huge-text zoom. DisplayControls sets the root font-size to the
+   step's percentage (100%..250%); this transition keeps the change gentle
+   and collapses under reduced motion (see the BN-07 block below). */
+html {
+  transition: font-size 150ms ease-in-out;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Progress bars pick up the teal accent (the <progress> element ignores
+   text-color utilities on some engines; accent-color is the supported hook). */
+progress {
+  accent-color: var(--teal);
+}
+
+/* Consent toggle switch (frontend-polish): a real checkbox styled as a
+   switch — keyboard operable, announced by its label exactly as before.
+   The styling lives here rather than in utility classes because the
+   consent surface's gate test asserts the rendered toggle markup never
+   matches /checked/ (it must not pre-check the choice); a `checked:`
+   Tailwind variant in the class attribute would false-match that guard. */
+.consent-switch {
+  appearance: none;
+  position: relative;
+  cursor: pointer;
+  height: 1.5rem;
+  width: 2.75rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-border);
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.consent-switch::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  height: 1.25rem;
+  width: 1.25rem;
+  border-radius: 9999px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  transition: transform 150ms ease;
+}
+
+.consent-switch:checked {
+  border-color: var(--teal-deep);
+  background: var(--teal-deep);
+}
+
+.consent-switch:checked::before {
+  transform: translateX(1.25rem);
+}
+
+.consent-switch:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 /* BN-07: visible keyboard focus everywhere. Never remove the default outline

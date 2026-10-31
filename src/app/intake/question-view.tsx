@@ -94,7 +94,7 @@ export function QuestionView({
           <label
             key={choiceItem.inputValue}
             htmlFor={`${question.id}-${choiceItem.inputValue}`}
-            className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-base dark:border-zinc-700"
+            className="flex items-center gap-2 rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-base has-[:checked]:border-teal has-[:checked]:bg-teal-soft"
           >
             <input
               type="radio"
@@ -120,7 +120,7 @@ export function QuestionView({
           <label
             key={option.value}
             htmlFor={`${question.id}-${option.value}`}
-            className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-base dark:border-zinc-700"
+            className="flex items-center gap-2 rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-base has-[:checked]:border-teal has-[:checked]:bg-teal-soft"
           >
             <input
               type="radio"
@@ -146,7 +146,7 @@ export function QuestionView({
           <label
             key={option.value}
             htmlFor={`${question.id}-${option.value}`}
-            className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-base dark:border-zinc-700"
+            className="flex items-center gap-2 rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-base has-[:checked]:border-teal has-[:checked]:bg-teal-soft"
           >
             <input
               type="checkbox"
@@ -196,7 +196,7 @@ export function QuestionView({
               )
             }
             disabled={busy}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-base dark:border-zinc-600 dark:bg-zinc-800"
+            className="rounded-xl border border-surface-border bg-surface px-3 py-2 text-base"
           />
         )}
       </Field>
@@ -211,7 +211,7 @@ export function QuestionView({
           {question.help ? (
             <p
               id={helpId}
-              className="text-sm text-zinc-600 dark:text-zinc-400"
+              className="text-sm text-muted"
             >
               {question.help}
             </p>
@@ -220,7 +220,7 @@ export function QuestionView({
             <p
               id={errorId}
               role="alert"
-              className="text-sm font-medium text-red-700 dark:text-red-400"
+              className="text-sm font-medium text-danger"
             >
               {error}
             </p>
@@ -231,7 +231,7 @@ export function QuestionView({
         <div className="flex flex-col items-start gap-1">
           <AnswerStatusBadge status={answer.status} />
           {question.pii ? (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="text-sm text-muted">
               {"For your privacy, we don't show your saved answer here. To change it, enter a new one."}
             </p>
           ) : null}
@@ -239,7 +239,7 @@ export function QuestionView({
       ) : null}
       <label
         htmlFor={`${question.id}-best-guess`}
-        className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400"
+        className="flex items-center gap-2 text-sm text-muted"
       >
         <input
           type="checkbox"
@@ -256,7 +256,7 @@ export function QuestionView({
           id={`${question.id}-continue`}
           onClick={onSubmit}
           disabled={busy}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-base font-semibold text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          className="rounded-full bg-teal-deep px-5 py-2 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
         >
           Continue
         </button>
@@ -265,7 +265,7 @@ export function QuestionView({
           id={`${question.id}-not-sure`}
           onClick={onNotSure}
           disabled={busy}
-          className="rounded-md border border-zinc-400 px-4 py-2 text-base font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-500 dark:hover:bg-zinc-800"
+          className="rounded-full border border-surface-border bg-surface px-5 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
         >
           {"I'm not sure"}
         </button>
@@ -275,7 +275,7 @@ export function QuestionView({
             id={`${question.id}-skip`}
             onClick={onSkip}
             disabled={busy}
-            className="text-base text-zinc-600 underline hover:text-zinc-900 disabled:opacity-50 dark:text-zinc-400 dark:hover:text-zinc-100"
+            className="text-base text-muted underline hover:text-foreground disabled:opacity-50"
           >
             Skip for now
           </button>

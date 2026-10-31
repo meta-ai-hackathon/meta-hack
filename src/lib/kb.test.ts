@@ -3,10 +3,12 @@ import { fileURLToPath } from "node:url";
 import fc from "fast-check";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
+import { PILOT_CONFIG } from "./pilot";
 import {
   KB_ENTRIES,
   KB_ENTRY_STATUSES,
   KB_FACT_GROUPS,
+  SAMPLE_KB_ENTRIES,
   KbValidationError,
   SilentCitationError,
   citeCadenceSchedule,
@@ -131,15 +133,30 @@ describe("shipped sample entry", () => {
     expect(text).not.toContain("{{PILOT_PROGRAM}}{{");
   });
 
-  it("ships the three sample entries and loads them through the dataset", () => {
-    // Mission v2 M3: matching needs more than one entry to rank (the KB
-    // stayed single-entry through milestone M1 knowledge-pii).
+  it("production export is exactly the pilot-config KB set (VAL-PILOTREAL-004)", () => {
+    // The production dataset is seam-driven: every entry PILOT_CONFIG
+    // references, and nothing else. The synthetic samples never ship beside
+    // the real pilot entry, so a placeholder-program card cannot rank for
+    // real users.
     expect(KB_ENTRIES.map((entry) => entry.id)).toEqual([
+      ...PILOT_CONFIG.kbEntryIds,
+    ]);
+    expect(KB_ENTRIES.map((entry) => entry.id)).toEqual(["nc_medicaid"]);
+  });
+
+  it("the three samples ship only in the test-only export", () => {
+    // Mission v2 M3's matching fixtures stay available for tests through
+    // their own export — disjoint from the production dataset.
+    expect(SAMPLE_KB_ENTRIES.map((entry) => entry.id)).toEqual([
       "pilot_program_sample",
       "pilot_program_sample_b",
       "pilot_program_sample_c",
     ]);
-    expect(KB_ENTRIES[0]).toEqual(parseKbEntry(RAW_SAMPLE));
+    expect(SAMPLE_KB_ENTRIES[0]).toEqual(parseKbEntry(RAW_SAMPLE));
+    const productionIds = new Set(KB_ENTRIES.map((entry) => entry.id));
+    for (const sample of SAMPLE_KB_ENTRIES) {
+      expect(productionIds.has(sample.id), sample.id).toBe(false);
+    }
   });
 });
 

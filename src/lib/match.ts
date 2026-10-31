@@ -14,6 +14,7 @@ import {
 import {
   ALL_KB_FACT_GROUPS,
   KB_ENTRIES,
+  SAMPLE_KB_ENTRIES,
   citeFactGroup,
   type KbCitation,
   type KbEntry,
@@ -622,6 +623,11 @@ export interface MatchBuildOptions {
  */
 const moduleExplanationCache = new Map<string, MatchExplanation>();
 
+/** Test seam: clear the module-level explanation cache. */
+export function resetModuleExplanationCache(): void {
+  moduleExplanationCache.clear();
+}
+
 function explanationCacheKey(entry: KbEntry): string {
   return `${entry.id}:v${entry.version}`;
 }
@@ -787,7 +793,18 @@ function cardStaticCopy(entry: KbEntry, card: MatchCard): string {
  * user's own text, so a leak cannot excuse itself. Entries are matched by
  * id AND version, so a card built from a bumped entry never inherits the
  * old version's copy.
+ *
+ * The lookup covers the test-only sample entries as well (VAL-PILOTREAL-004
+ * kept them out of the PRODUCTION dataset): production builds rank
+ * KB_ENTRIES only, but the suites build fixture cards from
+ * SAMPLE_KB_ENTRIES and run them through this same gate. Looking a card's
+ * entry up here never puts a sample into a response.
  */
+const STATIC_COPY_ENTRIES: readonly KbEntry[] = [
+  ...KB_ENTRIES,
+  ...SAMPLE_KB_ENTRIES,
+];
+
 function responseStaticCopy(response: MatchResponse): string {
   const parts: string[] = [
     MATCH_FRAMING,
@@ -795,7 +812,7 @@ function responseStaticCopy(response: MatchResponse): string {
     ...Object.values(ANSWER_STATUS_LABELS),
   ];
   for (const card of response.matches) {
-    const entry = KB_ENTRIES.find(
+    const entry = STATIC_COPY_ENTRIES.find(
       (candidate) =>
         candidate.id === card.entryId &&
         candidate.version === card.entryVersion,

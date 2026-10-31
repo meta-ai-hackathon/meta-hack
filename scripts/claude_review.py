@@ -10,25 +10,69 @@ changed files, per-file patches) and never checks out or runs PR code.
 Stdlib plus the anthropic SDK pinned in requirements-review.txt.
 
 What reaches the model: the PR title and body, the changed-file list, and
-the per-file unified diff, all wrapped as untrusted data. Lockfiles,
-binaries, generated assets, data files, and files that usually hold secrets
-are never sent, and values that look like secrets or personal data are
-redacted first. Over the token budget, files are reviewed in priority order
-and the comment lists every file that was not reviewed.
+the per-file unified diff, all wrapped as untrusted data. The files and
+the diff come from GitHub's comparison of the base and head commits the
+same PR read names, so a push or a retarget while the bot reads them can
+never put another diff under the head commit the comment and the approval
+name. Lockfiles, binaries, generated assets, data files, and files that
+usually hold secrets are never sent, and values that look like secrets or
+personal data are redacted first. Over the token budget, files are
+reviewed in priority order and the comment lists every file that was not
+reviewed.
 
 Every same-repo PR event runs the job (labels, edits, reopens and drafts
 too), because a skipped job leaves a passing check on the head commit. When
-the sticky already holds a finished review of the head commit by this same
-reviewer (script, rules and AGENTS.md), the run re-checks that stored
-verdict against the current labels instead of calling the model again.
+the sticky already holds a finished review of the head commit, made against
+the PR's current base branch by this same reviewer (script, rules and
+AGENTS.md), the run re-checks that stored verdict against the current labels
+instead of calling the model again. A retarget gives the head commit another
+diff, so it gets a fresh review.
 
-Exit codes: 1 only when the review found a P1 and the PR does not carry the
-claude-review-override label, and never for a manual (workflow_dispatch)
-run, whose check lands on the default branch. Every infrastructure failure
-(GitHub or Anthropic errors, timeouts, refusals, malformed output, a bug in
-this script) prints a ::warning:: and exits 0, after marking the sticky
-comment NOT reviewed (posting it if the PR has none yet). 2 is a usage
-error.
+Exit codes: 1 only when the review found a P1 and the claude-review-override
+label does not count, and never for a manual (workflow_dispatch) run, whose
+check lands on the default branch. The label counts only when its latest
+application, in the PR's issue events, was by a person's account (GitHub's
+type User, not a bot, and not through an app acting for it) other than the
+PR's author's, on a PR a person opened. Agents act under their owner's
+account, so a label added by the author's account may be the author's
+agent, and on a PR a bot opened the person behind it could add the label
+from their own account. When those events, or who opened the PR, cannot be
+read the label does not count either, so a real P1 keeps failing the check,
+and the comment says why the label did not count.
+
+Every infrastructure failure (GitHub or Anthropic errors, timeouts,
+refusals, malformed output, a bug in this script) prints a ::warning:: and
+marks the sticky comment NOT reviewed (posting it if the PR has none yet).
+The failure never fails the check by itself, but a P1 the comment still
+shows does: one from the bot's file rules, or one in a finished review of
+the same commit against the same base branch, which is kept. The one
+exception is a failure to read the PR's issue events. Those only say
+whether the override label counts, so the run prints a ::warning:: and the
+label does not count, but the review stands as reviewed and a P1 in it
+fails the check. When GitHub cannot return the PR, a PR event run uses the
+event's own copy of it ($GITHUB_EVENT_PATH), so the comment and the check
+still follow the event's head commit. 2 is a usage error.
+
+Approvals: when a live PR-event run's fresh review settles the verdict for
+the head commit, the bot makes sure it has an active APPROVED review on
+exactly that commit if the verdict has no P1, every changed file reached the
+model, the comment shows the verdict, and the PR's base branch did not
+change during the review. A re-check of a stored verdict never approves,
+since anyone who can edit comments on the PR can edit that verdict. It
+withdraws like a review when the stored verdict is not an all clear, and
+otherwise leaves an approval the review gave in place, even when the run
+had to use the event's copy of the PR. Every other outcome on an open PR
+(a P1, even with the override label; a push or a retarget that was not
+reviewed, or not fully, for any reason) dismisses every approval the bot
+has on the PR. A fresh review also dismisses them before the model runs
+(all but those of a head commit whose finished review against the same
+base branch the comment still shows), so a run that is cancelled or times
+out mid-review leaves none standing. Manual runs and dry runs never submit
+or dismiss reviews, and closed PRs and stale events keep the bot's reviews
+as they are. The approval step only logs on failure (including GitHub
+refusing approvals until an org owner allows Actions to approve) and
+starts no call near the job's time limit, so it never changes the check or
+the comment.
 
 Local dry run (reads real PR data, never writes to GitHub, never calls the
 model, needs no Anthropic key; uses GH_TOKEN or the gh CLI login):
@@ -40,6 +84,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import math
 import os
@@ -50,7 +95,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from email.message import Message
 from pathlib import Path, PurePosixPath
 from typing import IO, Any, Callable, Final, Iterable, Mapping, Protocol, Sequence, TextIO
@@ -127,6 +172,10 @@ MODEL_DEADLINE_SECONDS = 900.0
 MIN_ATTEMPT_SECONDS = 45.0
 ATTEMPT_MARGIN_SECONDS = 10.0
 MAX_MODEL_ATTEMPTS = 3
+# The bot's approval step starts no GitHub call later than this after the
+# script starts, so slow GitHub replies after a slow review cannot run the
+# job past its 20 minutes and fail the check through the approval.
+APPROVAL_DEADLINE_SECONDS = MODEL_DEADLINE_SECONDS + 120.0
 # Dry runs have no real usage, so their cost line assumes this much output
 # (thinking plus the JSON answer at high effort).
 ASSUMED_OUTPUT_TOKENS = 6_000
@@ -138,8 +187,10 @@ API_URL = "https://api.github.com"
 SERVER_URL = "https://github.com"
 USER_AGENT = "meta-hack-claude-review/1.0"
 GITHUB_TIMEOUT_SECONDS = 30.0
-MAX_PAGES = 40  # 4,000 comments or the 3,000-file listing cap, at 100 per page
+MAX_PAGES = 40  # 4,000 comments, reviews or issue events, at 100 per page
 REPO_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+# A commit id as GitHub writes it (SHA-1, or SHA-256 in a SHA-256 repo).
+_COMMIT_SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 
 
 @dataclass(frozen=True)
@@ -205,6 +256,8 @@ class PullRequest:
     base_ref: str
     labels: tuple[str, ...]
     changed_files: int
+    author: str = ""  # the PR's user.login, or "" when GitHub gave none
+    author_type: str = ""  # the PR's user.type ("User", "Bot", ...), or "" when GitHub gave none
 
 
 @dataclass(frozen=True)
@@ -223,6 +276,79 @@ class IssueComment:
     id: int
     author: str
     body: str
+
+
+@dataclass(frozen=True)
+class PullReview:
+    id: int
+    author: str
+    state: str  # "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", or "PENDING"
+    commit_id: str | None  # None when GitHub no longer has the commit
+
+
+@dataclass(frozen=True)
+class LabelEvent:
+    """A 'labeled' or 'unlabeled' entry in a PR's issue events."""
+
+    action: str  # "labeled" or "unlabeled"
+    label: str  # the label's name when it happened
+    actor: str  # the login that added or removed the label, or "" when GitHub named none
+    actor_type: str  # the account type ("User", "Bot", ...), or "" when GitHub gave none
+    created_at: str = ""  # as GitHub reports it, for the run log
+    # The app that acted for actor (performed_via_github_app): its slug, ""
+    # for one GitHub did not name, or None when the actor acted directly.
+    via_app: str | None = None
+    # False when the event had no performed_via_github_app at all, so it does
+    # not show whether the actor acted directly or through an app.
+    app_shown: bool = True
+
+
+# Whether the override label counts on a run (see decide_override).
+OVERRIDE_ABSENT = "absent"  # the PR does not carry the label
+OVERRIDE_HONORED = "honored"  # it counts: a person other than the PR's author added it last
+OVERRIDE_BY_AUTHOR = "author"  # the PR's author added it last
+OVERRIDE_BY_BOT = "bot"  # a bot account added it last
+OVERRIDE_UNTRACED = "untraced"  # the events do not show a person other than the author adding it
+OVERRIDE_UNREAD = "unread"  # the PR's events could not be read
+OVERRIDE_NO_AUTHOR = "no_author"  # a person added it last, but GitHub did not name the PR's author to tell them apart
+OVERRIDE_BOT_AUTHOR = "bot_author"  # a person added it last, but a bot opened the PR, so no person is its author
+OVERRIDE_BY_APP = "app"  # an app added it last, acting for a person's account
+OVERRIDE_STATUSES = (
+    OVERRIDE_ABSENT,
+    OVERRIDE_HONORED,
+    OVERRIDE_BY_AUTHOR,
+    OVERRIDE_BY_BOT,
+    OVERRIDE_UNTRACED,
+    OVERRIDE_UNREAD,
+    OVERRIDE_NO_AUTHOR,
+    OVERRIDE_BOT_AUTHOR,
+    OVERRIDE_BY_APP,
+)
+# The statuses a re-run can change without anyone touching the label, since
+# the run could not read what it needed.
+OVERRIDE_RETRYABLE = (OVERRIDE_UNREAD, OVERRIDE_NO_AUTHOR)
+
+
+@dataclass(frozen=True)
+class Override:
+    """Whether the override label counts on this run, and why not when it is
+    on the PR but does not."""
+
+    status: str  # one of OVERRIDE_STATUSES
+    actor: str | None = None  # the login that added the label last, when the events name one
+    added_at: str | None = None  # when it did, as GitHub reports it
+
+    @property
+    def counts(self) -> bool:
+        return self.status == OVERRIDE_HONORED
+
+    @property
+    def ignored(self) -> bool:
+        """The label is on the PR, but it does not count."""
+        return self.status not in (OVERRIDE_ABSENT, OVERRIDE_HONORED)
+
+
+NO_OVERRIDE = Override(OVERRIDE_ABSENT)
 
 
 @dataclass(frozen=True)
@@ -308,7 +434,7 @@ class CommentInputs:
     unlisted_files: int
     redactions: int
     usage: tuple[Usage, ...]
-    override: bool
+    override: bool  # the override label counts
     served_by: str
     fallback_served: bool = False
     run_url: str | None = None
@@ -317,6 +443,13 @@ class CommentInputs:
     dry_run: bool = False
     fingerprint: str | None = None  # the reviewer that produced this review
     model_ran: bool = True  # False when no changed file could be sent
+    base_ref: str | None = None  # the base branch the review was made against
+    ignored_override: Override | None = None  # an override label on the PR that does not count
+
+    @property
+    def complete(self) -> bool:
+        """Whether every changed file was sent to the model."""
+        return not self.skipped and not self.unlisted_files
 
 
 @dataclass(frozen=True)
@@ -327,6 +460,18 @@ class StickyState:
     status: str  # "pending", "reviewed", or "not_reviewed"
     reviewer: str | None = None
     counts: tuple[int, int, int] | None = None  # P1, P2, P3 of a finished review
+    model_ran: bool = True  # False when no changed file could be sent, so nothing was reviewed
+    complete: bool = True  # False when some changed file was not sent to the model
+    base: str | None = None  # base_digest() of the branch a finished review was made against
+
+
+@dataclass(frozen=True)
+class StickyWrite:
+    """What one write of the sticky comment did."""
+
+    landed: bool  # the body is now the sticky's text
+    kept: StickyState | None = None  # a finished review of the same commit, left in place instead
+    comment: IssueComment | None = None  # the sticky that holds it, with kept
 
 
 # --- text safety (pure) -----------------------------------------------------------
@@ -501,19 +646,118 @@ class _Detector:
     accept: Callable[[str], bool] | None = None
 
 
-# High-precision patterns only. Order matters: multi-line keys first, then
-# tokens, then personal data. No replacement text can match a later pattern.
+# A private key, from its header on. The redactor walks the lines after the
+# header (real line breaks, and ones written as \n or \r escapes in a
+# string). A line is key material when it holds nothing but base64 (a /
+# written \/ too) and the marks keys are written with: at its start a diff
+# marker, indentation, comment markers (#, //, *, ;, --, %, REM) and a
+# string's prefix; around and between its runs quotes (escaped ones too),
+# commas, spaces, the + of a string concatenation and a closing backslash.
+# The two headers of an encrypted PEM key and blank lines count too. Each
+# piece is matched once, where the last one ended, and its runs are
+# possessive, so the walk takes linear time.
+_KEY_HEADER = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+_KEY_FOOTER = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
+_KEY_RUN = re.compile(r"(?:[A-Za-z0-9+/=]|\\++/)++")
+# How far past a header a footer still counts as that key's footer (main's bound).
+_KEY_FOOTER_WINDOW = 8000 + 40
+_KEY_PIECE = re.compile(
+    r"(?P<footer>-?-----END [A-Z ]*PRIVATE KEY-----)"
+    r"|(?P<line_break>\r\n?+|\n|\\++[nr])"
+    r"|(?P<pem_header>Proc-Type: ?4,ENCRYPTED|DEK-Info: ?[A-Z0-9-]++,[0-9A-Fa-f]++)"
+    r"""|(?P<gap>(?:[ \t"'`,]|\\++["'`t]|\\++(?=[\r\n]|\Z))++)"""
+    r"|(?P<base64>(?:[A-Za-z0-9+/=]|\\++/)++)"
+)
+# What may open a line, including the prefix of a string piece such as
+# Python's b"" or C's L"". A line of base64 can start with + or //, so they
+# count as a diff marker and a comment marker only when no base64 follows
+# them (a PEM header or a string's prefix may).
+_KEY_STRING_PREFIX = r"""(?:[bBrRuUfF]{1,2}+|u8|L)(?=["'])"""
+_KEY_OPENER = r"(?:Proc-Type:|DEK-Info:|" + _KEY_STRING_PREFIX + ")"
+_KEY_LINE_START = re.compile(
+    r"(?:[ \t]|\+(?=(?i:rem)[ \t\r\n]|" + _KEY_OPENER + r"|[^A-Za-z0-9+=]|\Z)|-{1,3}+(?!-)|[#*;%]"
+    r"|/{2,3}+(?:!?(?![A-Za-z0-9+/=])|(?=" + _KEY_OPENER + r"))|(?i:rem)(?=[ \t\r\n]|\Z)|" + _KEY_STRING_PREFIX + ")++"
+)
+# A key's base64 comes in lines of 64 characters (70 or 76 in some formats),
+# so a run of 16 or more is a line of a key. A shorter run is one only as the
+# key's last line, right before the footer. A run of fewer + signs than that
+# is the + of a concatenation.
+_KEY_LINE_MIN = 16
+
+
+def _key_end(text: str, pos: int) -> int:
+    """Where the redaction of a key whose header ends at pos stops: at the
+    end of its footer when every line before the footer is key material, and
+    otherwise at the end of the last whole line of key material right after
+    the header (the header's own end when there is none). So when no footer
+    follows within the bound, the first line that is not key material, such
+    as a line of code, and everything after it reach the model; when one
+    does follow, private_key_spans also redacts the key material and the
+    footer after that line (see there)."""
+    end = pos  # the header and every whole line of key material after it
+    pending = False  # a short run ended a line, so only the footer may follow
+    line_end: int | None = None  # the end of the current line's last full run
+    line_short = False  # a short run came on the current line
+    line_start = False  # nothing but a line's start yet, where comment markers may stand
+    while True:
+        if line_start and (lead := _KEY_LINE_START.match(text, pos)):
+            pos = lead.end()
+        piece = _KEY_PIECE.match(text, pos)
+        if piece is None:
+            # The end of the text ends the line. Anything else is not key
+            # material, so neither its line nor anything after it is redacted.
+            return line_end if pos == len(text) and line_end is not None else end
+        pos = piece.end()
+        kind, value = piece.lastgroup, piece.group()
+        if kind == "footer":
+            return pos
+        if kind == "line_break":
+            end = end if line_end is None else line_end
+            pending, line_end, line_short, line_start = pending or line_short, None, False, True
+        elif kind == "pem_header" or (kind == "base64" and (value.strip("+") or len(value) >= _KEY_LINE_MIN)):
+            if pending or line_short:
+                return end  # a short run that was not the key's last line
+            if kind == "base64" and len(value) < _KEY_LINE_MIN:
+                line_short = True
+            else:
+                line_end = pos
+            line_start = False
+
+
+def private_key_spans(text: str) -> list[tuple[int, int]]:
+    """Where each private key in text starts and where its redaction ends
+    (see _key_end), in order. Linear in the text's length: a key's walk ends
+    at its footer or at the first piece that is not key material, which any
+    later header is, so no two walks cover the same text. When a footer
+    follows a header within the bound but the walk stopped early -- a key
+    written as code, one base64 line per echo or one string piece per line
+    joined with a dot -- the code skeleton stays visible, but every base64
+    run of a key line or more between the walk's end and the footer, and
+    the footer itself, are redacted too."""
+    spans: list[tuple[int, int]] = []
+    header = _KEY_HEADER.search(text)
+    while header is not None:
+        end = _key_end(text, header.end())
+        spans.append((header.start(), end))
+        footer = _KEY_FOOTER.search(text, header.end(), header.end() + _KEY_FOOTER_WINDOW)
+        if footer is not None and _KEY_HEADER.search(text, header.end(), footer.start()) is not None:
+            # A later header comes first, so this footer is that key's, not
+            # this one's; leave both to the later header's own walk.
+            footer = None
+        if footer is not None and end <= footer.start():
+            for run in _KEY_RUN.finditer(text, end, footer.start()):
+                value = run.group()
+                if len(value) - value.count("\\") >= _KEY_LINE_MIN:
+                    spans.append(run.span())
+            spans.append((footer.start(), footer.end()))
+        header = _KEY_HEADER.search(text, spans[-1][1])
+    return spans
+
+
+# Private keys go first (private_key_spans), then these: tokens, then
+# personal data. High-precision patterns only, in this order, so that no
+# replacement text can match a later pattern.
 DETECTORS: tuple[_Detector, ...] = (
-    _Detector(
-        # Through the footer when one follows within 8k characters; otherwise
-        # the header plus any base64 lines after it (diff "+" prefixes allowed),
-        # so a header used as a code constant does not swallow the whole diff.
-        "private key",
-        re.compile(
-            r"-----BEGIN [A-Z ]*PRIVATE KEY-----"
-            r"(?:[\s\S]{0,8000}?-----END [A-Z ]*PRIVATE KEY-----|(?:\s*\+?[A-Za-z0-9+/=]{16,})*)"
-        ),
-    ),
     _Detector(
         "api key",
         re.compile(
@@ -551,7 +795,13 @@ def redaction_marker(kind: str) -> str:
 def redact_sensitive(text: str) -> tuple[str, int]:
     """Replace values that look like secrets or personal data with a marker.
     Returns the new text and how many values were replaced. Idempotent."""
-    count = 0
+    pieces: list[str] = []
+    last = 0
+    for start, end in private_key_spans(text):
+        pieces += [text[last:start], redaction_marker("private key")]
+        last = end
+    count = len(pieces) // 2
+    text = "".join(pieces) + text[last:]
     for detector in DETECTORS:
 
         def substitute(match: re.Match[str], detector: _Detector = detector) -> str:
@@ -812,7 +1062,7 @@ P2, should fix soon: real bugs and risks that do not block a merge.
 P3: nits."""
 
 SYSTEM_PROMPT = """\
-You review pull requests for the {repo} repository. It builds a benefits application companion (Tenet, in src/ as Benefits Navigator) that will handle real people's Medicaid and SNAP information. Coding agents open and merge many of these pull requests on their own, so your review is often the only check between their code and main.
+You review pull requests for the {repo} repository. It builds a benefits application companion (Tenet, in src/ as Benefits Navigator) that will handle real people's public-benefits information. Coding agents open and merge many of these pull requests on their own, so your review is often the only check between their code and main.
 
 Find the problems in this change that matter, rank each one with the rubric below, and answer with the JSON object the response format requires.
 
@@ -1009,10 +1259,165 @@ def has_override(labels: Iterable[str]) -> bool:
     return any(label.lower() == OVERRIDE_LABEL for label in labels)
 
 
-def decide_exit(findings: Iterable[Finding], labels: Iterable[str]) -> int:
-    """1 only for a P1 on a PR without the override label."""
+# A GitHub login: letters, digits, hyphens (and underscores for enterprise
+# managed users), with "[bot]" after an app's name.
+_LOGIN = re.compile(r"[A-Za-z0-9_-]{1,100}(?:\[bot\])?")
+
+
+# GitHub's account type for a person's account. Bots are "Bot", and an
+# organization or a mannequin (an imported user's placeholder) is no person.
+PERSON_TYPE = "User"
+
+
+def is_bot(login: str, account_type: str) -> bool:
+    """Whether an account is a bot: GitHub gives apps (github-actions among
+    them) the type Bot and a login that ends in [bot]."""
+    return account_type == "Bot" or login.lower().endswith("[bot]")
+
+
+def decide_override(
+    labels: Iterable[str], author: str, events: Sequence[LabelEvent] | None, *, author_type: str = PERSON_TYPE
+) -> Override:
+    """Whether the override label counts for a PR with these labels, opened
+    by author (an account of author_type): the PR carries the label, and its
+    latest application in the PR's issue events (the last 'labeled' event
+    for it, in any case, after its last 'unlabeled' one) was by a person's
+    account (GitHub's type User, with no [bot] login) other than the
+    author's. Agents act under their owner's account, so "a person added it"
+    cannot be told apart from "an agent added it", while "someone other than
+    the author added it" can. That needs a person as the author, so on a PR
+    a bot opened (Dependabot, an agent's app, or any workflow's
+    github-actions[bot]) the label never counts: whoever is behind such a PR
+    could add it from their own account. A person's label counts only when
+    they added it themselves: an app acting with their token (an agent's,
+    say) is recorded as them, so a label the events show it added never
+    counts, and neither does one from an event that does not say whether an
+    app acted. events is None when they could not be read; the label then does
+    not count, so a real P1 keeps failing. Logins compare without case, as
+    GitHub's do. Anything GitHub did not name plainly never counts: an actor
+    that is not a login, an account type other than User (none at all
+    included), or an author that is not a person's login."""
+    if not has_override(labels):
+        return NO_OVERRIDE
+    if events is None:
+        return Override(OVERRIDE_UNREAD)
+    latest: LabelEvent | None = None
+    for event in events:
+        if event.label.lower() != OVERRIDE_LABEL:
+            continue
+        if event.action == "labeled":
+            latest = event
+        elif event.action == "unlabeled":
+            latest = None
+    if latest is None:
+        return Override(OVERRIDE_UNTRACED)
+    found = Override(OVERRIDE_UNTRACED, latest.actor or None, latest.created_at or None)
+    # What the account is comes first: an actor GitHub did not name as a login, or as a person, is no one to count.
+    if not _LOGIN.fullmatch(latest.actor):
+        return found
+    if is_bot(latest.actor, latest.actor_type):
+        return replace(found, status=OVERRIDE_BY_BOT)
+    if latest.actor_type != PERSON_TYPE or not latest.app_shown:
+        return found
+    if latest.via_app is not None:
+        return replace(found, status=OVERRIDE_BY_APP)
+    # A person, then, who counts only when they are not the author, which
+    # takes a person as the author.
+    if not _LOGIN.fullmatch(author):
+        return replace(found, status=OVERRIDE_NO_AUTHOR)
+    if is_bot(author, author_type):
+        return replace(found, status=OVERRIDE_BOT_AUTHOR)
+    if author_type != PERSON_TYPE:
+        return replace(found, status=OVERRIDE_NO_AUTHOR)
+    if latest.actor.lower() == author.lower():
+        return replace(found, status=OVERRIDE_BY_AUTHOR)
+    return replace(found, status=OVERRIDE_HONORED)
+
+
+def decide_exit(findings: Iterable[Finding], override: Override) -> int:
+    """1 only for a P1 when the override label does not count."""
     has_p1 = any(finding.severity == "P1" for finding in findings)
-    return 1 if has_p1 and not has_override(labels) else 0
+    return 1 if has_p1 and not override.counts else 0
+
+
+def display_login(login: str) -> str:
+    """A login for the comment's prose: '@' and the login with the mention
+    broken, the way neutralize() breaks every handle. Text that is not a
+    login's shape is shown as code, where markdown does nothing."""
+    if _LOGIN.fullmatch(login):
+        return neutralize_mentions("@" + login)
+    flat = " ".join(login.split())
+    return f"`{display_path(clip(flat, 100))}`" if flat else "an account GitHub did not name"
+
+
+def plain_login(login: str) -> str:
+    """A login for the run log and the job summary, on one line."""
+    return clip(" ".join(login.split()), 100) or "an account GitHub did not name"
+
+
+def override_why(override: Override, name: Callable[[str], str] = plain_login) -> str:
+    """Why an override label on the PR does not count, as a clause, with
+    each login written by name."""
+    if override.status == OVERRIDE_BY_AUTHOR:
+        return f"the PR's author, {name(override.actor or '')}, added it"
+    if override.status == OVERRIDE_BY_BOT:
+        return f"a bot account, {name(override.actor or '')}, added it"
+    if override.status == OVERRIDE_UNREAD:
+        return "the bot could not read the PR's events to see who added it"
+    if override.status == OVERRIDE_NO_AUTHOR:
+        return "the bot could not read who opened the PR, so it cannot tell whether the PR's author added it"
+    if override.status == OVERRIDE_BOT_AUTHOR:
+        return "a bot account opened the PR, so the bot cannot tell whether whoever is behind the PR added it"
+    if override.status == OVERRIDE_BY_APP:
+        return f"an app added it for {name(override.actor or '')}, not that person directly"
+    return "the PR's events do not show that a person other than the PR's author added it"
+
+
+def ignored_override_text(override: Override) -> str:
+    """The comment's sentences for an override label that is on the PR but
+    does not count: fixed text plus the login that added it, with the
+    mention broken. One line, so it fits in the comment's verdict line.
+    When the run could not read what it needed, a re-run is the way out; on
+    a PR a bot opened, only a fix; and otherwise someone other than the
+    author adding the label again."""
+    label = f"`{OVERRIDE_LABEL}`"
+    if override.status in OVERRIDE_RETRYABLE:
+        text = (
+            f"The {label} label is on this PR, but it does not count on this run, because "
+            f"{override_why(override, display_login)}. Push a fix, or re-run the workflow to check the label again."
+        )
+    elif override.status == OVERRIDE_BOT_AUTHOR:
+        text = (
+            f"The {label} label is on this PR, but it does not count, because {override_why(override, display_login)}. "
+            "On a PR a bot opened the label never counts, so push a fix."
+        )
+    else:
+        text = (
+            f"The {label} label is on this PR, but it does not count, because {override_why(override, display_login)}. "
+            "Push a fix, or have a person other than the PR's author remove the label and add it again once they "
+            "decide the PR can merge anyway."
+        )
+    return neutralize(text)
+
+
+def describe_override(labels: Iterable[str], override: Override | None) -> str:
+    """The override label's part in a verdict, for the run log and the job
+    summary (which GitHub renders as markdown, so no handle in it is live).
+    override is None when the run did not need to check it, and then the
+    labels say whether the label is on the PR."""
+    if override is None:
+        return f"the {OVERRIDE_LABEL} label is {'on' if has_override(labels) else 'not on'} the PR"
+    if override.status == OVERRIDE_ABSENT:
+        return f"the {OVERRIDE_LABEL} label is not on the PR"
+    at = f" at {clip(' '.join(override.added_at.split()), 40)}" if override.added_at else ""
+    if override.counts:
+        text = (
+            f"the {OVERRIDE_LABEL} label is on the PR and counts, since {plain_login(override.actor or '')} added "
+            f"it last{at} and is neither the PR's author nor a bot"
+        )
+    else:
+        text = f"the {OVERRIDE_LABEL} label is on the PR but does not count, because {override_why(override)}{at}"
+    return neutralize(text)
 
 
 def price_for(model: str) -> tuple[Price, bool]:
@@ -1043,14 +1448,35 @@ def format_cost(dollars: float) -> str:
 # --- comment rendering (pure) ----------------------------------------------------------
 
 
+def base_digest(base_ref: str) -> str:
+    """The base branch as the state line keeps it. Hex only, so no branch
+    name can close the HTML comment the state line sits in, and the
+    comment's mention and reference breaking leaves it as it is."""
+    return hashlib.sha256(base_ref.encode("utf-8")).hexdigest()[:16]
+
+
 def state_line(
-    head_sha: str, status: str, *, reviewer: str | None = None, counts: Mapping[str, int] | None = None
+    head_sha: str,
+    status: str,
+    *,
+    reviewer: str | None = None,
+    counts: Mapping[str, int] | None = None,
+    model_ran: bool = True,
+    complete: bool = True,
+    base_ref: str | None = None,
 ) -> str:
     data: dict[str, object] = {"sha": head_sha, "status": status}
     if reviewer:
         data["reviewer"] = reviewer
     if counts is not None:
         data.update({severity.lower(): counts[severity] for severity in SEVERITIES})
+    if base_ref is not None:
+        data["base"] = base_digest(base_ref)
+    # Written only when false, so every other state line stays as it was.
+    if not model_ran:
+        data["model_ran"] = False
+    if not complete:
+        data["complete"] = False
     return STATE_PREFIX + json.dumps(data, sort_keys=True) + " -->"
 
 
@@ -1069,26 +1495,55 @@ def parse_state(body: str) -> StickyState | None:
         return None
     if not isinstance(data, dict):
         return None
-    sha, status, reviewer = data.get("sha"), data.get("status"), data.get("reviewer")
+    sha, status, reviewer, base = data.get("sha"), data.get("status"), data.get("reviewer"), data.get("base")
     if not isinstance(sha, str) or not isinstance(status, str):
         return None
     p1, p2, p3 = (_count(data.get(severity.lower())) for severity in SEVERITIES)
     counts = (p1, p2, p3) if p1 is not None and p2 is not None and p3 is not None else None
-    return StickyState(sha, status, reviewer if isinstance(reviewer, str) else None, counts)
+    # Anything but a missing key or true reads as false, the side that never approves.
+    model_ran = data.get("model_ran", True) is True
+    complete = data.get("complete", True) is True
+    return StickyState(
+        sha,
+        status,
+        reviewer if isinstance(reviewer, str) else None,
+        counts,
+        model_ran,
+        complete,
+        base if isinstance(base, str) else None,
+    )
 
 
-def status_paragraph(counts: Mapping[str, int], override: bool, *, model_ran: bool = True) -> str:
-    """The bold verdict line under the comment heading."""
+def reviews_this_diff(state: StickyState | None, pr: PullRequest) -> bool:
+    """Whether state is a finished review of pr's head commit made against
+    pr's base branch. A PR's diff depends on both, so a review of the same
+    commit against another base branch (before a retarget, or with no base
+    recorded) is a review of another diff."""
+    return (
+        state is not None
+        and state.status == "reviewed"
+        and state.sha == pr.head_sha
+        and state.base == base_digest(pr.base_ref)
+    )
+
+
+def status_paragraph(
+    counts: Mapping[str, int], override: bool, *, model_ran: bool = True, ignored: Override | None = None
+) -> str:
+    """The bold verdict line under the comment heading. override says the
+    override label counts; ignored is a label on the PR that does not."""
     tally = f"{counts['P1']} P1, {counts['P2']} P2, {counts['P3']} P3"
     if counts["P1"] and override:
         return (
             f"**{tally}.** The `{OVERRIDE_LABEL}` label is on this PR, so the `{CHECK_NAME}` check "
             "passes anyway."
         )
+    if counts["P1"] and ignored is not None and ignored.ignored:
+        return f"**{tally}.** A P1 fails the `{CHECK_NAME}` check. {ignored_override_text(ignored)}"
     if counts["P1"]:
         return (
-            f"**{tally}.** A P1 fails the `{CHECK_NAME}` check. Push a fix, or add the "
-            f"`{OVERRIDE_LABEL}` label once a person decides it can merge anyway."
+            f"**{tally}.** A P1 fails the `{CHECK_NAME}` check. Push a fix, or have a person other than the "
+            f"PR's author add the `{OVERRIDE_LABEL}` label once they decide it can merge anyway."
         )
     if any(counts.values()):
         return f"**{tally}.** Nothing here blocks the merge."
@@ -1195,8 +1650,16 @@ def render_footer(inputs: CommentInputs) -> str:
 def render_review_comment(inputs: CommentInputs, limit: int = COMMENT_BUDGET) -> str:
     findings = sort_findings(inputs.findings)
     counts = severity_counts(findings)
-    status = status_paragraph(counts, inputs.override, model_ran=inputs.model_ran)
-    state = state_line(inputs.head_sha, "reviewed", reviewer=inputs.fingerprint, counts=counts)
+    status = status_paragraph(counts, inputs.override, model_ran=inputs.model_ran, ignored=inputs.ignored_override)
+    state = state_line(
+        inputs.head_sha,
+        "reviewed",
+        reviewer=inputs.fingerprint,
+        counts=counts,
+        model_ran=inputs.model_ran,
+        complete=inputs.complete,
+        base_ref=inputs.base_ref,
+    )
     head = f"{MARKER}\n{state}\n### Claude review of `{short_sha(inputs.head_sha)}`\n\n{status}\n\n"
     if inputs.summary:
         head += clean(inputs.summary) + "\n\n"
@@ -1251,8 +1714,11 @@ def render_status_comment(
     repo: str = "",
     run_url: str | None = None,
     server_url: str = SERVER_URL,
+    override: Override | None = None,
 ) -> str:
-    """The sticky for a push that is being reviewed, or that was NOT reviewed."""
+    """The sticky for a push that is being reviewed, or that was NOT reviewed.
+    override, when it is an ignored label, is explained under the file-rule
+    P1s, since those then fail the check."""
     sha = short_sha(head_sha)
     if pending:
         lines = [
@@ -1275,6 +1741,8 @@ def render_status_comment(
     if rule_findings:
         lines += ["", f"#### {SEVERITY_HEADINGS['P1']}", ""]
         lines += ["These come from the bot's file rules, which do not need the model.", ""]
+        if override is not None and override.ignored:
+            lines += [f"A P1 fails the `{CHECK_NAME}` check. {ignored_override_text(override)}", ""]
         lines += [render_finding(i, f, repo, head_sha, server_url) for i, f in enumerate(rule_findings, start=1)]
     if run_url:
         lines += ["", f"<sub>[Run log]({run_url}).</sub>"]
@@ -1290,6 +1758,107 @@ RETIRED_BODY = (
     "This older copy of the Claude review comment is retired. The current review is the first "
     "comment from this bot on the PR."
 )
+
+
+# --- approval (pure) ---------------------------------------------------------------------
+
+APPROVED = "APPROVED"
+APPROVAL_SETTING = "Allow GitHub Actions to create and approve pull requests"
+# Fixed text only: no model or PR text ever goes into a review or a dismissal.
+APPROVAL_BODY = (
+    "The Claude review of this commit covered every changed file and found no P1. This approval is the "
+    "review bot's verdict, not a person's review, and the bot's comment on this PR has the details."
+)
+WITHDRAWN_FOR_P1 = (
+    "The latest push has a P1 in the Claude review, so the review bot withdrew its approval. The "
+    "bot's comment on this PR or its workflow run has the details."
+)
+WITHDRAWN_UNREVIEWED = (
+    "The latest push was not reviewed by the Claude review bot, so it withdrew its approval. The "
+    "bot's comment on this PR or its workflow run says why."
+)
+WITHDRAWN_PARTIAL = (
+    "The Claude review of the latest push did not cover every changed file, so the review bot withdrew "
+    "its approval. The bot's comment on this PR says which files it did not review."
+)
+WITHDRAWN_FOR_REVIEW = (
+    "The Claude review bot is reviewing the latest push, so it withdrew this approval until that review "
+    "is done. The bot's comment on this PR shows where the review stands."
+)
+WITHDRAWN_UNCONFIRMED = (
+    "The Claude review bot could not confirm its all clear for this PR as it is now, so it withdrew its "
+    "approval. Its workflow run says why."
+)
+# GitHub's answer when the org or repo setting does not let the workflow's
+# token approve: HTTP 403 or 422 that says "GitHub Actions is not permitted
+# to approve pull requests." (or "... to create or approve ..."). A 422 says
+# it in the reply's errors list, under the message "Unprocessable Entity",
+# which _api_message carries into the GitHubError. Other refusals
+# (approving its own PR, a rate limit, a missing permission) have other
+# causes, so they are warnings.
+APPROVAL_REFUSED_STATUSES = frozenset({403, 422})
+_NOT_PERMITTED = re.compile(r"\bnot permitted to (?:create or )?approve\b", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class Approval:
+    """What a live PR-event run does with the bot's own reviews."""
+
+    approve: bool  # True: approve the head commit; False: withdraw the bot's approvals
+    text: str  # the review body, or the dismissal message
+    reason: str  # for the run log
+    keep_head: bool = False  # withdrawing only: keep the bot's approvals of the head commit
+
+
+APPROVE_HEAD = Approval(True, APPROVAL_BODY, "it has no P1 and the review covered every changed file")
+WITHDRAW_FOR_P1 = Approval(False, WITHDRAWN_FOR_P1, "the latest push has a P1")
+WITHDRAW_UNREVIEWED = Approval(False, WITHDRAWN_UNREVIEWED, "the latest push was not reviewed")
+WITHDRAW_PARTIAL = Approval(False, WITHDRAWN_PARTIAL, "the review did not cover every changed file")
+WITHDRAW_FOR_REVIEW = Approval(False, WITHDRAWN_FOR_REVIEW, "a review of the latest push is starting")
+
+
+def approval_for(has_p1: bool, model_ran: bool, complete: bool) -> Approval:
+    """The approval step for a settled verdict. The override label plays no
+    part: it is a person's call to merge anyway, not the bot's all clear.
+    A verdict is not an all clear either when nothing, or not every changed
+    file, was sent to the model."""
+    if has_p1:
+        return WITHDRAW_FOR_P1
+    if not model_ran:
+        return WITHDRAW_UNREVIEWED
+    return APPROVE_HEAD if complete else WITHDRAW_PARTIAL
+
+
+def confirmed(step: Approval, problem: str | None) -> Approval:
+    """step, or a withdrawal when step would approve but the run could not
+    confirm the verdict holds for the PR as it is now (problem says why)."""
+    if step.approve and problem is not None:
+        return Approval(False, WITHDRAWN_UNCONFIRMED, problem)
+    return step
+
+
+def plan_approval(
+    reviews: Iterable[PullReview], bot_login: str, head_sha: str, *, approve: bool, keep_head: bool = False
+) -> tuple[bool, tuple[int, ...]]:
+    """Whether to post an approval of head_sha, and which reviews to dismiss.
+    Approving posts one only when the bot has no active approval of that
+    exact commit and dismisses nothing; withdrawing dismisses each active
+    approval by the bot once, except those of head_sha with keep_head.
+    Reviews by anyone else are never touched."""
+    mine = [item for item in reviews if item.author == bot_login and item.state == APPROVED]
+    if approve:
+        return not any(item.commit_id == head_sha for item in mine), ()
+    return False, tuple(dict.fromkeys(item.id for item in mine if not (keep_head and item.commit_id == head_sha)))
+
+
+def refused_by_setting(exc: ReviewError) -> bool:
+    """Whether GitHub refused an approval because the setting that lets
+    GitHub Actions approve pull requests is off."""
+    return (
+        isinstance(exc, GitHubError)
+        and exc.status in APPROVAL_REFUSED_STATUSES
+        and _NOT_PERMITTED.search(str(exc)) is not None
+    )
 
 
 # --- GitHub API ------------------------------------------------------------------------
@@ -1335,11 +1904,13 @@ def urllib_transport(
     except urllib.error.HTTPError as exc:
         try:
             raw = exc.read()
-        except OSError:
+        except (OSError, http.client.HTTPException):
             raw = b""
         found = {k.lower(): v for k, v in exc.headers.items()} if exc.headers else {}
         return HttpResponse(exc.code, found, raw)
-    except OSError as exc:  # URLError, timeouts, resets; never carries the token
+    # URLError, timeouts and resets, plus replies that are cut short or
+    # malformed, which http.client raises outside OSError. Never carries the token.
+    except (OSError, http.client.HTTPException) as exc:
         raise GitHubError(f"network error talking to GitHub ({type(exc).__name__})") from exc
 
 
@@ -1355,13 +1926,30 @@ def next_page_url(link_header: str | None) -> str | None:
     return None
 
 
+def _api_text(value: object) -> str:
+    """One line of text GitHub sent, or "" when value is not text."""
+    return clip(" ".join(value.split()), 160) if isinstance(value, str) else ""
+
+
 def _api_message(body: bytes) -> str:
+    """What an error reply says, for the GitHubError message: its message,
+    then the text of each entry in its errors list (a string, or an object's
+    message). GitHub gives some reasons only there: refusing an approval
+    while Actions may not approve is a 422 whose message is "Unprocessable
+    Entity" and whose errors say why. Empty when the body says neither."""
     try:
         data = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return ""
-    message = data.get("message") if isinstance(data, dict) else None
-    return f": {clip(message, 160)}" if isinstance(message, str) else ""
+    if not isinstance(data, dict):
+        return ""
+    errors = data.get("errors")
+    reasons = [
+        _api_text(item.get("message") if isinstance(item, dict) else item)
+        for item in (errors if isinstance(errors, list) else [])
+    ]
+    parts = [part for part in (_api_text(data.get("message")), "; ".join(filter(None, reasons))) if part]
+    return f": {clip(': '.join(parts), 400)}" if parts else ""
 
 
 def _as_dict(value: object, what: str) -> dict[str, Any]:
@@ -1379,6 +1967,9 @@ def parse_pull(data: object) -> PullRequest:
         labels = tuple(
             str(label["name"]) for label in (pull.get("labels") or []) if isinstance(label, dict) and "name" in label
         )
+        user = pull.get("user")
+        login = user.get("login") if isinstance(user, dict) else None
+        kind = user.get("type") if isinstance(user, dict) else None
         return PullRequest(
             number=int(pull["number"]),
             title=str(pull.get("title") or ""),
@@ -1391,8 +1982,10 @@ def parse_pull(data: object) -> PullRequest:
             base_ref=str(base.get("ref") or ""),
             labels=labels,
             changed_files=int(pull.get("changed_files") or 0),
+            author=login if isinstance(login, str) else "",
+            author_type=kind if isinstance(kind, str) else "",
         )
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:  # OverflowError: int() of an infinity
         raise GitHubError(f"GitHub returned an unexpected pull request ({type(exc).__name__})") from None
 
 
@@ -1427,16 +2020,76 @@ def parse_comment(data: object) -> IssueComment:
         raise GitHubError(f"GitHub returned an unexpected comment ({type(exc).__name__})") from None
 
 
+def parse_pull_review(data: object) -> PullReview:
+    item = _as_dict(data, "review")
+    try:
+        user = item.get("user")
+        commit = item.get("commit_id")
+        return PullReview(
+            id=int(item["id"]),
+            author=str(user.get("login") or "") if isinstance(user, dict) else "",
+            state=str(item.get("state") or ""),
+            commit_id=commit if isinstance(commit, str) else None,
+        )
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise GitHubError(f"GitHub returned an unexpected review ({type(exc).__name__})") from None
+
+
+LABEL_ACTIONS = ("labeled", "unlabeled")
+
+
+def parse_issue_event(data: object) -> LabelEvent | None:
+    """A 'labeled' or 'unlabeled' entry of a PR's issue events, or None for
+    any other kind of event. An entry that is not an object, or a label event
+    without a label name, raises GitHubError, so a listing the bot cannot
+    read never passes for one in which nobody added the override label."""
+    item = _as_dict(data, "issue event")
+    action = item.get("event")
+    if not isinstance(action, str) or action not in LABEL_ACTIONS:
+        return None
+    label = item.get("label")
+    name = label.get("name") if isinstance(label, dict) else None
+    if not isinstance(name, str):
+        raise GitHubError(f"GitHub returned {'an' if action == 'unlabeled' else 'a'} {action} event without a label name")
+    actor = item.get("actor")
+    login = actor.get("login") if isinstance(actor, dict) else None
+    kind = actor.get("type") if isinstance(actor, dict) else None
+    created = item.get("created_at")
+    # An app acting with a person's token is recorded as that person, and
+    # performed_via_github_app names it. Null there means the actor acted
+    # directly, anything else is an app, and an event without the field does
+    # not show which.
+    app = item.get("performed_via_github_app")
+    slug = app.get("slug") if isinstance(app, dict) else None
+    return LabelEvent(
+        action=action,
+        label=name,
+        actor=login if isinstance(login, str) else "",
+        actor_type=kind if isinstance(kind, str) else "",
+        created_at=created if isinstance(created, str) else "",
+        via_app=None if app is None else slug if isinstance(slug, str) else "",
+        app_shown="performed_via_github_app" in item,
+    )
+
+
 class GitHub(Protocol):
     def get_pull(self, number: int) -> PullRequest: ...
 
-    def list_pull_files(self, number: int) -> list[ChangedFile]: ...
+    def list_changed_files(self, base_sha: str, head_sha: str) -> list[ChangedFile]: ...
 
     def list_issue_comments(self, number: int) -> list[IssueComment]: ...
+
+    def list_issue_events(self, number: int) -> list[LabelEvent]: ...
 
     def create_issue_comment(self, number: int, body: str) -> None: ...
 
     def update_issue_comment(self, comment_id: int, body: str) -> None: ...
+
+    def list_pull_reviews(self, number: int) -> list[PullReview]: ...
+
+    def approve_pull_request(self, number: int, commit_id: str, body: str) -> None: ...
+
+    def dismiss_pull_review(self, number: int, review_id: int, message: str) -> None: ...
 
 
 class GitHubApi:
@@ -1516,17 +2169,48 @@ class GitHubApi:
     def get_pull(self, number: int) -> PullRequest:
         return parse_pull(self._json(self._send("GET", self._url(f"pulls/{number}"))))
 
-    def list_pull_files(self, number: int) -> list[ChangedFile]:
-        return [parse_changed_file(item) for item in self._get_all(f"pulls/{number}/files")]
+    def list_changed_files(self, base_sha: str, head_sha: str) -> list[ChangedFile]:
+        """The files a PR changes, as GitHub's comparison of base_sha and
+        head_sha lists them: what the PR's own file list shows, but pinned
+        to those two commits, so a push or a retarget after the PR read that
+        gave them cannot change it. GitHub lists up to 300 files there; the
+        PR's changed_files count says how many more it did not list."""
+        for sha in (base_sha, head_sha):
+            if not _COMMIT_SHA.fullmatch(sha):
+                raise GitHubError("GitHub named a commit by something that is not a commit SHA")
+        comparison = _as_dict(self._json(self._send("GET", self._url(f"compare/{base_sha}...{head_sha}"))), "comparison")
+        files = comparison.get("files")
+        if not isinstance(files, list):
+            raise GitHubError("GitHub returned a comparison without its changed files")
+        return [parse_changed_file(item) for item in files]
 
     def list_issue_comments(self, number: int) -> list[IssueComment]:
         return [parse_comment(item) for item in self._get_all(f"issues/{number}/comments")]
+
+    def list_issue_events(self, number: int) -> list[LabelEvent]:
+        """The PR's label events, oldest first (GitHub lists issue events in
+        order). The workflow's token reads them with its pull-requests
+        permission, which GitHub accepts for this endpoint as it does Issues."""
+        events = (parse_issue_event(item) for item in self._get_all(f"issues/{number}/events"))
+        return [event for event in events if event is not None]
 
     def create_issue_comment(self, number: int, body: str) -> None:
         self._send("POST", self._url(f"issues/{number}/comments"), {"body": body})
 
     def update_issue_comment(self, comment_id: int, body: str) -> None:
         self._send("PATCH", self._url(f"issues/comments/{comment_id}"), {"body": body})
+
+    def list_pull_reviews(self, number: int) -> list[PullReview]:
+        """Every review on the PR, oldest first (GitHub lists them in order)."""
+        return [parse_pull_review(item) for item in self._get_all(f"pulls/{number}/reviews")]
+
+    def approve_pull_request(self, number: int, commit_id: str, body: str) -> None:
+        payload = {"commit_id": commit_id, "body": body, "event": "APPROVE"}
+        self._send("POST", self._url(f"pulls/{number}/reviews"), payload)
+
+    def dismiss_pull_review(self, number: int, review_id: int, message: str) -> None:
+        payload = {"message": message, "event": "DISMISS"}
+        self._send("PUT", self._url(f"pulls/{number}/reviews/{review_id}/dismissals"), payload)
 
 
 def gh_cli_token() -> str | None:
@@ -1547,6 +2231,20 @@ def resolve_github_token(env: Mapping[str, str], *, allow_gh_cli: bool) -> str |
         if value:
             return value
     return gh_cli_token() if allow_gh_cli else None
+
+
+def event_pull(path: str, number: int) -> PullRequest | None:
+    """PR number as the triggering event recorded it in the Actions event file
+    at path ($GITHUB_EVENT_PATH), or None when the file holds no readable copy
+    of that PR. Never raises, since it runs after GitHub has already failed."""
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            pr = parse_pull(_as_dict(json.load(handle), "event").get("pull_request"))
+    except (OSError, ValueError, RecursionError, ReviewError):
+        return None
+    return pr if pr.number == number else None
 
 
 def find_stickies(comments: Iterable[IssueComment], bot_login: str) -> list[IssueComment]:
@@ -1790,6 +2488,10 @@ class Reviewer:
         self.dispatch = self.env.get("GITHUB_EVENT_NAME") == DISPATCH_EVENT
         self.fingerprint: str | None = None
         self.rule_findings: tuple[Finding, ...] = ()
+        # Set by the path that settles the run's verdict for the head commit;
+        # None leaves the bot's reviews alone (closed PRs, stale events).
+        self.approval: Approval | None = None
+        self.started = runtime.clock()  # set again when run() starts
 
     # logging -----------------------------------------------------------------
     def say(self, message: str) -> None:
@@ -1822,26 +2524,31 @@ class Reviewer:
     def _stickies(self) -> list[IssueComment]:
         return find_stickies(self.rt.github.list_issue_comments(self.options.pr), self.options.bot_login)
 
-    def write_sticky(self, body: str, *, create: bool, keep_review_of: str | None = None) -> StickyState | None:
+    def write_sticky(self, body: str, *, create: bool, keep_review_of: PullRequest | None = None) -> StickyWrite:
         """Put body in the sticky: PATCH the oldest one (retiring duplicates),
         or POST one when there is none and create is set, which also covers a
         sticky deleted during the run. With keep_review_of, a sticky that
-        already holds a finished review of that same commit is left alone
-        (it is still true) and its state is returned. GitHub failures only
-        warn, since the job summary has the result."""
+        already holds a finished review of that PR's head commit against its
+        base branch, so of the same diff, is left alone (it is still true)
+        and its state is returned. GitHub failures only warn, since the job
+        summary has the result."""
         if not self._guard_write(body):
-            return None
+            return StickyWrite(landed=False)
+        landed = False
         try:
             stickies = self._stickies()
             if stickies and keep_review_of is not None:
                 state = parse_state(stickies[0].body)
-                if state is not None and state.sha == keep_review_of and state.status == "reviewed":
-                    self.notice(f"kept the finished review of {short_sha(keep_review_of)}, which is the same commit")
-                    return state
+                if state is not None and reviews_this_diff(state, keep_review_of):
+                    self.notice(
+                        f"kept the finished review of {short_sha(keep_review_of.head_sha)}, which is the same "
+                        "commit against the same base branch"
+                    )
+                    return StickyWrite(landed=False, kept=state, comment=stickies[0])
             if not stickies:
                 if create:
                     self.rt.github.create_issue_comment(self.options.pr, body)
-                return None
+                return StickyWrite(landed=create)
             try:
                 self.rt.github.update_issue_comment(stickies[0].id, body)
             except GitHubError as exc:
@@ -1849,11 +2556,12 @@ class Reviewer:
                     raise
                 self.notice("the review comment was deleted during the run, so a new one was posted")
                 self.rt.github.create_issue_comment(self.options.pr, body)
+            landed = True
             for extra in stickies[1:]:
                 self.rt.github.update_issue_comment(extra.id, RETIRED_BODY)
         except ReviewError as exc:
             self.warn(f"could not update the review comment ({exc}); the job summary has the result")
-        return None
+        return StickyWrite(landed=landed)
 
     def step_summary(self, body: str) -> None:
         path = self.env.get("GITHUB_STEP_SUMMARY")
@@ -1887,6 +2595,9 @@ class Reviewer:
         """Mark the sticky NOT reviewed (posting it when create is set and the
         PR has none) and return the exit code the comment then shows."""
         self.warn(f"{short_sha(pr.head_sha)} was not reviewed because {reason}")
+        rule_p1 = any(finding.severity == "P1" for finding in rule_findings)
+        # The label decides nothing without a P1, so who added it is read only then.
+        override = self.override_for(pr) if rule_p1 else None
         body = render_status_comment(
             pr.head_sha,
             pending=False,
@@ -1896,18 +2607,30 @@ class Reviewer:
             repo=self.options.repo,
             run_url=self.run_url,
             server_url=self.server_url,
+            override=override,
         )
         self.step_summary(body)
-        kept = self.write_sticky(body, create=create, keep_review_of=pr.head_sha)
-        # The check follows the comment: a finished review of this same commit
+        written = self.write_sticky(body, create=create, keep_review_of=pr)
+        kept = written.kept
+        # The check follows the comment: a finished review of this same diff
         # was kept, so its P1s still count, and so do the file-rule P1s.
         kept_p1 = kept is not None and kept.counts is not None and kept.counts[0] > 0
-        rule_p1 = any(finding.severity == "P1" for finding in rule_findings)
-        return 1 if (kept_p1 or rule_p1) and not has_override(pr.labels) else 0
+        # This run settled nothing, so the bot never approves from here.
+        self.approval = WITHDRAW_FOR_P1 if kept_p1 or rule_p1 else WITHDRAW_UNREVIEWED
+        if not (kept_p1 or rule_p1):
+            return 0
+        if override is None:
+            override = self.override_for(pr)
+        if kept is not None and kept_p1 and written.comment is not None:
+            # The kept review's verdict line says whether the label counts, as a re-check's does.
+            self.sync_verdict(written.comment, kept, override)
+        return 0 if override.counts else 1
 
-    def finished_review(self, head_sha: str) -> tuple[IssueComment, StickyState] | None:
-        """The sticky and its state when it holds a finished review of
-        head_sha, with its verdict, by this same reviewer."""
+    def finished_review(self, pr: PullRequest) -> tuple[IssueComment, StickyState] | None:
+        """The sticky and its state when it holds a finished review of pr's
+        head commit against pr's base branch, with its verdict, by this same
+        reviewer. A retarget gives the same commit another diff, so it gets a
+        fresh review rather than the verdict on the old one."""
         try:
             stickies = self._stickies()
         except ReviewError as exc:
@@ -1918,8 +2641,7 @@ class Reviewer:
         state = parse_state(stickies[0].body)
         if (
             state is None
-            or state.sha != head_sha
-            or state.status != "reviewed"
+            or not reviews_this_diff(state, pr)
             or state.counts is None
             or state.reviewer is None
             or state.reviewer != self.fingerprint
@@ -1927,30 +2649,147 @@ class Reviewer:
             return None
         return stickies[0], state
 
-    def replay(self, pr: PullRequest, sticky: IssueComment, counts: tuple[int, int, int]) -> int:
+    def replay(self, pr: PullRequest, sticky: IssueComment, state: StickyState) -> int:
         """Re-check a finished review's verdict against the current labels
         without calling the model, and keep the comment's verdict line in
-        step with the override label."""
-        p1, p2, p3 = counts
-        override = has_override(pr.labels)
-        code = 1 if p1 and not override else 0
+        step with whether the override label counts. pr may be the event's
+        copy, when GitHub could not return the PR."""
+        assert state.counts is not None  # finished_review checked it
+        p1, p2, p3 = state.counts
+        # The label decides nothing without a P1, so who added it is read only then.
+        override = self.override_for(pr) if p1 else None
+        code = 1 if p1 and not (override is not None and override.counts) else 0
+        step = approval_for(p1 > 0, state.model_ran, state.complete)
+        # Anyone who can edit comments on the PR can edit the stored verdict,
+        # so a re-check never approves: only a fresh review does. It still
+        # withdraws when the stored verdict is not an all clear, and otherwise
+        # leaves an approval the review gave in place. That holds when the
+        # run had to use the event's copy of the PR, too: a re-check could
+        # never bring back an approval it withdrew, and every push or
+        # retarget starts its own run, whose review or failure withdraws.
+        self.approval = None if step.approve else step
         self.notice(
             f"{short_sha(pr.head_sha)} already has a finished review by this reviewer ({p1} P1, {p2} P2, "
             f"{p3} P3), so this run re-checks that verdict without calling the model"
         )
-        if p1:
-            paragraph = status_paragraph({"P1": p1, "P2": p2, "P3": p3}, override)
-            updated = with_status_paragraph(sticky.body, paragraph)
-            if updated is not None and updated != sticky.body and self._guard_write(updated):
-                try:
-                    self.rt.github.update_issue_comment(sticky.id, updated)
-                except ReviewError as exc:
-                    self.warn(f"could not update the review comment ({exc})")
+        if override is not None:
+            self.sync_verdict(sticky, state, override)
         self.step_summary(
             f"Claude review: re-checked the finished review of `{pr.head_sha}` without calling the model: "
-            f"{p1} P1, {p2} P2, {p3} P3, override label {'on' if override else 'off'}, exit {code}."
+            f"{p1} P1, {p2} P2, {p3} P3, {describe_override(pr.labels, override)}, exit {code}."
         )
         return code
+
+    def sync_verdict(self, sticky: IssueComment, state: StickyState, override: Override) -> None:
+        """Keep a finished review's verdict line in step with whether the
+        override label counts, so the comment says what the check does."""
+        assert state.counts is not None  # only finished reviews have a verdict line
+        p1, p2, p3 = state.counts
+        paragraph = status_paragraph({"P1": p1, "P2": p2, "P3": p3}, override.counts, ignored=override)
+        updated = with_status_paragraph(sticky.body, paragraph)
+        if updated is not None and updated != sticky.body and self._guard_write(updated):
+            try:
+                self.rt.github.update_issue_comment(sticky.id, updated)
+            except ReviewError as exc:
+                self.warn(f"could not update the review comment ({exc})")
+
+    # the override label ------------------------------------------------------------
+    def override_for(self, pr: PullRequest) -> Override:
+        """Whether the override label counts for pr (see decide_override).
+        Who added it is read from the PR's issue events, and only when the
+        label is on the PR. When they cannot be read the label does not count
+        on this run: that is not an outage to fail open on, since the failure
+        is the P1 it would have passed."""
+        if not has_override(pr.labels):
+            return NO_OVERRIDE
+        events: list[LabelEvent] | None = None
+        try:
+            events = self.rt.github.list_issue_events(self.options.pr)
+        except ReadOnlyViolation:
+            raise
+        except Exception as exc:  # GitHub errors, and any bug here, leave the label not counting
+            detail = str(exc) if isinstance(exc, ReviewError) else f"unexpected {type(exc).__name__}"
+            self.warn(
+                f"could not read the PR's events to see who added the {OVERRIDE_LABEL} label ({detail}), so the "
+                "label does not count on this run and a P1 still fails the check"
+            )
+        override = decide_override(pr.labels, pr.author, events, author_type=pr.author_type)
+        if override.counts:
+            self.say(f"claude review: {describe_override(pr.labels, override)}")
+        elif override.status != OVERRIDE_UNREAD:
+            self.notice(describe_override(pr.labels, override))
+        return override
+
+    # the bot's approval ------------------------------------------------------------
+    def sync_approval(self, pr: PullRequest) -> None:
+        """The run's last step: bring the bot's own reviews in line with the
+        verdict this run settled. Manual runs never touch reviews."""
+        if self.approval is not None and not self.dispatch:
+            self.apply_approval(pr, self.approval)
+
+    def apply_approval(self, pr: PullRequest, step: Approval) -> None:
+        """Approve the head commit, or withdraw the bot's approvals on the PR.
+        Approvals are informational, so every failure here only logs: it never
+        changes the check or the comment."""
+        try:
+            self._apply_approval(pr, step)
+        except ReadOnlyViolation:
+            raise
+        except Exception as exc:  # a bug in this step must not fail the check either
+            detail = clip(" ".join(redact_sensitive(str(exc))[0].split()), 300)
+            self.say(f"claude review: unexpected {type(exc).__name__} in the approval step: {detail}")
+            self.warn(f"could not update the bot's approval ({type(exc).__name__}); the check and the comment are unaffected")
+
+    def _out_of_time(self) -> bool:
+        """Whether the approval step must stop before its next GitHub call, so
+        that slow replies cannot run the job past its time limit."""
+        if self.rt.clock() - self.started < APPROVAL_DEADLINE_SECONDS:
+            return False
+        self.warn("left the bot's approval as it was, since the run is close to the job's time limit")
+        return True
+
+    def _apply_approval(self, pr: PullRequest, step: Approval) -> None:
+        if self.options.dry_run:
+            raise ReadOnlyViolation("a dry run reached the approval step")
+        github, number, sha = self.rt.github, self.options.pr, short_sha(pr.head_sha)
+        if self._out_of_time():
+            return
+        try:
+            reviews = github.list_pull_reviews(number)
+        except ReviewError as exc:
+            self.warn(f"could not list the PR's reviews, so the bot's approval was not updated ({exc})")
+            return
+        post, dismiss = plan_approval(
+            reviews, self.options.bot_login, pr.head_sha, approve=step.approve, keep_head=step.keep_head
+        )
+        if step.approve and not post:
+            self.say(f"claude review: the bot already approves {sha}")
+        if post and not self._out_of_time():
+            try:
+                github.approve_pull_request(number, pr.head_sha, step.text)
+            except ReviewError as exc:
+                if refused_by_setting(exc):
+                    self.notice(
+                        f"GitHub did not let the bot approve {sha} ({exc}). For the bot to approve PRs, an org "
+                        f'owner has to turn on "{APPROVAL_SETTING}" (organization settings, Actions, General). '
+                        "The check and the comment are unaffected."
+                    )
+                else:
+                    self.warn(f"could not approve {sha} ({exc}); the check and the comment are unaffected")
+            else:
+                self.notice(f"approved {sha}, since {step.reason}")
+        withdrawn = 0
+        for review_id in dismiss:
+            if self._out_of_time():
+                break
+            try:
+                github.dismiss_pull_review(number, review_id, step.text)
+            except ReviewError as exc:
+                self.warn(f"could not withdraw the bot's approval in review {review_id} ({exc})")
+            else:
+                withdrawn += 1
+        if withdrawn:
+            self.notice(f"withdrew {withdrawn} approval{'s' if withdrawn != 1 else ''} by the bot, since {step.reason}")
 
     # the run ---------------------------------------------------------------------
     def run(self) -> int:
@@ -1962,27 +2801,47 @@ class Reviewer:
                 "Actions. Use --dry-run locally."
             )
             return 2
-        started = rt.clock()
+        started = self.started = rt.clock()
+        unread: ReviewError | None = None
         try:
             pr = rt.github.get_pull(options.pr)
         except ReviewError as exc:
-            self.warn(f"skipped, could not read PR #{options.pr} ({exc})")
-            return 0 if live else 1
+            # A PR event still has its own copy of the PR (head commit, labels,
+            # draft flag, state), so the run goes on with that and marks the
+            # push NOT reviewed as any failed review would. Manual runs and dry
+            # runs go without. A re-run of an event older than the latest push
+            # still marks the event's commit; that errs toward NOT reviewed,
+            # and the newer commit's next run reviews it again.
+            copy = None
+            if live and not self.dispatch:
+                copy = event_pull(self.env.get("GITHUB_EVENT_PATH", ""), options.pr)
+            if copy is None:
+                self.warn(f"skipped, could not read PR #{options.pr} ({exc})")
+                return 0 if live else 1
+            self.warn(f"could not read PR #{options.pr} ({exc}), so this run uses the event's copy of it")
+            pr, unread = copy, exc
         if not live:
             return self.dry_run(pr)
         try:
-            return self.finish(self.live(pr, started))
+            code = self.live(pr, started, unread)
         except ReadOnlyViolation:
             raise
         except Exception as exc:  # the fail-open boundary: a bug must not fail the check
             detail = clip(" ".join(redact_sensitive(str(exc))[0].split()), 300)
             self.say(f"claude review: unexpected {type(exc).__name__}: {detail}")
             reason = f"the review bot hit an unexpected error ({type(exc).__name__})"
-            return self.finish(self.not_reviewed(pr, reason, self.rule_findings))
+            code = self.not_reviewed(pr, reason, self.rule_findings)
+        # After the exit code and the comment are settled, and outside the
+        # boundary above, so nothing the approval step does can change either.
+        self.sync_approval(pr)
+        return self.finish(code)
 
-    def live(self, pr: PullRequest, started: float) -> int:
+    def live(self, pr: PullRequest, started: float, unread: ReviewError | None = None) -> int:
         """A live run after the PR is read: re-check a stored verdict, or
-        mark the comment pending and review."""
+        mark the comment pending and review. With unread, GitHub could not
+        return the PR and pr is the event's copy of it: the run goes as far
+        as a normal one would without the changed files, then marks the push
+        NOT reviewed."""
         rt = self.rt
         # The check run belongs to the event's head commit. If the PR moved on
         # since, the run for the newer push reviews it.
@@ -1999,11 +2858,10 @@ class Reviewer:
 
         docs = load_context(rt.repo_root, self.warn)
         self.fingerprint = reviewer_fingerprint(docs)
-        finished = self.finished_review(pr.head_sha)
+        finished = self.finished_review(pr)
         if finished is not None:
             sticky, state = finished
-            assert state.counts is not None  # finished_review checked it
-            return self.replay(pr, sticky, state.counts)
+            return self.replay(pr, sticky, state)
         if pr.draft and not self.dispatch:
             return self.not_reviewed(pr, "the PR is a draft", (), create=False, hint=DRAFT_HINT)
 
@@ -2015,20 +2873,32 @@ class Reviewer:
             )
             reason = "the ANTHROPIC_REVIEW_KEY secret is not set"
             return self.not_reviewed(pr, reason, (), create=False, hint=MISSING_KEY_HINT)
+        if unread is not None:
+            return self.not_reviewed(pr, f"the GitHub API failed while reading the PR ({unread})", ())
 
         # Posted right away (not only edited), so a first push whose review
         # fails or never finishes still shows that it was not reviewed.
-        self.write_sticky(
+        pending = self.write_sticky(
             render_status_comment(pr.head_sha, pending=True, run_url=self.run_url),
             create=True,
-            keep_review_of=pr.head_sha,
+            keep_review_of=pr,
         )
+        if not self.dispatch:
+            # Until this review is done the push is not reviewed, so no bot
+            # approval stands meanwhile: a run that is cancelled, times out or
+            # dies mid-review never reaches its last step. Only a finished
+            # review of this same diff (commit and base branch), which the
+            # comment still shows, keeps its approval until the new verdict
+            # replaces it.
+            self.apply_approval(pr, replace(WITHDRAW_FOR_REVIEW, keep_head=pending.kept is not None))
         return self.review(pr, docs, key, started)
 
     def review(self, pr: PullRequest, docs: ContextDocs, key: str, started: float) -> int:
         options, rt = self.options, self.rt
         try:
-            files = rt.github.list_pull_files(options.pr)
+            # Pinned to the commits this PR read names, which the comment,
+            # the state line and the approval name too.
+            files = rt.github.list_changed_files(pr.base_sha, pr.head_sha)
         except ReviewError as exc:
             return self.not_reviewed(pr, f"the GitHub API failed while listing the changed files ({exc})", ())
         plan = plan_review(pr, files, options.budget_tokens)
@@ -2075,22 +2945,41 @@ class Reviewer:
     ) -> int:
         """Post a finished review (reply is None when no model ran)."""
         latest = pr
+        reread_failed = False
         try:
             latest = self.rt.github.get_pull(self.options.pr)
         except ReviewError as exc:
+            reread_failed = True
             self.warn(f"could not re-read the PR after the review ({exc})")
-        inputs = self.comment_inputs(pr, plan, summary, findings, reply, latest.labels)
+        has_p1 = any(f.severity == "P1" for f in findings)
+        # The label decides nothing without a P1, so who added it is read only then.
+        override = self.override_for(latest) if has_p1 else NO_OVERRIDE
+        inputs = self.comment_inputs(pr, plan, summary, findings, reply, override)
         tally = ", ".join(f"{count} {severity}" for severity, count in severity_counts(findings).items())
         self.say(f"claude review: {short_sha(pr.head_sha)} has {tally}")
         self.step_summary(render_review_comment(inputs, limit=STEP_SUMMARY_BUDGET))
         if latest.head_sha != pr.head_sha:
+            # The newer run owns the bot's approval too, so it is left alone.
             self.notice(
                 f"the PR moved from {short_sha(pr.head_sha)} to {short_sha(latest.head_sha)} during the review, "
                 "so the newer run owns the comment"
             )
         else:
-            self.write_sticky(render_review_comment(inputs), create=True)
-        return decide_exit(findings, latest.labels)
+            written = self.write_sticky(render_review_comment(inputs), create=True)
+            problem = None
+            if not written.landed:
+                # The approval points to the comment, so it needs the comment.
+                problem = "this run could not update its comment"
+            elif reread_failed:
+                # latest is the stale copy read before the review, so its
+                # head and base prove nothing about the PR as it is now.
+                problem = "could not re-read the PR after the review"
+            elif latest.base_ref != pr.base_ref:
+                problem = "the PR's base branch changed during the review"
+            # The override label plays no part here (see approval_for).
+            step = approval_for(has_p1, reply is not None, inputs.complete)
+            self.approval = confirmed(step, problem)
+        return decide_exit(findings, override)
 
     def comment_inputs(
         self,
@@ -2099,7 +2988,7 @@ class Reviewer:
         summary: str,
         findings: tuple[Finding, ...],
         reply: ModelReply | None,
-        labels: Iterable[str],
+        override: Override,
     ) -> CommentInputs:
         return CommentInputs(
             repo=self.options.repo,
@@ -2110,7 +2999,7 @@ class Reviewer:
             unlisted_files=plan.unlisted_files,
             redactions=plan.redactions,
             usage=reply.usage if reply is not None else (),
-            override=has_override(labels),
+            override=override.counts,
             served_by=reply.model if reply is not None else MODEL,
             fallback_served=reply.fallback_served if reply is not None else False,
             run_url=self.run_url,
@@ -2119,6 +3008,8 @@ class Reviewer:
             dry_run=self.options.dry_run,
             fingerprint=self.fingerprint,
             model_ran=reply is not None,
+            base_ref=pr.base_ref,
+            ignored_override=override if override.ignored else None,
         )
 
     def dry_run(self, pr: PullRequest) -> int:
@@ -2126,7 +3017,7 @@ class Reviewer:
         say = self.say
         options, rt = self.options, self.rt
         try:
-            files = rt.github.list_pull_files(options.pr)
+            files = rt.github.list_changed_files(pr.base_sha, pr.head_sha)
         except ReviewError as exc:
             self.warn(f"could not list the changed files ({exc})")
             return 1
@@ -2134,6 +3025,8 @@ class Reviewer:
         self.fingerprint = reviewer_fingerprint(docs)
         plan = plan_review(pr, files, options.budget_tokens)
         request = build_request(options.repo, pr, plan, docs)
+        # Read only (a GET of the PR's events, when the label is on it).
+        override = self.override_for(pr)
         if not plan.reviewed:
             findings = sort_findings(plan.rule_findings)
             say(
@@ -2142,11 +3035,13 @@ class Reviewer:
             )
             for item in plan.skipped:
                 say(f"  not reviewed: {item.path}, {item.reason}")
-            inputs = self.comment_inputs(pr, plan, NOTHING_REVIEWABLE_SUMMARY, findings, None, pr.labels)
+            inputs = self.comment_inputs(pr, plan, NOTHING_REVIEWABLE_SUMMARY, findings, None, override)
             say("----- comment a live run would post -----")
             say(render_review_comment(inputs))
             say("----- end of comment -----")
-            say(f"A live run would exit {decide_exit(findings, pr.labels)}.")
+            say(f"Override: {describe_override(pr.labels, override)}.")
+            say(f"A live run would exit {decide_exit(findings, override)}.")
+            self.preview_approval(pr, approval_for(any(f.severity == "P1" for f in findings), False, inputs.complete))
             return 0
         if options.canned_response is not None:
             try:
@@ -2201,13 +3096,57 @@ class Reviewer:
             usage=(Usage(model=MODEL, input_tokens=input_tokens, output_tokens=ASSUMED_OUTPUT_TOKENS),),
         )
         findings = sort_findings(plan.rule_findings + result.findings)
-        body = render_review_comment(self.comment_inputs(pr, plan, result.summary, findings, reply, pr.labels))
+        inputs = self.comment_inputs(pr, plan, result.summary, findings, reply, override)
+        body = render_review_comment(inputs)
         say("----- comment a live run would post (canned model response) -----")
         say(body)
         say(f"----- end of comment ({len(body):,} characters; GitHub's limit is {COMMENT_LIMIT:,}) -----")
-        code = decide_exit(findings, pr.labels)
+        say(f"Override: {describe_override(pr.labels, override)}.")
+        code = decide_exit(findings, override)
         say(f"With these canned findings a live run would exit {code}.")
+        self.preview_approval(pr, approval_for(any(f.severity == "P1" for f in findings), True, inputs.complete))
         return 0
+
+    def preview_approval(self, pr: PullRequest, step: Approval) -> None:
+        """Print what the approval steps of a live PR-event run would do with
+        this verdict. It lists the PR's reviews and never writes."""
+        sha = short_sha(pr.head_sha)
+        try:
+            reviews = self.rt.github.list_pull_reviews(self.options.pr)
+        except ReviewError as exc:
+            self.say(f"Approval step: could not list the PR's reviews ({exc}), so this dry run cannot say what it would change.")
+            return
+
+        def named(ids: Sequence[int]) -> str:
+            return f"review{'s' if len(ids) != 1 else ''} {', '.join(str(review_id) for review_id in ids)}"
+
+        post, dismiss = plan_approval(reviews, self.options.bot_login, pr.head_sha, approve=step.approve)
+        if step.approve:
+            would = f"approve {sha}, since {step.reason}" if post else f"post no approval, since the bot already approves {sha}"
+            # The review itself starts by withdrawing the bot's approvals of other commits.
+            _post, older = plan_approval(reviews, self.options.bot_login, pr.head_sha, approve=False, keep_head=True)
+            if older:
+                others = "its approval of another commit" if len(older) == 1 else "its approvals of other commits"
+                would += f", and withdraw {others} ({named(older)}) when the review starts"
+        elif dismiss:
+            would = f"withdraw the bot's approval in {named(dismiss)}, since {step.reason}"
+        else:
+            would = f"withdraw nothing, since the bot has no active approval on this PR ({step.reason})"
+        if pr.state != "open":
+            self.say(
+                f"Approval step: none, since PR #{pr.number} is {pr.state or 'not open'}. On an open PR, a live "
+                f"run of a PR event with these findings would {would}."
+            )
+        else:
+            self.say(
+                f"Approval step: a live run of a PR event with these findings would {would}. Manual runs never "
+                "approve or withdraw."
+            )
+        if post:
+            self.say(
+                f'GitHub refuses the approval until an org owner turns on "{APPROVAL_SETTING}"; the run then logs '
+                "a notice and nothing else changes."
+            )
 
 
 def run(options: Options, runtime: Runtime) -> int:

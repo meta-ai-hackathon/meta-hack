@@ -15,8 +15,10 @@ const STATUS_DEMOS: Readonly<Record<AnswerStatus, string>> = {
 export default function Home() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8 py-16 text-center">
-      <h1 className="text-3xl font-semibold tracking-tight">Benefits Navigator</h1>
-      <p className="max-w-md text-lg text-zinc-600 dark:text-zinc-400">
+      <h1 className="font-display text-5xl font-bold tracking-tight">
+        Benefits Navigator
+      </h1>
+      <p className="max-w-md text-lg text-muted">
         A step-by-step companion for benefits applications. We help you prepare,
         keep uncertainty visible, and you decide what gets submitted.
       </p>
@@ -24,10 +26,10 @@ export default function Home() {
         aria-labelledby="honest-status-heading"
         className="flex flex-col items-center gap-3"
       >
-        <h2 id="honest-status-heading" className="text-lg font-semibold">
+        <h2 id="honest-status-heading" className="font-display text-2xl font-bold">
           Every answer carries an honest status
         </h2>
-        <ul className="flex flex-col items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+        <ul className="flex flex-col items-center gap-2 text-sm text-muted">
           {ANSWER_STATUSES.map((status) => (
             <li key={status} className="flex items-center gap-2">
               <AnswerStatusBadge status={status} />
@@ -40,23 +42,23 @@ export default function Home() {
         aria-labelledby="start-heading"
         className="flex flex-col items-center gap-3"
       >
-        <h2 id="start-heading" className="text-lg font-semibold">
+        <h2 id="start-heading" className="font-display text-2xl font-bold">
           Ready when you are
         </h2>
-        <p className="max-w-md text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="max-w-md text-sm text-muted">
           Answer a few plain-language questions, one at a time. Your answers
           save as you go — nothing is submitted until you decide.
         </p>
         <div className="flex flex-col items-center gap-3">
           <Link
             href="/intake/conversation"
-            className="rounded-md bg-zinc-900 px-5 py-2.5 text-base font-semibold text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            className="rounded-full bg-teal-deep px-6 py-3 text-base font-semibold text-teal-contrast hover:bg-teal"
           >
             Start a conversation
           </Link>
           <Link
             href="/intake"
-            className="text-base text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+            className="text-base text-teal underline hover:opacity-80"
           >
             Prefer step-by-step questions? Use the form instead
           </Link>
@@ -72,10 +74,10 @@ export default function Home() {
         aria-labelledby="a11y-demo-heading"
         className="flex flex-col items-center gap-3"
       >
-        <h2 id="a11y-demo-heading" className="text-lg font-semibold">
+        <h2 id="a11y-demo-heading" className="font-display text-2xl font-bold">
           Accessibility built in
         </h2>
-        <p className="max-w-md text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="max-w-md text-sm text-muted">
           Tab through this page: the skip link is the first stop, and focus
           stays visible. The examples below show how labels, help text, and
           status changes are announced.

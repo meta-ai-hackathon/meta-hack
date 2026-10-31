@@ -10,6 +10,17 @@ describe("AppShell (BN-07)", () => {
     expect(html).toContain("Skip to main content");
   });
 
+  it("renders the display controls inside the header, after the skip link", () => {
+    const html = renderToStaticMarkup(<AppShell><p>Page content</p></AppShell>);
+    expect(html).toContain("<header");
+    expect(html).toContain("data-display-controls=\"true\"");
+    expect(html).toContain("High contrast");
+    // Skip link still precedes the header: it stays the first tab stop.
+    expect(html.indexOf('href="#main-content"')).toBeLessThan(
+      html.indexOf("data-display-controls"),
+    );
+  });
+
   it("provides the main landmark as the skip target", () => {
     const html = renderToStaticMarkup(<AppShell><p>Page content</p></AppShell>);
     expect((html.match(/<main[\s>]/g) ?? []).length).toBe(1);

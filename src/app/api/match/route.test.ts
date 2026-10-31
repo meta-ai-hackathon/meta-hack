@@ -3,6 +3,14 @@ import postgres from "postgres";
 import { closeDb } from "../../../lib/db";
 import { runMigrations } from "../../../lib/migrate";
 import { setLogSink } from "../../../lib/telemetry";
+import { setModelTransport } from "../../../lib/model";
+import {
+  composeFallbackExplanation,
+  resetModuleExplanationCache,
+} from "../../../lib/match";
+import { KB_ENTRIES } from "../../../lib/kb";
+import { PILOT_CONFIG } from "../../../lib/pilot";
+import { CONSENT_HEADER } from "../../../lib/consent";
 import {
   loadAnswers,
   readSessionCookie,
@@ -69,7 +77,8 @@ afterEach(() => {
   setLogSink(() => undefined);
 });
 
-// Seeded answers: a known benefit-relevant core plus explicit unknowns.
+// Seeded answers: the demo persona (the pilot state ranks the real KB
+// entry) plus a known benefit-relevant core and explicit unknowns.
 async function seedAnswers(): Promise<void> {
   await saveAnswer(sessionId, "main_goal", "known", "food", "user_supplied");
   await saveAnswer(sessionId, "housing_status", "known", "shelter", "user_supplied");
@@ -77,12 +86,22 @@ async function seedAnswers(): Promise<void> {
   await saveAnswer(sessionId, "household_size", "known", 3, "user_supplied");
   await saveAnswer(sessionId, "id_status", "unknown", null, "user_supplied");
   await saveAnswer(sessionId, "citizenship_status", "unverified", "us_citizen", "ai_drafted");
+  await saveAnswer(sessionId, "state", "known", "NC", "user_supplied");
 }
 
-function matchRequest(method: "GET" | "POST"): Request {
+function matchRequest(
+  method: "GET" | "POST",
+  consent?: string | null,
+  forSession: string = sessionId,
+): Request {
   return new Request("http://localhost:3100/api/match", {
     method,
-    headers: { cookie: sessionCookieHeader(sessionId) },
+    headers: {
+      cookie: sessionCookieHeader(forSession),
+      // No consent header unless the test passes one: the default is the
+      // fail-closed, zero-model-call path under the consent gate.
+      ...(consent ? { [CONSENT_HEADER]: consent } : {}),
+    },
   });
 }
 
@@ -140,21 +159,18 @@ describe("GET /api/match — ranked match for the session (VAL-MATCH-001)", () =
     expect(await first.text()).toBe(await second.clone().text());
   });
 
-  it("ranks the food-focused sample first for a food goal with no income", async () => {
+  it("ranks the real pilot entry first for the demo persona (state=NC)", async () => {
     await seedAnswers();
     const body = await bodyOf(await GET(matchRequest("GET")));
     expect(body.hasSession).toBe(true);
-    expect(body.matches[0]!.entryId).toBe("pilot_program_sample_b");
+    expect(body.matches[0]!.entryId).toBe("nc_medicaid");
     expect(body.matches[0]!.score).toBeGreaterThan(0);
-    // Zero-signal honesty: an entry no signal matched is never presented as
-    // a card — the seeded answers score the housing and food samples only,
-    // so the citizenship/disability sample stays out of the payload.
+    // VAL-PILOTREAL-004: no synthetic sample entry can rank in production —
+    // every card is an entry the pilot seam references.
     for (const card of body.matches) {
+      expect(PILOT_CONFIG.kbEntryIds, card.entryId).toContain(card.entryId);
       expect(card.score, card.entryId).toBeGreaterThan(0);
     }
-    expect(body.matches.map((card) => card.entryId)).not.toContain(
-      "pilot_program_sample_c",
-    );
     // Descending scores; ties broken by entry id.
     for (let index = 1; index < body.matches.length; index += 1) {
       const previous = body.matches[index - 1]!.score;
@@ -166,6 +182,34 @@ describe("GET /api/match — ranked match for the session (VAL-MATCH-001)", () =
         );
       }
     }
+  });
+
+  it("renders the honest empty state when nothing ranks in production (VAL-PILOTREAL-004)", async () => {
+    // A second session answers the questions that scored the synthetic
+    // samples before the dataset split (food goal, shelter, no income) but
+    // NOT the state question. The production dataset carries no sample
+    // entries, so nothing ranks and the honest empty state renders — the
+    // exact payload a placeholder card hijacked before the split.
+    const personRows = await testDb`
+      INSERT INTO person DEFAULT VALUES RETURNING id
+    `;
+    const sessionRows = await testDb`
+      INSERT INTO session (person_id, caseworker_assisted, status)
+      VALUES (${String(personRows[0].id)}, false, 'draft') RETURNING id
+    `;
+    const sampleScoringSession = String(sessionRows[0].id);
+    await saveAnswer(sampleScoringSession, "main_goal", "known", "food", "user_supplied");
+    await saveAnswer(sampleScoringSession, "housing_status", "known", "shelter", "user_supplied");
+    await saveAnswer(sampleScoringSession, "income_sources", "known", ["none"], "user_supplied");
+    await saveAnswer(sampleScoringSession, "id_status", "unknown", null, "user_supplied");
+    const body = await bodyOf(await GET(matchRequest("GET", null, sampleScoringSession)));
+    expect(body.hasSession).toBe(true);
+    // Nothing ranks: the empty state, not a placeholder card.
+    expect(body.matches).toEqual([]);
+    // No sample entry appears anywhere in the payload.
+    expect(JSON.stringify(body)).not.toContain("pilot_program_sample");
+    // The empty state is honest, not silent: the unknown still surfaces.
+    expect(body.toResolve.map((item) => item.questionId)).toEqual(["id_status"]);
   });
 
   it("accepts POST the same as GET", async () => {
@@ -320,5 +364,99 @@ describe("banned claims and privacy at the route (VAL-MATCH-003)", () => {
 
   it("keeps the session cookie parsing aligned with the store", () => {
     expect(readSessionCookie(sessionCookieHeader(sessionId))).toBe(sessionId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Consent gate (Mission v2.1 M5, HACK-81, VAL-CONSENT-001): the match
+// explanation is the one model call on the match surface. Without an
+// AI-consent receipt the route spends ZERO model calls and the cards carry
+// the deterministic entry-fact explanation — a declined session completes
+// the match with no provider traffic at all.
+// ---------------------------------------------------------------------------
+
+const CONSENTED_AI = JSON.stringify({
+  v: 2,
+  providerId: "meta-model-api",
+  ai: true,
+  voice: false,
+  at: "2026-10-30T12:00:00.000Z",
+});
+
+describe("match consent gate (Mission v2.1 M5, VAL-CONSENT-001)", () => {
+  afterEach(() => {
+    setModelTransport(undefined);
+  });
+
+  it("makes zero model calls without a consent receipt and explains from entry facts", async () => {
+    await seedAnswers();
+    let called = 0;
+    setModelTransport(async () => {
+      called += 1;
+      return new Response(JSON.stringify({ error: { message: "must not be used" } }), {
+        status: 200,
+      });
+    });
+    const body = await bodyOf(await GET(matchRequest("GET")));
+    expect(called).toBe(0);
+    expect(body.matches.length).toBeGreaterThan(0);
+    for (const card of body.matches) {
+      expect(card.explanation.source, card.entryId).toBe("facts");
+      // The deterministic explanation is not an empty shrug.
+      expect(card.explanation.text.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("spends the gated model explainer only when the receipt allows AI sharing", async () => {
+    // Earlier tests in this file cached a facts explanation (their turns
+    // ran without a transport); clear it so this test exercises the real
+    // consented path.
+    resetModuleExplanationCache();
+    await seedAnswers();
+    // The client checks the key BEFORE the transport; without it the call
+    // would degrade to the fallback before the scripted transport ran.
+    process.env.MODEL_API_KEY = "sentinel-test-key-never-log";
+    let called = 0;
+    setModelTransport(async (_url, init) => {
+      called += 1;
+      // A reply that quotes the PROMPTED entry's own facts passes the
+      // banned-claim and grounding gates by construction, so the scripted
+      // call proves the consented happy path.
+      const prompt = String(init.body);
+      const entryId = /knowledge-base entry (\S+) version \d+/.exec(prompt)?.[1];
+      const entry = KB_ENTRIES.find((candidate) => candidate.id === entryId);
+      if (!entry) {
+        return new Response(JSON.stringify({ error: { message: "unknown entry" } }), {
+          status: 500,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl-test",
+          model: "muse-spark-1.3",
+          choices: [
+            {
+              index: 0,
+              finish_reason: "stop",
+              message: {
+                role: "assistant",
+                content: composeFallbackExplanation(entry),
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 20,
+            completion_tokens: 30,
+            total_tokens: 50,
+            completion_tokens_details: { reasoning_tokens: 10 },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const body = await bodyOf(await GET(matchRequest("GET", CONSENTED_AI)));
+    expect(called).toBe(1);
+    expect(body.matches.length).toBeGreaterThan(0);
+    expect(body.matches[0]!.explanation.source).toBe("model");
   });
 });

@@ -1,0 +1,33 @@
+{
+  "description": "Redaction-verification pairs (VAL-WALK2-002): a raw typed turn that carried private values, and the transcript the server returned for it. A value present in BOTH the raw text and the delivered transcript is a redaction failure — the stored-and-shown words kept something private.",
+  "cases": [
+    {
+      "name": "unredacted transcript keeps the typed value: violation",
+      "expect": "violation",
+      "rawUserText": "My date of birth is 1990-05-14 and my email is jamie.watts@example.com.",
+      "redactedUserTranscript": "My date of birth is 1990-05-14 and my email is [redacted answer to \"What is your email address?\"].",
+      "privateValues": ["1990-05-14", "jamie.watts@example.com"]
+    },
+    {
+      "name": "fully redacted transcript: clean",
+      "expect": "clean",
+      "rawUserText": "My date of birth is 1990-05-14 and my email is jamie.watts@example.com.",
+      "redactedUserTranscript": "My date of birth is [redacted answer to \"What is your date of birth?\"] and my email is [redacted answer to \"What is your email address?\"].",
+      "privateValues": ["1990-05-14", "jamie.watts@example.com"]
+    },
+    {
+      "name": "partial redaction that keeps one of two typed values: violation",
+      "expect": "violation",
+      "rawUserText": "I live in Mecklenburg County and my date of birth is 1990-05-14.",
+      "redactedUserTranscript": "I live in [redacted answer to \"Which county or city area do you live in?\"] and my date of birth is 1990-05-14.",
+      "privateValues": ["Mecklenburg County", "1990-05-14"]
+    },
+    {
+      "name": "a turn that carried no private value passes unchanged: clean",
+      "expect": "clean",
+      "rawUserText": "There are three of us.",
+      "redactedUserTranscript": "There are three of us.",
+      "privateValues": ["Mecklenburg County", "1990-05-14"]
+    }
+  ]
+}

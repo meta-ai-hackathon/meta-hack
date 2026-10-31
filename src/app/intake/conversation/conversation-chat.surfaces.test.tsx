@@ -1,0 +1,326 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  CONSENT_PROVIDER_ID,
+  saveConsentReceipt,
+  type ConsentReceipt,
+} from "../../../lib/consent";
+import type { IntakeClientState } from "../../../lib/intake/serialize";
+import { ConversationChat } from "./conversation-chat";
+
+// The two-mode conversation surface (HACK-106, VAL-NCF-002): the derived
+// conditions and transitions the rebuild introduced — exactly two entry
+// modes behind the privacy decision, ONE continuous voice session per
+// begin, the mid-session exit-to-typing that loses nothing, pause/resume,
+// the revoke that stops the microphone, and voice sends that read the
+// CURRENT receipt (claude-review P2: no stale closure).
+
+// The controllable voice-session fake: the test drives the callbacks the
+// component wired and observes the session operations it called.
+type SessionCallbacks = {
+  onUtterance: (blob: Blob) => void;
+  onPhase: (phase: "listening" | "transcribing" | null) => void;
+  onRecorderError: () => void;
+};
+const sessionCallbacks: SessionCallbacks = {
+  onUtterance: () => undefined,
+  onPhase: () => undefined,
+  onRecorderError: () => undefined,
+};
+let sessionOps: string[] = [];
+
+vi.mock("../../../lib/audio/voice-session", () => ({
+  DEFAULT_ENDPOINTING: {},
+  createVoiceSession: (callbacks: SessionCallbacks) => {
+    Object.assign(sessionCallbacks, callbacks);
+    return {
+      begin: async () => {
+        sessionOps.push("begin");
+      },
+      listen: () => {
+        sessionOps.push("listen");
+      },
+      endpointNow: () => {
+        sessionOps.push("endpoint");
+      },
+      hold: () => {
+        sessionOps.push("hold");
+      },
+      resume: () => {
+        sessionOps.push("resume");
+      },
+      stop: () => {
+        sessionOps.push("stop");
+      },
+      get isActive() {
+        return true;
+      },
+      get isPaused() {
+        return false;
+      },
+    };
+  },
+}));
+
+vi.mock("../../../lib/audio/capture", () => ({
+  queueSpeech: () => true,
+  recordedBlobToWav: () => new Blob([new Uint8Array(8)], { type: "audio/wav" }),
+  voiceCaptureSupported: () => true,
+}));
+
+function voiceReceipt(voice: boolean): ConsentReceipt {
+  return {
+    v: 2,
+    providerId: CONSENT_PROVIDER_ID,
+    ai: true,
+    voice,
+    at: "2026-10-31T12:00:00.000Z",
+  };
+}
+
+const EMPTY_STATE: IntakeClientState = {
+  questions: [
+    {
+      id: "application_role",
+      prompt: "Who is this application for?",
+      help: "",
+      type: "text",
+      required: true,
+      pii: false,
+    },
+  ],
+  answers: {},
+  progress: { answered: 0, remaining: 1, total: 1 },
+  currentIndex: 0,
+  complete: false,
+};
+
+let turnCalls: { headers: Headers; body: string }[] = [];
+
+function historyResponse(): Response {
+  return new Response(
+    JSON.stringify({ turns: [], state: EMPTY_STATE }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
+function turnResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      assistantReply: "Got it. What is your zip code?",
+      assistantTurnId: "turn-9",
+      redactedUserTranscript: "a household of three",
+      nextQuestionId: "state",
+      state: EMPTY_STATE,
+      voiceUrl: null,
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
+function stubFetch(): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/conversation/history") {
+        return historyResponse();
+      }
+      if (url === "/api/conversation/turn") {
+        turnCalls.push({
+          headers: new Headers(init?.headers),
+          body: String(init?.body),
+        });
+        return turnResponse();
+      }
+      if (url === "/api/conversation/speak") {
+        return new Response(JSON.stringify({ audio: null }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected request to ${url}`);
+    }),
+  );
+}
+
+beforeEach(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  // jsdom does not implement scrollIntoView; the transcript's scroll effect
+  // calls it on every turn.
+  Element.prototype.scrollIntoView = function scrollIntoView(): void {
+    // Scrolling is presentation-only in these tests.
+  };
+  localStorage.clear();
+  sessionOps = [];
+  turnCalls = [];
+  stubFetch();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  document.body.replaceChildren();
+});
+
+async function renderChat(): Promise<{
+  container: HTMLElement;
+  act: (fn: () => Promise<void> | void) => Promise<void>;
+}> {
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const act = async (fn: () => Promise<void> | void) => {
+    await React.act(async () => {
+      await fn();
+      for (let i = 0; i < 6; i += 1) {
+        await new Promise((done) => setTimeout(done, 0));
+      }
+    });
+  };
+  await act(async () => {
+    root.render(React.createElement(ConversationChat));
+  });
+  await act(async () => undefined);
+  return { container, act };
+}
+
+const q = (container: HTMLElement, attr: string): Element | null =>
+  container.querySelector(`[data-${attr}]`);
+
+async function beginMode(
+  container: HTMLElement,
+  act: (fn: () => Promise<void> | void) => Promise<void>,
+  mode: "voice-only" | "voice-plus-typing",
+): Promise<void> {
+  await act(async () => {
+    saveConsentReceipt(voiceReceipt(true));
+  });
+  await act(async () => {
+    const radio = q(container, `mode-option="${mode}"`)?.querySelector("input");
+    if (radio) {
+      (radio as HTMLInputElement).click();
+    }
+    q(container, "mode-begin")?.dispatchEvent(
+      new MouseEvent("click", { bubbles: true }),
+    );
+  });
+}
+
+describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
+  it("shows the privacy surface first — nothing sendable before the decision", async () => {
+    const { container } = await renderChat();
+    expect(q(container, "consent-surface")).not.toBeNull();
+    expect(q(container, "mode-choice")).toBeNull();
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(q(container, "voice-session")).toBeNull();
+  });
+
+  it("mode B: one continuous session, a visible switch, and no textarea", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-plus-typing");
+    expect(sessionOps).toContain("begin");
+    expect(q(container, "voice-session")?.getAttribute("data-voice-session")).toBe("active");
+    expect(q(container, "switch-to-typing")).not.toBeNull();
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(q(container, "mode-choice")).toBeNull();
+  });
+
+  it("mode A: no typing surface at all — no switch control, no textarea", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-only");
+    expect(q(container, "entry-mode")?.getAttribute("data-entry-mode")).toBe("voice-only");
+    expect(q(container, "switch-to-typing")).toBeNull();
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(q(container, "voice-pause")).not.toBeNull();
+  });
+
+  it("mid-session switch to typing keeps everything and stops the session", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-plus-typing");
+    sessionOps = [];
+    await act(async () => {
+      q(container, "switch-to-typing")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(sessionOps).toContain("stop");
+    expect(q(container, "typing-mode")).not.toBeNull();
+    expect(container.querySelector("textarea")).not.toBeNull();
+    expect(q(container, "switch-to-voice")).not.toBeNull();
+    expect(q(container, "voice-session")).toBeNull();
+    expect(q(container, "typing-mode")?.textContent ?? "").toContain("Nothing lost");
+  });
+
+  it("switching back to voice re-opens the same session", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-plus-typing");
+    await act(async () => {
+      q(container, "switch-to-typing")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    sessionOps = [];
+    await act(async () => {
+      q(container, "switch-to-voice")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(sessionOps).toContain("begin");
+    expect(q(container, "voice-session")?.getAttribute("data-voice-session")).toBe("active");
+  });
+
+  it("pause holds the session and resume restarts listening", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-plus-typing");
+    sessionOps = [];
+    await act(async () => {
+      q(container, "voice-pause")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(sessionOps).toContain("hold");
+    expect(q(container, "voice-session")?.getAttribute("data-voice-session")).toBe("paused");
+    sessionOps = [];
+    await act(async () => {
+      q(container, "voice-resume")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(sessionOps).toContain("resume");
+    expect(q(container, "voice-session")?.getAttribute("data-voice-session")).toBe("active");
+  });
+
+  it("a voice turn reads the CURRENT receipt — a receipt saved after begin is what is sent", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-plus-typing");
+    // The receipt changes AFTER the session began (the stale-closure
+    // scenario): the send must carry the NEW receipt, not the one from
+    // the render that began the session.
+    const later = { ...voiceReceipt(true), at: "2026-10-31T13:00:00.000Z" };
+    await act(async () => {
+      saveConsentReceipt(later);
+    });
+    await act(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(turnCalls).toHaveLength(1);
+    const header = turnCalls[0]!.headers.get("x-bn-consent");
+    expect(header).not.toBeNull();
+    expect(JSON.parse(header ?? "{}")).toMatchObject({ at: later.at, voice: true });
+  });
+
+  it("revoking voice mid-session stops the microphone and lands in typing", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-plus-typing");
+    sessionOps = [];
+    await act(async () => {
+      saveConsentReceipt({ ...voiceReceipt(false) });
+    });
+    expect(sessionOps).toContain("stop");
+    expect(q(container, "voice-session")).toBeNull();
+    expect(container.querySelector("textarea")).not.toBeNull();
+  });
+});

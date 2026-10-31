@@ -19,7 +19,7 @@ Chosen over `src/data/kb/` on purpose:
 | Path | What it is |
 |---|---|
 | `kb/schema.json` | JSON Schema (draft-07) every entry must satisfy |
-| `kb/entries/*.json` | One file per program entry — three pilot-agnostic samples (the base sample plus matching fixtures B and C, so benefit matching has something to rank) |
+| `kb/entries/*.json` | One file per program entry — three pilot-agnostic samples (the base sample plus matching fixtures B and C, so benefit matching has something to rank) plus the locked pilot's real entry, built only from official government sources with per-source claim-verification notes |
 | `kb/pilot/*.json` | Entries for the decided pilot program (HACK-50): real facts from official sources, kept apart from the samples (see `kb/pilot/README.md`) |
 | `kb/glossary.json` | Plain-language glossary terms (BN-30), each with an official source and retrieval date |
 | `kb/README.md` | This document |
@@ -103,14 +103,20 @@ The rule is encoded twice, on purpose:
   citation still carries the status and reason. There is no code path that
   produces a status-free citation.
 
-## Pilot-agnostic placeholders
+## Pilot-agnostic placeholders, and the locked pilot's real entry
 
-The shipped sample entries in `kb/entries/` use `{{PILOT_PROGRAM}}`
-placeholders and reserved-domain example URLs (`example.org`). Do not fill
-in a real program there; they stay matching fixtures. The pytest suite
-greps the KB surface for real program names to keep this honest, and
-retrieval dates in entries must be real calendar dates (the runtime
-validator checks the calendar; JSON Schema checks the shape).
+The three shipped sample entries use `{{PILOT_PROGRAM}}` placeholders and
+reserved-domain example URLs (`example.org`); they remain the test fixtures
+after the pilot lock. The real pilot entry landed when the pilot decision
+locked (HACK-16 Done, Oct 30): it names its program, carries only official
+government sources with retrieval dates, and records claim-verification
+notes per source (what was verified, on which page, when). Unresolved
+claims stay out of the entry rather than being guessed. The pytest suite
+still greps the KB surface: the samples, the schema, this README, and the
+consuming module must stay free of program names — only the versioned real
+entry is sanctioned to carry them. Retrieval dates in entries must be real
+calendar dates (the runtime validator checks the calendar; JSON Schema
+checks the shape).
 
 The one exception is `kb/pilot/`, which holds the decided pilot program's
 entries (HACK-50). The grep skips that directory, and `TestPilotEntries`

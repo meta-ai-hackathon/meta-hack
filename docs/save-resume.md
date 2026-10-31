@@ -79,11 +79,68 @@ client payloads; the delete makes the hygiene physical.
 ## UI affordance
 
 The intake wizard saves every answer immediately and offers "Save and finish
-later" (`src/app/intake/intake-wizard.tsx`), which calls `POST /api/session`
-to guarantee the session exists even before the first answer, and says so in
-plain language: saved on this device, nothing is submitted until you decide.
-Returning to `/intake` on the same device resumes automatically from the
-cookie — no login, no token to paste.
+later" (`src/app/intake/intake-wizard.tsx`). On the consent-declined
+conversation page the wizard runs in server mode: "Save and finish later"
+calls `POST /api/session` to guarantee the session exists even before the
+first answer, and returning resumes automatically from the cookie, with no
+login and no token to paste.
+
+## The step-by-step page keeps answers on the device (HACK-99)
+
+`/intake` runs the wizard in device mode. No answer is sent to any endpoint,
+and nothing about the journey is stored on the server.
+
+- **Where answers live:** IndexedDB in the person's browser, as one sealed
+  envelope (the client store's AES-256-GCM `sealed1.` format,
+  `src/lib/intake/client-store.ts`) next to the key that sealed it
+  (`src/lib/intake/device-answer-store.ts`). The key is generated in the
+  browser as non-extractable, so no script can read its bytes, and it never
+  leaves the device. Key and envelope are read in one transaction and written
+  in one transaction (`src/lib/device-kv.ts`).
+- **Resume:** reopening `/intake` in the same browser opens the envelope and
+  the flow engine runs over it in the page, landing on the first unanswered
+  visible question, the same derivation the server uses. Another browser or
+  device starts fresh by construction.
+- **Checks:** every answer is validated and canonicalized by
+  `src/lib/intake/answer-input.ts`, the same function the server store uses,
+  so the device keeps exactly what `POST /api/intake/answer` would accept.
+- **Several tabs:** a save re-reads the store and writes only if nothing
+  changed since; when another tab saved first it applies its answer on top,
+  and when another tab deleted everything it writes nothing and the page says
+  so.
+- **Delete:** "Delete my answers from this device" removes the key and the
+  envelope in one transaction and reports success only when a read afterwards
+  finds neither. Without the key, no copy of the ciphertext can be opened.
+  When this visit's store failed to open or read, the delete opens it afresh
+  and runs the same verified purge; if it still can't reach storage, it says
+  the delete couldn't be confirmed. Only a browser that can't store anything
+  at all clears just the page.
+- **Who can see them:** anyone using the same browser profile can open
+  `/intake` and see the answers, so the page says so and points to the
+  delete on shared computers. Private windows clear the store when closed,
+  and Safari clears a site's storage after about a week without a visit, so
+  the page never promises an open-ended resume.
+- **Honest copy:** what the page says follows what the browser did. When it
+  can't store anything, the page works in memory and says the answers last
+  only until it is closed. When storage fails on a visit, it says answers
+  from an earlier visit may still be stored. When a save fails mid-visit, it
+  says the answers saved before are still on the device and new changes
+  aren't. It never claims a save, resume, or delete that did not happen.
+- **Other tabs:** the page re-reads the store when it comes back into view
+  and before confirming "Save and finish later", so a delete or new answers
+  from another tab show up instead of being contradicted.
+- **Answers saved before this change:** until HACK-99, `/intake` saved
+  answers to the server session. On load the page asks
+  `GET /api/intake/state` (the cookie only, no answer, no new session)
+  whether this browser still has answers there. If it does, a notice says
+  how many and offers the HACK-80 purge (`POST /api/session/purge`) behind
+  one confirming step, and its outcome copy claims a deletion only when the
+  server confirmed one (`src/app/intake/server-answers-notice.tsx`).
+
+The conversation page still keeps answers on the server, because its match
+and review sections read the server session. Moving them on-device is
+HACK-95, and its error fallback link says the step-by-step page starts
+without what the person told the chat.
 
 ## Verification map
 
@@ -95,3 +152,8 @@ cookie — no login, no token to paste.
 | Caseworker notes intact through resume | `/api/session` route tests (create-assisted → resume → notes present) |
 | Rejected answers create no orphan sessions | `src/app/api/intake/answer/route.test.ts` |
 | Disavowed pii values are deleted | `src/lib/vault.test.ts` + `src/lib/intake/store.test.ts` (full-population disavow property) |
+| Device mode sends no answer anywhere | `src/app/intake/intake-wizard.device.test.tsx` (the wizard driven through the DOM with `fetch` failing the run) + `src/lib/intake/device-intake.test.ts` (a full journey) + `src/lib/intake/device-path-boundary.test.ts` (no server module, Node built-in, or request on the path) |
+| What the page says matches what the browser kept | `src/lib/intake/device-intake.test.ts` (unsupported, failed open, failed read, failed and stalled saves, other tabs) + `src/app/intake/intake-wizard.device.test.tsx` (focus and announcements in the delete flow, the double-click guard) |
+| Device storage holds no plaintext and resumes exactly | `src/lib/intake/device-answer-store.test.ts` (properties over saved answer sequences) + `src/lib/device-kv.test.ts` (sealed store over a fake IndexedDB) |
+| A device delete is verified and never undone by another tab | `src/lib/intake/device-answer-store.test.ts` (purge and racing-save properties) |
+| Answers saved on the server before device mode can be found and deleted | `src/app/intake/server-answers-notice.test.tsx` (cookie-only check, confirmed purge, every purge outcome, no answer in any request) |

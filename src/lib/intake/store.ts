@@ -11,6 +11,11 @@ import {
 import { AppError, logInfo, userMessageFor } from "../telemetry";
 import { getDb } from "../db";
 import { vaultDelete, vaultFlowValues, vaultPut } from "../vault";
+import {
+  MAX_ANSWER_TEXT_LENGTH,
+  canonicalAnswerValue,
+  type CanonicalAnswerValue,
+} from "./answer-input";
 import type { AnswerMap, StoredAnswer } from "./flow";
 import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID, type Question } from "./spec";
 
@@ -36,8 +41,6 @@ export const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 export const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const MAX_TEXT_LENGTH = 2000;
 
 /** Where an answer's value came from — mirrors the answer table CHECK. */
 export const ANSWER_PROVENANCES = [
@@ -198,11 +201,11 @@ export async function loadSessionState(
  * Validate an assist note and return it trimmed — WITHOUT touching the
  * database, so callers (the /api/session route) can reject bad notes before
  * creating a session. The bound matches every other free-text field
- * (MAX_TEXT_LENGTH).
+ * (MAX_ANSWER_TEXT_LENGTH).
  */
 export function validateAssistNote(note: string): string {
   const trimmed = note.trim();
-  if (trimmed === "" || trimmed.length > MAX_TEXT_LENGTH) {
+  if (trimmed === "" || trimmed.length > MAX_ANSWER_TEXT_LENGTH) {
     throw validationError();
   }
   return trimmed;
@@ -435,67 +438,19 @@ function validationError(): AppError {
   return new AppError("validation_error", userMessageFor("validation_error"));
 }
 
-/** Validate and canonicalize a submitted value against the question spec. */
+/**
+ * Validate and canonicalize a submitted value against the question spec.
+ * The rules live in answer-input.ts, shared with the on-device intake.
+ */
 function canonicalValue(
   question: Question,
   value: unknown,
-): string | number | boolean | string[] {
-  switch (question.type) {
-    case "text":
-    case "address": {
-      if (typeof value !== "string") {
-        throw validationError();
-      }
-      const trimmed = value.trim();
-      if (trimmed === "" || trimmed.length > MAX_TEXT_LENGTH) {
-        throw validationError();
-      }
-      return trimmed;
-    }
-    case "number": {
-      let numeric = value;
-      if (typeof numeric === "string" && numeric.trim() !== "") {
-        numeric = Number(numeric);
-      }
-      if (typeof numeric !== "number" || !Number.isFinite(numeric)) {
-        throw validationError();
-      }
-      return numeric;
-    }
-    case "boolean": {
-      if (typeof value !== "boolean") {
-        throw validationError();
-      }
-      return value;
-    }
-    case "date": {
-      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-        throw validationError();
-      }
-      return value;
-    }
-    case "single_select": {
-      if (
-        typeof value !== "string" ||
-        !question.options?.some((option) => option.value === value)
-      ) {
-        throw validationError();
-      }
-      return value;
-    }
-    case "multi_select": {
-      if (!Array.isArray(value) || value.length === 0) {
-        throw validationError();
-      }
-      const values = [...new Set(value.map((item) => String(item)))];
-      for (const item of values) {
-        if (!question.options?.some((option) => option.value === item)) {
-          throw validationError();
-        }
-      }
-      return values;
-    }
+): CanonicalAnswerValue {
+  const canonical = canonicalAnswerValue(question, value);
+  if (canonical === null) {
+    throw validationError();
   }
+  return canonical;
 }
 
 /** Vault values are text: strings stay as-is, everything else JSON-encoded. */

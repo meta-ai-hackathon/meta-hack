@@ -1,6 +1,18 @@
+import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { IntakeWizard } from "./intake-wizard";
 import IntakePage from "./page";
+import { ServerAnswersNotice } from "./server-answers-notice";
+
+/** Every element in a tree returned by a component, without rendering children components. */
+function elements(node: ReactNode): ReactElement[] {
+  if (!isValidElement(node)) {
+    return Array.isArray(node) ? node.flatMap(elements) : [];
+  }
+  const children = (node.props as { children?: ReactNode }).children;
+  return [node, ...elements(children)];
+}
 
 function headingLevels(html: string): number[] {
   return [...html.matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
@@ -23,5 +35,14 @@ describe("Intake page shell", () => {
         levels[i - 1] + 1,
       );
     }
+  });
+
+  it("runs the wizard in device mode, under the notice for answers saved on the server before (HACK-99)", () => {
+    const tree = elements(IntakePage());
+    const wizard = tree.find((element) => element.type === IntakeWizard);
+    expect((wizard?.props as { persistence?: string } | undefined)?.persistence).toBe("device");
+    const notice = tree.findIndex((element) => element.type === ServerAnswersNotice);
+    expect(notice).toBeGreaterThanOrEqual(0);
+    expect(notice).toBeLessThan(tree.findIndex((element) => element.type === IntakeWizard));
   });
 });

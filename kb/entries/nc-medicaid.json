@@ -1,0 +1,122 @@
+{
+  "id": "nc_medicaid",
+  "title": "NC Medicaid (North Carolina)",
+  "version": 2,
+  "status": "active",
+  "sources": [
+    {
+      "id": "nc_medicaid_apply_page",
+      "title": "How To Apply for NC Medicaid (NC DHHS)",
+      "url": "https://medicaid.ncdhhs.gov/apply",
+      "retrieved_at": "2026-10-30",
+      "supports": "Claim-verification note (HACK-17): page retrieved 2026-10-30; the page displays 'last modified 10/08/2026'. Verified on this page: the four application channels (online ePASS, in person at a local DSS, by phone, by mail/email/fax/drop-off); the 'apply at any time of the year' statement; the suggestion that people who are not sure if they are eligible should apply anyway; the required-application-info list (full legal name and date of birth for at least one person applying, a mailing address for at least one person applying, and a signature); the documents table quoted in required_documents; the decision timeline (up to 45 days for DSS to decide, up to 90 days for disability applications); and the link to the DHB-5200 printable application PDF."
+    },
+    {
+      "id": "dhb_5200_form",
+      "title": "DHB-5200 Application for Health Coverage (NC DHHS policies)",
+      "url": "https://policies.ncdhhs.gov/wp-content/uploads/dhb-5200-ia-9-2020.pdf",
+      "retrieved_at": "2026-10-30",
+      "supports": "Claim-verification note (HACK-17): PDF retrieved 2026-10-30 from the printable-application link on medicaid.ncdhhs.gov/apply; form revision IA-9-2020 per the file name and the form footer. Verified on the form itself: the home-address field prints 'Leave blank if you don't have one' with a separate mailing-address field for people whose mail goes elsewhere, and Step 2 prints that family members who don't need health coverage do not have to provide immigration status or a Social Security Number. DHB-5200 vs DHB-5201 reconciliation: the official apply page presents DHB-5200 as the printable application for the household health-coverage journey and DHB-5201-ia as the 'short form' for a single adult with no dependents and no employer health coverage; the demo journey is the INITIAL MAGI Medicaid application for a household, so DHB-5200 governs."
+    },
+    {
+      "id": "epass_portal",
+      "title": "ePASS — North Carolina's online benefits application portal",
+      "url": "https://epass.nc.gov/",
+      "retrieved_at": "2026-10-30",
+      "supports": "Claim-verification note (HACK-17): portal linked as the official online application channel on medicaid.ncdhhs.gov/apply, retrieved 2026-10-30. Verified on the apply page: the online application requires an NCID, and on the application NC Medicaid is referred to as 'Medical Assistance'."
+    },
+    {
+      "id": "mecklenburg_apply_page",
+      "title": "Mecklenburg County Department of Community Resources — Apply for Benefits",
+      "url": "https://dcr.mecknc.gov/Apply-for-Benefits",
+      "retrieved_at": "2026-10-30",
+      "supports": "Claim-verification note (HACK-17): page retrieved 2026-10-30. Verified on this page: Mecklenburg County residents apply for Medicaid online through North Carolina ePASS (or Mecklenburg County All Access), return paper applications in person at the county Community Resource Centers (each with a 24-hour secure document drop-off box), fax applications to the county fax number published on the page, or apply by phone through the Economic Services Call Center. County channels may change — re-verify before relying on a specific address, fax number, or phone number."
+    }
+  ],
+  "facts": {
+    "rules": {
+      "items": [
+        "NC Medicaid eligibility is decided by the Department of Social Services under the program's official rules — never by this app.",
+        "You can apply at any time of the year, per the official application guidance.",
+        "The official guidance says that if you are not sure whether you are eligible, they suggest you apply anyway.",
+        "This entry covers the initial Medicaid application for a household (the DHB-5200 health-coverage application). The DHB-5201 'short form' is the official alternative for a single adult with no dependents and no employer health coverage.",
+        "No income limits or eligibility thresholds are stated in this entry: the official eligibility guidance decides them, and the application form's examples are not treated as current limits."
+      ],
+      "source_id": "nc_medicaid_apply_page",
+      "retrieved_at": "2026-10-30"
+    },
+    "required_documents": {
+      "items": [
+        "Full legal name and date of birth for at least one person applying, and a mailing address for at least one person applying.",
+        "Your signature on the application — written, voice, or digital depending on how you apply.",
+        "If you have them, copies of documents for: North Carolina residency (a photo ID with your address, a utility bill, a lease or mortgage agreement, a vehicle registration, or employment documentation — or the application's 'NC Residency Declaration' box if you have no document).",
+        "Income documents if employed: pay stubs, employer verification, or your most recent tax return; if self-employed: your most recent tax return or copies of your business records.",
+        "Date of birth: a photo ID with your date of birth listed, or a birth certificate.",
+        "Social Security Number: a copy of your Social Security card or proof you applied for one, another official document with your name and SSN, or a military ID card.",
+        "Citizenship: a birth certificate or a passport. Immigration status for non-U.S. citizens: a copy of your visa/immigration card.",
+        "The official page says including copies of the documents you have may speed up the process, and that not all documents apply to everyone."
+      ],
+      "source_id": "nc_medicaid_apply_page",
+      "retrieved_at": "2026-10-30"
+    },
+    "official_links": {
+      "items": [
+        {
+          "label": "Apply online through ePASS (an NCID is required)",
+          "url": "https://epass.nc.gov/"
+        },
+        {
+          "label": "How to apply for NC Medicaid (official application guidance)",
+          "url": "https://medicaid.ncdhhs.gov/apply"
+        },
+        {
+          "label": "Printable application (DHB-5200, PDF)",
+          "url": "https://policies.ncdhhs.gov/wp-content/uploads/dhb-5200-ia-9-2020.pdf"
+        },
+        {
+          "label": "Mecklenburg County: apply for benefits",
+          "url": "https://dcr.mecknc.gov/Apply-for-Benefits"
+        }
+      ],
+      "source_id": "nc_medicaid_apply_page",
+      "retrieved_at": "2026-10-30"
+    },
+    "deadlines": {
+      "items": [
+        {
+          "label": "When to apply",
+          "due": "Any time of the year — the official application guidance states you can apply at any time."
+        },
+        {
+          "label": "Decision timeline after you apply",
+          "due": "The official page states it can take up to 45 days for the Department of Social Services to decide, and up to 90 days for disability applications — an agency processing timeline, not a promise about any case."
+        }
+      ],
+      "source_id": "nc_medicaid_apply_page",
+      "retrieved_at": "2026-10-30"
+    },
+    "steps": {
+      "items": [
+        "Pick a channel: apply online through ePASS, in person at your local Department of Social Services, over the phone, or by mail, email, fax, or drop-off.",
+        "If you apply on paper, download, print, and fill out the DHB-5200 application first.",
+        "Include copies of the documents you have — the official page says it may speed up the process.",
+        "Sign the application — the official guidance reminds applicants not to forget to sign.",
+        "After you apply, the agency may contact you for more information, so keep the address and phone number on the application correct."
+      ],
+      "source_id": "nc_medicaid_apply_page",
+      "retrieved_at": "2026-10-30"
+    },
+    "match_signals": {
+      "items": [
+        {
+          "question_id": "state",
+          "values": ["NC"],
+          "weight": 8,
+          "reason": "This entry describes North Carolina's state Medicaid program and its official application paths."
+        }
+      ],
+      "source_id": "nc_medicaid_apply_page",
+      "retrieved_at": "2026-10-30"
+    }
+  }
+}

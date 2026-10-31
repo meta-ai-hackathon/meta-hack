@@ -1,0 +1,293 @@
+{
+  "description": "The complete set of client-visible response shapes of the v2 surfaces (VAL-X2-003), one entry per shape with the surface it comes from and the rationale for its inclusion, so completeness is reviewable. Every example uses the walkthrough's fictional persona (Jamie Watts — a North Carolina resident whose walkthrough answers the county question with a real NC county the committed knowledge base never names). The detector suite asserts, for every shape: zero banned-claim matches anywhere in the example, zero pii echoes of any persona private value, and — for the state-bearing shapes — zero values shipped under pii:true questions.",
+  "persona": {
+    "name": "Jamie Watts (fictional)",
+    "privateValues": [
+      "Wake County",
+      "June 2025",
+      "1990-05-14",
+      "jamie.watts@example.com",
+      "555-0100",
+      "I lost my ID when I moved"
+    ]
+  },
+  "shapes": [
+    {
+      "shape": "conversation turn — assistantReply",
+      "surface": "POST /api/conversation/turn",
+      "rationale": "The model-phrased reply, gated server-side sentence-by-sentence; the walkthrough re-runs the banned-claim detector over every reply it receives.",
+      "example": { "assistantReply": "Got it. Next: where does money come from for your household?" }
+    },
+    {
+      "shape": "conversation turn — redactedUserTranscript",
+      "surface": "POST /api/conversation/turn",
+      "rationale": "The user's own words as stored and shown; private values are replaced with the redaction marker before persist and delivery.",
+      "example": { "redactedUserTranscript": "My date of birth is [redacted answer to \"What is your date of birth?\"]." }
+    },
+    {
+      "shape": "conversation turn — state",
+      "surface": "POST /api/conversation/turn",
+      "rationale": "The same client-state boundary the wizard uses: pii answers contribute status alone, never a value.",
+      "example": {
+        "state": {
+          "questions": [
+            {
+              "id": "income_sources",
+              "prompt": "Where does money come from for your household?",
+              "help": "Pick all that apply.",
+              "type": "multi_select",
+              "required": true,
+              "pii": false,
+              "options": [
+                { "value": "job", "label": "A job" },
+                { "value": "benefits", "label": "Benefits like disability or retirement checks" }
+              ]
+            }
+          ],
+          "answers": {
+            "date_of_birth": { "status": "known" },
+            "household_size": { "status": "known", "value": 3 }
+          },
+          "progress": { "answered": 2, "remaining": 28, "total": 30 },
+          "currentIndex": 0,
+          "complete": false
+        }
+      }
+    },
+    {
+      "shape": "conversation history — turns",
+      "surface": "GET /api/conversation/history",
+      "rationale": "The redacted transcript a returning person sees on resume; every stored turn was redacted at write time.",
+      "example": {
+        "turns": [
+          { "role": "user", "transcript": "It's for myself.", "createdAt": "2026-10-31T01:00:00.000Z" },
+          { "role": "assistant", "transcript": "Thanks. What kind of help are you looking for right now?", "createdAt": "2026-10-31T01:00:05.000Z" }
+        ]
+      }
+    },
+    {
+      "shape": "conversation history — state",
+      "surface": "GET /api/conversation/history",
+      "rationale": "Resume restores the identical client state from Postgres (VAL-CONV-007); it passes the same boundary as the turn state.",
+      "example": {
+        "state": {
+          "questions": [],
+          "answers": { "application_role": { "status": "known", "value": "self" } },
+          "progress": { "answered": 1, "remaining": 29, "total": 30 },
+          "currentIndex": 1,
+          "complete": false
+        }
+      }
+    },
+    {
+      "shape": "match — cards",
+      "surface": "GET /api/match",
+      "rationale": "Ranked 'may be worth pursuing' cards with per-claim reasons and requirements, each source-linked; framing is never a determination.",
+      "example": {
+        "matches": [
+          {
+            "entryId": "nc_medicaid",
+            "entryTitle": "NC Medicaid (health coverage)",
+            "entryVersion": 1,
+            "score": 7,
+            "framing": "may be worth pursuing",
+            "reasons": [
+              {
+                "text": "You told us you are looking for health care, and this program covers medical care for people with low income.",
+                "source": {
+                  "entryId": "nc_medicaid",
+                  "entryTitle": "NC Medicaid (health coverage)",
+                  "entryVersion": 1,
+                  "entryStatus": "active",
+                  "sourceUrl": "https://medicaid.ncdhhs.gov/apply",
+                  "retrievedAt": "2026-10-30"
+                }
+              }
+            ],
+            "requirements": [
+              {
+                "kind": "document",
+                "text": "Bring proof of income if you have it.",
+                "source": {
+                  "entryId": "nc_medicaid",
+                  "entryTitle": "NC Medicaid (health coverage)",
+                  "entryVersion": 1,
+                  "entryStatus": "active",
+                  "sourceUrl": "https://medicaid.ncdhhs.gov/apply",
+                  "retrievedAt": "2026-10-30"
+                }
+              }
+            ],
+            "links": [
+              {
+                "label": "How to apply for NC Medicaid (official guidance)",
+                "url": "https://medicaid.ncdhhs.gov/apply",
+                "source": {
+                  "entryId": "nc_medicaid",
+                  "entryTitle": "NC Medicaid (health coverage)",
+                  "entryVersion": 1,
+                  "entryStatus": "active",
+                  "sourceUrl": "https://medicaid.ncdhhs.gov/apply",
+                  "retrievedAt": "2026-10-30"
+                }
+              }
+            ],
+            "explanation": {
+              "text": "Based on the program's published rules, this may be worth pursuing. Only the county office can decide.",
+              "source": "facts"
+            },
+            "terms": []
+          }
+        ]
+      }
+    },
+    {
+      "shape": "match — to-resolve list",
+      "surface": "GET /api/match",
+      "rationale": "Unknown and unverified answers surface as explicit to-resolve items; nothing is inferred from them (BN-16).",
+      "example": {
+        "toResolve": [
+          { "questionId": "benefits_income_amount", "prompt": "About how much comes in from benefits each month?", "status": "unknown", "statusLabel": "You're not sure" }
+        ]
+      }
+    },
+    {
+      "shape": "match — honest empty state",
+      "surface": "GET /api/match",
+      "rationale": "When no active knowledge-base entry ranks, the payload is honestly empty — no card is invented.",
+      "example": { "hasSession": true, "matches": [], "toResolve": [] }
+    },
+    {
+      "shape": "form review — fields",
+      "surface": "GET /api/forms/sample-application-form/review",
+      "rationale": "The prepared-package view: every field with its pre-filled / asked / not-applicable state and provenance; pii-likely values are structurally omitted (status badge renders instead).",
+      "example": {
+        "fields": [
+          {
+            "fieldName": "applicant_date_of_birth",
+            "type": "text",
+            "question": "What is your date of birth?",
+            "state": "prefilled",
+            "specQuestionId": "date_of_birth",
+            "required": true,
+            "piiLikely": true,
+            "status": "known",
+            "provenance": "user_supplied"
+          },
+          {
+            "fieldName": "household_size_count",
+            "type": "text",
+            "question": "How many people live in your household?",
+            "state": "prefilled",
+            "specQuestionId": "household_size",
+            "required": true,
+            "piiLikely": false,
+            "status": "known",
+            "provenance": "user_supplied",
+            "value": "3"
+          },
+          {
+            "fieldName": "applicant_name",
+            "type": "text",
+            "question": "What is your full name?",
+            "state": "asked",
+            "specQuestionId": null,
+            "required": true,
+            "piiLikely": true
+          }
+        ]
+      }
+    },
+    {
+      "shape": "form review — to-resolve list",
+      "surface": "GET /api/forms/sample-application-form/review",
+      "rationale": "Still-needed fields, plainly named; unknowns are never silently blank (BN-16/BN-21).",
+      "example": {
+        "toResolve": [
+          { "fieldName": "case_number", "question": "What is your case number, if you already have one?" }
+        ]
+      }
+    },
+    {
+      "shape": "form review — handoff steps and lifecycle",
+      "surface": "GET /api/forms/sample-application-form/review",
+      "rationale": "The ordered handoff steps and the session's BN-25 lifecycle status: prepared, never submitted (the app never submits for you).",
+      "example": {
+        "sessionStatus": "draft",
+        "allowedSessionTransitions": ["prepared", "handed_off", "user_reported_submitted", "user_reported_decided"],
+        "portalLinks": [
+          {
+            "label": "Apply online through ePASS",
+            "url": "https://epass.nc.gov/",
+            "retrievedAt": "2026-10-30"
+          }
+        ],
+        "steps": [
+          { "title": "Review every field", "detail": "Check each answer below. Anything marked as still needed is left blank on the form." },
+          { "title": "Download your application", "detail": "The filled PDF is generated when you tap download, and the filled form itself isn't kept on our side." },
+          { "title": "Submit it yourself", "detail": "Use the official portal link, or mail or drop off the printed form — the app never submits for you." },
+          { "title": "Tell us what happened", "detail": "After you submit, let us know so your progress here reflects reality." }
+        ]
+      }
+    },
+    {
+      "shape": "session — create / save / resume state",
+      "surface": "POST /api/session, GET /api/session",
+      "rationale": "Save and resume restore the identical client state; the session token is an httpOnly cookie, never printed.",
+      "example": {
+        "session": { "status": "draft" },
+        "state": {
+          "questions": [],
+          "answers": {},
+          "progress": { "answered": 0, "remaining": 30, "total": 30 },
+          "currentIndex": 0,
+          "complete": false
+        }
+      }
+    },
+    {
+      "shape": "intake answer — state",
+      "surface": "POST /api/intake/answer",
+      "rationale": "The wizard fallback surface shares the same boundary; its answers feed the same conversation and forms pipeline.",
+      "example": {
+        "state": {
+          "questions": [],
+          "answers": { "main_goal": { "status": "known", "value": "healthcare" } },
+          "progress": { "answered": 1, "remaining": 29, "total": 30 },
+          "currentIndex": 2,
+          "complete": false
+        }
+      }
+    },
+    {
+      "shape": "taxonomy error response",
+      "surface": "any /api/* route on failure",
+      "rationale": "Errors carry the closed taxonomy code, plain-language copy, and the wizard fallback link — never stack traces, never payload echoes.",
+      "example": {
+        "error": {
+          "code": "model_unavailable",
+          "message": "The assistant is unavailable right now. You can keep going in the step-by-step form instead.",
+          "wizardFallbackUrl": "/intake"
+        }
+      }
+    },
+    {
+      "shape": "health response",
+      "surface": "GET /api/health",
+      "rationale": "Liveness only; no session or person data.",
+      "example": { "ok": true }
+    },
+    {
+      "shape": "filled-PDF attachment (binary)",
+      "surface": "POST /api/forms/<formId>/fill",
+      "rationale": "The person's own filled application returning to them as a download: it carries their answers BY DESIGN (VAL-PDF-003) and is never persisted server-side (VAL-PDF-005). Text detectors do not scan binary bytes; the journey instead shape-checks the response (content-type application/pdf, %PDF magic, attachment disposition) and the detectors cover every JSON surface around it.",
+      "example": { "contentDisposition": "attachment; filename=\"sample-application-form.pdf\"", "contentType": "application/pdf", "magic": "%PDF" }
+    },
+    {
+      "shape": "spoken reply audio (binary)",
+      "surface": "POST /api/conversation/speak",
+      "rationale": "Audio of an assistant reply for a turn id belonging to the caller's session; the text spoken already passed the banned-claim and pii-echo gates before persist. Audio bytes are not text-scannable; the voice toggle is consent-gated separately (VAL-CONSENT-003) and the text path is covered by the shapes above.",
+      "example": { "contentType": "audio/wav", "ofTurnReply": "Got it. Next: where does money come from for your household?" }
+    }
+  ]
+}

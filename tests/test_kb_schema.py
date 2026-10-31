@@ -78,6 +78,18 @@ PROGRAM_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 
+# The Jest snapshot-file extension (".snap") is a token, not a program
+# mention (claude-review P2 on PR #60, adjudicated 2026-10-30): strip the
+# exact token before scanning so the case-insensitive SNAP word-boundary
+# pattern cannot collide with it. Every other mention — any casing —
+# still trips.
+SNAP_EXTENSION_RE = re.compile(r"\.snap\b", re.IGNORECASE)
+
+
+def find_program_name(line: str) -> "re.Match[str] | None":
+    """Scan one KB-surface line for a blocklisted program name."""
+    return PROGRAM_NAME_RE.search(SNAP_EXTENSION_RE.sub(" ", line))
+
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # The decided pilot is NC Medicaid (Mecklenburg County). Its entries may name
@@ -179,15 +191,17 @@ class TestSchemaAndSample(KbSchemaTestCase):
         self.assertIsInstance(self.sample["version"], int)
         self.assertGreaterEqual(self.sample["version"], 1)
 
-    def test_shipped_entries_are_exactly_the_three_samples(self):
-        # Mission v2 M3 updated this rule: benefit matching needs more than
-        # one shipped entry to rank, so the KB ships three pilot-agnostic
-        # samples (the base sample plus matching fixtures B and C). All
-        # must validate; see also TestOptionalGroups.
+    def test_shipped_entries_are_the_three_samples_plus_the_real_pilot_entry(self):
+        # Mission v2 M3 added matching fixtures B and C (so matching has
+        # something to rank); mission v2.1 M6 added the REAL pilot entry
+        # (HACK-16 Done: NC Medicaid) built from official government
+        # sources. All must validate; see also TestOptionalGroups and
+        # TestRealPilotEntry.
         shipped = sorted(path.name for path in ENTRIES_DIR.glob("*.json"))
         self.assertEqual(
             shipped,
             [
+                "nc-medicaid.json",
                 "pilot-program-sample-b.json",
                 "pilot-program-sample-c.json",
                 "pilot-program-sample.json",
@@ -198,13 +212,20 @@ class TestSchemaAndSample(KbSchemaTestCase):
             errors = self.schema_errors(entry)
             self.assertEqual(errors, [], f"{name}: {errors}")
 
-    def test_every_shipped_entry_stays_pilot_agnostic(self):
-        for path in sorted(ENTRIES_DIR.glob("*.json")):
-            text = path.read_text(encoding="utf-8")
+    def test_every_sample_entry_stays_pilot_agnostic(self):
+        # The SAMPLES stay placeholder templates after the lock (they remain
+        # the test fixtures); the real entry is sanctioned by
+        # TestRealPilotEntry instead.
+        for name in [
+            "pilot-program-sample.json",
+            "pilot-program-sample-b.json",
+            "pilot-program-sample-c.json",
+        ]:
+            text = (ENTRIES_DIR / name).read_text(encoding="utf-8")
             self.assertIn(
                 "{{PILOT_PROGRAM}}",
                 text,
-                f"{path.name} must stay a placeholder template",
+                f"{name} must stay a placeholder template",
             )
 
     def test_version_sources_and_group_provenance_present(self):
@@ -555,16 +576,53 @@ class TestPilotAgnostic(KbSchemaTestCase):
         text = SAMPLE_PATH.read_text(encoding="utf-8")
         self.assertIn("{{PILOT_PROGRAM}}", text, "sample must stay a template")
 
-    def test_no_real_program_names_on_the_kb_surface(self):
-        # Grep-style repo check (VAL-KB-003): the KB data, schema, README, and
-        # the consuming module must be free of program-specific content.
+    def test_snap_extension_token_does_not_trip_the_blocklist(self):
+        # claude-review P2 on PR #60 (adjudicated 2026-10-30): a Jest
+        # snapshot-file reference on a KB-surface line is a file-extension
+        # token, not a program mention — the case-insensitive SNAP
+        # word-boundary pattern must not collide with it. A real mention,
+        # in any casing, still trips.
+        for line in [
+            "src/lib/match.test.ts.snap: card renders snapshot",
+            "exports[`match card renders`] = `retrieved 2026-10-29`  # .snap",
+            "see match-card.test.ts.snap and kb.test.ts.snap",
+        ]:
+            self.assertIsNone(find_program_name(line), line)
+        for line in ["SNAP", "snap benefits", "the Snap program", "food stamps"]:
+            self.assertIsNotNone(find_program_name(line), line)
+
+    def test_no_real_program_names_outside_the_sanctioned_real_entry(self):
+        # Post-lock grep check (VAL-KB-003 as amended by VAL-X2-004, Oct 30):
+        # HACK-16 is Done, so real program/jurisdiction names are sanctioned
+        # in exactly ONE KB surface — the committed versioned real entry
+        # (nc-medicaid.json) whose official sources + retrieval dates carry
+        # the verification discipline. The samples, the schema, the README,
+        # and the consuming module stay name-free. The kb/forms/ registry
+        # entries are the forms surface, governed by test_forms_registry.
+        sanctioned = ENTRIES_DIR / "nc-medicaid.json"
+        forms_dir = (KB_DIR / "forms").resolve()
         for path in self.kb_surface_files():
-            text = path.read_text(encoding="utf-8")
-            match = PROGRAM_NAME_RE.search(text)
-            if match is not None:
+            if path == sanctioned or forms_dir in path.resolve().parents:
+                continue
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
+                match = find_program_name(line)
+                if match is None:
+                    continue
+                # The consuming module stays name-free except for the exact
+                # import of the sanctioned entry file — loading the
+                # sanctioned entry is the sanctioned wiring.
+                if (
+                    path == KB_CODE_PATH
+                    and "import" in line
+                    and f"kb/entries/{sanctioned.name}" in line
+                ):
+                    continue
                 self.fail(
-                    f"{path.name} names a real program ({match.group(0)!r}); "
-                    "the pilot decision is still OPEN"
+                    f"{path.name}:{line_number} names a real program "
+                    f"({match.group(0)!r}); only the versioned real pilot "
+                    "entry may carry program names on the KB surface"
                 )
 
 
@@ -746,6 +804,63 @@ class TestPilotEntries(KbSchemaTestCase):
             self.cadence_problems(broken),
             ["schedule ids repeat", f"schedule {items[0]['id']} starts_on is not a real date"],
         )
+
+
+class TestRealPilotEntry(KbSchemaTestCase):
+    """VAL-PILOTREAL-003 (pytest half): the real NC Medicaid entry ships with
+    official sources, retrieval dates, and HACK-17 claim-verification notes."""
+
+    REAL_PATH = ENTRIES_DIR / "nc-medicaid.json"
+    OFFICIAL_HOSTS = (
+        "ncdhhs.gov",
+        "epass.nc.gov",
+        "mecknc.gov",
+    )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.real = json.loads(self.REAL_PATH.read_text(encoding="utf-8"))
+
+    def test_entry_is_active_and_schema_valid(self):
+        self.assertValid(self.real, "real pilot entry")
+        self.assertEqual(self.real["status"], "active")
+        self.assertGreaterEqual(self.real["version"], 1)
+
+    def test_every_source_is_an_official_government_host(self):
+        from urllib.parse import urlparse
+
+        for source in self.real["sources"]:
+            host = urlparse(source["url"]).hostname or ""
+            self.assertTrue(
+                any(
+                    host == official or host.endswith(f".{official}")
+                    for official in self.OFFICIAL_HOSTS
+                ),
+                f"{source['id']}: {source['url']} is not an official host",
+            )
+
+    def test_every_source_records_its_retrieval_date(self):
+        for source in self.real["sources"]:
+            self.assertRegex(source["retrieved_at"], ISO_DATE_RE, source["id"])
+
+    def test_every_source_carries_claim_verification_notes(self):
+        # HACK-17 discipline: the supports string says WHAT was verified and
+        # on which page; retrieved_at says WHEN. Unresolved claims are not
+        # encoded as facts (the rules group says so explicitly).
+        for source in self.real["sources"]:
+            self.assertIn("HACK-17", source["supports"], source["id"])
+            self.assertIn("2026-10-30", source["supports"], source["id"])
+
+    def test_dhb_5200_vs_5201_reconciliation_is_recorded(self):
+        text = self.REAL_PATH.read_text(encoding="utf-8")
+        self.assertIn("DHB-5200", text)
+        self.assertIn("DHB-5201", text)
+        self.assertIn("initial", text)
+
+    def test_no_thresholds_derived_from_legacy_form_illustrations(self):
+        text = self.REAL_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("94,000", text)
+        self.assertNotIn("$94", text)
 
 
 if __name__ == "__main__":

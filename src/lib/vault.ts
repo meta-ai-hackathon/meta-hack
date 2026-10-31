@@ -1,5 +1,12 @@
+import type postgres from "postgres";
 import { getDb } from "./db";
 import { AppError, logInfo, PII_QUESTION_IDS } from "./telemetry";
+import {
+  decryptVaultValue,
+  encryptVaultValue,
+  isVaultEnvelope,
+  requireVaultKey,
+} from "./vault-crypto";
 import type { FormRegistryEntry } from "./forms/registry";
 
 // PII vault (BN-03 / HACK-31): the secure storage layer for everything the
@@ -16,9 +23,20 @@ import type { FormRegistryEntry } from "./forms/registry";
 // - readVaultFields serves ONLY fields on CROSSING_ALLOWLIST and throws a
 //   taxonomy error for everything else, loudly.
 //
+// Encryption at rest (VAL-VAULTENC-001, Mission v2.1 M5): every value is
+// sealed app-side (AES-256-GCM, key from VAULT_ENC_KEY — see
+// vault-crypto.ts for the envelope format and the bytea-vs-text storage
+// decision) before it reaches Postgres, and decrypted ONLY here in the
+// read paths. A missing or invalid key fails CLOSED with a taxonomy error
+// — vaultPut writes nothing and no read path serves plaintext. There is no
+// plaintext fallback, ever. Legacy rows written before this feature are
+// re-encrypted in place on first read (see decryptedRowValues): a SQL
+// migration can never encrypt them because the key must never enter the
+// database, so encryption-on-read is the documented legacy choice.
+//
 // Logging discipline: vault events are logged with no identifying fields —
 // pii field ids are themselves identifying content (VAL-TEL-002), and
-// values never.
+// values never. The encryption key is never logged, echoed, or committed.
 
 /**
  * Fields the vault may store: exactly the question ids marked `pii: true`
@@ -91,10 +109,54 @@ export function vaultCrossingDecision(
 }
 
 /**
+ * Map selected vault rows to their decrypted field values — the ONE place
+ * stored values are unsealed (decrypt only inside vault.ts read paths).
+ *
+ * Ciphertext rows decrypt directly. Legacy plaintext rows (written before
+ * VAL-VAULTENC-001) are recognized by shape, re-encrypted in place on
+ * first read, and then served — the documented legacy choice: a SQL
+ * migration cannot encrypt them because the key must never enter the
+ * database, so encryption-on-read retires plaintext the moment the app
+ * touches a row. The key is required BEFORE anything is served: a missing
+ * or invalid key throws here and no value (encrypted or legacy plaintext)
+ * ever leaves this function.
+ *
+ * Logging discipline: field ids and values never reach a log line.
+ */
+async function decryptedRowValues(
+  sessionId: string,
+  rows: readonly Record<string, unknown>[],
+): Promise<Record<string, string>> {
+  requireVaultKey();
+  const sql = getDb();
+  const entries: Record<string, string> = {};
+  for (const row of rows) {
+    const field = String(row.field);
+    const stored = String(row.value);
+    if (isVaultEnvelope(stored)) {
+      entries[field] = decryptVaultValue(stored);
+    } else {
+      // Legacy plaintext row: seal it in place first (fail-closed on a
+      // bad key — nothing is served), then serve the original value.
+      const sealed = encryptVaultValue(stored);
+      await sql`
+        UPDATE vault_entry SET value = ${sealed}
+        WHERE session_id = ${sessionId} AND field = ${field}
+      `;
+      logInfo("vault_legacy_reencrypted");
+      entries[field] = stored;
+    }
+  }
+  return entries;
+}
+
+/**
  * Store a PII value for one field of one session. Accepts ONLY fields the
  * question spec marks `pii: true` — those are vault-only, so anything else
  * is a contract violation and throws a taxonomy error. Re-putting a field
- * updates the stored value (upsert), never a duplicate row.
+ * updates the stored value (upsert), never a duplicate row. The value is
+ * encrypted (AES-256-GCM) before it reaches the database; a missing or
+ * invalid key fails closed with a taxonomy error and nothing is written.
  */
 export async function vaultPut(
   sessionId: string,
@@ -114,10 +176,13 @@ export async function vaultPut(
       "A vault value must be non-empty text.",
     );
   }
+  // Fail closed BEFORE any write: without a usable key nothing is stored —
+  // and certainly not the plaintext as a fallback.
+  const sealed = encryptVaultValue(value);
   const sql = getDb();
   await sql`
     INSERT INTO vault_entry (session_id, field, value)
-    VALUES (${sessionId}, ${field}, ${value})
+    VALUES (${sessionId}, ${field}, ${sealed})
     ON CONFLICT (session_id, field)
     DO UPDATE SET value = EXCLUDED.value
   `;
@@ -148,6 +213,37 @@ export async function vaultDelete(
     WHERE session_id = ${sessionId} AND field = ${field}
   `;
   logInfo("vault_delete");
+}
+
+/**
+ * Remove EVERY stored value for one session — the session purge's vault
+ * half (HACK-80 / VAL-DEMOEXP-006): the person's delete-my-answers control
+ * (and the confirmed post-submission purge) must leave nothing in the
+ * vault. Session-scoped by design: every field for THIS session goes, so
+ * the per-field allowlist the other accessors enforce does not apply.
+ * Idempotent — an empty session deletes nothing. Runs on the caller's
+ * executor when one is passed (the purge runs inside one transaction, so a
+ * half-finished purge can never happen); defaults to the shared pool.
+ * Returns the number of rows removed. Logs a count only, and only when it
+ * runs on its own connection — a transaction-scoped run is logged by
+ * purgeSessionData after the commit, so a rolled-back purge never leaves a
+ * purge log line behind (field ids are themselves identifying content,
+ * VAL-TEL-002; values never logged).
+ */
+export async function purgeSessionVault(
+  sessionId: string,
+  executor?: postgres.Sql | postgres.TransactionSql,
+): Promise<number> {
+  const sql = executor ?? getDb();
+  const deleted = await sql`
+    DELETE FROM vault_entry
+    WHERE session_id = ${sessionId}
+    RETURNING 1
+  `;
+  if (executor === undefined) {
+    logInfo("vault_purged", { fieldCount: deleted.length });
+  }
+  return deleted.length;
 }
 
 /**
@@ -184,11 +280,7 @@ export async function vaultFlowValues(
     WHERE session_id = ${sessionId} AND field IN ${sql([...fields])}
   `;
   logInfo("vault_flow_read", { fieldCount: rows.length });
-  const entries: Record<string, string> = {};
-  for (const row of rows) {
-    entries[String(row.field)] = String(row.value);
-  }
-  return entries;
+  return decryptedRowValues(sessionId, [...rows]);
 }
 
 /**
@@ -221,11 +313,7 @@ export async function readVaultFields(
     WHERE session_id = ${sessionId} AND field IN ${sql([...allowed])}
   `;
   logInfo("vault_read", { fieldCount: rows.length });
-  const entries: Record<string, string> = {};
-  for (const row of rows) {
-    entries[String(row.field)] = String(row.value);
-  }
-  return entries;
+  return decryptedRowValues(sessionId, [...rows]);
 }
 
 /**
@@ -263,9 +351,5 @@ export async function readVaultFieldsForFill(
     WHERE session_id = ${sessionId} AND field IN ${sql([...allowed])}
   `;
   logInfo("vault_read", { fieldCount: rows.length });
-  const entries: Record<string, string> = {};
-  for (const row of rows) {
-    entries[String(row.field)] = String(row.value);
-  }
-  return entries;
+  return decryptedRowValues(sessionId, [...rows]);
 }

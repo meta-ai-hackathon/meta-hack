@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import fc from "fast-check";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { closeDb, getDb } from "./db";
@@ -77,6 +78,11 @@ const CORE_TABLES = [
 function sentinelFor(field: string): string {
   return `VAULT-SENTINEL-${field}-${field.length}`;
 }
+
+// The app-side ciphertext envelope (AES-256-GCM, see vault-crypto.ts):
+// "enc1.<iv base64>.<tag base64>.<ciphertext base64>". A direct DB read of
+// every vault row must match this — never the plaintext value.
+const ENVELOPE_SHAPE = /^enc1\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+$/;
 
 let admin: postgres.Sql;
 let testDb: postgres.Sql;
@@ -180,7 +186,7 @@ describe("vault_entry is structurally separate (VAL-PII-001)", () => {
 });
 
 describe("vaultPut write path", () => {
-  it("stores every pii:true spec field, updating not duplicating (full population)", async () => {
+  it("stores every pii:true spec field as ciphertext, updating not duplicating (full population, VAL-VAULTENC-001)", async () => {
     const sessionId = await createSession();
     for (const field of SPEC_PII_FIELDS) {
       await vaultPut(sessionId, field, sentinelFor(field));
@@ -202,8 +208,26 @@ describe("vaultPut write path", () => {
       rows.map((row) => [String(row.field), String(row.value)]),
     );
     expect([...stored.keys()].sort()).toEqual([...SPEC_PII_FIELDS].sort());
+
+    // Ciphertext at rest: a DIRECT database read shows an AES-GCM envelope
+    // for every row — never the plaintext value (VAL-VAULTENC-001).
     for (const [field, value] of updated) {
-      expect(stored.get(field)).toBe(value);
+      const storedValue = stored.get(field) ?? "";
+      expect(storedValue).not.toBe(value);
+      expect(storedValue).not.toContain("VAULT-SENTINEL");
+      expect(storedValue).toMatch(ENVELOPE_SHAPE);
+    }
+
+    // The key material never lands in the database either.
+    const allValues = rows.map((row) => String(row.value)).join("\n");
+    const vaultKey = process.env.VAULT_ENC_KEY ?? "";
+    expect(vaultKey).not.toBe("");
+    expect(allValues).not.toContain(vaultKey);
+
+    // Round-trip: the sanctioned server-side read serves the updated values.
+    const values = await vaultFlowValues(sessionId, SPEC_PII_FIELDS);
+    for (const [field, value] of updated) {
+      expect(values[field]).toBe(value);
     }
   });
 
@@ -234,6 +258,148 @@ describe("vaultPut write path", () => {
       vaultPut(sessionId, "county", 42 as unknown as string),
     ).rejects.toBeInstanceOf(AppError);
     expect(await vaultRowCount(sessionId)).toBe(0);
+  });
+});
+
+describe("encryption at rest (VAL-VAULTENC-001)", () => {
+  it("round-trips arbitrary values through put and the sanctioned read (property)", async () => {
+    const sessionId = await createSession();
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...SPEC_PII_FIELDS),
+        fc.string({ minLength: 1 }).map((value) => (value.trim() === "" ? "v" : value)),
+        async (field, value) => {
+          await vaultPut(sessionId, field, value);
+          const values = await vaultFlowValues(sessionId, [field]);
+          const stored = await testDb`
+            SELECT value FROM vault_entry
+            WHERE session_id = ${sessionId} AND field = ${field}
+          `;
+          return (
+            values[field] === value &&
+            ENVELOPE_SHAPE.test(String(stored[0].value)) &&
+            String(stored[0].value) !== value
+          );
+        },
+      ),
+      { numRuns: 25 },
+    );
+  });
+
+  it("the fill's entry-derived read round-trips encrypted values (VAL-VAULTENC-002)", async () => {
+    const sessionId = await createSession();
+    await vaultPut(sessionId, "date_of_birth", "1990-01-01");
+    await vaultPut(sessionId, "phone_contact", "555-0100");
+    const values = await readVaultFieldsForFill(sessionId, FILL_ENTRY);
+    expect(values.date_of_birth).toBe("1990-01-01");
+    expect(values.phone_contact).toBe("555-0100");
+  });
+});
+
+describe("fail-closed key handling (VAL-VAULTENC-002)", () => {
+  /** Run fn with VAULT_ENC_KEY overridden (or unset), restoring it after. */
+  async function withoutKey<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = process.env.VAULT_ENC_KEY;
+    delete process.env.VAULT_ENC_KEY;
+    try {
+      return await fn();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VAULT_ENC_KEY;
+      } else {
+        process.env.VAULT_ENC_KEY = previous;
+      }
+    }
+  }
+
+  it("a missing key rejects vaultPut with a taxonomy error and writes nothing", async () => {
+    const sessionId = await createSession();
+    await withoutKey(async () => {
+      const rejection = vaultPut(sessionId, "county", "Franklin");
+      await expect(rejection).rejects.toBeInstanceOf(AppError);
+      await expect(rejection).rejects.toMatchObject({ code: "internal" });
+    });
+    expect(await vaultRowCount(sessionId)).toBe(0);
+  });
+
+  it("an invalid key rejects vaultPut the same way", async () => {
+    const sessionId = await createSession();
+    for (const bad of ["", "short", "g".repeat(64)]) {
+      const previous = process.env.VAULT_ENC_KEY;
+      process.env.VAULT_ENC_KEY = bad;
+      try {
+        const rejection = vaultPut(sessionId, "county", "Franklin");
+        await expect(rejection).rejects.toBeInstanceOf(AppError);
+        await expect(rejection).rejects.toMatchObject({ code: "internal" });
+      } finally {
+        if (previous === undefined) {
+          delete process.env.VAULT_ENC_KEY;
+        } else {
+          process.env.VAULT_ENC_KEY = previous;
+        }
+      }
+    }
+    expect(await vaultRowCount(sessionId)).toBe(0);
+  });
+
+  it("a missing key on a read path throws — it never serves stored plaintext", async () => {
+    const sessionId = await createSession();
+    await vaultPut(sessionId, "county", "Franklin");
+    await withoutKey(async () => {
+      const rejection = vaultFlowValues(sessionId, ["county"]);
+      await expect(rejection).rejects.toBeInstanceOf(AppError);
+      await expect(rejection).rejects.toMatchObject({ code: "internal" });
+    });
+  });
+
+  it("a missing key on a LEGACY plaintext row fails closed — never a plaintext fallback", async () => {
+    const sessionId = await createSession();
+    // Simulate a pre-encryption row written straight into the table.
+    await testDb`
+      INSERT INTO vault_entry (session_id, field, value)
+      VALUES (${sessionId}, 'county', 'Franklin')
+    `;
+    await withoutKey(async () => {
+      const rejection = vaultFlowValues(sessionId, ["county"]);
+      await expect(rejection).rejects.toBeInstanceOf(AppError);
+      await expect(rejection).rejects.toMatchObject({ code: "internal" });
+    });
+  });
+});
+
+describe("legacy plaintext rows (encrypted on read)", () => {
+  it("a legacy plaintext row is served through the app and re-encrypted in place", async () => {
+    const sessionId = await createSession();
+    await testDb`
+      INSERT INTO vault_entry (session_id, field, value)
+      VALUES (${sessionId}, 'county', 'Franklin')
+    `;
+    // The app read serves the original value…
+    const values = await vaultFlowValues(sessionId, ["county"]);
+    expect(values.county).toBe("Franklin");
+    // …and leaves no plaintext residue behind.
+    const rows = await testDb`
+      SELECT value FROM vault_entry
+      WHERE session_id = ${sessionId} AND field = 'county'
+    `;
+    expect(String(rows[0].value)).toMatch(ENVELOPE_SHAPE);
+    // A second read — now from ciphertext — still returns the value.
+    const again = await vaultFlowValues(sessionId, ["county"]);
+    expect(again.county).toBe("Franklin");
+  });
+
+  it("a corrupted envelope fails closed instead of returning anything", async () => {
+    const sessionId = await createSession();
+    // Well-formed envelope shape, bogus GCM tag: authentication must fail
+    // loudly rather than degrade to anything resembling the stored value.
+    const bogus = `enc1.${Buffer.alloc(12).toString("base64")}.${Buffer.alloc(16).toString("base64")}.${Buffer.from("tampered").toString("base64")}`;
+    await testDb`
+      INSERT INTO vault_entry (session_id, field, value)
+      VALUES (${sessionId}, 'phone_contact', ${bogus})
+    `;
+    const request = vaultFlowValues(sessionId, ["phone_contact"]);
+    await expect(request).rejects.toBeInstanceOf(AppError);
+    await expect(request).rejects.toMatchObject({ code: "internal" });
   });
 });
 
@@ -504,10 +670,14 @@ describe("vault contents never reach logs", () => {
     }
     expect(lines.length).toBeGreaterThan(0);
     const joined = lines.join("\n");
+    const vaultKey = process.env.VAULT_ENC_KEY ?? "";
     for (const field of SPEC_PII_FIELDS) {
       expect(joined).not.toContain(sentinelFor(field));
       expect(joined).not.toContain(field);
     }
+    // No key material either (VAL-VAULTENC-002).
+    expect(vaultKey).not.toBe("");
+    expect(joined).not.toContain(vaultKey);
   });
 
   it("redactFields strips records keyed by vault field names", () => {

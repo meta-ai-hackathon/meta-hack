@@ -58,6 +58,7 @@ export function setLogSink(next: LogSink): void {
 export const PII_QUESTION_IDS = [
   "goal_detail",
   "county",
+  "prior_employer_last_month",
   "housing_status",
   "id_issue_detail",
   "date_of_birth",
@@ -313,6 +314,7 @@ export const ERROR_TAXONOMY = [
   "db_error",
   "model_unavailable",
   "rate_limited",
+  "consent_required",
   "internal",
 ] as const;
 
@@ -369,6 +371,8 @@ const ERROR_USER_MESSAGES: Readonly<Record<ErrorCode, string>> = {
   model_unavailable:
     "Our assistant is unavailable right now. You can keep filling in your answers.",
   rate_limited: "That was a lot of activity at once. Please wait a moment and try again.",
+  consent_required:
+    "Nothing was sent to any AI provider because sharing isn't turned on. Turn on sharing below to use the assistant, or keep going in the step-by-step form.",
   internal: "Something went wrong on our side. Please try again.",
 };
 

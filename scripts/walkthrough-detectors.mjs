@@ -157,3 +157,99 @@ export function findPiiValueExposure(body, privateValues) {
   }
   return hits;
 }
+
+// ---------------------------------------------------------------------------
+// v2 detectors (Mission v2 M5, VAL-WALK2-002): the conversational and
+// form-driven journeys exercise surfaces the wizard never sees — assistant
+// turns, redacted transcripts, subtitles, match cards, review views. These
+// detectors extend the same fail-closed vocabulary to them. As before, the
+// Vitest suite (walkthrough-detectors.test.mjs) runs these against
+// committed fixtures so the checks provably bite. (Assistant-turn
+// banned-claim detection reuses findBannedClaims directly at the turn call
+// site, which records the assistant-specific violation kind and context.)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pii-echo detection on ANY client payload (v2): walk every string in a
+ * parsed JSON body — assistant replies, redacted transcripts, subtitle
+ * fields, client state, match cards, review fields, error messages — and
+ * report every PATH where a submitted private value appears. The report
+ * names paths, never values (the value is private content; the transcript
+ * must not repeat what it flags).
+ *
+ * @param {unknown} payload - parsed JSON body of any client-visible response
+ * @param {readonly string[]} privateValues - submitted pii values
+ * @param {number} [maxDepth] - recursion bound for nested structures
+ * @returns {Array<{path: string, reason: string}>}
+ */
+export function findPiiEcho(payload, privateValues, maxDepth = 12) {
+  const echoes = [];
+  const clean = privateValues.filter(
+    (value) => typeof value === "string" && value.trim() !== "",
+  );
+  if (clean.length === 0) {
+    return echoes;
+  }
+  const visit = (node, path, depth) => {
+    if (typeof node === "string") {
+      for (const value of clean) {
+        if (node.includes(value)) {
+          echoes.push({ path: path === "" ? "(root)" : path, reason: "private_value_in_payload" });
+        }
+      }
+      return;
+    }
+    if (node === null || typeof node !== "object") {
+      return;
+    }
+    // Fail closed: a payload nested past the walk bound is not "clean" —
+    // it is unscanned, which the journey must treat as a violation.
+    if (depth > maxDepth) {
+      echoes.push({
+        path: path === "" ? "(root)" : path,
+        reason: "payload_nesting_past_scan_bound",
+      });
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach((item, index) => visit(item, `${path}[${index}]`, depth + 1));
+      return;
+    }
+    for (const [key, value] of Object.entries(node)) {
+      visit(value, path === "" ? key : `${path}.${key}`, depth + 1);
+    }
+  };
+  visit(payload, "", 0);
+  return echoes;
+}
+
+/**
+ * Redaction verification (v2): a typed turn that carried a private value
+ * must come back redacted. A value present in BOTH the raw words the
+ * walkthrough typed and the transcript the server delivered means the
+ * substitution failed — the private words were stored and shown as typed.
+ * Returns the surviving values (the caller reports the count and the
+ * question, never the value).
+ *
+ * @param {string} rawUserText - the exact words the walkthrough typed
+ * @param {string} redactedTranscript - the transcript the server delivered
+ * @param {readonly string[]} privateValues - submitted pii values
+ * @returns {string[]} values that survived redaction
+ */
+export function verifyRedaction(rawUserText, redactedTranscript, privateValues) {
+  const survivors = [];
+  if (typeof rawUserText !== "string" || typeof redactedTranscript !== "string") {
+    return survivors;
+  }
+  for (const value of privateValues) {
+    if (
+      typeof value === "string" &&
+      value.trim() !== "" &&
+      rawUserText.includes(value) &&
+      redactedTranscript.includes(value)
+    ) {
+      survivors.push(value);
+    }
+  }
+  return survivors;
+}

@@ -12,12 +12,12 @@ export const metadata: Metadata = {
 // fallback from here, in the header and on any error.
 export default function ConversationPage() {
   return (
-    <div className="mx-auto w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12">
+    <div className="mx-auto w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-12">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight">
+        <h1 className="font-display text-4xl font-bold tracking-tight">
           Chat through your application
         </h1>
-        <p className="max-w-xl text-lg text-zinc-600 dark:text-zinc-400">
+        <p className="max-w-xl text-lg text-muted">
           Tell us about your situation in your own words. The assistant asks
           one question at a time, your answers save as you go, and private
           details never show up on this screen — they are marked as
