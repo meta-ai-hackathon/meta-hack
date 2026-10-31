@@ -127,6 +127,16 @@ export const BROWSER_CAN_CLEAR_NOTE =
   "after about a week without a visit to this site. The calendar file is " +
   "the reminder that lasts.";
 
+/**
+ * Shown by the save button, and read as its description, before the press
+ * (HACK-113's rule). Saving asks the browser to keep this site's storage,
+ * and some browsers, Firefox among them, answer with a permission prompt,
+ * so the page says first that it may ask and what saying yes does.
+ */
+export const KEEP_PROMPT_NOTE =
+  "When you save, your browser may ask to let this site store data, and " +
+  "saying yes keeps the saved date from being cleared to free up space.";
+
 export const STORAGE_UNAVAILABLE_NOTE =
   "This browser can't save a private reminder right now (it may be in " +
   "private mode or blocking storage). You can still download a calendar " +
@@ -432,6 +442,7 @@ export const STATIC_RENEWAL_COPY: readonly string[] = [
   UNKNOWN_DATE_WHILE_SAVED_NOTE,
   PRIVACY_NOTE,
   BROWSER_CAN_CLEAR_NOTE,
+  KEEP_PROMPT_NOTE,
   STORAGE_UNAVAILABLE_NOTE,
   LOADING_NOTE,
   NOSCRIPT_NOTE,

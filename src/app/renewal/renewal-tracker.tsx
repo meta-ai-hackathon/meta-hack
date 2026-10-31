@@ -17,6 +17,7 @@ import {
   DOWNLOADED_NOTICE,
   DOWNLOAD_BUTTON,
   DOWNLOAD_FAILED_NOTICE,
+  KEEP_PROMPT_NOTE,
   KEEP_SAVED_BUTTON,
   LOADING_NOTE,
   NOSCRIPT_NOTE,
@@ -116,6 +117,9 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
   const [busy, setBusy] = useState(false);
   const [draftCalendarId, setDraftCalendarId] = useState<string | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
+  // Whether this visit already asked the browser to keep this site's
+  // storage: the first save asks, and no later one does (HACK-113's rule).
+  const askedToKeep = useRef(false);
   const ageRange = ageQuestionRange(facts.schedules);
 
   useEffect(() => {
@@ -229,9 +233,15 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
       setEditing(false);
       setNotice(savedNotice(reminder.kind));
       focusHeading();
-      // Ask the browser to keep the reminder (review fix); the notice above
-      // still points to the calendar file, which no browser clears.
-      void requestPersistentStorage();
+      // Ask the browser to keep the reminder (review fix), once a visit and
+      // only after the date is saved. The note by the save button said
+      // beforehand that the browser may ask, since Firefox shows a
+      // permission prompt. The notice above still points to the calendar
+      // file, which no browser clears.
+      if (!askedToKeep.current) {
+        askedToKeep.current = true;
+        void requestPersistentStorage();
+      }
     } catch {
       setNotice(SAVE_FAILED_NOTICE);
     } finally {
@@ -505,11 +515,17 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
                   ))}
                 </fieldset>
               ) : null}
+              {storage.state === "ready" ? (
+                <p id="renewal-save-note" className="text-sm text-zinc-600 dark:text-zinc-400">
+                  {KEEP_PROMPT_NOTE}
+                </p>
+              ) : null}
               <div className="flex flex-wrap gap-3">
                 {storage.state === "ready" ? (
                   <button
                     type="submit"
                     disabled={busy}
+                    aria-describedby="renewal-save-note"
                     className="rounded-md bg-zinc-900 px-4 py-2 text-base font-semibold text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
                   >
                     {SAVE_BUTTON}
