@@ -39,7 +39,9 @@ every git-tracked text file and fails on
   .localhost, and noreply.github.com (with its subdomains). None of those
   can deliver to a person. The git user of an SSH remote, as in
   git@github.com:org/repo.git or ssh://git@github.com/org/repo.git, names
-  a server rather than a person, so it passes.
+  a server rather than a person, so it passes. So does an image's file
+  name, the way a retina variant is named (logo@2x.png), since no
+  top-level domain is an image file type.
 
 An escape inside a string counts as spaces: a line break, a tab or another
 control character (backslash n, r, t, b, f or v), and a character written
@@ -188,6 +190,9 @@ _TYPESET: Final = str.maketrans(
 FICTIONAL_EMAIL_DOMAINS: Final = ("example.com", "example.org", "example.net", "noreply.github.com")
 # The names RFC 2606 and RFC 6761 reserve, which no mail ever reaches.
 FICTIONAL_EMAIL_TLDS: Final = frozenset({"test", "example", "invalid", "localhost"})
+# The file types an image is saved as. None is a top-level domain, so a match
+# that ends in one is a file name like logo@2x.png, never an address.
+IMAGE_FILE_TYPES: Final = frozenset({"png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "ico", "bmp", "tif", "tiff", "heic"})
 
 # Each value that is meant to be in a file, by the file, the kind and the
 # value's SHA-256, and why it is there. The reason names the test the value
@@ -246,6 +251,11 @@ def ssh_remote(text: str, match: re.Match[str]) -> bool:
     return match.group("local") == "git" and text[match.end() : match.end() + 1] in (":", "/")
 
 
+def image_file(domain: str) -> bool:
+    """Whether an email match is an image's file name, as in logo@2x.png."""
+    return domain.rsplit(".", 1)[-1].lower() in IMAGE_FILE_TYPES
+
+
 def find_pii(text: str) -> list[tuple[int, str, str]]:
     """Each real-looking detail in text, in order: where it starts, its kind and its value."""
     # Spaces as long as the escape, and a plain space or hyphen for a typeset
@@ -258,7 +268,7 @@ def find_pii(text: str) -> list[tuple[int, str, str]]:
     found |= {
         (match.start(), "email", match.group())
         for match in EMAIL.finditer(text)
-        if not fictional_email(match.group("domain")) and not ssh_remote(text, match)
+        if not fictional_email(match.group("domain")) and not ssh_remote(text, match) and not image_file(match.group("domain"))
     }
     return sorted(found)
 
@@ -553,6 +563,16 @@ REAL_DOMAINS = st.one_of(
     st.sampled_from(
         ["example.com.mail.net", "test.com", "invalid.org", "example.co", "localhost.net", "mail.contest", "noreply.github.com.mail.io", "github.com.test.net"]
     ),
+    # Names that only look like an image's file name.
+    st.sampled_from(["2x.com", "img.png.io", "photos.jpg.net"]),
+)
+# Image file names the way a retina variant is named: a name, a density and
+# an image file type, in any letter case.
+IMAGE_NAMES = st.builds(
+    "{}@{}x.{}".format,
+    st.from_regex(r"[a-z][a-z0-9_-]{0,12}", fullmatch=True),
+    st.sampled_from(["1", "1.5", "2", "3", "4"]),
+    st.sampled_from(["png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "ico", "bmp", "tif", "tiff", "heic", "PNG", "Jpg", "WEBP"]),
 )
 FICTIONAL_DOMAINS = st.one_of(
     st.builds(
@@ -705,6 +725,12 @@ class FinderProperties(unittest.TestCase):
     @given(LOCAL_PARTS, FICTIONAL_DOMAINS, SURROUNDINGS)
     def test_an_email_at_a_fictional_domain_passes(self, local: str, domain: str, around: tuple[str, str, str, str]) -> None:
         self.assertEqual(find_pii(surround(f"{local}@{domain}", around)), [])
+
+    @PBT
+    @given(IMAGE_NAMES, SURROUNDINGS)
+    def test_an_image_file_name_is_no_email(self, name: str, around: tuple[str, str, str, str]) -> None:
+        # As in an import of ./logo@2x.png or a srcSet entry.
+        self.assertEqual(find_pii(surround(name, around)), [])
 
     @PBT
     @given(SSH_REMOTE_FORMS, REAL_DOMAINS, REPO_PATHS, SURROUNDINGS)
