@@ -9,13 +9,20 @@ import { describe, expect, it } from "vitest";
 // server answer store, telemetry, the model client) or a Node built-in, and
 // none of it may make a network request. A regression here would either
 // break the page's bundle or open a path for answers to leave the device.
+//
+// The path includes the match, the form review, and the fill the page
+// computes once the questions are done (HACK-115). The one request on it
+// is the GET for the blank public form, in device-template.ts.
 
 const SRC = fileURLToPath(new URL("../..", import.meta.url));
 
 const DEVICE_PATH_ENTRIES = [
   "app/intake/intake-wizard.tsx",
   "app/intake/question-view.tsx",
+  "app/intake/device-results.tsx",
   "lib/intake/device-intake.ts",
+  "lib/intake/device-form.ts",
+  "lib/intake/device-template.ts",
 ];
 
 const SERVER_ONLY = [
@@ -26,7 +33,22 @@ const SERVER_ONLY = [
   "lib/conversation.ts",
   "lib/intake/store.ts",
   "lib/intake/serialize.ts",
+  // The server halves of the match, the registry, and the fill, and the
+  // forms modules that only the server runs.
+  "lib/match.ts",
+  "lib/forms/registry.ts",
+  "lib/forms/fill.ts",
+  "lib/forms/parse.ts",
+  "lib/forms/packet.ts",
+  "lib/forms/fax.ts",
+  "lib/purge.ts",
 ];
+
+/** The one module on the path allowed a request: the blank form's GET. */
+const TEMPLATE_LOADER = "lib/intake/device-template.ts";
+
+/** Any reference to a browser API that can send data off the device. */
+const REQUEST_API = /\bfetch\b|XMLHttpRequest|sendBeacon|WebSocket|EventSource/;
 
 /**
  * The modules a file imports at runtime, by path relative to src. Type-only
@@ -75,6 +97,16 @@ describe("the on-device intake path", () => {
       "lib/intake/client-state.ts",
       "lib/intake/answer-input.ts",
       "lib/device-kv.ts",
+      "app/intake/device-results.tsx",
+      "lib/intake/device-form.ts",
+      "lib/intake/device-template.ts",
+      "lib/match-core.ts",
+      "lib/kb.ts",
+      "lib/glossary.ts",
+      "lib/forms/fill-core.ts",
+      "lib/forms/registry-core.ts",
+      "lib/forms/flow.ts",
+      "lib/forms/display.ts",
     ]) {
       expect(files.has(expected), expected).toBe(true);
     }
@@ -91,14 +123,27 @@ describe("the on-device intake path", () => {
 
   it("makes no network request below the wizard", () => {
     for (const file of files) {
-      if (file === "app/intake/intake-wizard.tsx") {
+      if (file === "app/intake/intake-wizard.tsx" || file === TEMPLATE_LOADER) {
         // The wizard's server mode (the conversation page) still fetches.
         // Its device mode is driven through the DOM with fetch failing the
-        // run in app/intake/intake-wizard.device.test.tsx.
+        // run in app/intake/intake-wizard.device.test.tsx. The template
+        // loader is checked on its own below.
         continue;
       }
       const source = readFileSync(join(SRC, file), "utf8");
-      expect(source, `${file} makes a request`).not.toMatch(/\bfetch\(|XMLHttpRequest|sendBeacon|WebSocket\(/);
+      expect(source, `${file} makes a request`).not.toMatch(REQUEST_API);
     }
+  });
+
+  it("asks only for the blank form, with nothing in the request", () => {
+    // Its exact request (one bodiless GET, no cookies, no referrer) is
+    // pinned in device-template.test.ts; the page-level DOM test shows no
+    // request URL or body carries an answer.
+    const source = readFileSync(join(SRC, TEMPLATE_LOADER), "utf8");
+    expect(source).toMatch(/fetchImpl\(deviceTemplateUrl\(entry\), \{/);
+    expect(source.match(/fetchImpl\(/g)).toHaveLength(1);
+    expect(source).not.toMatch(/\bbody\s*:|XMLHttpRequest|sendBeacon|WebSocket|EventSource/);
+    expect(source).toMatch(/method: "GET"/);
+    expect(source).toMatch(/credentials: "omit"/);
   });
 });

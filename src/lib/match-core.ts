@@ -320,6 +320,15 @@ export function matchCardText(card: MatchCard): string {
   ].join(" ");
 }
 
+/** The entry's official application links, each citing its source. */
+export function officialLinks(entry: KbEntry): readonly MatchLink[] {
+  return entry.facts.official_links.items.map((link) => ({
+    label: link.label,
+    url: link.url,
+    source: sourceCitation(citeFactGroup(entry, "official_links")),
+  }));
+}
+
 /** One card for a ranked entry, with the explanation it is shown with. */
 export function buildMatchCard(ranked: RankedEntry, explanation: MatchExplanation): MatchCard {
   const entry = ranked.entry;
@@ -331,11 +340,7 @@ export function buildMatchCard(ranked: RankedEntry, explanation: MatchExplanatio
     framing: MATCH_FRAMING,
     reasons: ranked.reasons,
     requirements: buildRequirements(entry),
-    links: entry.facts.official_links.items.map((link) => ({
-      label: link.label,
-      url: link.url,
-      source: sourceCitation(citeFactGroup(entry, "official_links")),
-    })),
+    links: officialLinks(entry),
     explanation,
     terms: [],
   };

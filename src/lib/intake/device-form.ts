@@ -12,7 +12,13 @@ import {
   parseCommittedRegistryEntries,
   type FormRegistryEntry,
 } from "../forms/registry-core";
-import { buildFactsMatchResponse, type MatchResponse } from "../match-core";
+import { KB_ENTRIES } from "../kb";
+import {
+  buildFactsMatchResponse,
+  officialLinks,
+  type MatchLink,
+  type MatchResponse,
+} from "../match-core";
 import { PILOT_CONFIG } from "../pilot";
 import type { AnswerMap } from "./flow";
 import { toAnswerMap, vaultValues, type ClientAnswerState } from "./client-store";
@@ -51,6 +57,15 @@ function pilotFormEntry(): FormRegistryEntry {
 /** The benefit match for the device answers: facts only, never a model call. */
 export function deviceMatch(answers: ClientAnswerState): MatchResponse {
   return buildFactsMatchResponse(toAnswerMap(answers));
+}
+
+/**
+ * The official ways to apply for the pilot's program, from its knowledge
+ * base entries, each citing its source: where the person takes the form
+ * they filled. Shown whatever the match says, like the form itself.
+ */
+export function deviceHandoffLinks(): readonly MatchLink[] {
+  return KB_ENTRIES.flatMap((entry) => officialLinks(entry));
 }
 
 /**
