@@ -4,6 +4,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import realEntryJson from "../../kb/entries/nc-medicaid.json";
 import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
+import { FAX_PATH_UNVERIFIED } from "./consent";
 import {
   HANDOFF_ACTION_KINDS,
   HANDOFF_WHERE,
@@ -255,6 +256,15 @@ describe("nextHandoffAction: honest copy", () => {
       }),
       { numRuns: 200 },
     );
+  });
+
+  it("says the app sends nothing only while no fax path is verified", () => {
+    // The sign-and-send step says the app doesn't sign, send, or submit
+    // anything for the person, and the handoff section adds that nothing
+    // on the page sends the form. Both stay true only while the consented
+    // fax path is off (HACK-75, HACK-89). Verifying it is when a fax step
+    // joins the action list, and this copy has to change with it.
+    expect(FAX_PATH_UNVERIFIED.termsVerified).toBe(false);
   });
 
   it("tells the person, at the handoff, that they sign and send it themselves", () => {
