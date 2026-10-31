@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 // that change, and offers to delete them.
 export default function IntakePage() {
   return (
-    <div className="mx-auto w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-12">
+    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-12">
       <div className="flex flex-col gap-2">
         <h1 className="font-display text-4xl font-bold tracking-tight">
           Your benefits application
