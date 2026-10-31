@@ -64,6 +64,15 @@ import { VoiceDeck } from "./voice-deck";
 
 const WIZARD_FALLBACK_URL = "/intake";
 
+/**
+ * The bounded continuation queue (VAL-FIX-001): how many utterances may
+ * wait while one turn processes. Generous for real speech (a turn lasts
+ * seconds; people finish one thought at a time), small enough that
+ * runaway noise can never chain unlimited model turns. Overflow is
+ * dropped with an honest notice, never silently.
+ */
+export const MAX_PENDING_VOICE_TURNS = 3;
+
 export type VoiceInterimPhase =
   | "listening"
   | "transcribing"
@@ -746,12 +755,20 @@ export function ConversationChat() {
       // and submitted when the in-flight turns settle; speech resuming
       // after an endpoint decision re-opens the turn cleanly instead of
       // being dropped. Capture keeps running so whatever comes next is
-      // heard too.
+      // heard too. The queue is BOUNDED (claude-review round 4: runaway
+      // noise must not chain unlimited model turns) and overflow is
+      // dropped HONESTLY — the person is told, never silently.
       const decided = queuedTiming ?? endpointTimingRef.current;
       endpointTimingRef.current = null;
-      pendingVoiceRef.current.push(
-        decided === null ? { blob: recorded, timing: null } : { blob: recorded, timing: decided },
-      );
+      if (pendingVoiceRef.current.length >= MAX_PENDING_VOICE_TURNS) {
+        setNotice(
+          "We're catching up with what you said — we may have missed some of it just now. Say it again whenever you like.",
+        );
+      } else {
+        pendingVoiceRef.current.push(
+          decided === null ? { blob: recorded, timing: null } : { blob: recorded, timing: decided },
+        );
+      }
       // Never reopen the mic while a reply is playing (playbackHoldRef):
       // the assistant's own voice must not be captured as a user turn.
       if (!playbackHoldRef.current) {

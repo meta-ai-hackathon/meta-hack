@@ -6,7 +6,7 @@ import {
   type ConsentReceipt,
 } from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
-import { ConversationChat } from "./conversation-chat";
+import { ConversationChat, MAX_PENDING_VOICE_TURNS } from "./conversation-chat";
 
 // The two-mode conversation surface (HACK-106, VAL-NCF-002): the derived
 // conditions and transitions the rebuild introduced — exactly two entry
@@ -615,6 +615,67 @@ describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
     });
     expect(sessionOps).toContain("resume");
     expect(turnCalls).toHaveLength(2);
+  });
+
+  it("VAL-FIX-001: the continuation queue is bounded and overflow is announced, never silent", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-only");
+    let releaseTurn1: (() => void) | undefined;
+    const turn1Promise = new Promise<Response>((resolve) => {
+      releaseTurn1 = () => resolve(turnResponse());
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return turnCalls.length === 1 ? turn1Promise : turnResponse();
+        }
+        if (url === "/api/conversation/speak") {
+          return new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["first"], { type: "audio/webm" }),
+      );
+    });
+    // Fill the queue to its bound…
+    await act(async () => {
+      for (let i = 0; i < MAX_PENDING_VOICE_TURNS; i += 1) {
+        sessionCallbacks.onUtterance(
+          new Blob([`extra-${i}`], { type: "audio/webm" }),
+        );
+      }
+    });
+    expect(turnCalls).toHaveLength(1);
+    // …then overflow: dropped HONESTLY (a visible notice), not silently.
+    await act(async () => {
+      sessionCallbacks.onUtterance(
+        new Blob(["overflow"], { type: "audio/webm" }),
+      );
+    });
+    expect(turnCalls).toHaveLength(1);
+    const notice =
+      container.querySelector('[role="status"]')?.textContent ?? "";
+    expect(notice).toContain("may have missed");
+    // The bound queue still drains in order when the turn settles.
+    await act(async () => {
+      releaseTurn1?.();
+    });
+    expect(turnCalls).toHaveLength(MAX_PENDING_VOICE_TURNS + 1);
   });
 
   it("VAL-FIX-001: a user pause outlives a turn — the playback hold never overrides it", async () => {
