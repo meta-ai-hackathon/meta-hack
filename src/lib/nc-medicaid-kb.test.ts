@@ -310,7 +310,16 @@ describe("the real entry's handoff steps (HACK-46, HACK-47)", () => {
 
   it("records the passages it relies on in the form's verification note", () => {
     const form = entry.sources.find((source) => source.id === "dhb_5200_form");
-    for (const fragment of ["HACK-46", "HACK-47", "page 1", "page 20", "page 21", "returned 404"]) {
+    for (const fragment of [
+      "HACK-46",
+      "HACK-47",
+      "page 1",
+      "page 20",
+      "page 21",
+      "returned 404",
+      // Why some 2020 passages stay while others are held back.
+      "Kept, because",
+    ]) {
       expect(form?.supports, fragment).toContain(fragment);
     }
   });
