@@ -11,6 +11,7 @@ import {
   PARTIAL_SAVE_FALLBACK_PREFIX,
   PII_ECHO_FALLBACK_REPLY,
   RAW_CASCADE_SAVED_PREFIX,
+  FLOW_MISMATCH_PREFIX,
   WIZARD_FALLBACK_URL,
   type ChatCallScript,
 } from "../../../../lib/conversation";
@@ -121,7 +122,13 @@ function envelopeContent(step: ChatCallScript): string {
   } catch {
     answers = [];
   }
-  return JSON.stringify({ answers, reply: step.reply });
+  return JSON.stringify({
+    answers,
+    reply: step.reply,
+    ...(step.nextQuestionId
+      ? { next_question_id: step.nextQuestionId }
+      : {}),
+  });
 }
 
 function installScript(steps: readonly ChatCallScript[]): RecordedCall[] {
@@ -1163,6 +1170,56 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
       SELECT value FROM answer WHERE question_id = 'household_size'
     `;
     expect(rows).toHaveLength(0);
+  });
+
+  it("replaces the spoken question when a volunteered answer closes it (claude-review round-3 P2)", async () => {
+    // Turn 2 answers the CURRENT question (main_goal) AND volunteers a
+    // later answer (income_sources = none) that flips income_kind's skip
+    // condition. The model — writing from the turn-start list — declared
+    // income_kind as its next question; the server's post-save flow state
+    // says "state". The server owns flow control: the spoken question is
+    // replaced with the server's.
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "application_role", status: "known", value: "self" },
+          ],
+        }),
+        reply: "Got it. What kind of help are you looking for right now?",
+      },
+      {
+        extraction: JSON.stringify({
+          answers: [
+            { question_id: "main_goal", status: "known", value: "food" },
+            {
+              question_id: "income_sources",
+              status: "known",
+              value: ["none"],
+            },
+          ],
+        }),
+        reply: "Got it. What kind of income do you have?",
+        nextQuestionId: "income_kind",
+      },
+    ]);
+    const first = await POST(turnRequest("Hi, applying for myself."));
+    const cookie = (first.headers.get("set-cookie") ?? "")
+      .split(";")[0]
+      .trim();
+    const second = await POST(
+      turnRequest("Food. And I have no income at all right now.", cookie),
+    );
+    expect(second.status).toBe(200);
+    const data = (await second.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(
+      `${FLOW_MISMATCH_PREFIX} ${QUESTION_BY_ID.state.prompt}`,
+    );
+    expect(data.nextQuestionId).toBe("state");
+    const kinds = await testDb`
+      SELECT value FROM answer WHERE question_id = 'income_kind'
+    `;
+    expect(kinds).toHaveLength(0);
   });
 });
 

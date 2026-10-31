@@ -165,6 +165,20 @@ export const RAW_CASCADE_SAVED_COMPLETE_REPLY =
   "Got it — that's everything on my list. You can continue to the review step.";
 
 /**
+ * The deterministic copy for a declared-next-question mismatch (claude-review
+ * round-3 P2): the model declares which question its reply asks, and the
+ * server — which owns flow control — replaces the reply when that
+ * declaration disagrees with the post-save next question (a volunteered
+ * answer can close a question the model asked about, or complete the
+ * list). The ack stays neutral because the mismatch says nothing about
+ * what saved.
+ */
+export const FLOW_MISMATCH_PREFIX = "Here's the next question:";
+
+export const FLOW_MISMATCH_COMPLETE_REPLY =
+  "That's everything on my list — you can continue to the review step.";
+
+/**
  * Lightweight per-session turn-rate cap (hardening item 3): the turn
  * endpoint is unauthenticated model spend, and voice adds a second
  * expensive path per turn. A person speaking push-to-talk cannot plausibly
@@ -302,7 +316,9 @@ export function buildCombinedTurnPrompt(
   for (const question of visible) {
     const parts: string[] = [];
     if (question.id === currentQuestion?.id) {
-      parts.push(`- "${question.prompt}" (the question just asked, not yet answered)`);
+      parts.push(
+        `- (id: ${question.id}) "${question.prompt}" (the question just asked, not yet answered)`,
+      );
       if (question.options && question.options.length > 0) {
         // The extraction half needs the value:label pairs to map the
         // person's words onto option values; the reply half must SPEAK only
@@ -317,7 +333,7 @@ export function buildCombinedTurnPrompt(
       }
     } else {
       parts.push(
-        `- "${question.prompt}" (${answers[question.id] !== undefined ? "already answered" : "not yet answered"})`,
+        `- (id: ${question.id}) "${question.prompt}" (${answers[question.id] !== undefined ? "already answered" : "not yet answered"})`,
       );
     }
     if (question.skip_conditions.length > 0) {
@@ -405,8 +421,12 @@ export function buildCombinedTurnPrompt(
       "answer. Extract nothing beyond what the message supports.",
   );
   lines.push(
-    `Output ONLY a JSON object with exactly the two keys "answers" and "reply" ` +
-      "— no prose, no code fences: {\"answers\": [...], \"reply\": \"...\"}.",
+    `Output ONLY a JSON object with exactly the keys "answers", "reply", and ` +
+      `"next_question_id" — no prose, no code fences: {"answers": [...], ` +
+      `"reply": "...", "next_question_id": "..."}. In "next_question_id", set ` +
+      "the id of the question from the list your reply asks next — the id in " +
+      "parentheses at the start of each list line — or omit it when every " +
+      "question is answered.",
   );
   return lines.join("\n");
 }
@@ -447,6 +467,7 @@ const COMBINED_SCHEMA = {
   properties: {
     answers: EXTRACTION_SCHEMA.properties.answers,
     reply: { type: "string" },
+    next_question_id: { type: "string" },
   },
 } as const;
 
@@ -474,6 +495,13 @@ function stripCodeFences(content: string): string {
 export interface CombinedEnvelope {
   readonly answers: ExtractedAnswer[];
   readonly reply: string;
+  /**
+   * The question id the model's reply ASKS next, when it declared one.
+   * The server owns flow control: this declaration is verified against
+   * the post-save next question and a mismatch replaces the reply
+   * (claude-review round-3 P2). Absent when omitted or not a spec id.
+   */
+  readonly nextQuestionId?: string;
 }
 
 /**
@@ -555,12 +583,29 @@ export function parseCombinedEnvelope(
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return null;
   }
-  const record = parsed as { answers?: unknown; reply?: unknown };
+  const record = parsed as {
+    answers?: unknown;
+    reply?: unknown;
+    next_question_id?: unknown;
+  };
   const reply = typeof record.reply === "string" ? record.reply.trim() : "";
   if (reply === "") {
     return null;
   }
-  return { answers: parseAnswerItems(record.answers), reply };
+  // The declared next question is verified against the spec's ids; an
+  // unknown or missing declaration means the server cannot verify and the
+  // reply stands as-is (per-item tolerance: a malformed declaration never
+  // fails the turn).
+  const declaredNext =
+    typeof record.next_question_id === "string" &&
+    Object.hasOwn(QUESTION_BY_ID, record.next_question_id)
+      ? record.next_question_id
+      : undefined;
+  return {
+    answers: parseAnswerItems(record.answers),
+    reply,
+    nextQuestionId: declaredNext,
+  };
 }
 
 export interface PlannedAnswer {
@@ -645,13 +690,25 @@ function containsIgnoreCase(haystack: string, needle: string): boolean {
  * numbers) from assistant text. The reply-side backstop for the single-call
  * merge (claude-review P1): the reply is written by a model that saw the raw
  * user words, so a private detail extraction missed could be echoed even
- * though it was never saved anywhere. Returns the swept text; callers
- * compare before/after and fall back to honest copy on any change.
+ * though it was never saved anywhere. When the raw user turn is given, a
+ * matched span is redacted only when the person's own words contain it —
+ * a date or hotline shape that came from the KB grounding (a program
+ * deadline, an agency contact line) is public content, not PII, and stays
+ * (claude-review round-3 P2). Without the raw turn every shape is swept.
+ * Returns the swept text; callers compare before/after and fall back to
+ * honest copy on any change.
  */
-export function sweepStructuralPii(text: string): string {
+export function sweepStructuralPii(text: string, rawUserText?: string): string {
   let output = text;
   for (const pattern of STRUCTURAL_PII_PATTERNS) {
-    output = output.replace(pattern, STRUCTURAL_MARKER);
+    output = output.replace(pattern, (match) => {
+      if (rawUserText === undefined) {
+        return STRUCTURAL_MARKER;
+      }
+      return containsIgnoreCase(rawUserText, match.trim())
+        ? STRUCTURAL_MARKER
+        : match;
+    });
   }
   return output;
 }
@@ -891,6 +948,8 @@ export async function assertWithinTurnRate(sessionId: string): Promise<void> {
 export interface ChatCallScript {
   readonly extraction: string;
   readonly reply: string;
+  /** Optional declared next question id the scripted envelope carries. */
+  readonly nextQuestionId?: string;
 }
 
 /**
@@ -1242,19 +1301,25 @@ export async function processUserTurn(
     // a 3b raw-cascade SAVE replaced what the model believed (it extracted
     // nothing, so its reply may re-ask the just-saved question) → the
     // deterministic ack + the server's next question replaces the reply;
-    // a lost extraction (a skipped malformed value, or a choice that mapped
-    // to nothing) must be disclosed honestly — NOTHING saved → the
+    // a declared next question the server disagrees with (a volunteered
+    // answer closed the question the model asked about) → the server's
+    // question replaces the spoken one (claude-review round-3 P2); a lost
+    // extraction (a skipped malformed value, or a choice that mapped to
+    // nothing) must be disclosed honestly — NOTHING saved → the
     // deterministic re-ask replaces the reply, PART of the turn saved → the
     // honest loss prefix goes ahead of the reply (claude-review P2). An
     // unusable envelope degrades to the deterministic re-ask — never a
     // fabricated reply, never a failed turn.
     const extractionHadLoss =
       unmappedChoiceAttempt || skippedAnswerCount > 0;
+    const lossPrefix = extractionHadLoss
+      ? `${PARTIAL_SAVE_FALLBACK_PREFIX} `
+      : "";
     let reply: string;
     if (savedViaRawCascade) {
       reply = nextQuestion
-        ? `${RAW_CASCADE_SAVED_PREFIX} ${nextQuestion.prompt}`
-        : RAW_CASCADE_SAVED_COMPLETE_REPLY;
+        ? `${lossPrefix}${RAW_CASCADE_SAVED_PREFIX} ${nextQuestion.prompt}`
+        : `${lossPrefix}${RAW_CASCADE_SAVED_COMPLETE_REPLY}`;
     } else if (envelope === null) {
       logWarn("conversation_envelope_malformed");
       reply = malformedEnvelopeFallback(currentQuestion);
@@ -1263,6 +1328,22 @@ export async function processUserTurn(
         unmappedChoiceAttempt && currentQuestion
           ? `${CHOICE_UNMAPPED_FALLBACK_PREFIX} ${currentQuestion.prompt}`
           : malformedEnvelopeFallback(currentQuestion);
+    } else if (
+      envelope.nextQuestionId !== undefined &&
+      envelope.nextQuestionId !== nextQuestion?.id
+    ) {
+      // The model declared a next question the server's post-save flow
+      // state disagrees with — a volunteered answer closed the question the
+      // model asked about, or completed the list. The server owns flow
+      // control: the spoken question is replaced with the server's
+      // (claude-review round-3 P2).
+      logWarn("conversation_reply_question_mismatch", {
+        declared: envelope.nextQuestionId,
+        server: nextQuestion?.id ?? null,
+      });
+      reply = nextQuestion
+        ? `${lossPrefix}${FLOW_MISMATCH_PREFIX} ${nextQuestion.prompt}`
+        : `${lossPrefix}${FLOW_MISMATCH_COMPLETE_REPLY}`;
     } else {
       if (unmappedChoiceAttempt) {
         logWarn("conversation_choice_partially_unmapped");
@@ -1291,7 +1372,7 @@ export async function processUserTurn(
       logWarn("conversation_reply_pii_echo_blocked");
       reply = PII_ECHO_FALLBACK_REPLY;
     }
-    if (sweepStructuralPii(reply) !== reply) {
+    if (sweepStructuralPii(reply, userText) !== reply) {
       logWarn("conversation_reply_structural_pii_blocked");
       reply = PII_ECHO_FALLBACK_REPLY;
     }

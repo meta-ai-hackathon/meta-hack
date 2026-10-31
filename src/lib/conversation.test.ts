@@ -29,6 +29,9 @@ import {
   PARTIAL_SAVE_FALLBACK_PREFIX,
   RAW_CASCADE_SAVED_COMPLETE_REPLY,
   RAW_CASCADE_SAVED_PREFIX,
+  FLOW_MISMATCH_COMPLETE_REPLY,
+  FLOW_MISMATCH_PREFIX,
+  sweepStructuralPii,
   redactPiiValues,
   validateTurnText,
 } from "./conversation";
@@ -90,6 +93,9 @@ describe("committed refusal and fallback copy", () => {
       RAW_CASCADE_SAVED_PREFIX,
       `${RAW_CASCADE_SAVED_PREFIX} Who is this application for?`,
       RAW_CASCADE_SAVED_COMPLETE_REPLY,
+      FLOW_MISMATCH_PREFIX,
+      `${FLOW_MISMATCH_PREFIX} Who is this application for?`,
+      FLOW_MISMATCH_COMPLETE_REPLY,
     ]) {
       expect(findBannedClaims(text)).toEqual([]);
       expect(() => assertNoBannedClaimsEverySentence(text)).not.toThrow();
@@ -371,6 +377,26 @@ describe("combined envelope parsing (BN-32 + VAL-VLAT-003)", () => {
     expect(envelope?.reply).toBe("Thanks for letting me know.");
   });
 
+  it("carries a declared next_question_id only when it names a spec question", () => {
+    // The server verifies the declaration against its own flow state; an
+    // unknown or non-string declaration is dropped, never trusted.
+    const content = (id: unknown) =>
+      JSON.stringify({
+        answers: [],
+        reply: "Next question coming up.",
+        next_question_id: id,
+      });
+    expect(parseCombinedEnvelope(content("household_size"))?.nextQuestionId).toBe(
+      "household_size",
+    );
+    expect(parseCombinedEnvelope(content("not_a_question"))?.nextQuestionId).toBeUndefined();
+    expect(parseCombinedEnvelope(content(42))?.nextQuestionId).toBeUndefined();
+    expect(
+      parseCombinedEnvelope(JSON.stringify({ answers: [], reply: "One more thing." }))
+        ?.nextQuestionId,
+    ).toBeUndefined();
+  });
+
   it("tolerates a missing or non-array answers field while a reply is present", () => {
     // The extraction half degrades to "nothing extracted" exactly like the
     // old parser; the reply still drives the turn.
@@ -623,6 +649,27 @@ describe("redaction (VAL-CONV-004 invariant)", () => {
         },
       ),
     );
+  });
+});
+
+describe("structural reply sweep (claude-review round-2 P1 / round-3 P2)", () => {
+  it("sweeps a structural shape the model echoed from the person's own words", () => {
+    const swept = sweepStructuralPii(
+      "You mentioned 555-0143 — thanks.",
+      "my number is 555-0143",
+    );
+    expect(swept).toBe(
+      `You mentioned ${"[redacted personal detail]"} — thanks.`,
+    );
+  });
+
+  it("keeps KB-sourced shapes the person never said (a deadline, a hotline)", () => {
+    // The reply's date and phone come from the knowledge base grounding,
+    // not the person's words — public program facts, not PII.
+    const text = "The deadline is 2026-12-01; the hotline is 555-0100.";
+    expect(sweepStructuralPii(text, "I need help with food.")).toBe(text);
+    // Without the raw turn (the old signature), every shape is swept.
+    expect(sweepStructuralPii(text)).not.toBe(text);
   });
 });
 
