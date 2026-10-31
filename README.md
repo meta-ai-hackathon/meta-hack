@@ -2,7 +2,7 @@
 
 Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to Nov 4, 2026. $1M prize pool, solo entry, indie track.
 
-**Status: Benefits Navigator built and validated — 111/111 validation assertions green, all demo-day fixes merged with CI. Submission due Wed Nov 4, 9 PM ET (internal target 6 PM ET).**
+**Status: Benefits Navigator built and validated — 125/125 validation assertions green, all demo-day fixes merged with CI. Submission due Wed Nov 4, 9 PM ET (internal target 6 PM ET).**
 
 ## Where we stand
 
