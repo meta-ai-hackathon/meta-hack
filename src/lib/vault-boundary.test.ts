@@ -55,6 +55,15 @@ const EXEMPT_FILES = new Set([
   // is admitted — every other forms file (parse/flow/registry/display) stays
   // outside the boundary exactly like the rest of src/.
   "lib/forms/fill.ts",
+  // The session purge (Mission v2.1 M7, HACK-80) is the THIRD sanctioned
+  // vault accessor: the person's delete-my-answers control must empty the
+  // vault for their session, which only the vault module may do — via
+  // purgeSessionVault, a session-scoped DELETE that removes every stored
+  // value for THAT session (no field lists cross; nothing is read). The
+  // purge runs inside one transaction, and the vault half deletes on the
+  // caller's transaction connection so a half-finished purge can never
+  // happen. Nothing the purge removes is ever logged (counts only).
+  "lib/purge.ts",
 ]);
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
