@@ -122,7 +122,7 @@ describe("ConsentReceiptPanel — inspectable and revocable", () => {
     const html = textOf(
       renderToStaticMarkup(
         <ConsentReceiptPanel
-          receipt={{ v: 1, ai: true, voice: false, at: "2026-10-30T12:00:00.000Z" }}
+          receipt={{ v: 2, providerId: "meta-model-api", ai: true, voice: false, at: "2026-10-30T12:00:00.000Z" }}
           onRevoke={() => undefined}
           onReopen={() => undefined}
         />,

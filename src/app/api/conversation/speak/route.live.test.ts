@@ -11,7 +11,8 @@ import { CONSENT_HEADER } from "../../../../lib/consent";
 // The live speak requests carry a voice-consent receipt: the consent gate
 // sits in front of the TTS provider for live traffic too.
 const CONSENTED_VOICE = JSON.stringify({
-  v: 1,
+  v: 2,
+  providerId: "meta-model-api",
   ai: true,
   voice: true,
   at: "2026-10-30T12:00:00.000Z",

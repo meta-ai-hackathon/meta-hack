@@ -279,13 +279,15 @@ describe("POST /api/conversation/speak — turn-id contract", () => {
 // ---------------------------------------------------------------------------
 
 const CONSENTED_VOICE = JSON.stringify({
-  v: 1,
+  v: 2,
+  providerId: "meta-model-api",
   ai: true,
   voice: true,
   at: "2026-10-30T12:00:00.000Z",
 });
 const CONSENTED_AI_ONLY = JSON.stringify({
-  v: 1,
+  v: 2,
+  providerId: "meta-model-api",
   ai: true,
   voice: false,
   at: "2026-10-30T12:00:00.000Z",

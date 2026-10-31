@@ -13,6 +13,7 @@ import {
 import {
   CONSENT_PATHS,
   attachConsentHeader,
+  CONSENT_PROVIDER_ID,
   cachedConsentSnapshot,
   clearConsentReceipt,
   consentPathEnabled,
@@ -225,7 +226,8 @@ export function ConversationChat() {
 
   function decideConsent(): void {
     const next: ConsentReceipt = {
-      v: 1,
+      v: 2,
+      providerId: CONSENT_PROVIDER_ID,
       ai: draftAi,
       voice: draftAi && draftVoice,
       at: new Date().toISOString(),
