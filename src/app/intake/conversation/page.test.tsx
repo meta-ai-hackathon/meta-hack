@@ -20,6 +20,15 @@ describe("Conversation page shell", () => {
     expect(html).toContain('id="conversation-input"');
   });
 
+  it("links to the step-by-step page that keeps answers only on this device (HACK-99)", () => {
+    const html = renderToStaticMarkup(<ConversationPage />);
+    const link = html.match(/<a[^>]*href="([^"]*)"[^>]*>Use the wizard instead<\/a>/);
+    expect(link?.[1]).toBe("/intake");
+    // The sentence after the link describes that page; intake/page.test.tsx
+    // pins that /intake runs the wizard in device mode.
+    expect(html).toContain("It keeps answers only on this device");
+  });
+
   it("shows the consent surface before any send, sends disabled until decided (VAL-CONSENT-002)", () => {
     const html = renderToStaticMarkup(<ConversationPage />);
     expect(html).toContain("data-consent-surface");
