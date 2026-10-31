@@ -393,14 +393,14 @@ describe("other tabs and windows", () => {
     // Another tab answers one more question on the same device.
     const theirs = await answerFirst((await loadDeviceIntake(opener(disk.kv))).intake, 2);
     const refreshed = await refreshDeviceIntake(mine);
-    expect(refreshed).toMatchObject({ changed: true, notice: DEVICE_INTAKE_COPY.updatedElsewhere });
+    expect(refreshed).toMatchObject({ changed: true, purged: false, notice: DEVICE_INTAKE_COPY.updatedElsewhere });
     expect(refreshed.intake.answers).toEqual(theirs.answers);
     expect((await refreshDeviceIntake(refreshed.intake)).changed).toBe(false);
 
     // Another tab deletes everything.
     disk.store.clear();
     const gone = await refreshDeviceIntake(refreshed.intake);
-    expect(gone).toMatchObject({ changed: true, notice: DEVICE_INTAKE_COPY.purgedElsewhere });
+    expect(gone).toMatchObject({ changed: true, purged: true, notice: DEVICE_INTAKE_COPY.purgedElsewhere });
     expect(gone.intake.answers).toEqual(EMPTY_CLIENT_ANSWERS);
     expect(saveForLaterNotice(gone.intake)).toBe(DEVICE_INTAKE_COPY.savedForLaterKept);
   });

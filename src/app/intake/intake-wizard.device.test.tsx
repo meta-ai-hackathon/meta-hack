@@ -237,6 +237,33 @@ describe("the wizard in device mode", () => {
     await page.unmount();
   });
 
+  it("keeps an answer in progress when another tab's change comes in", async () => {
+    const page = await visit();
+    // Picked but not saved yet: the person hasn't pressed Continue.
+    await page.choose("Me");
+    // Another tab saves a different answer on this device.
+    const { openIndexedDbKv } = await import("../../lib/device-kv");
+    const { recordDeviceAnswer } = await import("../../lib/intake/device-answer-store");
+    const otherTab = {
+      kv: await openIndexedDbKv(device.factory as unknown as IDBFactory),
+      subtle: globalThis.crypto.subtle,
+    };
+    const saved = await recordDeviceAnswer(
+      otherTab,
+      { questionId: "main_goal", status: "known", provenance: "user_supplied", value: "food" },
+      { expectStored: false },
+    );
+    expect(saved.status).toBe("saved");
+    await page.act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await page.settle();
+    expect(page.status()).toBe(page.copy.updatedElsewhere);
+    expect(page.question()).toContain("Who is this application for?");
+    expect(page.checked("Me")).toBe(true);
+    await page.unmount();
+  });
+
   it("'Save and finish later' saves the answer on screen before saying it's saved", async () => {
     const page = await visit();
     expect(page.question()).toContain("Who is this application for?");

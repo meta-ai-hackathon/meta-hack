@@ -234,7 +234,9 @@ export function IntakeWizard(props: {
   const advancedAt = useRef(0);
   const deviceRef = useRef<DeviceIntake | null>(null);
   const activityRef = useRef(false);
-  const applyRef = useRef<(intake: DeviceIntake, message: string) => void>(() => undefined);
+  const applyRef = useRef<
+    (intake: DeviceIntake, message: string, options: { readonly keepDraft: boolean }) => void
+  >(() => undefined);
 
   useEffect(() => {
     deviceRef.current = deviceIntake;
@@ -345,7 +347,7 @@ export function IntakeWizard(props: {
           return;
         }
         if (refreshed.changed) {
-          applyRef.current(refreshed.intake, refreshed.notice);
+          applyRef.current(refreshed.intake, refreshed.notice, { keepDraft: !refreshed.purged });
         } else if (refreshed.intake !== intake) {
           setDeviceIntake(refreshed.intake);
         }
@@ -380,22 +382,33 @@ export function IntakeWizard(props: {
   /**
    * Show a device state that changed outside a save (another tab's answers
    * or delete): keep the person on the question they were on when it still
-   * exists, otherwise go to the first unanswered one.
+   * exists, otherwise go to the first unanswered one. With `keepDraft` (an
+   * update, not a delete), staying on the same question keeps whatever the
+   * person was in the middle of typing; only its position may move.
    */
-  function applyDeviceIntake(intake: DeviceIntake, message: string): void {
+  function applyDeviceIntake(
+    intake: DeviceIntake,
+    message: string,
+    options: { readonly keepDraft: boolean },
+  ): void {
     setDeviceIntake(intake);
     setWizard({ phase: "ready", state: intake.view });
+    const currentId =
+      wizard.phase === "ready" ? wizard.state.questions[current]?.id : undefined;
     const stillThere =
-      wizard.phase === "ready" &&
-      intake.view.questions.findIndex(
-        (question) => question.id === wizard.state.questions[current]?.id,
+      currentId === undefined
+        ? -1
+        : intake.view.questions.findIndex((question) => question.id === currentId);
+    if (options.keepDraft && stillThere >= 0) {
+      setCurrent(stillThere);
+    } else {
+      goTo(
+        stillThere >= 0
+          ? stillThere
+          : (intake.view.currentIndex ?? intake.view.questions.length),
+        intake.view,
       );
-    goTo(
-      typeof stillThere === "number" && stillThere >= 0
-        ? stillThere
-        : (intake.view.currentIndex ?? intake.view.questions.length),
-      intake.view,
-    );
+    }
     setNotice(message);
   }
   // The refresh-on-return listener outlives renders; it calls the latest
@@ -592,7 +605,7 @@ export function IntakeWizard(props: {
       }
       const refreshed = await refreshDeviceIntake(latest);
       if (refreshed.changed) {
-        applyDeviceIntake(refreshed.intake, refreshed.notice);
+        applyDeviceIntake(refreshed.intake, refreshed.notice, { keepDraft: !refreshed.purged });
         return;
       }
       setDeviceIntake(refreshed.intake);

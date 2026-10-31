@@ -366,6 +366,8 @@ export interface DeviceRefresh {
   readonly intake: DeviceIntake;
   /** True when the stored answers differ from what the page showed. */
   readonly changed: boolean;
+  /** True when the change was a delete made elsewhere: the page starts fresh. */
+  readonly purged: boolean;
   readonly notice: string;
 }
 
@@ -376,7 +378,7 @@ export interface DeviceRefresh {
  * or the store can't be read. Never rejects.
  */
 export async function refreshDeviceIntake(intake: DeviceIntake): Promise<DeviceRefresh> {
-  const unchanged: DeviceRefresh = { intake, changed: false, notice: "" };
+  const unchanged: DeviceRefresh = { intake, changed: false, purged: false, notice: "" };
   if (!keepsAnswers(intake) || intake.store === null) {
     return unchanged;
   }
@@ -393,6 +395,7 @@ export async function refreshDeviceIntake(intake: DeviceIntake): Promise<DeviceR
     return {
       intake: intakeOf(intake.store, "kept", false, EMPTY_CLIENT_ANSWERS),
       changed: true,
+      purged: true,
       notice: DEVICE_INTAKE_COPY.purgedElsewhere,
     };
   }
@@ -400,11 +403,14 @@ export async function refreshDeviceIntake(intake: DeviceIntake): Promise<DeviceR
     return unchanged;
   }
   if (serializeClientAnswers(loaded.state) === serializeClientAnswers(intake.answers)) {
-    return intake.stored ? unchanged : { intake: { ...intake, stored: true }, changed: false, notice: "" };
+    return intake.stored
+      ? unchanged
+      : { intake: { ...intake, stored: true }, changed: false, purged: false, notice: "" };
   }
   return {
     intake: intakeOf(intake.store, "kept", true, loaded.state),
     changed: true,
+    purged: false,
     notice: DEVICE_INTAKE_COPY.updatedElsewhere,
   };
 }
