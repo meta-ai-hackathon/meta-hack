@@ -97,6 +97,8 @@
         "required_documents": { "$ref": "#/definitions/text_fact_group" },
         "official_links": { "$ref": "#/definitions/link_fact_group" },
         "deadlines": { "$ref": "#/definitions/deadline_fact_group" },
+        "submission_steps": { "$ref": "#/definitions/sourced_step_fact_group" },
+        "after_you_apply": { "$ref": "#/definitions/sourced_step_fact_group" },
         "steps": { "$ref": "#/definitions/text_fact_group" },
         "match_signals": { "$ref": "#/definitions/signal_fact_group" }
       }
@@ -160,6 +162,57 @@
           }
         },
         "source_id": { "$ref": "#/definitions/source_id" },
+        "retrieved_at": { "$ref": "#/definitions/iso_date" }
+      }
+    },
+    "sourced_step_fact_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "retrieved_at"],
+      "description": "Optional handoff groups (BN-24 and BN-26, HACK-46 and HACK-47). submission_steps lists, in order, what a person does with a filled application form to sign it and send it in themselves; after_you_apply says what the official sources say happens after it is sent. Unlike the other groups, every item names its own source, because one list draws on several pages (the form itself, a county page, an online portal); a step's card shows its own source's retrieval date, and the group's retrieved_at records when the list was last checked. Item ids must be unique within the group, and every item's source_id must name one of the entry's sources (both cross-checked in code and tests; JSON Schema cannot express them).",
+      "properties": {
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label", "detail", "source_id"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "description": "Snake_case step id, unique within the group."
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The step in a few words."
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1,
+                "description": "What the step's source says, in plain language."
+              },
+              "link": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["label", "url"],
+                "description": "Optional official deep link for the step, with the text the link shows.",
+                "properties": {
+                  "label": { "type": "string", "minLength": 1 },
+                  "url": { "$ref": "#/definitions/https_url" }
+                }
+              },
+              "source_id": { "$ref": "#/definitions/source_id" }
+            }
+          }
+        },
+        "form_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Id of the form-registry entry (kb/forms/) these steps are written for, when they name that form's pages or steps. The handoff shows the group only beside that form. The id must name a registered form (cross-checked in tests)."
+        },
         "retrieved_at": { "$ref": "#/definitions/iso_date" }
       }
     },

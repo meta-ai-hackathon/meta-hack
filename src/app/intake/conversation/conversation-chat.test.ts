@@ -9,7 +9,7 @@ import {
   saveConsentReceipt,
   type ConsentReceipt,
 } from "../../../lib/consent";
-import { VoiceInterimState, sendVoiceTurn } from "./conversation-chat";
+import { refineThinkingPhase, VoiceInterimState, sendVoiceTurn } from "./conversation-chat";
 
 // Voice-fetch wiring tests (Mission v2.1 M5, VAL-CONSENT-006): the browser
 // voice client must attach the consent header to the audio POST to
@@ -186,14 +186,58 @@ describe("the interim voice states (VAL-VLAT-001)", () => {
     expect(html).toContain("Transcribing");
   });
 
+  it("renders the thinking state with its phase attribute (the state bar's fourth frame caption)", () => {
+    const html = renderToStaticMarkup(
+      VoiceInterimState({ phase: "thinking" }),
+    );
+    expect(html).toContain('data-voice-interim-state="thinking"');
+    expect(html).toContain("Thinking");
+    // The frames' state bar carries the state-name prefix like the other
+    // captions, with the studio's caption text.
+    expect(html).toContain("taking a moment with what you shared");
+  });
+
+  it("the state bar carries the frames' state-bar probe attribute on every phase", () => {
+    for (const phase of [
+      "listening",
+      "transcribing",
+      "thinking",
+      "speaking",
+    ] as const) {
+      const html = renderToStaticMarkup(VoiceInterimState({ phase }));
+      expect(html).toContain("data-voice-state-bar");
+    }
+  });
+
   it("renders nothing when no turn is in flight", () => {
     expect(renderToStaticMarkup(VoiceInterimState({ phase: null }))).toBe("");
   });
 
-  it("keeps both interim texts banned-claim clean", () => {
-    for (const phase of ["listening", "transcribing"] as const) {
+  it("keeps every interim text banned-claim clean", () => {
+    for (const phase of [
+      "listening",
+      "transcribing",
+      "thinking",
+      "speaking",
+    ] as const) {
       const html = renderToStaticMarkup(VoiceInterimState({ phase }));
       expect(findBannedClaims(html)).toEqual([]);
     }
+  });
+});
+
+// The state bar's "thinking" refinement (VAL-VJS-002): the pure seam the
+// 4 s in-flight timer applies. It renames ONLY a transcribing window —
+// listening, speaking, and no-turn states are never touched.
+describe("the thinking refinement seam", () => {
+  it("renames a transcribing window to thinking", () => {
+    expect(refineThinkingPhase("transcribing")).toBe("thinking");
+  });
+
+  it("leaves every other phase alone", () => {
+    expect(refineThinkingPhase("listening")).toBe("listening");
+    expect(refineThinkingPhase("speaking")).toBe("speaking");
+    expect(refineThinkingPhase("thinking")).toBe("thinking");
+    expect(refineThinkingPhase(null)).toBeNull();
   });
 });

@@ -63,32 +63,51 @@ export async function POST(request: Request): Promise<Response> {
   const requestId = requestIdFromHeaders(request.headers);
   return runWithRequestId(requestId, async () => {
     try {
+      const routeStarted = Date.now();
       const contentType = request.headers.get("content-type") ?? "";
       const cookieValue = readSessionCookie(request.headers.get("cookie"));
       // Consent FIRST — a refused turn never reads user content.
-      if (contentType.includes("multipart/form-data")) {
+      const isVoice = contentType.includes("multipart/form-data");
+      if (isVoice) {
         requireConsent(request, "voice");
       } else {
         requireConsent(request, "ai-conversation");
       }
       // Voice turns arrive as multipart audio; typed turns as JSON. Both
       // produce the turn text and share everything downstream.
-      const userText = contentType.includes("multipart/form-data")
+      // Per-segment timing (VAL-FIX-004): the INPUT segment is timed here —
+      // STT for a voice turn, JSON parse + validation for a typed one (the
+      // mode field says which) — and the engine segment wraps
+      // processUserTurn; numbers only, never content.
+      const inputStarted = Date.now();
+      const userText = isVoice
         ? await transcribeTurnAudio(
             await voiceAudioBytes(request),
             cookieValue,
           )
         : validateTurnText(await parseJsonBody(request));
+      const inputMs = Date.now() - inputStarted;
 
+      const engineStarted = Date.now();
       const { sessionId, assistantTurnId, ...outcome } = await processUserTurn(
         userText,
         cookieValue,
       );
+      const engineMs = Date.now() - engineStarted;
 
+      const stateStarted = Date.now();
       const answers = await loadAnswers(sessionId);
       const state = buildClientState(answers);
       assertNoPiiValues(state);
+      const stateMs = Date.now() - stateStarted;
       logInfo("conversation_turn_received");
+      logInfo("conversation_turn_route_timings", {
+        mode: isVoice ? "voice" : "typed",
+        inputMs,
+        engineMs,
+        stateMs,
+        totalMs: Date.now() - routeStarted,
+      });
 
       const headers = new Headers({ "content-type": "application/json" });
       if (outcome.fresh) {

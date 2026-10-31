@@ -18,10 +18,12 @@ const CONSENTED_VOICE = JSON.stringify({
   at: "2026-10-30T12:00:00.000Z",
 });
 
-// Live spoken-reply check (Mission v2 M2, user-steered Gemini TTS): proves
-// the turn-id route, the prompt-prefix contract, and the L16→WAV wrapping
-// against the real API. CI-safe: skips automatically when GEMINI_API_KEY
-// or Postgres is absent.
+// Live spoken-reply check (tts-elevenlabs-switch, HACK-116): proves the
+// turn-id route and the ElevenLabs pcm_24000 → WAV wrapping against the
+// real API. CI-safe: skips automatically when ELEVENLABS_API_KEY or
+// Postgres is absent — the owner's key may not exist yet; the offline
+// suite proves the swap with a fake transport (VAL-TTS2-004), and the
+// live-voice probe runs once the key lands.
 
 function loadEnvKey(name: string): string | undefined {
   if (process.env[name]) {
@@ -42,8 +44,8 @@ function loadEnvKey(name: string): string | undefined {
   }
 }
 
-const geminiKey = loadEnvKey("GEMINI_API_KEY");
-const itLive = it.skipIf(!geminiKey);
+const elevenLabsKey = loadEnvKey("ELEVENLABS_API_KEY");
+const itLive = it.skipIf(!elevenLabsKey);
 
 const LOCAL_DATABASE_URL =
   "postgresql://postgres:benefits_dev@localhost:5432/benefits_navigator";
@@ -62,7 +64,7 @@ let admin: postgres.Sql | null = null;
 let testDb: postgres.Sql | null = null;
 
 beforeAll(async () => {
-  if (!geminiKey) {
+  if (!elevenLabsKey) {
     return;
   }
   admin = postgres(databaseFrom(databaseUrl, "postgres"), { max: 1 });
@@ -83,15 +85,15 @@ afterAll(async () => {
 });
 
 afterEach(() => {
-  delete process.env.GEMINI_API_KEY;
+  delete process.env.ELEVENLABS_API_KEY;
 });
 
-describe("POST /api/conversation/speak — live (skipped without GEMINI_API_KEY)", () => {
+describe("POST /api/conversation/speak — live (skipped without ELEVENLABS_API_KEY)", () => {
   itLive(
     "returns playable WAV audio for a stored assistant turn",
     { timeout: 60_000 },
     async () => {
-      process.env.GEMINI_API_KEY = geminiKey;
+      process.env.ELEVENLABS_API_KEY = elevenLabsKey;
       const [person] =
         await testDb!`INSERT INTO person DEFAULT VALUES RETURNING id`;
       const [session] =
@@ -114,10 +116,10 @@ describe("POST /api/conversation/speak — live (skipped without GEMINI_API_KEY)
         }),
       );
       if (response.status === 429) {
-        // Quota-exhausted environment, not a code failure: the free-tier TTS
-        // quota is small. The taxonomy mapping itself is covered by the
-        // offline suite; skip the audio assertions here.
-        console.warn("GEMINI quota exhausted; skipping live audio assertions");
+        // Rate-limited environment, not a code failure: the free-tier
+        // concurrency/quota is small. The taxonomy mapping itself is
+        // covered by the offline suite; skip the audio assertions here.
+        console.warn("ELEVENLABS rate-limited; skipping live audio assertions");
         return;
       }
       expect(response.status).toBe(200);
@@ -135,7 +137,7 @@ describe("POST /api/conversation/speak — live (skipped without GEMINI_API_KEY)
     "maps a bad key to the taxonomy, not a crash",
     { timeout: 60_000 },
     async () => {
-      process.env.GEMINI_API_KEY = "definitely-not-a-valid-key";
+      process.env.ELEVENLABS_API_KEY = "definitely-not-a-valid-key";
       const [person] =
         await testDb!`INSERT INTO person DEFAULT VALUES RETURNING id`;
       const [session] =
