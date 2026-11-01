@@ -7,6 +7,7 @@
 //   throwing;
 // - the serialized session (raw PII) is only ever written through the
 //   sealed store, never in plaintext, and reveal() never fails a display.
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { ChatGuard, GuardOptions, ScrubResult } from "@nationaldesignstudio/rampart";
 import type { DeviceKv, KvGuard } from "../device-kv";
@@ -201,5 +202,114 @@ describe("RampartShield", () => {
     expect(shield.reveal("[UNKNOWN_7]")).toBe("[UNKNOWN_7]");
     await shield.start();
     expect(shield.reveal("no tokens here")).toBe("no tokens here");
+  });
+});
+
+// Property-based round (repo rule): the invariants the suite pin with
+// examples above are asserted over arbitrary inputs against a simple
+// scripted mapping guard — the shape the hosted Rampart guard gives us.
+describe("RampartShield properties", () => {
+  /** Arbitrary guest-name values (letters only after the first char guard). */
+  const valueArb = fc
+    .tuple(fc.constantFrom(..."ABCDEFGHJKLMNOPQRSTUVWXYZ"), fc.string({ unit: fc.constantFrom(..."abcdefghjkmnoprstuvwxyz"), minLength: 2, maxLength: 8 }))
+    .map(([first, rest]) => `${first}${rest}`);
+  const fillerArb = fc.string({
+    unit: fc.constantFrom(..."abcdefghijkmnopqrstuvwxyz ."),
+    minLength: 0,
+    maxLength: 40,
+  });
+
+  /** A scripted guard mapping each value to a stable [GIVEN_NAME_N] token. */
+  function mappingGuard(values: readonly string[]): ChatGuard {
+    const ordinals = new Map<string, string>();
+    for (const value of values) {
+      if (!ordinals.has(value)) {
+        ordinals.set(value, `[GIVEN_NAME_${ordinals.size + 1}]`);
+      }
+    }
+    return {
+      protect: async (text: string): Promise<ScrubResult> => {
+        let out = text;
+        for (const [value, token] of ordinals) {
+          out = out.split(value).join(token);
+        }
+        return { text: out, placeholders: [...ordinals.values()] };
+      },
+      reveal: (text: string): string => {
+        let out = text;
+        for (const [value, token] of ordinals) {
+          out = out.split(token).join(value);
+        }
+        return out;
+      },
+      serialize: () =>
+        JSON.stringify({
+          version: 1,
+          entries: [...ordinals].map(([token, value]) => ({ token, value })),
+        }),
+    } as unknown as ChatGuard;
+  }
+
+  it("the same value always becomes the same token, across turns and reloads", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(valueArb, { minLength: 2, maxLength: 4 }),
+        fc.array(fillerArb, { minLength: 1, maxLength: 3 }),
+        async (values, fillers) => {
+          const { kv } = memoryKv();
+          const depsFor = (kv: DeviceKv | null): RampartShieldDeps => ({
+            createGuard: async () => mappingGuard(values),
+            openStore: async () => (kv === null ? null : deps(kv)),
+          });
+          const seen = new Map<string, string>();
+          for (let turn = 0; turn < fillers.length + 1; turn += 1) {
+            const turnValue = values[turn % values.length];
+            const shield = new RampartShield(depsFor(kv));
+            await shield.start();
+            const out = await shield.protectTyped(
+              `${fillers[turn % fillers.length]} ${turnValue} ${fillers[turn % fillers.length]}`,
+            );
+            if (out.kind !== "tokenized") return;
+            const token = out.text.match(/\[[A-Z][A-Z_]*_\d+\]/)?.[0];
+            if (!token) return;
+            const prior = seen.get(turnValue);
+            if (prior !== undefined) {
+              expect(token).toBe(prior);
+            } else {
+              seen.set(turnValue, token);
+            }
+            // Never any raw mapped value in the tokenized send.
+            expect(out.text).not.toContain(turnValue);
+          }
+          // Reload: the sealed session rehydrates the same token parity.
+          const b = new RampartShield(depsFor(kv));
+          await b.start();
+          for (const [value, token] of seen) {
+            expect(b.reveal(token)).toBe(value);
+          }
+        },
+      ),
+    );
+  });
+
+  it("the sealed store never holds a mapped raw value (persistent + plaintext-free)", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.array(valueArb, { minLength: 1, maxLength: 4 }), async (values) => {
+        const { kv, store } = memoryKv();
+        const shield = new RampartShield({
+          createGuard: async () => mappingGuard(values),
+          openStore: async () => deps(kv),
+        });
+        await shield.start();
+        for (const value of values) {
+          const out = await shield.protectTyped(value);
+          expect(out.kind).toBe("tokenized");
+        }
+        const dump = JSON.stringify([...store.entries()]);
+        for (const value of values) {
+          expect(dump).not.toContain(value);
+        }
+      }),
+    );
   });
 });
