@@ -55,7 +55,10 @@ const ORDINALS = [
 
 function ordinalWord(n: number): string {
   if (n >= 1 && n <= ORDINALS.length) return ORDINALS[n - 1] as string;
-  return `${n}th`;
+  // English suffix rule with the 11th-13th exception (22nd, not "22th").
+  const finalTwo = n % 100;
+  if (finalTwo >= 11 && finalTwo <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
 
 export function containsPlaceholder(text: string): boolean {
