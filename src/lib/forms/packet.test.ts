@@ -276,6 +276,7 @@ describe("fill bridge", () => {
         { fieldName: "b", provenance: "source_verified" as const },
       ],
       toResolve: [{ fieldName: "c", question: "Your income?", reason: "unknown" as const }],
+      conflicts: [],
     };
     const { provenance, missing } = provenanceFromFill(
       fill,

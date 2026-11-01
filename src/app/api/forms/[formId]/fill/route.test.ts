@@ -462,6 +462,10 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     );
     expect(outcome.filled.length).toBe(mapped.size);
     expect(outcome.toResolve).toEqual([]);
+    // The coherent persona checks no two sides of one yes/no pair or
+    // check-one group: the fill-time consistency check is clean (the
+    // conflict cases live in the forms module's own suite).
+    expect(outcome.conflicts).toEqual([]);
   });
 
   it("the person skips typing: the form downloads unsigned, signature noted in to-resolve (VAL-VJS2-002)", async () => {

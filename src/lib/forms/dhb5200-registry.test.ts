@@ -1007,6 +1007,158 @@ it("the disposition report covers every field across all 21 pages (VAL-FIX-007)"
 
 // --- end full-form mapping part 3 -----------------------------------------
 
+  // --- full-form proof: fill-time conflict groups ---------------------------
+
+  it("conflict groups are sound: mapped checkbox members with kind-consistent ids", () => {
+    const registry = entry();
+    const groups = new Map<string, { kind: string; members: string[] }>();
+    for (const field of registry.fields) {
+      if (field.conflictGroup === undefined) {
+        continue;
+      }
+      // Only mapped checkboxes join a conflict group: a dispositioned
+      // field is never filled, so it can never contradict anything.
+      expect(field.disposition, field.name).toBe("mapped");
+      expect(field.type, field.name).toBe("checkbox");
+      const existing = groups.get(field.conflictGroup.id);
+      if (existing) {
+        expect(
+          field.conflictGroup.kind,
+          `${field.name} disagrees with its group's kind`,
+        ).toBe(existing.kind);
+        existing.members.push(field.name);
+      } else {
+        groups.set(field.conflictGroup.id, {
+          kind: field.conflictGroup.kind,
+          members: [field.name],
+        });
+      }
+    }
+    // 13 yes/no pairs + 12 check-one groups (3 work statuses, 6 pay
+    // frequencies, 2 sex pairs, the renewal term) across 80 fields.
+    expect(groups.size).toBe(25);
+    for (const [id, group] of groups) {
+      expect(group.members.length, id).toBeGreaterThanOrEqual(2);
+      if (group.kind === "yes_no") {
+        expect(group.members.length, id).toBe(2);
+      }
+    }
+  });
+
+  it("the owner-flagged yes/no pairs and check-one groups are conflict groups", () => {
+    const byName = new Map(entry().fields.map((field) => [field.name, field]));
+    const groupOf = (name: string) => {
+      const field = byName.get(name);
+      expect(field, `grouped field ${JSON.stringify(name)} registered`).toBeDefined();
+      return field!.conflictGroup;
+    };
+    // The part-3 claude-review finding's examples: the foster-care pair
+    // and the help-paying pair are TWO INDEPENDENT checkboxes per printed
+    // question - nothing in the AcroForm structure stops both being
+    // checked, so the registry names them as one yes/no group each.
+    expect(groupOf("undefined_80")).toEqual({ id: "p4-foster-care", kind: "yes_no" });
+    expect(groupOf("undefined_81")).toEqual({ id: "p4-foster-care", kind: "yes_no" });
+    expect(groupOf("Check Box17")).toEqual({ id: "p4-help-paying", kind: "yes_no" });
+    expect(groupOf("Check Box18")).toEqual({ id: "p4-help-paying", kind: "yes_no" });
+    // The renewal-term boxes are a check-one election: exactly one term
+    // may be chosen.
+    for (const name of [
+      "5 years the maximum number of years allowed",
+      "4 years",
+      "3 years",
+      "2 year",
+      "1 year",
+    ]) {
+      expect(groupOf(name)).toEqual({ id: "renewal-term", kind: "single_choice" });
+    }
+    // The remaining yes/no pairs (Persons 3 and 4 question blocks).
+    for (const [id, members] of [
+      ["p3-veteran", ["Check Box3", "Check Box4"]],
+      ["p3-child-under-18", ["Check Box14", "No_39"]],
+      ["p3-disabled", ["undefined_55", "undefined_56"]],
+      ["p3-blind", ["undefined_57", "undefined_58"]],
+      ["p3-job-insurance-lost", ["undefined_59", "No_43"]],
+      ["p4-veteran", ["Check Box1", "Check Box2"]],
+      ["p4-child-under-18", ["Check Box15", "undefined_79"]],
+      ["p4-disabled", ["undefined_82", "undefined_83"]],
+      ["p4-blind", ["undefined_84", "undefined_85"]],
+      ["p4-job-insurance-lost", ["undefined_86", "No_56"]],
+      ["step3-ai-an", ["If yes complete Appendix B", "If no complete Step 4"]],
+    ] as const) {
+      for (const name of members) {
+        expect(groupOf(name), `${name} joins ${id}`).toEqual({
+          id,
+          kind: "yes_no",
+        });
+      }
+    }
+    // The check-one groups: work status (3 boxes), pay frequency (6 boxes
+    // per job), and the sex pair.
+    for (const [id, members] of [
+      ["p2-work-status", ["Employed_2", "SelfEmployed_2", "Not employed_2"]],
+      ["p3-work-status", ["Employed_3", "SelfEmployed_3", "Not employed_3"]],
+      ["p4-work-status", ["Employed_4", "SelfEmployed_4", "Not employed_4"]],
+      [
+        "p2-job1-pay-frequency",
+        ["Hourly_3", "Weekly_3", "Every 2 weeks_3", "Twice a Monthly_3", "Monthly_3", "Yearly_3"],
+      ],
+      [
+        "p2-job2-pay-frequency",
+        ["Hourly_4", "Weekly_4", "Every 2 weeks_4", "Twice a Monthly_4", "Monthly_4", "Yearly_4"],
+      ],
+      [
+        "p3-job1-pay-frequency",
+        ["Hourly_5", "Weekly_5", "Every 2 weeks_5", "Twice a Monthly_5", "Monthly_5", "Yearly_5"],
+      ],
+      [
+        "p3-job2-pay-frequency",
+        ["Hourly_6", "Weekly_6", "Every 2 weeks_6", "Twice a Monthly_6", "Monthly_6", "Yearly_6"],
+      ],
+      [
+        "p4-job1-pay-frequency",
+        ["Hourly_7", "Weekly_7", "Every 2 weeks_7", "Twice a Monthly_7", "Monthly_7", "Yearly_7"],
+      ],
+      [
+        "p4-job2-pay-frequency",
+        ["Hourly_8", "Weekly_8", "Every 2 weeks_8", "Twice a Monthly_8", "Monthly_8", "Yearly_8"],
+      ],
+      ["p3-sex", ["undefined_51", "undefined_52"]],
+      ["p4-sex", ["undefined_75", "undefined_76"]],
+    ] as const) {
+      for (const name of members) {
+        expect(groupOf(name), `${name} joins ${id}`).toEqual({
+          id,
+          kind: "single_choice",
+        });
+      }
+    }
+  });
+
+  it("check-all-that-apply boxes stay multi-select - no conflict group", () => {
+    const byName = new Map(entry().fields.map((field) => [field.name, field]));
+    // Race/ethnicity (the form prints "check all that apply"), the
+    // other-income and deduction table rows, the work-changes checklist,
+    // and the household coverage rows are multi-select semantics - the
+    // consistency check must never treat them as check-one groups.
+    for (const name of [
+      "White or Caucasian_3",
+      "Black or AfricanAmerican_3",
+      "Mexican_3",
+      "Unemployment_2",
+      "Student Loan Interest_2",
+      "Change Jobs_2",
+      "None of these_2",
+      "NC Health Choice NCHC",
+      "Do not use information from tax returns to renew my coverage",
+    ]) {
+      const field = byName.get(name);
+      expect(field, `${JSON.stringify(name)} registered`).toBeDefined();
+      expect(field!.conflictGroup, name).toBeUndefined();
+    }
+  });
+
+  // --- end full-form proof: conflict groups ---------------------------------
+
   // Property (skills/property-based-testing): whatever the person TYPES as
   // their signature — arriving exactly as the real typed-signature step
   // sends it — is what the filled form carries, and nothing else ever

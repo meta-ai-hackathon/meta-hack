@@ -341,5 +341,70 @@ class TestPilotSurfaces(unittest.TestCase):
         )
 
 
+class TestConflictGroups(unittest.TestCase):
+    """Fill-time conflict-group data (full-form proof, VAL-FIX-007): the
+    reviewed conflict_group annotations mark the mutually exclusive checkbox
+    groups — independent Yes/No pairs and check-one groups — the fill flags
+    when a value set checks two members of one group (flag, never silently
+    pick a side). The schema validates the shape; these checks pin the
+    data discipline."""
+
+    def setUp(self) -> None:
+        self.entries = load_entries()
+
+    def test_members_are_mapped_checkboxes(self):
+        for name, entry in self.entries.items():
+            for field in entry["fields"]:
+                if field.get("conflict_group") is None:
+                    continue
+                self.assertEqual(
+                    field["disposition"],
+                    "mapped",
+                    f"{name}: {field['name']} joins a conflict group but is "
+                    "not mapped (a dispositioned field is never filled, so "
+                    "it can never contradict anything)",
+                )
+                self.assertEqual(
+                    field["type"],
+                    "checkbox",
+                    f"{name}: {field['name']} joins a conflict group but is "
+                    "not a checkbox (radio groups are exclusive by "
+                    "structure; text fields take no checked state)",
+                )
+
+    def test_group_ids_are_kind_consistent_and_groups_complete(self):
+        for name, entry in self.entries.items():
+            kinds: dict[str, str] = {}
+            for field in entry["fields"]:
+                group = field.get("conflict_group")
+                if group is None:
+                    continue
+                previous = kinds.setdefault(group["id"], group["kind"])
+                self.assertEqual(
+                    group["kind"],
+                    previous,
+                    f"{name}: conflict group {group['id']} mixes kinds",
+                )
+            members: dict[str, list[str]] = {}
+            for field in entry["fields"]:
+                group = field.get("conflict_group")
+                if group is not None:
+                    members.setdefault(group["id"], []).append(field["name"])
+            for group_id, kind in kinds.items():
+                self.assertGreaterEqual(
+                    len(members[group_id]),
+                    2,
+                    f"{name}: conflict group {group_id} has fewer than two "
+                    "members - nothing to conflict",
+                )
+                if kind == "yes_no":
+                    self.assertEqual(
+                        len(members[group_id]),
+                        2,
+                        f"{name}: yes/no group {group_id} must be exactly "
+                        "the question's two sides",
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()

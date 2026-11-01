@@ -9,7 +9,11 @@ import { readVaultFieldsForFill } from "../vault";
 import { AppError, logInfo } from "../telemetry";
 import { displayValueFor } from "./display";
 import { assertLoadablePdf } from "./parse";
-import type { FormRegistryEntry, FormRegistryField } from "./registry";
+import type {
+  ConflictGroupKind,
+  FormRegistryEntry,
+  FormRegistryField,
+} from "./registry";
 
 // Forms fill (Mission v2 M4 / HACK-74, BN-18): turn answers into a filled
 // application PDF the person can review and submit THEMSELVES. The app
@@ -64,6 +68,23 @@ export interface FillOutcome {
   readonly bytes: Uint8Array;
   readonly filled: readonly FilledField[];
   readonly toResolve: readonly ToResolveItem[];
+  /**
+   * The fill-time consistency check's flags (full-form proof, VAL-FIX-007):
+   * mapped Yes/No checkbox pairs and check-one groups where the value set
+   * checks two or more members of one group. The flag names the group for
+   * the person to resolve — the fill NEVER silently picks a side: what the
+   * person asked checked is what the form prints, conflict or not.
+   */
+  readonly conflicts: readonly FillConflict[];
+}
+
+/** One flagged conflict: a check group with two or more members checked. */
+export interface FillConflict {
+  readonly kind: ConflictGroupKind;
+  /** The flagged question (the first checked member's plain-language question). */
+  readonly question: string;
+  /** The checked members' field names, in registry order. */
+  readonly fields: readonly string[];
 }
 
 /** WinAnsi-safe text (StandardFonts are WinAnsi-only; no fontkit in the fork). */
@@ -250,7 +271,8 @@ function decodeVaultValue(questionId: string, raw: string): unknown {
 /**
  * Fill the template per the registry entry and return the outcome: the PDF
  * bytes (in memory only), the per-field provenance of everything filled,
- * and the explicit to-resolve list. Unknown fields are visibly blank.
+ * the explicit to-resolve list, and the conflict flags from the fill-time
+ * consistency check. Unknown fields are visibly blank.
  * Skipped (not-applicable) fields are handled by fillForSession, which owns
  * the answer map.
  */
@@ -264,6 +286,7 @@ export async function fillFormPdf(
   const filled: FilledField[] = [];
   const toResolve: ToResolveItem[] = [];
   const skipped = skippedFieldNames(entry, answerMap);
+  const conflicts = detectCheckConflicts(entry, values, skipped);
 
   if (entry.kind === "acroform") {
     await fillAcroForm(pdf, entry, values, skipped, filled, toResolve);
@@ -274,8 +297,65 @@ export async function fillFormPdf(
   logInfo("form_fill_completed", {
     filledCount: filled.length,
     toResolveCount: toResolve.length,
+    conflictCount: conflicts.length,
   });
-  return { bytes: await pdf.save(), filled, toResolve };
+  return { bytes: await pdf.save(), filled, toResolve, conflicts };
+}
+
+/**
+ * The fill-time consistency check (full-form proof, VAL-FIX-007 — the
+ * part-3 claude-review finding): the form's Yes/No questions and check-one
+ * elections are INDEPENDENT checkbox widgets — nothing in the AcroForm
+ * structure stops a value set checking both sides of a pair (e.g. the
+ * foster-care pair, the help-paying pair) or two terms of the renewal
+ * election. For every registry-declared conflict group, this flags when
+ * two or more of its mapped checkbox members would print checked.
+ *
+ * The flag is all the check does: the fill renders the person's answers
+ * exactly as sent (never silently picks a side, never drops one) and the
+ * person resolves the contradiction before submitting.
+ */
+export function detectCheckConflicts(
+  entry: FormRegistryEntry,
+  values: Readonly<Record<string, FillValue>>,
+  skipped: ReadonlySet<string> = new Set(),
+): FillConflict[] {
+  const groups = new Map<
+    string,
+    { kind: ConflictGroupKind; question: string; fields: string[] }
+  >();
+  for (const field of entry.fields) {
+    const group = field.conflictGroup;
+    // Only mapped checkboxes carry a checked state a conflict could
+    // contradict; a skipped member (not applicable by the flow's
+    // conditional logic) fills blank and joins no flag.
+    if (!group || field.disposition !== "mapped" || field.type !== "checkbox") {
+      continue;
+    }
+    if (skipped.has(field.name)) {
+      continue;
+    }
+    if (values[field.name]?.display !== "checked") {
+      continue;
+    }
+    const existing = groups.get(group.id);
+    if (existing) {
+      existing.fields.push(field.name);
+    } else {
+      groups.set(group.id, {
+        kind: group.kind,
+        question: field.question,
+        fields: [field.name],
+      });
+    }
+  }
+  return [...groups.values()]
+    .filter((group) => group.fields.length >= 2)
+    .map(({ kind, question, fields }) => ({
+      kind,
+      question,
+      fields: [...fields],
+    }));
 }
 
 function pushToResolve(

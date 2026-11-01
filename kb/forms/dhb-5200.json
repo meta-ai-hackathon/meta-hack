@@ -1,7 +1,7 @@
 {
   "id": "dhb-5200",
   "title": "NC Medicaid application for health coverage (DHB-5200)",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "kind": "acroform",
   "program": "NC Medicaid",
   "source": {
@@ -2888,7 +2888,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-work-status",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "SelfEmployed_2",
@@ -2902,7 +2906,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-work-status",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Not employed_2",
@@ -2916,7 +2924,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-work-status",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Text6",
@@ -2956,7 +2968,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Weekly_3",
@@ -2970,7 +2986,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Every 2 weeks_3",
@@ -2984,7 +3004,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Twice a Monthly_3",
@@ -2998,7 +3022,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Monthly_3",
@@ -3012,7 +3040,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Yearly_3",
@@ -3026,7 +3058,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "undefined_36",
@@ -3092,7 +3128,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Weekly_4",
@@ -3106,7 +3146,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Every 2 weeks_4",
@@ -3120,7 +3164,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Twice a Monthly_4",
@@ -3134,7 +3182,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Monthly_4",
@@ -3148,7 +3200,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Yearly_4",
@@ -3162,7 +3218,11 @@
       "pages": [
         9
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p2-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "undefined_37",
@@ -3926,7 +3986,11 @@
       "pages": [
         11
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-sex",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "undefined_52",
@@ -3940,7 +4004,11 @@
       "pages": [
         11
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-sex",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "5 Social Security Number SSN_3",
@@ -4415,7 +4483,11 @@
       "pages": [
         11
       ],
-      "export_value": "Yes"
+      "export_value": "Yes",
+      "conflict_group": {
+        "id": "p3-veteran",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "Check Box4",
@@ -4429,7 +4501,11 @@
       "pages": [
         11
       ],
-      "export_value": "Yes"
+      "export_value": "Yes",
+      "conflict_group": {
+        "id": "p3-veteran",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "13 Is PERSON 3 a resident of North Carolina",
@@ -4503,7 +4579,11 @@
       "pages": [
         12
       ],
-      "export_value": "Yes"
+      "export_value": "Yes",
+      "conflict_group": {
+        "id": "p3-child-under-18",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "No_39",
@@ -4517,7 +4597,11 @@
       "pages": [
         12
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-child-under-18",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "Carolina_2",
@@ -4548,7 +4632,11 @@
       "pages": [
         12
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-disabled",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "undefined_56",
@@ -4562,7 +4650,11 @@
       "pages": [
         12
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-disabled",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "older_2",
@@ -4593,7 +4685,11 @@
       "pages": [
         12
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-blind",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "undefined_58",
@@ -4607,7 +4703,11 @@
       "pages": [
         12
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-blind",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "living such as bathing dressing daily chores etc live in a medical facility nursing home andor need home and_2",
@@ -4669,7 +4769,11 @@
       "pages": [
         12
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job-insurance-lost",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "No_43",
@@ -4683,7 +4787,11 @@
       "pages": [
         12
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job-insurance-lost",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "Yes_42",
@@ -4711,7 +4819,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-work-status",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "SelfEmployed_3",
@@ -4725,7 +4837,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-work-status",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Not employed_3",
@@ -4739,7 +4855,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-work-status",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Text7",
@@ -4779,7 +4899,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Weekly_5",
@@ -4793,7 +4917,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Every 2 weeks_5",
@@ -4807,7 +4935,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Twice a Monthly_5",
@@ -4821,7 +4953,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Monthly_5",
@@ -4835,7 +4971,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Yearly_5",
@@ -4849,7 +4989,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "undefined_60",
@@ -4889,7 +5033,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Weekly_6",
@@ -4903,7 +5051,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Every 2 weeks_6",
@@ -4917,7 +5069,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Twice a Monthly_6",
@@ -4931,7 +5087,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Monthly_6",
@@ -4945,7 +5105,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Yearly_6",
@@ -4959,7 +5123,11 @@
       "pages": [
         13
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p3-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "undefined_61",
@@ -5749,7 +5917,11 @@
       "pages": [
         15
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-sex",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "undefined_76",
@@ -5763,7 +5935,11 @@
       "pages": [
         15
       ],
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-sex",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "5 Social Security Number SSN_4",
@@ -6238,7 +6414,11 @@
       "pages": [
         15
       ],
-      "export_value": "Yes"
+      "export_value": "Yes",
+      "conflict_group": {
+        "id": "p4-veteran",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "Check Box2",
@@ -6252,7 +6432,11 @@
       "pages": [
         15
       ],
-      "export_value": "Yes"
+      "export_value": "Yes",
+      "conflict_group": {
+        "id": "p4-veteran",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "13 Is PERSON 4 a resident of North Carolina",
@@ -6326,7 +6510,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "Yes"
+      "export_value": "Yes",
+      "conflict_group": {
+        "id": "p4-child-under-18",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "undefined_79",
@@ -6340,7 +6528,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-child-under-18",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "undefined_80",
@@ -6354,7 +6546,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-foster-care",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "undefined_81",
@@ -6368,7 +6564,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-foster-care",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "undefined_82",
@@ -6382,7 +6582,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-disabled",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "undefined_83",
@@ -6396,7 +6600,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-disabled",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "older_3",
@@ -6427,7 +6635,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-blind",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "undefined_85",
@@ -6441,7 +6653,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-blind",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "living such as bathing dressing daily chores etc live in a medical facility nursing home andor need home and_3",
@@ -6472,7 +6688,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "Yes"
+      "export_value": "Yes",
+      "conflict_group": {
+        "id": "p4-help-paying",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "Check Box18",
@@ -6486,7 +6706,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "Yes"
+      "export_value": "Yes",
+      "conflict_group": {
+        "id": "p4-help-paying",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "undefined_86",
@@ -6500,7 +6724,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job-insurance-lost",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "No_56",
@@ -6514,7 +6742,11 @@
         16
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job-insurance-lost",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "20 Did PERSON 4 have insurance through a job and lose it within the past 3 months",
@@ -6556,7 +6788,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-work-status",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "SelfEmployed_4",
@@ -6570,7 +6806,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-work-status",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Not employed_4",
@@ -6584,7 +6824,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-work-status",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Text11",
@@ -6624,7 +6868,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Weekly_7",
@@ -6638,7 +6886,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Every 2 weeks_7",
@@ -6652,7 +6904,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Twice a Monthly_7",
@@ -6666,7 +6922,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Monthly_7",
@@ -6680,7 +6940,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Yearly_7",
@@ -6694,7 +6958,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job1-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "undefined_87",
@@ -6734,7 +7002,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Weekly_8",
@@ -6748,7 +7020,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Every 2 weeks_8",
@@ -6762,7 +7038,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Twice a Monthly_8",
@@ -6776,7 +7056,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Monthly_8",
@@ -6790,7 +7074,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Yearly_8",
@@ -6804,7 +7092,11 @@
         17
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "p4-job2-pay-frequency",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "undefined_88",
@@ -7498,7 +7790,11 @@
         19
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "step3-ai-an",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "If no complete Step 4",
@@ -7512,7 +7808,11 @@
         19
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "step3-ai-an",
+        "kind": "yes_no"
+      }
     },
     {
       "name": "Is anyone enrolled in health coverage now from the following",
@@ -7809,7 +8109,11 @@
         20
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "renewal-term",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "4 years",
@@ -7823,7 +8127,11 @@
         20
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "renewal-term",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "3 years",
@@ -7837,7 +8145,11 @@
         20
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "renewal-term",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "2 year",
@@ -7851,7 +8163,11 @@
         20
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "renewal-term",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "1 year",
@@ -7865,7 +8181,11 @@
         20
       ],
       "disposition": "mapped",
-      "export_value": "On"
+      "export_value": "On",
+      "conflict_group": {
+        "id": "renewal-term",
+        "kind": "single_choice"
+      }
     },
     {
       "name": "Do not use information from tax returns to renew my coverage",

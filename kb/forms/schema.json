@@ -145,6 +145,16 @@
             "type": "string",
             "minLength": 1
           },
+          "conflict_group": {
+            "description": "Mutually exclusive checkbox group membership (fill-time consistency check, full-form proof): kind yes_no = one printed question's two independent Yes/No boxes; kind single_choice = a check-one group (work status, pay frequency, renewal term). A fill whose value set checks two members of one group is FLAGGED for the person to resolve - never silently picked a side.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "kind": { "enum": ["yes_no", "single_choice"] }
+            }
+          },
           "pii_likely": {
             "description": "True when the field collects identity-like data: its value is sensitive-by-default and is omitted from client review/flow payloads.",
             "type": "boolean"
