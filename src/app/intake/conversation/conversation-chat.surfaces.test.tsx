@@ -236,6 +236,16 @@ async function beginMode(
       new MouseEvent("click", { bubbles: true }),
     );
   });
+  // The inserted QUICK QUESTIONS stage (VAL-QQ-002): traverse it with the
+  // calm CTA whenever the engine's questions are pending — a zero-pending
+  // session passes straight through to the talk stage.
+  if (q(container, "quick-questions-stage")) {
+    await act(async () => {
+      q(container, "qq-to-talk")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+  }
 }
 
 describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
