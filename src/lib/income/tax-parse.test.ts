@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { PDFDocument } from "@cantoo/pdf-lib";
+import { PDFDocument, StandardFonts } from "@cantoo/pdf-lib";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
@@ -127,6 +127,41 @@ describe("identity and honesty", () => {
     pdf.addPage([612, 792]);
     const bytes = await pdf.save();
     const result = await parse1040Pdf(bytes);
+    expect(result).toEqual({
+      readable: false,
+      findings: [],
+      monthlyDerived: null,
+    });
+  });
+
+  it("verdicts a Form 1040-X (amended) variant honestly (readable:false)", async () => {
+    // A 1040-X has a different line grid: the right-column value at the
+    // line-11 marker is a different quantity, so the variant must never be
+    // identified as a base 1040 (no findings, no monthly figure).
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([612, 792]);
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    page.drawText("Amended U.S. Individual Income Tax Return", {
+      x: 40,
+      y: 740,
+      size: 12,
+      font,
+    });
+    page.drawText("Form 1040-X", { x: 40, y: 720, size: 12, font });
+    const bytes = await pdf.save();
+    const result = await parse1040Pdf(bytes);
+    expect(result).toEqual({
+      readable: false,
+      findings: [],
+      monthlyDerived: null,
+    });
+  });
+
+  it("verdicts an encrypted PDF honestly (readable:false)", async () => {
+    const encrypted = readFileSync(
+      new URL("../forms/fixtures/sample-form-encrypted.pdf", import.meta.url),
+    );
+    const result = await parse1040Pdf(encrypted);
     expect(result).toEqual({
       readable: false,
       findings: [],
@@ -262,20 +297,21 @@ describe("VAL-INC-004: field extraction from the real bytes", () => {
 });
 
 describe("VAL-INC-009: the monthly derivation is a documented deterministic rule", () => {
-  // Documented rule (also in tax-parse.ts and the PR): the monthly figure is
-  // the annual AGI divided by 12, rounded to the nearest whole dollar with
-  // halves rounding up — floor(annual / 12 + 0.5) — clamped at 0 for a
-  // negative or non-finite annual value (a negative monthly income is not
-  // meaningful on a benefits screen).
+  // Documented rule (also in tax-parse.ts and the PR): the monthly figure
+  // is the PRIOR-YEAR annual AGI divided by 12, rounded to the nearest
+  // whole dollar with halves rounding up — floor(annual / 12 + 0.5). A
+  // negative or non-finite annual value yields null (an unknown, never a
+  // confident 0); the proposal is confirmed or corrected by the person
+  // before anything is saved (parts 2-3).
   it("implements the documented half-up rule on known cases", () => {
     expect(deriveMonthlyFromAnnualAgi(48200)).toBe(4017); // 4016.67 → 4017
     expect(deriveMonthlyFromAnnualAgi(0)).toBe(0);
     expect(deriveMonthlyFromAnnualAgi(12)).toBe(1);
     expect(deriveMonthlyFromAnnualAgi(6)).toBe(1); // 0.5 → half rounds up
     expect(deriveMonthlyFromAnnualAgi(5)).toBe(0); // 0.4167 → 0
-    expect(deriveMonthlyFromAnnualAgi(-100)).toBe(0); // clamped at 0
-    expect(deriveMonthlyFromAnnualAgi(Number.NaN)).toBe(0); // total
-    expect(deriveMonthlyFromAnnualAgi(Number.POSITIVE_INFINITY)).toBe(0);
+    expect(deriveMonthlyFromAnnualAgi(-100)).toBeNull(); // unknown, not 0
+    expect(deriveMonthlyFromAnnualAgi(Number.NaN)).toBeNull();
+    expect(deriveMonthlyFromAnnualAgi(Number.POSITIVE_INFINITY)).toBeNull();
   });
 
   it("property: pure, total, integral, and equal to the documented formula", async () => {
@@ -286,14 +322,14 @@ describe("VAL-INC-009: the monthly derivation is a documented deterministic rule
           const first = deriveMonthlyFromAnnualAgi(annual);
           const second = deriveMonthlyFromAnnualAgi(annual);
           expect(first).toBe(second); // same input → same output
-          expect(Number.isInteger(first)).toBe(true);
           if (annual >= 0) {
-            expect(first).toBe(Math.max(0, Math.floor(annual / 12 + 0.5)));
+            expect(Number.isInteger(first as number)).toBe(true);
+            expect(first).toBe(Math.floor(annual / 12 + 0.5));
             // within half a month of exact division
-            expect(first * 12).toBeGreaterThanOrEqual(annual - 6);
-            expect(first * 12).toBeLessThanOrEqual(annual + 6);
+            expect((first as number) * 12).toBeGreaterThanOrEqual(annual - 6);
+            expect((first as number) * 12).toBeLessThanOrEqual(annual + 6);
           } else {
-            expect(first).toBe(0);
+            expect(first).toBeNull();
           }
         },
       ),
@@ -307,9 +343,9 @@ describe("VAL-INC-009: the monthly derivation is a documented deterministic rule
         fc.integer({ min: 0, max: 50_000_000 }),
         fc.integer({ min: 0, max: 500 }),
         async (base, delta) => {
-          expect(deriveMonthlyFromAnnualAgi(base + delta)).toBeGreaterThanOrEqual(
-            deriveMonthlyFromAnnualAgi(base),
-          );
+          const atBase = deriveMonthlyFromAnnualAgi(base) as number;
+          const atLarger = deriveMonthlyFromAnnualAgi(base + delta) as number;
+          expect(atLarger).toBeGreaterThanOrEqual(atBase);
         },
       ),
       { numRuns: 300 },
@@ -326,6 +362,6 @@ describe("VAL-INC-009: the monthly derivation is a documented deterministic rule
     const negative = await parse1040Pdf(
       await fillFixture({ ...FILLED, agi: "(31,000)" }, false),
     );
-    expect(negative.monthlyDerived).toBe(0);
+    expect(negative.monthlyDerived).toBeNull(); // unknown, not 0
   });
 });

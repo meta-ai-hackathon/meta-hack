@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 // scan bites.
 
 const INCOME_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
+const SRC_ROOT = path.resolve(INCOME_ROOT, "..", "..");
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
 
@@ -24,17 +25,13 @@ const IMPORT_PATTERN =
 /** Specifiers that must NEVER appear in the income parse path. */
 function isForbiddenSpecifier(specifier: string): boolean {
   // The repo's model/LLM clients and conversation/prompt modules, in any
-  // relative-depth or alias spelling.
-  if (/^(?:\.{1,2}\/)+(?:lib\/)?(?:model|conversation)(?:\.js)?$/.test(specifier)) {
-    return true;
-  }
+  // relative-depth or alias spelling — including subpaths (a wrapper that
+  // re-exports the client is still the model client).
   if (
-    specifier === "@/lib/model" ||
-    specifier === "#lib/model" ||
-    specifier === "lib/model" ||
-    specifier === "@/lib/conversation" ||
-    specifier === "#lib/conversation" ||
-    specifier === "lib/conversation"
+    /^(?:\.{1,2}\/)+(?:lib\/)?(?:model|conversation)(?:\.js)?(?:\/|$)/.test(
+      specifier,
+    ) ||
+    /^(?:@|#\/)lib\/(?:model|conversation)(?:\.js)?(?:\/|$)/.test(specifier)
   ) {
     return true;
   }
@@ -46,6 +43,20 @@ function isForbiddenSpecifier(specifier: string): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * True when a specifier reaches OUTSIDE the income folder via the repo's
+ * path alias (`@/*` → `src/*`, `#lib/*` → `src/lib/*`): the parse graph
+ * must stay inside src/lib/income, so any other alias target is an escape
+ * the scan reports (it could resolve to the model client transitively).
+ */
+function isAliasEscape(specifier: string): boolean {
+  if (!specifier.startsWith("@/") && !specifier.startsWith("#/")) {
+    return false;
+  }
+  const target = specifier.replace(/^@\/?|^#\/?/, "").replace(/\.js$/, "");
+  return !(target === "lib/income" || target.startsWith("lib/income/"));
 }
 
 function isExternal(specifier: string): boolean {
@@ -77,7 +88,10 @@ function scanIncomeImports(incomeRoot: string): ScanResult {
     const source = readFileSync(path.join(incomeRoot, relative), "utf8");
     for (const match of source.matchAll(IMPORT_PATTERN)) {
       if (isForbiddenSpecifier(match[1])) {
-        violations.push(`${relative}: ${match[1]}`);
+        violations.push(`${relative}: forbidden import ${match[1]}`);
+      }
+      if (isAliasEscape(match[1])) {
+        violations.push(`${relative}: alias escape ${match[1]}`);
       }
       if (isExternal(match[1])) {
         externals.add(match[1]);
@@ -87,9 +101,15 @@ function scanIncomeImports(incomeRoot: string): ScanResult {
   return { scanned, violations, externals };
 }
 
-/** Resolve a relative specifier to a file under SRC_ROOT (best effort). */
+/** Resolve a relative or income-alias specifier to a file (best effort). */
 function resolveRelative(fromFile: string, specifier: string): string | null {
-  const base = path.resolve(path.dirname(fromFile), specifier);
+  let base: string;
+  if (specifier.startsWith("@/") || specifier.startsWith("#/")) {
+    const target = specifier.replace(/^@\/?|^#\/?/, "");
+    base = path.resolve(SRC_ROOT, target);
+  } else {
+    base = path.resolve(path.dirname(fromFile), specifier);
+  }
   const candidates = [
     base,
     `${base}.ts`,
@@ -110,18 +130,29 @@ function resolveRelative(fromFile: string, specifier: string): string | null {
   return null;
 }
 
-/** Transitive closure of relative imports, starting from a module file. */
-function importClosure(entryFile: string): string[] {
+interface Closure {
+  files: string[];
+  /** Alias specifiers that leave the income folder. */
+  escapes: string[];
+}
+
+/** Transitive closure of in-folder imports, starting from a module file. */
+function importClosure(entryFile: string): Closure {
   const seen = new Set<string>([entryFile]);
   const queue = [entryFile];
-  const closure: string[] = [];
+  const files: string[] = [];
+  const escapes: string[] = [];
   while (queue.length > 0) {
     const file = queue.shift() as string;
-    closure.push(file);
+    files.push(file);
     const source = readFileSync(file, "utf8");
     for (const match of source.matchAll(IMPORT_PATTERN)) {
       const specifier = match[1];
-      if (!specifier.startsWith(".")) {
+      if (isAliasEscape(specifier)) {
+        escapes.push(specifier);
+        continue;
+      }
+      if (!specifier.startsWith(".") && !specifier.startsWith("@/") && !specifier.startsWith("#/")) {
         continue;
       }
       const resolved = resolveRelative(file, specifier);
@@ -131,7 +162,7 @@ function importClosure(entryFile: string): string[] {
       }
     }
   }
-  return closure;
+  return { files, escapes };
 }
 
 const FIXTURE_DIR = path.join(INCOME_ROOT, "__boundary_fixture__");
@@ -145,6 +176,16 @@ function writeViolationFixture(): void {
       "// Simulated boundary violation: a module reaching for the model client.",
       'import { chatCompletion } from "../model";',
       "export const violate = chatCompletion;",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(
+    path.join(FIXTURE_DIR, "alias-escaper.ts"),
+    [
+      "// Simulated alias escape: the alias leaves the income folder (the",
+      "// target itself imports the model client transitively).",
+      'import { parseFormPdf } from "@/lib/forms/parse";',
+      "export const violate = parseFormPdf;",
       "",
     ].join("\n"),
   );
@@ -170,10 +211,11 @@ describe("tax-parse import boundary (VAL-INC-005)", () => {
 
   it("the parse module's transitive import graph never leaves the income folder", () => {
     const closure = importClosure(path.join(INCOME_ROOT, "tax-parse.ts"));
-    expect(closure.length).toBeGreaterThan(0);
-    for (const file of closure) {
+    expect(closure.files.length).toBeGreaterThan(0);
+    for (const file of closure.files) {
       expect(file.startsWith(INCOME_ROOT)).toBe(true);
     }
+    expect(closure.escapes).toEqual([]);
   });
 
   it("the module source carries no network, logging, env, time, or randomness tokens", () => {
@@ -197,7 +239,16 @@ describe("tax-parse import boundary (VAL-INC-005)", () => {
   it("bites: a simulated model-client import is reported", () => {
     writeViolationFixture();
     const result = scanIncomeImports(INCOME_ROOT);
-    expect(result.violations).toHaveLength(1);
-    expect(result.violations[0]).toContain("__boundary_fixture__/violator.ts");
+    expect(result.violations).toHaveLength(2);
+    expect(result.violations).toContainEqual(
+      expect.stringContaining(
+        "__boundary_fixture__/violator.ts: forbidden import ../model",
+      ),
+    );
+    expect(result.violations).toContainEqual(
+      expect.stringContaining(
+        "__boundary_fixture__/alias-escaper.ts: alias escape @/lib/forms/parse",
+      ),
+    );
   });
 });

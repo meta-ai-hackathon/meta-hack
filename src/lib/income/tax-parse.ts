@@ -89,15 +89,26 @@ export const TEXT_LAYER_CONFIDENCE = 0.9;
 
 /**
  * The one derived figure, by DOCUMENTED DETERMINISTIC RULE (VAL-INC-009):
- * the monthly figure is the annual AGI divided by 12, rounded to the
- * nearest whole dollar with halves rounding up — floor(annual / 12 + 0.5).
- * A negative or non-finite annual value yields 0 (a negative monthly
- * income is not meaningful on a benefits screen; the person can correct
- * the proposal anyway). Pure and total: same input → same output, always.
+ * the monthly figure is the PRIOR-YEAR annual AGI divided by 12, rounded
+ * to the nearest whole dollar with halves rounding up —
+ * floor(annual / 12 + 0.5).
+ *
+ * Honesty framing (the person confirms or corrects every proposal before
+ * anything is saved — parts 2-3 of the milestone): this is a proposal
+ * derived from the PRIOR-YEAR return. AGI is net of adjustments, while
+ * benefit screens typically use current gross monthly income, so the
+ * derived figure is presented for confirmation, provenance-tagged
+ * `tax_return`, never as a computed truth about current income.
+ *
+ * A negative or non-finite annual value yields null — an unknown, never a
+ * confident 0 (a self-employment loss must not masquerade as a real zero
+ * income). Pure and total: same input → same output, always.
  */
-export function deriveMonthlyFromAnnualAgi(annualAgiDollars: number): number {
-  if (!Number.isFinite(annualAgiDollars) || annualAgiDollars <= 0) {
-    return 0;
+export function deriveMonthlyFromAnnualAgi(
+  annualAgiDollars: number,
+): number | null {
+  if (!Number.isFinite(annualAgiDollars) || annualAgiDollars < 0) {
+    return null;
   }
   return Math.floor(annualAgiDollars / 12 + 0.5);
 }
@@ -270,6 +281,15 @@ async function identify1040(bytes: Uint8Array): Promise<Identity | null> {
   const pageOne = await pageItems(bytes, 1);
   const pageTwo = await pageItems(bytes, 2);
   const joined = `${normalizedText(pageOne)} ${normalizedText(pageTwo)}`;
+  // The BASE Form 1040 only: amended (1040-X) and other variants carry a
+  // different line grid, so a right-column value at the line-11 marker
+  // would be a different quantity — never read one, never identify one.
+  if (joined.includes("Amended U.S. Individual Income Tax Return")) {
+    return null;
+  }
+  if (/Form\s+1040\s*-\s*[A-Za-z]/.test(joined)) {
+    return null;
+  }
   if (!joined.includes("Individual Income Tax Return")) {
     return null;
   }
@@ -578,6 +598,20 @@ export async function parse1040Pdf(input: Uint8Array): Promise<TaxParseResult> {
   // Defensive copy: the caller's buffer is never mutated (pdfjs may claim
   // the buffer it is handed).
   const bytes = new Uint8Array(input);
+  // An encrypted document is never honestly readable (the content streams
+  // may be garbage under the encryption wrapper): verdict it unreadable up
+  // front rather than parsing whatever decrypts by accident.
+  try {
+    const loaded = await PDFDocument.load(bytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+    if (loaded.isEncrypted) {
+      return UNREADABLE;
+    }
+  } catch {
+    // pdf-lib load failures stay with the pdfjs identification pass below.
+  }
   let identity: Identity | null;
   try {
     identity = await identify1040(bytes);
