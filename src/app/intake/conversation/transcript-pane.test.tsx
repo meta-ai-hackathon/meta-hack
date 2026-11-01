@@ -270,7 +270,9 @@ describe("the talk-stage transcript pane (VAL-FIX-002)", () => {
     await beginTalkStage(container, act);
     // The talk-stage layout is the prototype's grid: the conversation
     // column (fluid) plus the Coming Together sidebar as a fixed 195px
-    // right rail on wide viewports (never stacked below).
+    // right rail on wide viewports. Below 1101px the rail collapses into
+    // the flow (a stacked section under a top border — the a11y
+    // adjudication on claude-review's round-1 P2), never vanishing.
     const aside = q(container, "coming-together");
     expect(aside).not.toBeNull();
     expect(aside?.parentElement?.className).toContain(
