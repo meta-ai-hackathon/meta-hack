@@ -34,6 +34,8 @@ import {
 // reports success only when a read afterwards finds neither.
 
 export const DEVICE_ANSWERS_ENVELOPE_KEY = "intake-answers";
+/** KV key for the sealed Rampart session table (HACK-107), sealed under the same device key. */
+export const DEVICE_SESSION_ENVELOPE_KEY = "rampart-session";
 export const DEVICE_ANSWERS_CRYPTO_KEY_KEY = "intake-answers-key";
 
 /** How many times a save re-applies its answer when other tabs keep saving. */
@@ -126,7 +128,7 @@ async function readStored(deps: DeviceAnswerStoreDeps): Promise<StoredRead> {
   return { identity, key, readable: true, state: parseClientAnswers(plaintext) };
 }
 
-function generateSealingKey(subtle: SubtleCrypto): Promise<CryptoKey> {
+export function generateSealingKey(subtle: SubtleCrypto): Promise<CryptoKey> {
   return subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
     "encrypt",
     "decrypt",
@@ -212,16 +214,18 @@ export async function purgeDeviceAnswers(deps: DeviceAnswerStoreDeps): Promise<b
   try {
     const deleted = await deps.kv.deleteMany([
       DEVICE_ANSWERS_ENVELOPE_KEY,
+      DEVICE_SESSION_ENVELOPE_KEY,
       DEVICE_ANSWERS_CRYPTO_KEY_KEY,
     ]);
     if (!deleted) {
       return false;
     }
-    const [envelope, key] = await deps.kv.getMany([
+    const [envelope, session, key] = await deps.kv.getMany([
       DEVICE_ANSWERS_ENVELOPE_KEY,
+      DEVICE_SESSION_ENVELOPE_KEY,
       DEVICE_ANSWERS_CRYPTO_KEY_KEY,
     ]);
-    return envelope === undefined && key === undefined;
+    return envelope === undefined && session === undefined && key === undefined;
   } catch {
     return false;
   }
