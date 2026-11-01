@@ -911,8 +911,13 @@ describe("the prompt's stored-answer mark (VAL-NCF-003)", () => {
           // a substring of the template is a false positive, not a leak
           // (the same exclusion the redaction property makes for its
           // markers — e.g. "p" inside "[the answer they shared — private…").
+          // The pii list carries the FULL mark — the "already answered: "
+          // prefix included — exactly what storedAnswerMark writes; a
+          // prefix-only list false-flags benign values that share letters
+          // with the prefix (CI counterexample: value "ad" inside
+          // "already", question prior_employer_last_month).
           const templates = question.pii
-            ? ["[the answer they shared — private, never repeat it]"]
+            ? ["already answered: [the answer they shared — private, never repeat it]"]
             : ["already answered", "already answered (not verified)"];
           const needles = [
             ...(value !== undefined ? [typeof value === "string" ? value : JSON.stringify(value)] : []),
