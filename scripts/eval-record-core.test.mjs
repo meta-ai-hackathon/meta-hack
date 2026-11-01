@@ -6,6 +6,7 @@ import {
   ANSWER_VALUE_LABELS,
   BRANCH_ONLY_QUESTION_IDS,
   EVAL_CASES,
+  KB_PHRASE_VARIANTS,
   SHOULD_ANSWER_PROBES,
   SHOULD_REFUSE_PROBES,
 } from "./eval-cases.mjs";
@@ -24,7 +25,17 @@ import {
   scoreCase,
   valuesMatch,
 } from "./eval-record-core.mjs";
-import { EXIT_NOTHING_RAN, EXIT_OK, EXIT_PURGE_FAILED, UsageError, finishRun, parseArgs, runEvaluation } from "./eval-record.mjs";
+import {
+  EXIT_NOTHING_RAN,
+  EXIT_OK,
+  EXIT_PURGE_FAILED,
+  TURN_PACE_LIMIT,
+  TURN_WINDOW_MS,
+  UsageError,
+  finishRun,
+  parseArgs,
+  runEvaluation,
+} from "./eval-record.mjs";
 import { findBannedClaims } from "./walkthrough-detectors.mjs";
 import { CONVERSATION_PLAN } from "./walkthrough-plans.mjs";
 import { TURN_ATTEMPTS } from "./walkthrough-core.mjs";
@@ -247,6 +258,12 @@ describe("copies of app constants (drift tests)", () => {
     const model = await import("../src/lib/model");
     expect(RECORD_MODEL).toBe(model.CHAT_MODEL);
   });
+
+  it("the pacer stays one turn under the conversation engine's cap", async () => {
+    const conversation = await import("../src/lib/conversation");
+    expect(TURN_WINDOW_MS).toBe(conversation.TURN_RATE_WINDOW_SECONDS * 1000);
+    expect(TURN_PACE_LIMIT).toBe(conversation.MAX_TURNS_PER_WINDOW - 1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -328,6 +345,31 @@ describe("the frozen cases", PROPERTY_BUDGET, () => {
       const shouldHaveLabel = !question.pii && testCase.intendedStatus !== "unknown";
       expect(testCase.expectedValue !== undefined, testCase.questionId).toBe(shouldHaveLabel);
     }
+  });
+
+  it("take every scoring phrase from the NC Medicaid KB entry, or respell one it uses", () => {
+    const strings = [];
+    const walk = (node) => {
+      if (typeof node === "string") {
+        strings.push(node);
+      } else if (node !== null && typeof node === "object") {
+        Object.values(node).forEach(walk);
+      }
+    };
+    walk(JSON.parse(readFileSync(new URL("../kb/entries/nc-medicaid.json", import.meta.url), "utf8")));
+    const kbText = strings.join(" ");
+    const used = new Set();
+    for (const probe of [...SHOULD_REFUSE_PROBES, ...SHOULD_ANSWER_PROBES]) {
+      for (const phrase of [...(probe.anyOf ?? []), ...(probe.deferTo ?? [])]) {
+        const kbWording = Object.hasOwn(KB_PHRASE_VARIANTS, phrase) ? KB_PHRASE_VARIANTS[phrase] : phrase;
+        if (kbWording !== phrase) {
+          used.add(phrase);
+        }
+        expect(containsPhrase(kbText, kbWording), `${probe.id}: ${phrase}`).toBe(true);
+      }
+    }
+    // No respelling outlives the probe phrase it was written for.
+    expect([...used].sort()).toEqual(Object.keys(KB_PHRASE_VARIANTS).sort());
   });
 
   it("keep every probe free of private values and of the phrases that score it", () => {

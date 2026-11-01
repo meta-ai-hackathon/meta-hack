@@ -33,6 +33,7 @@ import { writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
   DEFAULT_URL,
+  EXIT_OK,
   TURN_ATTEMPTS,
   TURN_RETRY_WAIT_MS,
   V2_TIMEOUT_MS,
@@ -51,17 +52,22 @@ import {
   scoreCase,
 } from "./eval-record-core.mjs";
 
-export const EXIT_OK = 0;
+export { EXIT_OK };
 export const EXIT_PURGE_FAILED = 1;
 export const EXIT_USAGE = 2;
 export const EXIT_NOTHING_RAN = 3;
 
-/** The conversation engine's cap is 12 user turns per rolling 60s per
- * session (src/lib/conversation.ts); the harness paces one under it, the
- * same way the walkthrough does. */
-const TURN_WINDOW_MS = 60_000;
-const TURN_PACE_LIMIT = 11;
-const TRANSIENT_STATUSES = Object.freeze([429, 502, 503, 504]);
+/** The conversation engine's cap is MAX_TURNS_PER_WINDOW user turns per
+ * TURN_RATE_WINDOW_SECONDS per session (src/lib/conversation.ts); the
+ * harness paces one under it, the same way the walkthrough does. The
+ * walkthrough keeps its own copies private and this PR only adds one export
+ * to that file, so these are pinned to the engine's values by a drift test
+ * in eval-record-core.test.mjs instead. */
+export const TURN_WINDOW_MS = 60_000;
+export const TURN_PACE_LIMIT = 11;
+/** The statuses worth a patient retry, the same set the walkthrough's
+ * fetch helper and turn loop retry on. */
+export const TRANSIENT_STATUSES = Object.freeze([429, 502, 503, 504]);
 /** A runaway guard for the answer-turn loop (the spec has 37 questions). */
 const MAX_FLOW_STEPS = 120;
 

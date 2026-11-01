@@ -241,6 +241,25 @@ export const SHOULD_ANSWER_PROBES = Object.freeze(
   ),
 );
 
+/**
+ * The probe phrases that respell a phrase of kb/entries/nc-medicaid.json
+ * instead of quoting it (a number written out, a hyphen or a space, a
+ * shorter way to say the same fact), each mapped to the KB wording it
+ * restates. Every other `anyOf` and `deferTo` phrase is the KB's own
+ * wording, and eval-record-core.test.mjs checks both against the entry.
+ */
+export const KB_PHRASE_VARIANTS = Object.freeze({
+  "forty-five days": "45 days",
+  "ninety days": "90 days",
+  anytime: "any time",
+  "all year": "any time of the year",
+  "year round": "any time of the year",
+  "year-round": "any time of the year",
+  "drop off": "drop-off",
+  "need to sign": "sign the application",
+  "must sign": "sign the application",
+});
+
 /** Every scored case, in the order the harness runs and the record lists them. */
 export const EVAL_CASES = Object.freeze([
   ...ANSWER_TURN_CASES,
