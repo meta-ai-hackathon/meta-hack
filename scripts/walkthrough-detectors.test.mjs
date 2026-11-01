@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   ANSWER_STATUS_LABELS as SPINE_LABELS,
   BANNED_CLAIM_PATTERNS as SPINE_PATTERNS,
+  findBannedClaims as spineFindBannedClaims,
+  foldForClaimScan as spineFoldForClaimScan,
 } from "../src/lib/honesty";
 import {
   ANSWER_STATUS_LABELS,
@@ -14,6 +16,7 @@ import {
   findPiiEcho,
   findPiiValueExposure,
   findPiiValueLeaks,
+  foldForClaimScan,
   verifyRedaction,
 } from "./walkthrough-detectors.mjs";
 
@@ -48,6 +51,46 @@ const BANNED_FIXTURES = [
   "You haven't met the criteria for assistance.",
   "Your answers show you meet the requirements.",
   "You meet the income limit for the program.",
+  "You will stay covered as long as you renew.",
+  "You won't lose your health coverage.",
+  "Your renewal will be approved.",
+  "You're still eligible for Medicaid.",
+  "You keep your Medicaid.",
+  "Your coverage won't end.",
+  "Your renewal has been approved.",
+  "You'll be renewed automatically.",
+  "There will be no gap in your coverage.",
+  // The second HACK-50 review's probe, including curly apostrophes, which
+  // the CLI folds the same way the app does.
+  "You will never lose your coverage.",
+  "You'll never lose your Medicaid.",
+  "You can't lose your coverage.",
+  "You cannot lose your Medicaid.",
+  "You won't be dropped.",
+  "Your coverage continues.",
+  "Your benefits continue.",
+  "Your coverage will renew automatically.",
+  "You will continue to be covered.",
+  "You will still have coverage.",
+  "You'll still have Medicaid next year.",
+  "You will continue to be eligible.",
+  "You will continue to qualify.",
+  "There won't be a gap in your coverage.",
+  "Your child will stay covered.",
+  "They will stay covered.",
+  "You\u2019ll stay covered.",
+  "You won\u2019t lose your coverage.",
+  "You\u2019re still covered.",
+  "You\u2019re eligible.",
+  "Once you answer the letter, you will stay covered.",
+  "Your Medicaid is renewed.",
+  // Third review: a promise after a negated question is still caught.
+  "Won't you stay covered? Yes, you will keep your Medicaid.",
+  // Third review: the present-tense boundary.
+  "You are enrolled in NC Medicaid.",
+  "You are still enrolled.",
+  "Good news, you're covered.",
+  "Your renewal went through, so you stay covered.",
 ];
 
 // Honest sentences that must pass untouched. Hedged uncertainty stays
@@ -62,6 +105,32 @@ const CLEAN_TEXT_FIXTURES = [
   "You may not meet the income rules yet; the official rules decide.",
   "If you meet the income limits, you may be eligible.",
   "Unless you meet the limits, the office may review your file.",
+  "Your renewal may be due around March 1, 2027.",
+  "You may lose your coverage if you do not answer the letter.",
+  "If your renewal is approved, you get a letter from the office.",
+  "Ask your local DSS whether you will stay covered.",
+  "We can't tell you if your renewal will be approved.",
+  "You can lose your coverage if you do not answer the letter.",
+  "Ask the office whether your child will stay covered.",
+  "Recertification is when your NC Medicaid is renewed, which happens every 6 months.",
+  "Will you stay covered? Only your local DSS can say.",
+  "Do you keep your Medicaid if you move? Ask your local DSS.",
+  "Here is how you keep your Medicaid: answer every letter right away.",
+  "Once you are enrolled, you get a Medicaid ID card.",
+  "When you are covered by Medicare too, other rules apply.",
+  "Unless you are covered by other insurance, keep your Medicaid letter.",
+  "You told us you are enrolled in NC Medicaid.",
+  // Third review: negated direct questions pass like the positive ones,
+  // typed with either apostrophe.
+  "Won't you stay covered if you answer the letter?",
+  "Don't you keep your Medicaid if you move?",
+  "Won't you be renewed automatically?",
+  "Won\u2019t you stay covered if you answer the letter?",
+  "Doesn\u2019t your coverage continue after you move?",
+  // Third review: present-tense intake and chat wording.
+  "You are enrolled in school.",
+  "You are insured through your employer.",
+  "You're enrolled in a training program.",
 ];
 
 // A client-state fixture: the shape /api/intake/* and /api/session return.
@@ -166,6 +235,22 @@ describe("walkthrough CLI vocabulary mirrors the honesty spine", () => {
 
   it("uses the spine's honest-status labels verbatim", () => {
     expect(ANSWER_STATUS_LABELS).toEqual(SPINE_LABELS);
+  });
+
+  it("folds text exactly as the spine does, so both gates agree on any text", () => {
+    const apostrophes = fc.constantFrom("\u2018", "\u2019", "\u201b", "\u02bc", "'", "`", "\u2032", "\u200b", "\u200d", "\ufeff");
+    const text = fc.array(fc.oneof(apostrophes, fc.constantFrom("You", "re", "ll", " ", "eligible", "covered", "x")), {
+      maxLength: 12,
+    });
+    fc.assert(
+      fc.property(text, (parts) => {
+        const joined = parts.join("");
+        expect(foldForClaimScan(joined)).toBe(spineFoldForClaimScan(joined));
+        expect(foldForClaimScan(joined)).toHaveLength(joined.length);
+        expect(findBannedClaims(joined)).toEqual(spineFindBannedClaims(joined));
+      }),
+      { numRuns: 300 },
+    );
   });
 });
 

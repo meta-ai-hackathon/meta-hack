@@ -11,6 +11,7 @@ import {
   SAMPLE_KB_ENTRIES,
   KbValidationError,
   SilentCitationError,
+  citeCadenceSchedule,
   citeFactGroup,
   parseKbEntry,
   validateKbEntry,
@@ -438,6 +439,230 @@ describe("optional fact groups: steps and match_signals (mission v2 M3)", () => 
     const facts = raw.facts as Record<string, Record<string, unknown>>;
     (facts.steps as Record<string, unknown>).source_id = "not_a_listed_source";
     expect(() => parseKbEntry(raw)).toThrow(/source/);
+  });
+});
+
+describe("optional fact group: renewal_cadence (BN-22)", () => {
+  // A pilot-agnostic cadence group, shaped like the decided pilot's entry.
+  function rawWithCadence(): Record<string, unknown> {
+    const raw = rawClone();
+    const facts = raw.facts as Record<string, Record<string, unknown>>;
+    facts.renewal_cadence = {
+      items: [
+        {
+          id: "every_6_months",
+          interval_months: 6,
+          label: "Every 6 months",
+          applies_to: "People the official rules name for this schedule",
+          starts_on: "2027-01-01",
+        },
+        {
+          id: "once_a_year",
+          interval_months: 12,
+          label: "Once a year",
+          applies_to: "Everyone else the official rules name",
+        },
+      ],
+      source_id: "official_rules_source",
+      retrieved_at: "2026-10-29",
+    };
+    return raw;
+  }
+
+  function cadenceItems(raw: Record<string, unknown>): Record<string, unknown>[] {
+    const facts = raw.facts as Record<string, Record<string, unknown>>;
+    return facts.renewal_cadence.items as Record<string, unknown>[];
+  }
+
+  it("validates and parses schedules with camelCase fields", () => {
+    const raw = rawWithCadence();
+    expect(validateKbEntry(raw)).toEqual([]);
+    const cadence = parseKbEntry(raw).facts.renewal_cadence;
+    expect(cadence?.sourceId).toBe("official_rules_source");
+    expect(cadence?.items).toEqual([
+      {
+        id: "every_6_months",
+        intervalMonths: 6,
+        label: "Every 6 months",
+        appliesTo: "People the official rules name for this schedule",
+        startsOn: "2027-01-01",
+      },
+      {
+        id: "once_a_year",
+        intervalMonths: 12,
+        label: "Once a year",
+        appliesTo: "Everyone else the official rules name",
+      },
+    ]);
+  });
+
+  it("cites the cadence group through the citation API", () => {
+    const citation = citeFactGroup(parseKbEntry(rawWithCadence()), "renewal_cadence");
+    expect(citation.status).toBe("active");
+    expect(citation.group).toBe("renewal_cadence");
+    expect(citation.retrievedAt).toBe("2026-10-29");
+  });
+
+  it("lets a schedule name its own source, and cites each schedule with the page that states it", () => {
+    const raw = rawWithCadence();
+    cadenceItems(raw)[0]!.source_id = "official_application_portal";
+    expect(validateKbEntry(raw)).toEqual([]);
+    const entry = parseKbEntry(raw);
+    expect(entry.facts.renewal_cadence?.items[0]?.sourceId).toBe("official_application_portal");
+    expect(entry.facts.renewal_cadence?.items[1]).not.toHaveProperty("sourceId");
+    const portal = entry.sources.find((source) => source.id === "official_application_portal")!;
+    const rules = entry.sources.find((source) => source.id === "official_rules_source")!;
+    const own = citeCadenceSchedule(entry, "every_6_months");
+    expect(own).toMatchObject({ sourceId: portal.id, sourceUrl: portal.url, group: "renewal_cadence", status: "active" });
+    expect(own.items).toEqual([entry.facts.renewal_cadence?.items[0]]);
+    // A schedule without its own source falls back to the group's.
+    expect(citeCadenceSchedule(entry, "once_a_year")).toMatchObject({ sourceId: rules.id, sourceUrl: rules.url });
+    expect(() => citeCadenceSchedule(entry, "every_2_years")).toThrow(KbValidationError);
+  });
+
+  it("refuses a schedule source that is malformed or not listed, and a silent stale citation", () => {
+    for (const sourceId of ["nope", "Not A Source", 7, ""]) {
+      const raw = rawWithCadence();
+      cadenceItems(raw)[0]!.source_id = sourceId;
+      expect(() => parseKbEntry(raw), String(sourceId)).toThrow(/renewal_cadence\.items\[0\]\.source_id/);
+    }
+    const stale = rawWithCadence();
+    stale.status = "stale";
+    stale.status_reason = "Test fixture: entry marked stale";
+    cadenceItems(stale)[0]!.source_id = "official_application_portal";
+    const entry = parseKbEntry(stale);
+    expect(() => citeCadenceSchedule(entry, "every_6_months")).toThrow(SilentCitationError);
+    expect(citeCadenceSchedule(entry, "every_6_months", { acknowledgeNonActive: true })).toMatchObject({
+      status: "stale",
+      statusReason: "Test fixture: entry marked stale",
+      sourceId: "official_application_portal",
+    });
+  });
+
+  it("rejects repeated schedule ids, which JSON Schema cannot catch", () => {
+    const raw = rawWithCadence();
+    cadenceItems(raw)[1]!.id = "every_6_months";
+    expect(() => parseKbEntry(raw)).toThrow(/repeats an earlier schedule id/);
+  });
+
+  it("rejects a starts_on that is not a real calendar date", () => {
+    // Year 0000 passes isIsoCalendarDate but not the tracker's calendar math
+    // (review fix: a schedule must never validate here and then throw there).
+    for (const startsOn of ["2027-02-30", "2027-13-01", "2027/01/01", 20270101, "0000-01-01"]) {
+      const raw = rawWithCadence();
+      cadenceItems(raw)[0]!.starts_on = startsOn;
+      expect(() => parseKbEntry(raw), String(startsOn)).toThrow(/starts_on/);
+    }
+    const yearOne = rawWithCadence();
+    cadenceItems(yearOne)[0]!.starts_on = "0001-01-01";
+    expect(validateKbEntry(yearOne)).toEqual([]);
+  });
+
+  it("parses an age range and accepts exactly integer ranges from 0 to 130 with min <= max", () => {
+    const raw = rawWithCadence();
+    cadenceItems(raw)[0]!.ages = { min: 19, max: 64 };
+    expect(parseKbEntry(raw).facts.renewal_cadence?.items[0]?.ages).toEqual({ min: 19, max: 64 });
+    expect(parseKbEntry(rawWithCadence()).facts.renewal_cadence?.items[0]).not.toHaveProperty("ages");
+    const age = fc.oneof(
+      fc.integer({ min: -5, max: 140 }),
+      fc.double({ min: -5, max: 140, noNaN: true }),
+      fc.constantFrom("19", null),
+    );
+    fc.assert(
+      fc.property(age, age, (min, max) => {
+        const entry = rawWithCadence();
+        cadenceItems(entry)[0]!.ages = { min, max };
+        const isAge = (value: unknown) =>
+          typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 130;
+        const valid = isAge(min) && isAge(max) && (min as number) <= (max as number);
+        return valid
+          ? validateKbEntry(entry).length === 0
+          : validateKbEntry(entry).some((problem) => problem.includes("ages"));
+      }),
+      { numRuns: 300 },
+    );
+  });
+
+  it("rejects an age range with unknown or missing keys", () => {
+    for (const ages of [{ min: 19 }, { max: 64 }, { min: 19, max: 64, label: "adults" }, [19, 64], "19-64"]) {
+      const raw = rawWithCadence();
+      cadenceItems(raw)[0]!.ages = ages;
+      expect(() => parseKbEntry(raw), JSON.stringify(ages)).toThrow(/ages/);
+    }
+  });
+
+  it("rejects missing keys, unknown keys, and blank text", () => {
+    for (const key of ["id", "interval_months", "label", "applies_to"]) {
+      const raw = rawWithCadence();
+      delete cadenceItems(raw)[0]![key];
+      expect(() => parseKbEntry(raw), key).toThrow(KbValidationError);
+    }
+    const unknownKey = rawWithCadence();
+    cadenceItems(unknownKey)[0]!.ends_on = "2028-01-01";
+    expect(() => parseKbEntry(unknownKey)).toThrow(/ends_on/);
+    const blankLabel = rawWithCadence();
+    cadenceItems(blankLabel)[0]!.label = "";
+    expect(() => parseKbEntry(blankLabel)).toThrow(/label/);
+  });
+
+  it("accepts exactly the integer intervals from 1 to 24 months", () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(
+          fc.integer({ min: -30, max: 40 }),
+          fc.double({ min: -30, max: 40, noNaN: true }),
+          fc.constantFrom("6", null, true),
+        ),
+        (months) => {
+          const raw = rawWithCadence();
+          cadenceItems(raw)[0]!.interval_months = months;
+          const valid =
+            typeof months === "number" &&
+            Number.isInteger(months) &&
+            months >= 1 &&
+            months <= 24;
+          return valid
+            ? validateKbEntry(raw).length === 0
+            : validateKbEntry(raw).some((problem) => problem.includes("interval_months"));
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+});
+
+describe("optional fact group: if_coverage_ends (BN-22)", () => {
+  function rawWithCoverageEnds(): Record<string, unknown> {
+    const raw = rawClone();
+    const facts = raw.facts as Record<string, Record<string, unknown>>;
+    facts.if_coverage_ends = {
+      items: ["A letter explains the decision and how to appeal it."],
+      source_id: "official_rules_source",
+      retrieved_at: "2026-10-29",
+    };
+    return raw;
+  }
+
+  it("validates, parses, and cites like the other text groups", () => {
+    const raw = rawWithCoverageEnds();
+    expect(validateKbEntry(raw)).toEqual([]);
+    const entry = parseKbEntry(raw);
+    expect(entry.facts.if_coverage_ends).toEqual({
+      items: ["A letter explains the decision and how to appeal it."],
+      sourceId: "official_rules_source",
+      retrievedAt: "2026-10-29",
+    });
+    expect(citeFactGroup(entry, "if_coverage_ends").group).toBe("if_coverage_ends");
+    expect(parseKbEntry(rawClone()).facts).not.toHaveProperty("if_coverage_ends");
+  });
+
+  it("rejects blank items and an unknown source", () => {
+    const blank = rawWithCoverageEnds();
+    ((blank.facts as Record<string, Record<string, unknown>>).if_coverage_ends!).items = [""];
+    expect(() => parseKbEntry(blank)).toThrow(/if_coverage_ends/);
+    const unsourced = rawWithCoverageEnds();
+    ((unsourced.facts as Record<string, Record<string, unknown>>).if_coverage_ends!).source_id = "nope";
+    expect(() => parseKbEntry(unsourced)).toThrow(/if_coverage_ends/);
   });
 });
 

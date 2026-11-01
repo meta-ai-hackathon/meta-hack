@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TRACKER_LINK_HEADING } from "../lib/renewal/copy";
 import { HomeEntryChoice } from "./home-entry-choice";
 import { JourneyNav } from "./journey-nav";
 
@@ -43,6 +44,11 @@ export default function Home() {
           Use the form instead
         </Link>
         .
+      </p>
+      <p className="mt-2 text-sm">
+        <Link href="/renewal" className="text-teal underline hover:opacity-80">
+          {TRACKER_LINK_HEADING}
+        </Link>
       </p>
     </div>
   );

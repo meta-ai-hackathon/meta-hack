@@ -144,6 +144,53 @@ entries are never presented. A plain-language explanation of the top match
 is generated from that entry's facts alone and passes the banned-claim and
 grounding checks before it renders.
 
+### Renewal tracker
+
+`/renewal` (linked from the wizard's review screen and the home page, each
+asking "Already have coverage?") keeps track of a renewal. It shows what the
+program publishes about renewal, from the pilot's renewal entry in
+`kb/entries/nc-medicaid-renewal.json`: how often renewal happens, the
+January 1, 2027 change and who it does not affect, how long a person has to
+answer a renewal letter, what happens if coverage ends, the steps, and the
+official links, each labeled "From NC Medicaid" with its source, retrieval
+date, and entry version. The person can enter a due date or deadline from a
+renewal letter, the date on a letter that said their coverage was approved
+or renewed, or say they don't know. Their date is labeled "You told us"; a
+date worked out from an approval date and the published schedules is
+labeled "Estimate, not an official date". For an approval date the page
+asks one optional question, whether the person is between ages 19 and 64,
+and leaves out the 6 month estimate when the answer is no.
+
+The saved reminder never leaves the device. The date is sealed with AES-GCM
+in the browser under a non-extractable key kept in IndexedDB, and read back
+only after every layer validates; key and reminder are always read and
+written together, so several open tabs cannot corrupt each other, and a save
+writes only if the reminder is still the one it read, so it never brings
+back a reminder another tab removed (the tracker says so and saving again
+keeps the date). From 30
+days before a date, on the day, and from the moment any date has passed
+until the person changes it, a banner at the top of every page except the
+tracker, which shows the same status, says so. The banner does not name the
+program, since anyone who uses the device can see it, and once a date has
+passed it says the person can change the date or remove the reminder in the
+tracker if their renewal is done. The banner reads the saved reminder again
+whenever the person comes back to a tab, so a save or a remove in another
+tab shows up there too. A saved reminder that cannot be read is announced,
+never dropped silently. Browsers can clear site data
+on their own, so the page also builds a calendar file (`.ics`) in the
+browser, the reminder that lasts: alerts at 9 AM 30, 7, and 1 days before,
+marked private, and no program name or link in its title, notes, or alerts,
+so a synced event carries only the neutral title, the date, and a pointer
+to the tracker on the device where the file was made. The file is a plain
+copy of the date that the person chooses to download, and their calendar
+app may sync it. Each event keeps one UID with a SEQUENCE that never goes
+down while the device's clock runs forward (it counts seconds, so two files
+made in the same second share one), so a calendar app that honors UIDs can
+update it; events a newer file leaves out are not removed, so the download
+notice asks people to delete old ones. No route, log, analytics call, or
+model call receives the date; `src/lib/renewal/no-network.test.ts` scans for
+and traps every way it could.
+
 ### Walkthrough CLI
 
 `pnpm walkthrough` drives full user journeys over HTTP against a running app —

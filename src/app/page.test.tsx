@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { findBannedClaims } from "../lib/honesty";
+import { TRACKER_LINK_HEADING } from "../lib/renewal/copy";
 import Home from "./page";
 
 // The entry choice island is a client component that navigates with the
@@ -77,6 +78,12 @@ describe("Home page (the round-2 entry shell, VAL-FIX-003)", () => {
   it("keeps the intake wizard reachable by navigation (VAL-CROSS-004)", () => {
     const html = renderToStaticMarkup(<Home />);
     expect(html).toContain('href="/intake"');
+  });
+
+  it("keeps the renewal tracker reachable from the home page (HACK-50)", () => {
+    const html = renderToStaticMarkup(<Home />);
+    expect(html).toContain('href="/renewal"');
+    expect(html).toContain(TRACKER_LINK_HEADING);
   });
 
   it("keeps a hierarchical heading outline with no skipped levels", () => {
