@@ -28,7 +28,7 @@ describe("AppShell (BN-07)", () => {
     // 84px tall with 24px 36px padding on wide viewports (the 760px rule
     // drops it to 75px with 18px 20px padding, single-column on phones).
     expect(html).not.toContain("max-w-[85rem]");
-    expect(html).toContain("min-[1101px]:h-[84px]");
+    expect(html).toContain("min-[1101px]:h-[5.25rem]");
     expect(html).toContain("min-[761px]:px-9");
     expect(html).toContain("min-[761px]:py-6");
     expect(html).toContain("min-h-[75px]");

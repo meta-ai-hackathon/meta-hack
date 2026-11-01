@@ -119,10 +119,13 @@ export function themeLabelFor(themeId: string): string {
  * spec's counter style.
  *
  * Geometry is the prototype's `.voice-progress` right rail, copied
- * literally (VAL-FIX-006): a FIXED 195px grid track (the stage grid's
- * second column), `border-left: 1px solid`, `padding-left: 23px`,
- * `padding-top: 6px` — no card chrome. The 1100px breakpoint rule hides
- * the rail and collapses the stage grid to one column.
+ * literally (VAL-FIX-006) on wide viewports: a FIXED 195px grid track
+ * (the stage grid's second column), `border-left: 1px solid`,
+ * `padding-left: 23px`, `padding-top: 6px` — no card chrome. Below
+ * 1101px the prototype hides the rail; the a11y baseline wins that
+ * tie (claude-review P2): the checklist must survive browser zoom and
+ * phones, so there the rail COLLAPSES INTO THE FLOW — a stacked section
+ * under the transcript, separated by a top border instead of a left one.
  */
 export function ComingTogether(props: { state: IntakeClientState | null }) {
   const themes = deriveThemeProgress(props.state);
@@ -131,7 +134,7 @@ export function ComingTogether(props: { state: IntakeClientState | null }) {
       data-coming-together
       data-journey-stage="talk"
       aria-labelledby="coming-together-heading"
-      className="hidden flex-col gap-4 border-l border-surface-border pl-[23px] pt-1.5 min-[1101px]:flex"
+      className="flex flex-col gap-4 border-t border-surface-border pt-4 min-[1101px]:border-t-0 min-[1101px]:border-l min-[1101px]:pl-[23px] min-[1101px]:pt-1.5"
     >
       <h2 id="coming-together-heading" className="font-display text-2xl font-bold">
         Coming Together

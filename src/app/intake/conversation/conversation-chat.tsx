@@ -1259,7 +1259,9 @@ export function ConversationChat() {
             containing block is the document root, they escape the
             overflow clip, and every turn grows the page itself.
             The cap is the prototype's `.voice-scroll` (VAL-FIX-006):
-            max-height 620px, overflow-y auto. */}
+            max-height 620px, overflow-y auto — bounded by 60vh on phones
+            (below 761px) so the session deck's controls stay on screen
+            once the transcript fills (claude-review P3). */}
             <div
               ref={talkStage ? attachPaneRef : undefined}
               data-transcript-pane={talkStage ? "true" : undefined}
@@ -1269,7 +1271,7 @@ export function ConversationChat() {
               onScroll={talkStage ? handlePaneScroll : undefined}
               className={
                 talkStage
-                  ? "relative max-h-[620px] overflow-y-auto overscroll-contain"
+                  ? "relative max-h-[min(60vh,620px)] overflow-y-auto overscroll-contain min-[761px]:max-h-[620px]"
                   : undefined
               }
             >
@@ -1448,10 +1450,12 @@ export function ConversationChat() {
           {/* The honesty strip (VAL-FIX-006): the prototype frame's bottom
           honesty strip, bleeding to the frame edges (`margin: 0 -32px`;
           -16px at the 760px rule). The words are prod's own honesty
-          sentence — the layout is copied, the copy is not. */}
+          sentence — the layout is copied, the copy is not. Text size is
+          rem-based (never a fixed px) so the huge-text zoom scales it,
+          muted per the de-emphasized strip look. */}
           <div
             data-honesty-strip
-            className="-mx-4 flex items-center justify-center gap-2 border-t border-dashed border-surface-border px-5 py-4 text-[10px] min-[761px]:-mx-8"
+            className="-mx-4 flex items-center justify-center gap-2 border-t border-dashed border-surface-border px-5 py-4 text-sm text-muted min-[761px]:-mx-8"
           >
             <span
               aria-hidden="true"

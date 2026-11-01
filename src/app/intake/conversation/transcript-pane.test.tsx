@@ -250,9 +250,10 @@ describe("the talk-stage transcript pane (VAL-FIX-002)", () => {
     expect(pane.getAttribute("aria-label")).toBe("Conversation transcript");
     expect(pane.className).toContain("overflow-y-auto");
     // The prototype's .voice-scroll cap (VAL-FIX-006): the pane scrolls
-    // at a 620px max height — the page stops growing once the
-    // conversation passes the cap.
-    expect(pane.className).toContain("max-h-[620px]");
+    // at a 620px max height on wide viewports (60vh-bounded on phones) —
+    // the page stops growing once the conversation passes the cap.
+    expect(pane.className).toContain("max-h-[min(60vh,620px)]");
+    expect(pane.className).toContain("min-[761px]:max-h-[620px]");
     // The a11y structure the transcript already carried is intact.
     expect(
       container.querySelector(

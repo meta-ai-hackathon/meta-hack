@@ -202,19 +202,23 @@ describe("the talk-stage frame geometry (VAL-FIX-006)", () => {
     expect(grid).toContain("pt-7");
   });
 
-  it("renders the Coming Together sidebar as a right rail: border-left, 23px left padding, hidden below 1101px", async () => {
+  it("renders the Coming Together sidebar as a right rail: border-left, 23px left padding, collapsed into the flow below 1101px", async () => {
     const { container, act } = await renderChat();
     await beginTalkStage(container, act);
     const aside = q(container, "coming-together");
     expect(aside).not.toBeNull();
     const rail = aside?.className ?? "";
-    expect(rail).toContain("border-l");
-    expect(rail).toContain("pl-[23px]");
-    expect(rail).toContain("pt-1.5");
-    // The 1100px breakpoint rule: the rail collapses (hidden) until the
-    // wide grid returns.
-    expect(rail).toContain("hidden");
-    expect(rail).toContain("min-[1101px]:flex");
+    // The 1100px breakpoint rule, a11y-adjudicated (claude-review P2):
+    // the prototype HIDES the rail below 1101px, but browser zoom and
+    // phones would lose the checklist entirely — so the rail collapses
+    // into the flow (stacked section, top border) instead of
+    // display:none, and the exact right-rail geometry applies on wide.
+    expect(rail).not.toContain("hidden");
+    expect(rail).toContain("border-t");
+    expect(rail).toContain("min-[1101px]:border-t-0");
+    expect(rail).toContain("min-[1101px]:border-l");
+    expect(rail).toContain("min-[1101px]:pl-[23px]");
+    expect(rail).toContain("min-[1101px]:pt-1.5");
   });
 
   it("caps the transcript pane at the prototype's 620px scroll height", async () => {
@@ -223,8 +227,11 @@ describe("the talk-stage frame geometry (VAL-FIX-006)", () => {
     const pane = q(container, "transcript-pane");
     expect(pane).not.toBeNull();
     // The .voice-scroll equivalence: max-height 620px, overflow-y auto —
-    // with the VAL-FIX-002 positioning context and clip intact.
-    expect(pane?.className).toContain("max-h-[620px]");
+    // with the VAL-FIX-002 positioning context and clip intact. Phones
+    // bound the cap by 60vh so the deck's controls stay reachable
+    // (claude-review P3); wide viewports get the exact 620px.
+    expect(pane?.className).toContain("max-h-[min(60vh,620px)]");
+    expect(pane?.className).toContain("min-[761px]:max-h-[620px]");
     expect(pane?.className).toContain("overflow-y-auto");
     expect(pane?.className).toContain("relative");
   });
