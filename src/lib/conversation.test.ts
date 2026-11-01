@@ -26,6 +26,7 @@ import {
   findBannedClaimsEverySentence,
   findPiiEchoes,
   followupGateProblem,
+  spokenGateProblem,
   malformedEnvelopeFallback,
   parseCombinedEnvelope,
   PARTIAL_SAVE_FALLBACK_PREFIX,
@@ -991,3 +992,30 @@ function makeEntry(status: KbEntry["status"], rulesPhrase: string): KbEntry {
     },
   };
 }
+
+describe("spoken_reply envelope parsing and gate (HACK-107)", () => {
+  const content = (spoken: unknown) =>
+    JSON.stringify({ answers: [], reply: "Next question coming up.", ...(spoken === undefined ? {} : { spoken_reply: spoken }) });
+  it("keeps a trimmed non-empty spoken_reply", () => {
+    const e = parseCombinedEnvelope(content("  Please tell me more.  "));
+    expect(e).not.toBeNull();
+    expect(e?.spokenReply).toBe("Please tell me more.");
+  });
+  it("drops bad spoken_reply values without failing the envelope", () => {
+    for (const bad of [42, "", "   ", null]) {
+      const e = parseCombinedEnvelope(content(bad));
+      expect(e).not.toBeNull();
+      expect(e?.spokenReply).toBeUndefined();
+      expect(e?.reply).toBe("Next question coming up.");
+    }
+    const absent = parseCombinedEnvelope(content(undefined));
+    expect(absent?.spokenReply).toBeUndefined();
+  });
+  it("spokenGateProblem gates placeholder, banned claim, pii echo, empty", () => {
+    expect(spokenGateProblem("Please tell me more.", [])).toBeNull();
+    expect(spokenGateProblem("Ask [GIVEN_NAME_1] next.", [])).toBe("placeholder");
+    expect(spokenGateProblem("You are eligible.", [])).toBe("banned_claim");
+    expect(spokenGateProblem("Please confirm Jane Doe.", ["Jane Doe"])).toBe("pii_echo");
+    expect(spokenGateProblem("   ", [])).toBe("empty");
+  });
+});
