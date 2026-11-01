@@ -46,6 +46,21 @@ export interface RadioExportValues {
   readonly no: string;
 }
 
+/**
+ * Mutually exclusive checkbox group membership (full-form proof,
+ * VAL-FIX-007): kind "yes_no" marks one printed question's two independent
+ * Yes/No boxes; kind "single_choice" marks a check-one group (work status,
+ * pay frequency, renewal term). The fill-time consistency check flags a
+ * value set that checks two members of one group — it never silently picks
+ * a side.
+ */
+export type ConflictGroupKind = "yes_no" | "single_choice";
+
+export interface ConflictGroup {
+  readonly id: string;
+  readonly kind: ConflictGroupKind;
+}
+
 export interface AnswerBox {
   readonly page: number;
   readonly x: number;
@@ -82,6 +97,8 @@ export interface FormRegistryField {
   readonly exportValue?: string;
   /** A mapped yes/no radio pair's discovered export values. */
   readonly exportValues?: RadioExportValues;
+  /** The mapped checkbox's mutually exclusive group, when it has one. */
+  readonly conflictGroup?: ConflictGroup;
   /** Identity-like data: value is sensitive-by-default (omitted from client views). */
   readonly piiLikely: boolean;
   readonly required: boolean;
@@ -232,6 +249,25 @@ function parseEntry(raw: unknown): FormRegistryEntry {
       }
       exportValues = { yes: exportValuesRaw.yes, no: exportValuesRaw.no };
     }
+    const conflictGroupRaw = item.conflict_group;
+    let conflictGroup: ConflictGroup | undefined;
+    if (conflictGroupRaw !== undefined && conflictGroupRaw !== null) {
+      if (
+        !isRecord(conflictGroupRaw) ||
+        typeof conflictGroupRaw.id !== "string" ||
+        conflictGroupRaw.id.trim() === "" ||
+        (conflictGroupRaw.kind !== "yes_no" &&
+          conflictGroupRaw.kind !== "single_choice")
+      ) {
+        throw registryError(
+          `entry.fields[${index}].conflict_group must carry a non-empty id and kind (yes_no | single_choice)`,
+        );
+      }
+      conflictGroup = {
+        id: conflictGroupRaw.id,
+        kind: conflictGroupRaw.kind as ConflictGroupKind,
+      };
+    }
     const pages = item.pages;
     if (
       !Array.isArray(pages) ||
@@ -274,6 +310,7 @@ function parseEntry(raw: unknown): FormRegistryEntry {
         ? { exportValue: exportValue.trim() }
         : {}),
       ...(exportValues ? { exportValues } : {}),
+      ...(conflictGroup ? { conflictGroup } : {}),
     };
   });
   return {
