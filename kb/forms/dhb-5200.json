@@ -1,7 +1,7 @@
 {
   "id": "dhb-5200",
   "title": "NC Medicaid application for health coverage (DHB-5200)",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "kind": "acroform",
   "program": "NC Medicaid",
   "source": {
@@ -6253,6 +6253,1665 @@
         15
       ],
       "export_value": "Yes"
+    },
+    {
+      "name": "13 Is PERSON 4 a resident of North Carolina",
+      "type": "radio",
+      "label": "13. Is PERSON 4 a resident of North Carolina",
+      "question": "Is Person 4 a resident of the state this application is for? (The form's question 13 yes/no pair - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_values": {
+        "yes": "Yes_50",
+        "no": "No_51"
+      }
+    },
+    {
+      "name": "If no list address_3",
+      "type": "text",
+      "label": "If no, list address",
+      "question": "If Person 4 does not live at the same address as you, what is their address? (The form's question-12 follow-up line.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "14 Is PERSON 4 pregnant",
+      "type": "radio",
+      "label": "14. Is PERSON 4 pregnant",
+      "question": "Is Person 4 pregnant? (The form's question 14 yes/no pair - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_values": {
+        "yes": "Yes_51",
+        "no": "No_52"
+      }
+    },
+    {
+      "name": "If yes how many babies are expected during this pregnancy_4",
+      "type": "text",
+      "label": "If yes, how many babies are expected during this pregnancy",
+      "question": "How many babies are expected during Person 4's pregnancy, if applicable? (The form's question-14 follow-up box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Check Box15",
+      "type": "checkbox",
+      "label": "15. Does PERSON 4 live with at least one child under the age of 18 and are they the main person taking care of that child?",
+      "question": "Does Person 4 live with at least one child under 18 and take main care of that child? (The Yes box of the form's question 15 - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "Yes"
+    },
+    {
+      "name": "undefined_79",
+      "type": "checkbox",
+      "label": "15. Does PERSON 4 live with at least one child under the age of 18 and are they the main person taking care of that child?",
+      "question": "Does Person 4 live with at least one child under 18 and take main care of that child - answered No? (The No box of the form's question 15.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_80",
+      "type": "checkbox",
+      "label": "16. Was PERSON 4 in Foster Care in North Carolina when they turned 18?",
+      "question": "Was Person 4 in foster care in this state when they turned 18? (The Yes box of the form's question 16 - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_81",
+      "type": "checkbox",
+      "label": "16. Was PERSON 4 in Foster Care in North Carolina when they turned 18?",
+      "question": "Was Person 4 in foster care in this state when they turned 18 - answered No? (The No box of the form's question 16.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_82",
+      "type": "checkbox",
+      "label": "17a. Is PERSON 4 disabled?",
+      "question": "Is Person 4 disabled? (The Yes box of the form's question 17a - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_83",
+      "type": "checkbox",
+      "label": "17a. Is PERSON 4 disabled?",
+      "question": "Is Person 4 disabled - answered No? (The No box of the form's question 17a - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "older_3",
+      "type": "radio",
+      "label": "older",
+      "question": "Is Person 4 aged 65 or older? (The form's question 17b yes/no pair - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_values": {
+        "yes": "Yes_52",
+        "no": "No_53"
+      }
+    },
+    {
+      "name": "undefined_84",
+      "type": "checkbox",
+      "label": "17c. Is PERSON 4 blind?",
+      "question": "Is Person 4 blind? (The Yes box of the form's question 17c - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_85",
+      "type": "checkbox",
+      "label": "17c. Is PERSON 4 blind?",
+      "question": "Is Person 4 blind - answered No? (The No box of the form's question 17c - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "living such as bathing dressing daily chores etc live in a medical facility nursing home andor need home and_3",
+      "type": "radio",
+      "label": "living (such as bathing, dressing, daily chores, etc.), live in a medical facility, nursing home and/or need home and",
+      "question": "Does Person 4 have a physical, mental or emotional health condition that limits daily-living activities (like bathing or dressing), live in a medical facility or nursing home, or need home and community based services (CAP)? (The form's question 18 yes/no pair - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_values": {
+        "yes": "Yes_53",
+        "no": "No_54"
+      }
+    },
+    {
+      "name": "Check Box17",
+      "type": "checkbox",
+      "label": "19. Does PERSON 4 need help paying for medical bills in the last 3 months",
+      "question": "Does Person 4 need help paying for medical bills from the last 3 months? (The Yes box of the form's question 19 - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "Yes"
+    },
+    {
+      "name": "Check Box18",
+      "type": "checkbox",
+      "label": "19. Does PERSON 4 need help paying for medical bills in the last 3 months",
+      "question": "Does Person 4 need help paying for medical bills from the last 3 months - answered No? (The No box of the form's question 19.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "Yes"
+    },
+    {
+      "name": "undefined_86",
+      "type": "checkbox",
+      "label": "20. Did PERSON 4 have insurance through a job and lose it within the past 3 months",
+      "question": "Did Person 4 have insurance through a job and lose it within the past 3 months? (The Yes box of the form's question 20 - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "No_56",
+      "type": "checkbox",
+      "label": "20. Did PERSON 4 have insurance through a job and lose it within the past 3 months",
+      "question": "Did Person 4 have insurance through a job and lose it within the past 3 months - answered No? (The No box of the form's question 20.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "20 Did PERSON 4 have insurance through a job and lose it within the past 3 months",
+      "type": "text",
+      "label": "20. Did PERSON 4 have insurance through a job and lose it within the past 3 months",
+      "question": "The printed job-insurance question line for Person 4 (embedded in the template as a field, carrying no answer).",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "duplicate_structural",
+      "disposition_reason": "The form author embedded the printed job-insurance question line itself as a text field; the answers go in the boxes beside it, not here."
+    },
+    {
+      "name": "Yes_55",
+      "type": "text",
+      "label": "20. Did PERSON 4 have insurance through a job and lose it within the past 3 months",
+      "question": "An auxiliary box of Person 4's job-insurance question that the pipeline can't identify or ask honestly; the person completes it by hand.",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        16
+      ],
+      "disposition": "not_collected_by_interview",
+      "disposition_reason": "An auxiliary box beside Person 4's job-insurance question whose printed purpose the template doesn't identify (the template wires one text field beside the question's end-date/reason follow-ups); the pipeline never guesses a purpose, so the person completes it by hand."
+    },
+    {
+      "name": "Employed_4",
+      "type": "checkbox",
+      "label": "Employed",
+      "question": "Is Person 4 employed? (The Employed box of the form's check-one work-status line for Person 4.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "SelfEmployed_4",
+      "type": "checkbox",
+      "label": "Self-Employed",
+      "question": "Is Person 4 self-employed? (The Self-Employed box of the form's check-one work-status line for Person 4.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Not employed_4",
+      "type": "checkbox",
+      "label": "Not employed",
+      "question": "Is Person 4 not employed? (The Not-employed box of the form's check-one work-status line for Person 4.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Text11",
+      "type": "text",
+      "label": "22. Employer name and address",
+      "question": "What is the name and address of Person 4's current employer (current job 1)? (The form's question-22 box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "23 Employer phone number_3",
+      "type": "text",
+      "label": "23. Employer phone number: ( ) -",
+      "question": "What is the phone number of Person 4's current employer (current job 1)? (The form's question-23 box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Hourly_7",
+      "type": "checkbox",
+      "label": "Hourly",
+      "question": "Is Person 4 paid by the hour at job 1? (The pay-frequency box beside the wages line - the form's own Hourly box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Weekly_7",
+      "type": "checkbox",
+      "label": "Weekly",
+      "question": "Is Person 4 paid weekly at job 1? (The pay-frequency box beside the wages line - the form's own Weekly box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Every 2 weeks_7",
+      "type": "checkbox",
+      "label": "Every 2 weeks",
+      "question": "Is Person 4 paid every 2 weeks at job 1? (The pay-frequency box beside the wages line - the form's own Every 2 weeks box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Twice a Monthly_7",
+      "type": "checkbox",
+      "label": "Twice a Monthly",
+      "question": "Is Person 4 paid twice a month at job 1? (The pay-frequency box beside the wages line - the form's own Twice a Monthly box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Monthly_7",
+      "type": "checkbox",
+      "label": "Monthly",
+      "question": "Is Person 4 paid monthly at job 1? (The pay-frequency box beside the wages line - the form's own Monthly box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Yearly_7",
+      "type": "checkbox",
+      "label": "Yearly",
+      "question": "Is Person 4 paid yearly at job 1? (The pay-frequency box beside the wages line - the form's own Yearly box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_87",
+      "type": "text",
+      "label": "24. Wages/tips (before taxes)",
+      "question": "About how much does Person 4 get in wages or tips, before taxes, each pay period at current job 1? (The form's question-24 box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "25 Average hours worked each WEEK_3",
+      "type": "text",
+      "label": "25. Average hours worked each WEEK",
+      "question": "About how many hours does Person 4 work each week at current job 1? (The form's question-25 box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Hourly_8",
+      "type": "checkbox",
+      "label": "Hourly",
+      "question": "Is Person 4 paid by the hour at job 2? (The pay-frequency box beside the wages line - the form's own Hourly box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Weekly_8",
+      "type": "checkbox",
+      "label": "Weekly",
+      "question": "Is Person 4 paid weekly at job 2? (The pay-frequency box beside the wages line - the form's own Weekly box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Every 2 weeks_8",
+      "type": "checkbox",
+      "label": "Every 2 weeks",
+      "question": "Is Person 4 paid every 2 weeks at job 2? (The pay-frequency box beside the wages line - the form's own Every 2 weeks box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Twice a Monthly_8",
+      "type": "checkbox",
+      "label": "Twice a Monthly",
+      "question": "Is Person 4 paid twice a month at job 2? (The pay-frequency box beside the wages line - the form's own Twice a Monthly box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Monthly_8",
+      "type": "checkbox",
+      "label": "Monthly",
+      "question": "Is Person 4 paid monthly at job 2? (The pay-frequency box beside the wages line - the form's own Monthly box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Yearly_8",
+      "type": "checkbox",
+      "label": "Yearly",
+      "question": "Is Person 4 paid yearly at job 2? (The pay-frequency box beside the wages line - the form's own Yearly box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_88",
+      "type": "text",
+      "label": "28. Wages/tips (before taxes)",
+      "question": "About how much does Person 4 get in wages or tips, before taxes, each pay period at current job 2? (The form's question-28 box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "29 Average hours worked each WEEK 1_2",
+      "type": "text",
+      "label": "29. Average hours worked each WEEK",
+      "question": "About how many hours does Person 4 work each week at current job 2? (The form's question-29 box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Change Jobs_4",
+      "type": "checkbox",
+      "label": "Change Jobs",
+      "question": "In the past year, did Person 4 change jobs? (The form's own work-changes checklist for Person 4.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Stop Working_4",
+      "type": "checkbox",
+      "label": "Stop Working",
+      "question": "In the past year, did Person 4 stop working a job? (The form's own work-changes checklist for Person 4.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Start working fewer hours_4",
+      "type": "checkbox",
+      "label": "Start working fewer hours",
+      "question": "In the past year, did Person 4 start working fewer hours? (The form's own work-changes checklist for Person 4.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "None of these_4",
+      "type": "checkbox",
+      "label": "None of these",
+      "question": "In the past year, did none of those work changes apply to Person 4? (The None-of-these box of the form's work-changes checklist.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "a Type of work",
+      "type": "text",
+      "label": "a. Type of work",
+      "question": "What type of work does Person 4 do when self-employed? (The form's question 31a for Person 4's self-employment.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "month_4",
+      "type": "text",
+      "label": "month",
+      "question": "About how much net income from self-employment will Person 4 get this month, once business expenses are paid? (The form's question 31b for Person 4.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "None_4",
+      "type": "checkbox",
+      "label": "None",
+      "question": "Did Person 4 get no other income this month? (The row checkbox of the form's other-income table, question 32 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_89",
+      "type": "text",
+      "label": "None",
+      "question": "About how much no other income did Person 4 get this month? (The amount box of the other-income table's None row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_36",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 get that income? (The How-Often box of the other-income table's None row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Unemployment_4",
+      "type": "checkbox",
+      "label": "Unemployment",
+      "question": "Did Person 4 get unemployment income this month? (The row checkbox of the form's other-income table, question 32 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_91",
+      "type": "text",
+      "label": "Unemployment",
+      "question": "About how much unemployment income did Person 4 get this month? (The amount box of the other-income table's Unemployment row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_38",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 get that income? (The How-Often box of the other-income table's Unemployment row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Pensions_4",
+      "type": "checkbox",
+      "label": "Pensions",
+      "question": "Did Person 4 get pension income this month? (The row checkbox of the form's other-income table, question 32 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_93",
+      "type": "text",
+      "label": "Pensions",
+      "question": "About how much pension income did Person 4 get this month? (The amount box of the other-income table's Pensions row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_40",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 get that income? (The How-Often box of the other-income table's Pensions row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Social Security_4",
+      "type": "checkbox",
+      "label": "Social Security",
+      "question": "Did Person 4 get Social Security income this month? (The row checkbox of the form's other-income table, question 32 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "1_4",
+      "type": "text",
+      "label": "Social Security",
+      "question": "About how much Social Security income did Person 4 get this month? (The amount box of the other-income table's Social Security row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_42",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 get that income? (The How-Often box of the other-income table's Social Security row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Retirement Accounts_4",
+      "type": "checkbox",
+      "label": "Retirement Accounts",
+      "question": "Did Person 4 get retirement-account income this month? (The row checkbox of the form's other-income table, question 32 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "2_4",
+      "type": "text",
+      "label": "Retirement Accounts",
+      "question": "About how much retirement-account income did Person 4 get this month? (The amount box of the other-income table's Retirement Accounts row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_43",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 get that income? (The How-Often box of the other-income table's Retirement Accounts row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Alimony Received_4",
+      "type": "checkbox",
+      "label": "Alimony Received",
+      "question": "Did Person 4 get alimony income this month? (The row checkbox of the form's other-income table, question 32 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_95",
+      "type": "text",
+      "label": "Alimony Received",
+      "question": "About how much alimony income did Person 4 get this month? (The amount box of the other-income table's Alimony Received row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_44",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 get that income? (The How-Often box of the other-income table's Alimony Received row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Net farmingfishing_4",
+      "type": "checkbox",
+      "label": "Net farming/fishing",
+      "question": "Did Person 4 get net farming or fishing income this month? (The row checkbox of the form's other-income table, question 32 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_90",
+      "type": "text",
+      "label": "Net farming/fishing",
+      "question": "About how much net farming or fishing income did Person 4 get this month? (The amount box of the other-income table's Net farming/fishing row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_37",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 get that income? (The How-Often box of the other-income table's Net farming/fishing row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Net rentalroyalty_4",
+      "type": "checkbox",
+      "label": "Net rental/royalty",
+      "question": "Did Person 4 get net rental or royalty income this month? (The row checkbox of the form's other-income table, question 32 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_92",
+      "type": "text",
+      "label": "Net rental/royalty",
+      "question": "About how much net rental or royalty income did Person 4 get this month? (The amount box of the other-income table's Net rental/royalty row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_39",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 get that income? (The How-Often box of the other-income table's Net rental/royalty row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Other income_4",
+      "type": "checkbox",
+      "label": "Other income",
+      "question": "Did Person 4 get other income this month? (The row checkbox of the form's other-income table, question 32 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_94",
+      "type": "text",
+      "label": "Other income",
+      "question": "About how much other income did Person 4 get this month? (The amount box of the other-income table's Other income row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_41",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 get that income? (The How-Often box of the other-income table's Other income row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Type_7",
+      "type": "text",
+      "label": "Type",
+      "question": "What type of benefit is Person 4's other income, if any? (The Type box of the form's other-income table, question 32.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Text10",
+      "type": "text",
+      "label": "27. Employer phone number",
+      "question": "What is the phone number of Person 4's second employer (current job 2)? (The form's question-27 box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Text12",
+      "type": "text",
+      "label": "26. Employer name and address",
+      "question": "What is the name and address of Person 4's second employer (current job 2)? (The form's question-26 box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        17
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Alimony Paid_4",
+      "type": "checkbox",
+      "label": "Alimony Paid",
+      "question": "Does Person 4 pay alimony? (The row checkbox of the form's deductions table, question 33 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_96",
+      "type": "text",
+      "label": "Alimony Paid",
+      "question": "About how much does Person 4 pay for alimony? (The amount box of the deductions table's Alimony Paid row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_45",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 pay that amount? (The How-Often box of the deductions table's Alimony Paid row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Student Loan Interest_4",
+      "type": "checkbox",
+      "label": "Student Loan Interest",
+      "question": "Does Person 4 pay student-loan interest? (The row checkbox of the form's deductions table, question 33 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_97",
+      "type": "text",
+      "label": "Student Loan Interest",
+      "question": "About how much does Person 4 pay for student-loan interest? (The amount box of the deductions table's Student Loan Interest row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_46",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 pay that amount? (The How-Often box of the deductions table's Student Loan Interest row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Other Deductions_4",
+      "type": "checkbox",
+      "label": "Other Deductions",
+      "question": "Does Person 4 pay other deductions? (The row checkbox of the form's deductions table, question 33 - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "undefined_98",
+      "type": "text",
+      "label": "Other Deductions",
+      "question": "About how much does Person 4 pay for other deductions? (The amount box of the deductions table's Other Deductions row; enter 0 if none.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "How Often_47",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often does Person 4 pay that amount? (The How-Often box of the deductions table's Other Deductions row.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Type_8",
+      "type": "text",
+      "label": "Type",
+      "question": "What type of deduction is that, for the other-deductions row? (The Type box of the form's deductions table for Person 4, question 33.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "undefined_99",
+      "type": "text",
+      "label": "Person 4's total income this year",
+      "question": "About what is Person 4's total income this year, if it changes from month to month? (The this-year box of the form's yearly-income section, question 34 - answered by the person at review time; the pipeline never computes a total.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "undefined_100",
+      "type": "text",
+      "label": "34. YEARLY INCOME",
+      "question": "A box of Person 4's yearly-income section that the pipeline can't identify or ask honestly (undefined tooltip); the person completes it by hand.",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "not_collected_by_interview",
+      "disposition_reason": "A second box in Person 4's yearly-income section (question 34) whose printed purpose the template doesn't identify (the template's tooltip is undefined); the pipeline never guesses a purpose, so the person completes it by hand."
+    },
+    {
+      "name": "PERSON 4s total income next year if you think it will be different",
+      "type": "text",
+      "label": "Person 4's total income next year (if you think it will be different",
+      "question": "About what will Person 4's total income be next year, if you expect it to be different? (The next-year line of the form's yearly-income section, question 34 - the person's own estimate, never a computed one.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        18
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "If yes complete Appendix B",
+      "type": "checkbox",
+      "label": "If yes, complete Appendix B",
+      "question": "Is anyone you are requesting assistance for an American Indian or Alaska Native, marked yes? (The if-yes box of the form's Step 3 question - checking it goes with completing Appendix B; the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "If no complete Step 4",
+      "type": "checkbox",
+      "label": "If no, complete Step 4",
+      "question": "Is no one you are requesting assistance for an American Indian or Alaska Native, marked no? (The if-no box of the form's Step 3 question - checking it goes with continuing to Step 4; the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Is anyone enrolled in health coverage now from the following",
+      "type": "radio",
+      "label": "Is anyone enrolled in health coverage now from the following",
+      "question": "Is anyone on this application enrolled in health coverage right now? (The form's Step 4 question 1 yes/no pair - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_values": {
+        "yes": "Yes_56",
+        "no": "No_57"
+      }
+    },
+    {
+      "name": "Medicaid",
+      "type": "checkbox",
+      "label": "Medicaid",
+      "question": "Does anyone in the household have Medicaid? (The row checkbox of the form's current-coverage list - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "NC Health Choice NCHC",
+      "type": "checkbox",
+      "label": "N.C. Health Choice (NCHC)",
+      "question": "Does anyone in the household have N.C. Health Choice? (The row checkbox of the form's current-coverage list - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Medicare",
+      "type": "checkbox",
+      "label": "Medicare",
+      "question": "Does anyone in the household have Medicare? (The row checkbox of the form's current-coverage list - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "TRICARE Dont check if you have Direct Care or Line of Duty",
+      "type": "checkbox",
+      "label": "TRICARE (Don't check if you have Direct Care or Line of Duty)",
+      "question": "Does anyone in the household have TRICARE? (The row checkbox of the form's current-coverage list - the person answers it at review time. The form says not to check it for Direct Care or Line of Duty.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "VA health care programs",
+      "type": "checkbox",
+      "label": "VA health care programs",
+      "question": "Does anyone in the household have VA health care coverage? (The row checkbox of the form's current-coverage list - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Peace Corps",
+      "type": "checkbox",
+      "label": "Peace Corps",
+      "question": "Does anyone in the household have Peace Corps coverage? (The row checkbox of the form's current-coverage list - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "If yes check the type of coverage and write the persons names next to the coverage they have",
+      "type": "text",
+      "label": "If yes, check the type of coverage and write the person(s) name(s) next to the coverage they have",
+      "question": "Who in the household has Medicaid, if anyone? (The name box beside the Medicaid checkbox - the person writes the covered person's name at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "undefined_101",
+      "type": "text",
+      "label": "If yes, check the type of coverage and write the person(s) name(s) next to the coverage they have",
+      "question": "Who in the household has N.C. Health Choice, if anyone? (The name box beside the N.C. Health Choice checkbox - the person writes the covered person's name at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "undefined_102",
+      "type": "text",
+      "label": "If yes, check the type of coverage and write the person(s) name(s) next to the coverage they have",
+      "question": "Who in the household has Medicare, if anyone? (The name box beside the Medicare checkbox - the person writes the covered person's name at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "undefined_103",
+      "type": "text",
+      "label": "If yes, check the type of coverage and write the person(s) name(s) next to the coverage they have",
+      "question": "Who in the household has VA health care coverage, if anyone? (The name box beside the VA health care coverage checkbox - the person writes the covered person's name at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "undefined_104",
+      "type": "text",
+      "label": "If yes, check the type of coverage and write the person(s) name(s) next to the coverage they have",
+      "question": "Who in the household has Peace Corps coverage, if anyone? (The name box beside the Peace Corps coverage checkbox - the person writes the covered person's name at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "undefined_105",
+      "type": "text",
+      "label": "If yes, check the type of coverage and write the person(s) name(s) next to the coverage they have",
+      "question": "Who in the household has that other coverage, if anyone? (The name box beside the Other checkbox - the person writes the covered person's name at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Other_9",
+      "type": "checkbox",
+      "label": "Other",
+      "question": "Does anyone in the household have any other health coverage? (The Other row checkbox of the form's current-coverage list - the person answers it at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Insurance",
+      "type": "text",
+      "label": "Name of Health Insurance",
+      "question": "What is the name of the health insurance someone in the household holds, if any? (The name box of the form's insurance-details line.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Policy Number",
+      "type": "text",
+      "label": "Policy Number",
+      "question": "What is that policy's number, if the household has other coverage? (The form's policy-number box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "Type of Coverage",
+      "type": "text",
+      "label": "Type of Coverage",
+      "question": "What type of coverage is that policy? (The form's type-of-coverage box.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "someone elses job such as a parent or spouse",
+      "type": "radio",
+      "label": "someone else's job, such as a parent or spouse",
+      "question": "Is anyone on this application offered health insurance through a job - including someone else's job, like a parent's or a spouse's? (The form's Step 4 question 2 yes/no pair - the person answers at review time; a yes goes with completing Appendix A.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_values": {
+        "yes": "Yes_57",
+        "no": "No_58"
+      }
+    },
+    {
+      "name": "Have you or anyone requesting assistance been in an accident in the past 12 months",
+      "type": "radio",
+      "label": "Have you or anyone requesting assistance been in an accident in the past 12 months",
+      "question": "Have you or anyone requesting assistance been in an accident in the past 12 months? (The form's Step 4 question 3 yes/no pair - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_values": {
+        "yes": "Yes_58",
+        "no": "No_59"
+      }
+    },
+    {
+      "name": "undefined_106",
+      "type": "radio",
+      "label": "4. Does any child on this application have a parent living outside the home",
+      "question": "Does any child on this application have a parent living outside the home? (The form's Step 4 question 4 yes/no pair - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        19
+      ],
+      "disposition": "mapped",
+      "export_values": {
+        "yes": "Yes_59",
+        "no": "No_60"
+      }
+    },
+    {
+      "name": "5 years the maximum number of years allowed",
+      "type": "checkbox",
+      "label": "5 years (the maximum number of years allowed)",
+      "question": "Agree to automatic renewal for the next 5 years, the maximum the form allows? (The 5 years (the maximum number of years allowed) box of the form's renewal election - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        20
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "4 years",
+      "type": "checkbox",
+      "label": "4 years",
+      "question": "Agree to automatic renewal for the next 4 years? (The 4 years box of the form's renewal election - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        20
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "3 years",
+      "type": "checkbox",
+      "label": "3 years",
+      "question": "Agree to automatic renewal for the next 3 years? (The 3 years box of the form's renewal election - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        20
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "2 year",
+      "type": "checkbox",
+      "label": "2 year",
+      "question": "Agree to automatic renewal for the next 2 years? (The 2 year box of the form's renewal election - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        20
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "1 year",
+      "type": "checkbox",
+      "label": "1 year",
+      "question": "Agree to automatic renewal for the next 1 year? (The 1 year box of the form's renewal election - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        20
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Do not use information from tax returns to renew my coverage",
+      "type": "checkbox",
+      "label": "Do not use information from tax returns to renew my coverage",
+      "question": "Do you choose not to let tax-return information renew the coverage automatically? (The opt-out box of the form's renewal election - the person answers at review time.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        20
+      ],
+      "disposition": "mapped",
+      "export_value": "On"
+    },
+    {
+      "name": "Date mmddyyyy",
+      "type": "text",
+      "label": "Date (mm/dd/yyyy)",
+      "question": "What is today's date, next to your signature? (The date box beside the signature line - typed at the same review step as the signature.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        20
+      ],
+      "disposition": "mapped",
+      "display_format": "mm/dd/yyyy"
+    },
+    {
+      "name": "If you are NOT registered to vote where you live now would you like to register to vote here today_2",
+      "type": "radio",
+      "label": "If you are NOT registered to vote where you live now, would you like to register to vote here today",
+      "question": "If you are not registered to vote where you live now, would you like to register to vote here today? (The form's Step 6 yes/no pair; declining never affects assistance.)",
+      "spec_question_id": null,
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        21
+      ],
+      "disposition": "not_collected_by_interview",
+      "export_values": {
+        "yes": "Yes_60",
+        "no": "No_61"
+      },
+      "disposition_reason": "Voter registration is outside the interview's scope, and applying or declining can never affect assistance; the person completes this section by hand at their own choice."
     }
   ]
 }
