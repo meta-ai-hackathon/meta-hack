@@ -7,8 +7,11 @@ cases row, and that row to the denominator), the negatives section exists,
 says "0 of N" outright when nothing went wrong and otherwise lists exactly as
 many cases as the counts say are wrong, missed or over-refused, the not run
 section agrees with its column, and the Nov 2 pilot section holds no data.
-The property tests change one number at a time and check that the checker
-catches it, so a record whose numbers do not add up can never pass.
+Every case's own outcome in the every case table also has to agree with the
+counts and with exactly which cases the negatives and not run tables list.
+The property tests change one number, one listed case or one outcome at a
+time and check that the checker catches it, so a record whose numbers do
+not add up can never pass.
 """
 
 from __future__ import annotations
@@ -68,6 +71,21 @@ def table_case_ids(body: str) -> list[str]:
     return re.findall(r"^\| `([^`]+)` \|", body, re.M)
 
 
+def table_cells(line: str) -> list[str]:
+    """A table row's cells, split on the pipes no backslash escapes."""
+    return [cell.strip() for cell in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+
+
+def case_rows(body: str) -> list[list[str]]:
+    """The cells of every row in a section's case table."""
+    return [table_cells(line) for line in body.splitlines() if line.startswith("| `")]
+
+
+def outcome_label(cell: str) -> str:
+    """An Outcome cell without its note, as in "Right (answered from an earlier turn)"."""
+    return cell.split(" (", 1)[0]
+
+
 def check_record(text: str) -> list[str]:
     """Every way the record fails to state and add up its own numbers."""
     problems: list[str] = []
@@ -121,6 +139,24 @@ def check_record(text: str) -> list[str]:
     every_case = section(text, "Every case")
     if every_case is None or len(table_case_ids(every_case)) != total:
         problems.append("the every case table does not list the denominator's cases")
+        return problems
+    # Every case's own outcome has to agree with the counts and with the
+    # negatives and not run tables, so a swapped id or an edited cell can't
+    # hide behind totals that still add up.
+    outcomes = {row[0].strip("`"): outcome_label(row[-1]) for row in case_rows(every_case)}
+    for outcome in OUTCOMES:
+        listed_with = sum(1 for label in outcomes.values() if label == outcome)
+        if listed_with != overall.outcomes[outcome]:
+            problems.append(f"{outcome}: the every case table lists {listed_with}, the counts say {overall.outcomes[outcome]}")
+    if negatives is not None:
+        expected_rows = {case: label for case, label in outcomes.items() if label in NEGATIVE_OUTCOMES}
+        listed_rows = {row[0].strip("`"): row[2] for row in case_rows(negatives) if len(row) >= 3}
+        if listed_rows != expected_rows:
+            problems.append("the negatives table does not list exactly the wrong, missed and over-refused cases")
+    if not_run is not None:
+        expected_ids = sorted(case for case, label in outcomes.items() if label == "Not run")
+        if sorted(table_case_ids(not_run)) != expected_ids:
+            problems.append("the not run table does not list exactly the not run cases")
     return problems
 
 
@@ -208,6 +244,31 @@ class CheckerProperties(unittest.TestCase):
         self.assertNotEqual(check_record(text.replace(line.group(0), "Negatives: none.")), [])
         self.assertNotEqual(check_record(text.replace(line.group(0), f"Negatives: 99 of {total} cases.")), [])
         self.assertNotEqual(check_record(text.replace("\n## Negatives\n", "\n## Misses\n")), [])
+
+    @settings(max_examples=60, deadline=None)
+    @given(st.data())
+    def test_swapping_a_listed_case_or_editing_an_outcome_breaks_the_check(self, data: st.DataObject) -> None:
+        text = read_record()
+        every_case = section(text, "Every case")
+        assert every_case is not None
+        rows = case_rows(every_case)
+        outcomes = {row[0].strip("`"): outcome_label(row[-1]) for row in rows}
+        negatives = section(text, "Negatives")
+        assert negatives is not None
+        listed = table_case_ids(negatives)
+        others = [case for case, label in outcomes.items() if label not in NEGATIVE_OUTCOMES]
+        if listed and others:
+            # A negatives row that names a case the run scored as fine.
+            swapped = data.draw(st.sampled_from(listed))
+            fine = data.draw(st.sampled_from(others))
+            changed = text.replace(f"| `{swapped}` | ", f"| `{fine}` | ", 1)
+            self.assertNotEqual(check_record(changed), [])
+        # An every case Outcome cell changed to any other outcome.
+        row = data.draw(st.sampled_from(rows))
+        other = data.draw(st.sampled_from([label for label in OUTCOMES if label != outcome_label(row[-1])]))
+        old_line = next(line for line in every_case.splitlines() if line.startswith(f"| {row[0]} |"))
+        new_line = old_line[: old_line.rstrip().rstrip("|").rstrip().rfind("|") + 1] + f" {other} |"
+        self.assertNotEqual(check_record(text.replace(old_line, new_line, 1)), [])
 
     def test_dropping_or_adding_a_negative_row_breaks_the_check(self) -> None:
         text = read_record()
