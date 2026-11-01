@@ -1275,6 +1275,86 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     expect(mainGoal).toHaveLength(0);
   });
 
+  it("never hands a token-bearing reply to the client or TTS (HACK-107 review)", async () => {
+    // Typed transcripts now carry Rampart tokens, so a model echoing a
+    // history token ("Thanks [GIVEN_NAME_1]") could previously pass every
+    // reply gate and be persisted — and then be TTS-served by the speak
+    // route. The token gate replaces such a reply with the honest fallback
+    // BEFORE persist, keeping the no-raw-token-to-TTS invariant for /
+    // api/conversation/speak as well as the display path.
+    installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: "Thanks [GIVEN_NAME_1] — what is your home ZIP code?",
+        nextQuestionId: "application_role",
+      },
+    ]);
+    const response = await POST(
+      turnRequest("My neighbor Carlos mentioned you."),
+    );
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(PII_ECHO_FALLBACK_REPLY);
+    expect(JSON.stringify(data)).not.toContain("GIVEN_NAME_1");
+    for (const transcript of await assistantTranscripts()) {
+      expect(transcript).not.toContain("[GIVEN_NAME_1]");
+    }
+  });
+
+  it("does not speak the envelope rendition when the display reply carries the loss disclosure (HACK-107 review)", async () => {
+    // Voice turn + one unmapped choice (loss) + one saved answer: the
+    // display reply is PARTIAL_SAVE_FALLBACK_PREFIX + the model's reply.
+    // The gated spoken rendition is a rendition of the envelope reply only,
+    // so speaking it would silently drop the honest loss disclosure the
+    // subtitle carries. The route must strip the spokenReply entirely; the
+    // client then renders the display text's tokens deterministically or
+    // fails closed to subtitles — the disclosure is heard either way.
+    installVoiceScript(
+      [
+        { transcript: "It is for myself." },
+        { transcript: "Zorp blorble quintessence." },
+      ],
+      [
+        {
+          extraction: JSON.stringify({
+            answers: [
+              { question_id: "application_role", status: "known", value: "self" },
+            ],
+          }),
+          reply: "Got it. What kind of help are you looking for right now?",
+          nextQuestionId: "main_goal",
+        },
+        {
+          extraction: JSON.stringify({
+            answers: [
+              { question_id: "application_role", status: "known", value: "self" },
+              {
+                question_id: "main_goal",
+                status: "known",
+                value: "martian vampire count",
+              },
+            ],
+          }),
+          reply: "One answer saved. What kind of help are you looking for right now?",
+          nextQuestionId: "main_goal",
+          spokenReply: "One answer was saved. What kind of help do you want?",
+        },
+      ],
+    );
+    const first = await POST(voiceRequest(SIXTEEN_K_MONO_WAV));
+    expect(first.status).toBe(200);
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0].trim();
+    const second = await POST(voiceRequest(SIXTEEN_K_MONO_WAV, cookie));
+    expect(second.status).toBe(200);
+    const data = (await second.json()) as TurnResponse & { spokenReply?: string };
+    expect(data.assistantReply).toBe(
+      `${PARTIAL_SAVE_FALLBACK_PREFIX} One answer saved. What kind of help are you looking for right now?`,
+    );
+    // The envelope carried a gate-clean spoken_reply, but the display reply
+    // is the loss-disclosure-prefixed variant — the rendition is stripped.
+    expect(data.spokenReply).toBeUndefined();
+  });
+
   it("replaces the model reply with the honest re-ask when a skipped malformed answer left nothing saved", async () => {
     // A malformed value (validation_error skip) with no other save: the
     // model's reply cannot know the save was dropped — the deterministic
