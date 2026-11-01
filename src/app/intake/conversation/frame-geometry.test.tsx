@@ -185,6 +185,16 @@ async function beginTalkStage(
       new MouseEvent("click", { bubbles: true }),
     );
   });
+  // The inserted QUICK QUESTIONS stage (VAL-QQ-002): traverse it with the
+  // calm CTA whenever the engine's questions are pending — a zero-pending
+  // session passes straight through to the talk stage.
+  if (q(container, "quick-questions-stage")) {
+    await act(async () => {
+      q(container, "qq-to-talk")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+  }
 }
 
 describe("the talk-stage frame geometry (VAL-FIX-006)", () => {
@@ -321,5 +331,36 @@ describe("the entry-stage frame geometry (VAL-FIX-006)", () => {
     expect(geometry).toContain("w-[calc(100%_-_36px)]");
     expect(geometry).toContain("min-[761px]:mt-[42px]");
     expect(geometry).toContain("mb-[26px]");
+  });
+});
+
+describe("the quick-questions-stage frame geometry (VAL-QQ-002)", () => {
+  it("lays the question cards out on the SAME prototype stage grid with the Coming Together rail present", async () => {
+    // The stage is a non-entry/non-results stage: the literal 35/32/20
+    // grid (shared verbatim with the talk stage), edge-to-edge within
+    // the frame, the Coming Together rail as its second column.
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    await act(async () => {
+      const radio = q(container, 'mode-option="voice-plus-typing"')?.querySelector(
+        "input",
+      );
+      (radio as HTMLInputElement | null)?.click();
+      q(container, "mode-begin")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("quick-questions");
+    const stage = q(container, "quick-questions-stage");
+    expect(stage).not.toBeNull();
+    const grid = stage?.parentElement?.className ?? "";
+    expect(grid).toBe(
+      "-mx-5 px-5 pt-7 pb-7 min-[761px]:-mx-8 min-[761px]:grid min-[761px]:grid-cols-[minmax(0,1fr)] min-[761px]:gap-[30px] min-[761px]:px-8 min-[761px]:pt-[35px] min-[761px]:pb-5 min-[1101px]:grid-cols-[minmax(0,1fr)_195px]",
+    );
+    const rail = q(container, "coming-together");
+    expect(rail).not.toBeNull();
+    expect(rail?.getAttribute("data-journey-stage")).toBe("quick-questions");
   });
 });

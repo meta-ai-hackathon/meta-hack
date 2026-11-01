@@ -113,10 +113,15 @@ export function themeLabelFor(themeId: string): string {
 }
 
 /**
- * The talk stage's sidebar. An <aside> so the transcript remains the
- * page's primary content; the checklist is real text (badge labels are
+ * The stage sidebar. An <aside> so the transcript remains the page's
+ * primary content; the checklist is real text (badge labels are
  * words, the ✓/○ glyphs are decorative), the counters are mono per the
  * spec's counter style.
+ *
+ * `stage` names the journey stage the rail is mounted on — the talk
+ * stage and the quick-questions stage share this rail (VAL-QQ-002: the
+ * Coming Together rail on every non-entry/non-results stage). Defaults
+ * to "talk" for the talk stage's callers.
  *
  * Geometry is the prototype's `.voice-progress` right rail, copied
  * literally (VAL-FIX-006) on wide viewports: a FIXED 195px grid track
@@ -127,12 +132,15 @@ export function themeLabelFor(themeId: string): string {
  * phones, so there the rail COLLAPSES INTO THE FLOW — a stacked section
  * under the transcript, separated by a top border instead of a left one.
  */
-export function ComingTogether(props: { state: IntakeClientState | null }) {
+export function ComingTogether(props: {
+  state: IntakeClientState | null;
+  stage?: string;
+}) {
   const themes = deriveThemeProgress(props.state);
   return (
     <aside
       data-coming-together
-      data-journey-stage="talk"
+      data-journey-stage={props.stage ?? "talk"}
       aria-labelledby="coming-together-heading"
       className="flex flex-col gap-4 border-t border-surface-border pt-4 min-[1101px]:border-t-0 min-[1101px]:border-l min-[1101px]:pl-[23px] min-[1101px]:pt-1.5"
     >

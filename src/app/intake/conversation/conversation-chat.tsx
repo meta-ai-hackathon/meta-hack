@@ -38,7 +38,9 @@ import { MatchSection } from "./match-section";
 import { ModeChoice, type ConversationEntryMode } from "./mode-choice";
 import { PurgeSection } from "./purge-section";
 import { PresenceOrb } from "./presence-orb";
+import { QuickQuestionsStage } from "./quick-questions";
 import { ReviewSection } from "./review-section";
+import { STAGE_GRID_CLASS } from "./stage-grid";
 import { PauseIcon, PlayIcon, VoiceDeck } from "./voice-deck";
 
 // The conversational intake chat (Mission v2 M1 text, M2 voice, M5 consent,
@@ -254,6 +256,14 @@ export function ConversationChat() {
   const [sessionOn, setSessionOn] = useState(false);
   const [paused, setPausedState] = useState(false);
   const [typingMode, setTypingMode] = useState(false);
+  // The quick-questions stage's move-on (VAL-QQ-002): sticky once the
+  // person leaves the stage for the talk stage — via the calm CTA or
+  // the last card's save. Never reset while this visit continues (a
+  // mid-session reveal of a previously-skipped question, or a purge,
+  // must not yank the person off the live conversation onto the cards
+  // mid-mic); a reload starts a fresh visit and the stage returns
+  // honestly for whatever is still unanswered.
+  const [quickQuestionsDismissed, setQuickQuestionsDismissed] = useState(false);
   // Consent state (VAL-CONSENT-*): the receipt is an EXTERNAL store —
   // this device's localStorage, subscribed via useSyncExternalStore (SSR
   // renders the server snapshot: no receipt, surface open, sends off —
@@ -454,20 +464,42 @@ export function ConversationChat() {
   const sharingDeclined = receipt !== null && !receipt.ai;
   const zeroSend = sharingDeclined && !panelOpen;
 
-  // The three-stage voice journey (VAL-VJS-001..004), derived — no extra
-  // state machine to desync. A voice-consented visitor (AI + voice on,
-  // panel closed, not the zero-send path) moves ENTRY (the mode choice,
-  // VAL-VJS-001) → TALK (the clean transcript stage, VAL-VJS-002) →
+  // The voice journey (VAL-VJS-001..004 + VAL-QQ-002) — entry →
+  // quick questions → talk → results today; the income stage lands in
+  // the income-capture milestone to complete the five-stage flow —
+  // derived, no extra state machine to desync. A voice-consented visitor
+  // (AI + voice on, panel closed, not the zero-send path) moves ENTRY
+  // (the mode choice, VAL-VJS-001) → QUICK QUESTIONS (the requirements
+  // engine's computed cards — only while any are pending and not yet
+  // moved past) → TALK (the clean transcript stage, VAL-VJS-002) →
   // RESULTS the moment the deterministic engine reports no unanswered
   // question left (state.complete — the auto-advance, VAL-VJS-003).
-  // Every non-voice path (consent panel open, zero-send, ai-only typed)
-  // keeps today's single-scroll layout untouched.
+  // A zero-pending visitor (nothing left for the requirements engine to
+  // ask) passes straight through to the talk stage — the quick-questions
+  // stage is never shown empty. Every non-voice path (consent panel
+  // open, zero-send, ai-only typed) keeps the single-scroll layout
+  // untouched — with consent declined the deterministic wizard covers
+  // the quick questions among its questions and reaches every section
+  // (VAL-QQ-010: refusal never blocks; the wizard makes zero model
+  // sends).
   const voiceConsented =
     !panelOpen && !zeroSend && aiSharingOn && voiceSharingOn;
   const journeyComplete = state?.complete ?? false;
+  const quickQuestionsPending =
+    (state?.quickQuestions.remainingCount ?? 0) > 0;
   const resultsStage = voiceConsented && journeyComplete;
   const entryStage = voiceConsented && entryMode === null && !journeyComplete;
-  const talkStage = voiceConsented && entryMode !== null && !journeyComplete;
+  const quickQuestionsStage =
+    voiceConsented &&
+    entryMode !== null &&
+    !journeyComplete &&
+    quickQuestionsPending &&
+    !quickQuestionsDismissed;
+  const talkStage =
+    voiceConsented &&
+    entryMode !== null &&
+    !journeyComplete &&
+    !quickQuestionsStage;
 
   // Surface conditions (the two-mode rule, VAL-NCF-002): mode A shows no
   // typing at all; mode B offers the switch at any point; the typed form
@@ -960,12 +992,25 @@ export function ConversationChat() {
     submitVoiceTurnRef.current = submitVoiceTurn;
   });
 
-  async function beginVoiceSession(
-    mode: ConversationEntryMode,
-  ): Promise<void> {
+  // The voice session's single begin path (VAL-QQ-002): the entry stage
+  // RECORDS the mode; the talk-stage bootstrap effect below begins the
+  // session when the talk stage renders (after the quick-questions stage
+  // — the microphone is never open over the question cards); the mode-B
+  // "use your voice instead" switch re-begins it by gesture. The ref
+  // guard keeps every arrival (bootstrap effect, gesture, the await
+  // window before the session ref is set) on ONE session — never two
+  // recorder cycles racing.
+  const sessionBeginningRef = useRef(false);
+
+  async function beginVoiceSession(): Promise<void> {
+    if (sessionBeginningRef.current || sessionRef.current !== null) {
+      return;
+    }
+    sessionBeginningRef.current = true;
     // The consent gate for voice (VAL-CONSENT-003): with voice sharing
     // off, the microphone is NEVER started and no audio is transmitted.
     if (!consentPathEnabled("voice", receipt)) {
+      sessionBeginningRef.current = false;
       setReopened(true);
       setNotice(
         "Voice sharing is off, so recording is off. Turn on voice sharing, or type your answer below — it works exactly the same way.",
@@ -973,8 +1018,8 @@ export function ConversationChat() {
       return;
     }
     if (!voiceCaptureSupported()) {
+      sessionBeginningRef.current = false;
       setMicBlocked(true);
-      setEntryMode(mode);
       setNotice(
         "Voice input isn't available in this browser. You can type your answers below — they work exactly the same way.",
       );
@@ -1010,7 +1055,6 @@ export function ConversationChat() {
     try {
       await session.begin();
       sessionRef.current = session;
-      setEntryMode(mode);
       setSessionOn(true);
       setPaused(false);
       setTypingMode(false);
@@ -1018,12 +1062,52 @@ export function ConversationChat() {
       // Permission denied or device unavailable: the typed path is the
       // answer — visible guidance, never a dead end (VAL-VOICE-005).
       setMicBlocked(true);
-      setEntryMode(mode);
       setNotice(
         "Your microphone isn't available. You can type your answers below — they work exactly the same way.",
       );
+    } finally {
+      sessionBeginningRef.current = false;
     }
   }
+
+  // The entry stage's begin (VAL-QQ-002): the choice is recorded, and the
+  // quick-questions stage — when the requirements engine still has
+  // questions to ask — comes BEFORE the talk stage's session. The
+  // bootstrap effect begins the session the moment the talk stage
+  // renders, whichever way it is reached.
+  function handleEntryBegin(mode: ConversationEntryMode): void {
+    setEntryMode(mode);
+  }
+
+  // The talk stage begins the voice session (VAL-QQ-002 stage order).
+  // Reached three ways: the entry choice with nothing pending (straight
+  // through), the quick-questions stage's calm CTA, and the last card's
+  // save (the engine's remaining set empties — the talk stage renders).
+  // Guards: one session (the beginning ref), never over typing (the
+  // mode-B switch stopped the session on purpose), never over a blocked
+  // mic (the typed surface is the answer, not a retry loop). Marks the
+  // quick-questions stage moved-past so a mid-conversation answer that
+  // REVEALS a skipped question (the engine's correction semantics) can
+  // never yank the person off the live talk stage onto the cards.
+  // beginVoiceSession rides the latest-ref (the same seam idiom as
+  // submitVoiceTurnRef) so the effect always begins with THIS render's
+  // closure — the consent receipt included.
+  const beginVoiceSessionRef = useRef(beginVoiceSession);
+  useEffect(() => {
+    beginVoiceSessionRef.current = beginVoiceSession;
+  });
+  useEffect(() => {
+    if (!talkStage || typingMode || micBlocked || entryMode === null) {
+      return;
+    }
+    if (sessionRef.current !== null || sessionBeginningRef.current) {
+      return;
+    }
+    setQuickQuestionsDismissed(true);
+    void Promise.resolve().then(() => {
+      void beginVoiceSessionRef.current();
+    });
+  }, [talkStage, typingMode, micBlocked, entryMode]);
 
   function holdSession(): void {
     // Pause: stop listening and DISCARD any in-flight utterance (a person
@@ -1062,7 +1146,7 @@ export function ConversationChat() {
 
   function switchBackToVoice(): void {
     setTypingMode(false);
-    void beginVoiceSession(entryMode ?? "voice-plus-typing");
+    void beginVoiceSession();
   }
 
   // The purge's client half (HACK-80): the server rows are gone (the purge
@@ -1147,7 +1231,15 @@ export function ConversationChat() {
       data-conversation-chat
       data-entry-mode={entryMode ?? undefined}
       data-journey-stage={
-        resultsStage ? "results" : talkStage ? "talk" : entryStage ? "entry" : undefined
+        resultsStage
+          ? "results"
+          : talkStage
+            ? "talk"
+            : quickQuestionsStage
+              ? "quick-questions"
+              : entryStage
+                ? "entry"
+                : undefined
       }
       // The frame's inner flow (VAL-FIX-006): the frame spans edge-to-edge
       // and this root carries the frame's side inset (32px on wide
@@ -1204,11 +1296,12 @@ export function ConversationChat() {
       <StatusRegion message={notice} />
 
       {/* The transcript lives on the TALK stage (VAL-VJS-002). The entry
-      stage is the clean mode-choice screen and the results stage replaces
+      stage is the clean mode-choice screen, the quick-questions stage the
+      engine's question cards (VAL-QQ-002), and the results stage replaces
       the conversation with the handoff — per the approved frames. The talk
       stage splits the stream with the "Coming Together" sidebar
       (VAL-VJS2-001); the typed paths keep today's single column. */}
-      {!entryStage && !resultsStage ? (
+      {!entryStage && !resultsStage && !quickQuestionsStage ? (
         <div
           className={
             talkStage
@@ -1221,8 +1314,8 @@ export function ConversationChat() {
               // spans the full frame width and carries those paddings
               // itself. Breakpoints per the prototype: one column at
               // 1100px (the rail hides), block with 28px 20px paddings at
-              // 760px.
-              "-mx-5 px-5 pt-7 pb-7 min-[761px]:-mx-8 min-[761px]:grid min-[761px]:grid-cols-[minmax(0,1fr)] min-[761px]:gap-[30px] min-[761px]:px-8 min-[761px]:pt-[35px] min-[761px]:pb-5 min-[1101px]:grid-cols-[minmax(0,1fr)_195px]"
+              // 760px. Shared verbatim with the quick-questions stage.
+              STAGE_GRID_CLASS
               : undefined
           }
         >
@@ -1363,10 +1456,37 @@ export function ConversationChat() {
       ) : null}
 
       {entryStage ? (
-        <ModeChoice
-          onBegin={(mode) => void beginVoiceSession(mode)}
-          suggestedMode={suggestedMode ?? undefined}
-        />
+        <ModeChoice onBegin={handleEntryBegin} suggestedMode={suggestedMode ?? undefined} />
+      ) : null}
+
+      {/* The QUICK QUESTIONS stage (VAL-QQ-002): the requirements engine's
+      computed set as grouped question cards — the honest live counter, the
+      None-of-these exclusion, sensitive questions last with why-we-ask
+      notes and a skip affordance that never blocks. Answers submit through
+      the EXISTING tri-state path (POST /api/intake/answer →
+      validateAnswerInput → saveAnswer; pii:true to the encrypted vault);
+      the route's fresh client state flows back through onStateChange, so
+      the counter re-renders from the engine and a completed set hands the
+      journey to the talk stage (whose bootstrap effect starts the voice
+      session — the mic is never open over these cards). The stage shares
+      the talk stage's literal Lovable grid and Coming Together rail. */}
+      {quickQuestionsStage && state ? (
+        <div className={STAGE_GRID_CLASS}>
+          <QuickQuestionsStage
+            state={state}
+            onStateChange={(fresh) => {
+              // The answer route's response IS the freshest client state
+              // (it recomputed the engine view server-side) — apply it
+              // directly. No answersRefresh bump: the match/review
+              // sections are not mounted on this stage, and a history
+              // refetch would only race the route's own fresher state.
+              setState(fresh);
+            }}
+            onNotice={setNotice}
+            onToTalk={() => setQuickQuestionsDismissed(true)}
+          />
+          <ComingTogether state={state} stage="quick-questions" />
+        </div>
       ) : null}
 
       {voiceSessionSurface ? (

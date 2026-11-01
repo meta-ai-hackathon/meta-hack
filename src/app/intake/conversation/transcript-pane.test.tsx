@@ -200,6 +200,16 @@ async function beginTalkStage(
       new MouseEvent("click", { bubbles: true }),
     );
   });
+  // The inserted QUICK QUESTIONS stage (VAL-QQ-002): traverse it with the
+  // calm CTA whenever the engine's questions are pending — a zero-pending
+  // session passes straight through to the talk stage.
+  if (q(container, "quick-questions-stage")) {
+    await act(async () => {
+      q(container, "qq-to-talk")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+  }
   const pane = q(container, "transcript-pane");
   if (!(pane instanceof HTMLElement)) {
     throw new Error("the talk stage did not render the transcript pane");
