@@ -105,11 +105,93 @@ describe("fallbackSpokenRendition", () => {
 
   });
 
-  it("renders SSN token generically", () => {
+  it("renders SSN token by its keyed phrase", () => {
 
     const out = fallbackSpokenRendition("We saw [SSN_1] on file");
 
-    expect(out).toContain("the social security number you mentioned");
+    expect(out).toContain("the Social Security number you shared");
+
+  });
+
+  it("renders every Rampart label with its plain-language phrase", () => {
+
+    const reply =
+      "[PHONE_1] [EMAIL_1] [BANK_ACCOUNT_1] [ROUTING_NUMBER_1] [TAX_ID_1] " +
+      "[GOVERNMENT_ID_1] [PASSPORT_1] [DRIVERS_LICENSE_1] [CREDIT_CARD_1] " +
+      "[IP_ADDRESS_1] [URL_1] [BUILDING_NUMBER_1] [STREET_NAME_1] " +
+      "[SECONDARY_ADDRESS_1] [CITY_1] [STATE_1] [ZIP_CODE_1]";
+
+    const out = fallbackSpokenRendition(reply) ?? "";
+
+    const phrases = [
+      "the phone number you shared",
+      "the email address you shared",
+      "the bank account number you shared",
+      "the routing number you shared",
+      "the tax ID you shared",
+      "the government ID you shared",
+      "the passport number you shared",
+      "the driver's license number you shared",
+      "the card number you shared",
+      "the IP address you shared",
+      "the link you shared",
+      "the street number you shared",
+      "the street name you shared",
+      "the apartment or unit you shared",
+      "the city you shared",
+      "the state you shared",
+      "the ZIP code you shared",
+    ];
+
+    for (const phrase of phrases) {
+
+      expect(out, phrase).toContain(phrase);
+
+    }
+
+    expect(out).not.toContain("[");
+
+  });
+
+  it("a repeated token says the same one, not a second disclosure", () => {
+
+    const out = fallbackSpokenRendition(
+      "[PHONE_1] is saved, and [PHONE_1] stays on the application.",
+    );
+
+    expect(out).toContain("the phone number you shared is saved");
+
+    expect(out).toContain("the same phone number you shared stays on the application");
+
+  });
+
+  it("twin tokens of one label keep ordinal distinctions", () => {
+
+    const out = fallbackSpokenRendition(
+      "I have [PHONE_1] from the form and [PHONE_2] from yesterday.",
+    );
+
+    expect(out).toContain("the first phone number you shared");
+
+    expect(out).toContain("the second phone number you shared");
+
+  });
+
+  it("a lone fact token drops the ordinal", () => {
+
+    const out = fallbackSpokenRendition("Use [EMAIL_1] for contact.");
+
+    expect(out).toContain("the email address you shared");
+
+    expect(out).not.toContain("first");
+
+  });
+
+  it("person tokens keep their ordinal even when alone", () => {
+
+    const out = fallbackSpokenRendition("Thanks [GIVEN_NAME_21] for coming");
+
+    expect(out).toContain("the 21st person you mentioned");
 
   });
 
@@ -182,6 +264,13 @@ describe("selectSpokenText", () => {
 });
 
 
+const ORDINAL_WORDS = [
+  "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth",
+  "ninth", "tenth", "eleventh", "twelfth", "thirteenth", "fourteenth",
+  "fifteenth", "sixteenth", "seventeenth", "eighteenth", "nineteenth",
+  "twentieth",
+];
+
 // Property-based round (repo rule: invariants for arbitrary inputs, not
 // hand-picked examples).
 describe("spoken-reply properties", () => {
@@ -231,6 +320,27 @@ describe("spoken-reply properties", () => {
         if (spoken === null) return;
         expect(containsPlaceholder(spoken)).toBe(false);
         expect(spoken).not.toMatch(/\[[A-Z][A-Z_]*_\d+\]/);
+      }),
+    );
+  });
+
+  it(" PROPERTY: fallback phrasing tracks repeats and twins exactly", () => {
+    fc.assert(
+      fc.property(labelArb, fc.integer({ min: 1, max: 20 }), fc.integer({ min: 1, max: 20 }), (label, a, b) => {
+        const sameLabelTwins = `[${label}_${a}] [${label}_${b}]`;
+        const spokenTwins = fallbackSpokenRendition(sameLabelTwins);
+        if (spokenTwins === null) return;
+        expect(containsPlaceholder(spokenTwins)).toBe(false);
+        if (a === b) {
+          // The same fact twice: "the same ...", no ordinal doubling.
+          expect(spokenTwins).toContain("the same ");
+          expect(spokenTwins.match(/the same /g)).toHaveLength(1);
+        } else {
+          // Two distinct facts of one kind: both stay distinguishable.
+          expect(spokenTwins).not.toContain("the same ");
+          expect(spokenTwins).toContain(`the ${ORDINAL_WORDS[a - 1] ?? a} `);
+          expect(spokenTwins).toContain(`the ${ORDINAL_WORDS[b - 1] ?? b} `);
+        }
       }),
     );
   });
