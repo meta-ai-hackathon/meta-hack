@@ -14,7 +14,13 @@ import {
   getFormRegistryEntry,
   loadTemplatePdf,
 } from "../../../../../lib/forms/registry";
+import fullPersonaJson from "../../../../../lib/forms/fixtures/dhb5200-full-persona.json";
 import { POST } from "./route";
+
+// The full-form persona (fixture data, NOT product data): every in-request
+// answer the review-and-complete step can send for the real DHB-5200,
+// keyed by the form's real field names.
+const fullPersona = fullPersonaJson as Record<string, string>;
 
 // POST /api/forms/<formId>/fill route tests (Mission v2 M4,
 // VAL-PDF-003/004/005): the happy path returns filled PDF bytes as an
@@ -281,9 +287,11 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
         .getText() ?? "",
     ).toBe("");
 
-    // The honest unmapped-field report: exactly the unanswered fields,
-    // each carrying its real question for the review surface's
-    // to-resolve list (the route's log mirrors its size).
+    // The honest unmapped-field report: exactly the unanswered mapped
+    // fields, each carrying its real question for the review surface's
+    // to-resolve list (the route's log mirrors its size). The demo persona
+    // answers the Person 1 fields; every pages 9-15 in-request carrier
+    // (full-form mapping part 2) is honestly still-needed here.
     const entry = getFormRegistryEntry("dhb-5200");
     const outcome = await fillForSession(
       loadTemplatePdf(entry),
@@ -291,14 +299,37 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
       sessionId,
       DHB_UNMAPPED,
     );
-    expect(outcome.toResolve.map((item) => item.fieldName)).toEqual([
-      "8 Mailing Address if different from home address",
-      "5 Social Security Number SSN",
-      "Your total income next year if you think it will be different",
-      // The person skipped typing in this fixture: the unsigned signature
-      // is honestly noted as still-needed (VAL-VJS2-002 empty path).
-      "Signature",
+    expect(outcome.toResolve.map((item) => item.fieldName)).toEqual(
+      expect.arrayContaining([
+        "8 Mailing Address if different from home address",
+        "5 Social Security Number SSN",
+        "Your total income next year if you think it will be different",
+        // The person skipped typing in this fixture: the unsigned signature
+        // is honestly noted as still-needed (VAL-VJS2-002 empty path).
+        "Signature",
+      ]),
+    );
+    const inRequestSent = new Set(Object.keys(DHB_UNMAPPED));
+    const specAnswered = new Set([
+      "date_of_birth",
+      "phone_contact",
+      "state",
+      "county",
+      "job_income_amount",
     ]);
+    const expectedUnfilled = entry.fields
+      .filter(
+        (field) =>
+          field.disposition === "mapped" &&
+          (field.specQuestionId === null
+            ? !inRequestSent.has(field.name)
+            : !specAnswered.has(field.specQuestionId)),
+      )
+      .map((field) => field.name)
+      .sort();
+    expect(outcome.toResolve.map((item) => item.fieldName).sort()).toEqual(
+      expectedUnfilled,
+    );
     for (const item of outcome.toResolve) {
       expect(item.reason).toBe("unknown");
       expect(item.question.length).toBeGreaterThan(0);
@@ -332,18 +363,11 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     // exactly as the real typed-signature step sends them: the multipart
     // `answers` part, keyed by field name. The signature value exists
     // nowhere else: not in the answer table, not in the vault (there is no
-    // spec question for it), never prefilled.
-    const FULL_PERSONA = {
-      "1 First name Middle name Last name  Suffix": "Alex Rivera Demo",
-      "2 Home address Leave blank if you dont have one":
-        "101 Test Ave, Charlotte, NC 28202",
-      "8 Mailing Address if different from home address":
-        "PO Box 9, Charlotte, NC 28201",
-      "5 Social Security Number SSN": "000-00-0000",
-      "Your total income next year if you think it will be different":
-        "18000",
-      Signature: "Alex Rivera",
-    };
+    // spec question for it), never prefilled. The full-form persona (the
+    // shared fixture) covers EVERY in-request carrier of the real form —
+    // pages 1-8's plus the pages 9-15 household-member fields (full-form
+    // mapping part 2) — a count that rides the RAISED in-request cap.
+    const FULL_PERSONA = fullPersona;
     const multipart = new FormData();
     multipart.append("answers", JSON.stringify(FULL_PERSONA));
     const response = await POST(
@@ -367,12 +391,12 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     ).toBe("Alex Rivera Demo");
     expect(
       form.getTextField("2 Home address Leave blank if you dont have one").getText(),
-    ).toBe("101 Test Ave, Charlotte, NC 28202");
+    ).toBe("101 Test Ave, Sample City, NC 28202");
     expect(
       form
         .getTextField("8 Mailing Address if different from home address")
         .getText(),
-    ).toBe("PO Box 9, Charlotte, NC 28201");
+    ).toBe("PO Box 9, Sample City, NC 28201");
     expect(form.getTextField("14 Phone Number").getText()).toBe("555-014-2277");
     expect(form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe(
       "07/08/1979",
@@ -400,17 +424,25 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     const template = await PDFDocument.load(loadTemplatePdf(entry));
     const discovered = discoverAcroFormFields(template);
     // "Mapped" is the registry's mapped DISPOSITION now (full-form mapping
-    // part 1): 11 fields take person answers; the other 194 carry an
-    // honest disposition and are never filled.
+    // parts 1-2): 239 fields take person answers — the person's own
+    // review-and-complete step at fill time; the other 375 carry an honest
+    // disposition and are never filled.
     const mapped = new Set(
       entry.fields
         .filter((field) => field.disposition === "mapped")
         .map((field) => field.name),
     );
     const unmapped = discovered.filter((field) => !mapped.has(field.name));
-    expect(mapped.size).toBe(11);
+    expect(mapped.size).toBe(239);
     expect(discovered.length).toBe(614);
-    expect(unmapped.length).toBe(discovered.length - mapped.size);
+    // Never fabricated: every mapped name exists in the template's own
+    // discovery pass (multi-widget names — radio pairs — appear once in the
+    // mapped set and per-widget in the discovery walk, so the arithmetic
+    // the old single-widget mapping allowed doesn't reduce widget counts).
+    const discoveredNames = new Set(discovered.map((field) => field.name));
+    for (const name of mapped) {
+      expect(discoveredNames.has(name), name).toBe(true);
+    }
     // Text-kind unmapped fields, sampled deterministically for speed.
     const blankable = unmapped
       .filter((field) => field.kind === "text")
