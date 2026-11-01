@@ -65,6 +65,7 @@ export async function POST(request: Request): Promise<Response> {
     try {
       const routeStarted = Date.now();
       const contentType = request.headers.get("content-type") ?? "";
+      const isVoice = contentType.includes("multipart/form-data");
       const cookieValue = readSessionCookie(request.headers.get("cookie"));
       // Consent FIRST — a refused turn never reads user content.
       const isVoice = contentType.includes("multipart/form-data");
@@ -92,6 +93,7 @@ export async function POST(request: Request): Promise<Response> {
       const { sessionId, assistantTurnId, ...outcome } = await processUserTurn(
         userText,
         cookieValue,
+        isVoice,
       );
       const engineMs = Date.now() - engineStarted;
 

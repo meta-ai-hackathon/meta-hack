@@ -31,6 +31,7 @@ import {
 } from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { takeStoredEntryMode } from "../../../lib/entry-mode";
+import { selectSpokenText } from "../../../lib/spoken-reply";
 import { IntakeWizard } from "../intake-wizard";
 import { ComingTogether, themesForQuestionIds, themeLabelFor } from "./coming-together";
 import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
@@ -197,6 +198,7 @@ interface TurnResponse {
   redactedUserTranscript: string;
   nextQuestionId: string | null;
   state: IntakeClientState;
+  spokenReply?: string;
 }
 
 let localTurnId = 0;
@@ -596,6 +598,25 @@ export function ConversationChat() {
     setReopened(true);
   }
 
+  async function speakVerifiedText(text: string): Promise<void> {
+    // HACK-107: client-verified spoken rendition only. This text is
+    // token-free by selectSpokenText verification/fallback, but it is
+    // NOT the stored display reply, so it must never go to
+    // /api/conversation/speak (which speaks the stored turn by id and
+    // accepts no client-supplied text). Speak it locally only; never
+    // send rehydrated PII or raw bracketed tokens to any TTS path.
+    try {
+      await new Promise<void>((resolve) => {
+        const spoke = queueSpeech(text, undefined, resolve);
+        if (!spoke) {
+          resolve();
+        }
+      });
+    } catch {
+      // Speech is enhancement; the subtitle is the accessible path.
+    }
+  }
+
   async function speakReply(turnId: string, subtitle: string): Promise<void> {
     // Spoken replies (VAL-VOICE-003): ElevenLabs audio for the STORED reply
     // (the server speaks the turn by id — never client-supplied text)
@@ -736,7 +757,22 @@ export function ConversationChat() {
       sessionRef.current?.hold();
       playbackHoldRef.current = true;
       setVoicePhase("speaking");
-      await speakReply(data.assistantTurnId, data.assistantReply);
+      // HACK-107 dual-output voice: the display reply may carry Rampart
+      // tokens (rehydrated locally before display), so never speak it
+      // unverified. Speak only the verified token-free spoken rendition,
+      // or the deterministic type+ordinal fallback; if neither passes,
+      // fail closed to subtitles with no audio.
+      const selection = selectSpokenText({
+        spokenReply: data.spokenReply,
+        displayReply: data.assistantReply,
+      });
+      if (selection.kind !== "silent") {
+        if (selection.text === data.assistantReply) {
+          await speakReply(data.assistantTurnId, data.assistantReply);
+        } else {
+          await speakVerifiedText(selection.text);
+        }
+      }
     }
     // The auto-advance (VAL-VJS-003): when the deterministic engine has no
     // unanswered question left, speak the short wrap-up and hand off to

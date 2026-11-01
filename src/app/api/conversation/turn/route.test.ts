@@ -130,6 +130,7 @@ function envelopeContent(step: ChatCallScript): string {
       ? { next_question_id: step.nextQuestionId }
       : {}),
     ...(step.followup ? { followup: step.followup } : {}),
+    ...(step.spokenReply ? { spoken_reply: step.spokenReply } : {}),
   });
 }
 
