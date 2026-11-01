@@ -96,6 +96,12 @@ const PROVENANCE_COPY: Readonly<Record<string, string>> = {
   user_supplied: "You told us",
   ai_drafted: "Drafted for you",
   source_verified: "From a source you verified",
+  // The tax-return confirm flow's provenances (VAL-INC-007/010): a
+  // confirmed parser proposal and a person-corrected value. Without these
+  // labels the badges rendered empty — they are also the income stage's
+  // origin-badge copy ("From your tax return").
+  tax_return: "From your tax return",
+  user: "You corrected this",
 };
 
 const STATE_COPY: Readonly<Record<ReviewFieldView["state"], string>> = {

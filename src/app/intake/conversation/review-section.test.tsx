@@ -96,6 +96,34 @@ describe("ReviewSectionContent structure", () => {
     expect(html).toContain("In progress");
   });
 
+  it("renders the tax-return provenances with plain-language labels (VAL-INC-010)", () => {
+    // The confirm flow's provenances previously rendered EMPTY badges —
+    // the part-3 ride-along gives both a label, and the labels are the
+    // income stage's own origin-badge copy.
+    const html = decodeEntities(
+      renderToStaticMarkup(
+        <ReviewSectionContent
+          data={reviewData(ENTRY, {
+            household_size: {
+              status: "known",
+              value: 3,
+              provenance: "tax_return",
+            },
+            date_of_birth: {
+              status: "known",
+              value: "1990-01-01",
+              provenance: "user",
+            },
+          })}
+        />,
+      ),
+    );
+    expect(html).toContain("(From your tax return)");
+    expect(html).toContain("(You corrected this)");
+    // The labels are plain language, never promise language.
+    expect(findBannedClaims("From your tax return. You corrected this.")).toEqual([]);
+  });
+
   it("never reads an unverified answer as confirmed", () => {
     const html = decodeEntities(
       renderToStaticMarkup(
