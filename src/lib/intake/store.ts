@@ -47,6 +47,11 @@ export const ANSWER_PROVENANCES = [
   "user_supplied",
   "ai_drafted",
   "source_verified",
+  // The tax-return confirm flow (milestone income-capture, VAL-INC-007):
+  // a confirmed parser proposal saves as tax_return, a person-corrected
+  // value as user. Written only by the tax-return confirm path.
+  "tax_return",
+  "user",
 ] as const;
 
 export type AnswerProvenance = (typeof ANSWER_PROVENANCES)[number];
@@ -519,8 +524,17 @@ export async function saveAnswer(
     throw validationError();
   }
   // A drafted answer is by definition not user-verified: provenance
-  // ai_drafted pairs only with status unverified.
+  // ai_drafted pairs only with status unverified. The tax-return
+  // provenances (tax_return / user) mark a value the person vouched for —
+  // a confirmed proposal or their own correction — so they pair only with
+  // status known.
   if (provenance === "ai_drafted" && status !== "unverified") {
+    throw validationError();
+  }
+  if (
+    (provenance === "tax_return" || provenance === "user") &&
+    status !== "known"
+  ) {
     throw validationError();
   }
 

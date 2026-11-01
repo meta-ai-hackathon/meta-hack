@@ -27,7 +27,14 @@ interface ReviewFieldView {
   readonly required: boolean;
   readonly piiLikely: boolean;
   readonly status?: "known" | "unknown" | "unverified";
-  readonly provenance?: "user_supplied" | "ai_drafted" | "source_verified";
+  readonly provenance?:
+    | "user_supplied"
+    | "ai_drafted"
+    | "source_verified"
+    // The tax-return confirm flow's provenances (VAL-INC-007), mirroring
+    // the answer table's vocabulary the review payload carries.
+    | "tax_return"
+    | "user";
   readonly value?: string;
 }
 

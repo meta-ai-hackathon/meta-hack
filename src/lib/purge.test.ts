@@ -153,6 +153,30 @@ describe("purgeSessionData", () => {
     });
   });
 
+  it("clears tax-return-derived answers with the rest (VAL-INC-011)", async () => {
+    // The income-capture confirm flow writes answers with the tax_return
+    // and user provenances (milestone income-capture part 2). They are
+    // ordinary answer rows: the purge removes them like every other
+    // answer, leaving nothing tax-related behind.
+    const { sessionId } = await ensureSession(null);
+    await saveAnswer(
+      sessionId,
+      "job_income_amount",
+      "known",
+      52500,
+      "tax_return",
+    );
+    await saveAnswer(sessionId, "income_sources", "known", ["job"], "user");
+    expect(await rowsFor("answer", sessionId)).toBe(2);
+    expect(await rowsFor("vault_entry", sessionId)).toBe(0);
+
+    const counts = await purgeSessionData(sessionId);
+
+    expect(counts.answers).toBe(2);
+    expect(await rowsFor("answer", sessionId)).toBe(0);
+    expect(await rowsFor("vault_entry", sessionId)).toBe(0);
+  });
+
   it("purges EVERY session-scoped table that exists (structural completeness)", async () => {
     // The confirmation states that everything is gone except the bare
     // receipt. That claim is enforced HERE structurally: the set of
