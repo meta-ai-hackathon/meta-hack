@@ -157,6 +157,8 @@ const QQ_STATE: IntakeClientState = {
 
 // The QQ state one save later (POST /api/intake/answer answered
 // application_role): N decremented, ask-once — the card left the stage.
+// It doubles as the mid-stage RELOAD state (VAL-QQ-008): the same view
+// built from Postgres, served by /api/conversation/history on mount.
 const QQ_ONE_ANSWERED_STATE: IntakeClientState = {
   ...QQ_STATE,
   answers: { application_role: { status: "known", value: "myself" } },
@@ -720,6 +722,37 @@ describe("the quick-questions stage between entry and talk (VAL-QQ-002/004/006/0
     );
     expect(q(container, 'qq-card="application_role"')).toBeNull();
     expect(q(container, 'qq-card="main_goal"')).not.toBeNull();
+  });
+
+  it("a reload mid-stage returns to the quick-questions stage with the saved answers intact (VAL-QQ-008)", async () => {
+    // The reload path: the state comes back from Postgres through
+    // /api/conversation/history — the saved answer intact, the remaining
+    // set and its counts excluding it. The entry stage re-shows first
+    // (the mode choice is component state), and re-beginning lands on
+    // the quick-questions stage with everything carried.
+    stubFetch(QQ_ONE_ANSWERED_STATE);
+    const { container, act: actFn } = await renderChat();
+    await actFn(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    await actFn(async () => {
+      const radio = q(container, 'mode-option="voice-only"')?.querySelector("input");
+      (radio as HTMLInputElement).click();
+      q(container, "mode-begin")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(q(container, "quick-questions-stage")).not.toBeNull();
+    // The captured question is not re-asked after the reload (ask-once);
+    // the remaining set is what the engine still needs.
+    expect(q(container, 'qq-card="application_role"')).toBeNull();
+    expect(q(container, 'qq-card="main_goal"')).not.toBeNull();
+    // The progress counts are consistent with the carried answers.
+    expect(q(container, "qq-counter")?.textContent).toContain(
+      "1 question instead of 2",
+    );
+    // Resume re-submitted nothing: no answer POST fires on the way back.
+    expect(answerPosts).toHaveLength(0);
   });
 
   it("consent refusal never blocks the journey: the deterministic zero-send path still covers the quick questions and reaches every section (VAL-QQ-010)", async () => {
