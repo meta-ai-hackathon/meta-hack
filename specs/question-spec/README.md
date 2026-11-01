@@ -1,6 +1,8 @@
 # Question spec
 
-The question spec is the data contract for the Benefits Navigator interview: a single, pilot-agnostic JSON document that lists every question the app can ask, the plain-language help text for each, and the deterministic rules for which question comes next. It implements the docassemble "YAML interview as data" pattern (COPY-SEMANTICS, see `feature.md`) in our own stack: the flow is a pure function of the stored answers, one question per screen. Program-specific and pilot-specific questions (verified content from HACK-17) fill the same schema later and append to this generic set; nothing in this directory names a pilot location or a benefit program.
+The question spec is the data contract for the Benefits Navigator interview: a single, pilot-agnostic JSON document that lists every question the app can ask, the plain-language help text for each, and the deterministic rules for which question comes next. It implements the docassemble "YAML interview as data" pattern (COPY-SEMANTICS, see `feature.md`) in our own stack: the flow is a pure function of the stored answers, one question per screen. Program-specific and pilot-specific questions (verified content from HACK-17) fill the same schema later and append to this generic set.
+
+Since the pilot lock (HACK-16 Done, Oct 30), this directory also carries the **program-requirements layer** (`program-requirements.json`): a committed, reviewed decision naming which question ids each program's application actually needs. It selects from `generic-questions.json` — which stays the single source of truth for question definitions and the only pilot-agnostic file here; the requirements layer names program ids and links committed form registries by design.
 
 ## Spec format: field meanings
 
@@ -45,3 +47,5 @@ The same spec drives both user-facing journeys:
 | --- | --- |
 | `schema.json` | JSON Schema (draft-07) for any question-spec document. |
 | `generic-questions.json` | Pilot-agnostic generic question set, valid against `schema.json`. |
+| `program-requirements.schema.json` | JSON Schema (draft-07) for the program-requirements layer. |
+| `program-requirements.json` | Per-program required question ids plus the form registries whose `spec_question_id` links join each program's required universe. Gated by `tests/test_program_requirements.py`; consumed read-only by `src/lib/intake/requirements.ts`. |
