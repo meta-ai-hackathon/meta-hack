@@ -114,17 +114,24 @@ function blankCoverageFields(
 
 /**
  * Where to find a blank field on the printed form: "page 16 of the form",
- * or "pages 16 and 17 of the form" for a multi-page field. The rows'
+ * or "pages 16 and 17 of the form" for a multi-page field. Deduped and
+ * sorted first (a two-widget field lists its page once, in order); an
+ * empty list — impossible from the committed registry (schema minItems:
+ * 1) but never applicant-hostile — renders neutral copy. The rows'
  * developer-facing disposition_reason stays in the payload (the
  * retrievable record) — the applicant-facing list points at the page
  * instead.
  */
-function pagePointer(pages: readonly number[]): string {
-  if (pages.length === 1) {
-    return `page ${pages[0]} of the form`;
+export function pagePointer(pages: readonly number[]): string {
+  const ordered = [...new Set(pages)].sort((a, b) => a - b);
+  if (ordered.length === 0) {
+    return "the form";
   }
-  const head = pages.slice(0, -1).join(", ");
-  const tail = pages[pages.length - 1];
+  if (ordered.length === 1) {
+    return `page ${ordered[0]} of the form`;
+  }
+  const head = ordered.slice(0, -1).join(", ");
+  const tail = ordered[ordered.length - 1];
   return `pages ${head} and ${tail} of the form`;
 }
 

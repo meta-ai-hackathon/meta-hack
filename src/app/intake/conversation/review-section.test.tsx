@@ -9,6 +9,7 @@ import {
   REVIEW_UNAVAILABLE_NOTICE,
   ReviewSection,
   ReviewSectionContent,
+  pagePointer,
 } from "./review-section";
 
 // Review + handoff section tests (Mission v2 M4, BN-21/23/24/25): every
@@ -235,6 +236,19 @@ describe("ReviewSectionContent structure", () => {
     );
     expect(html).toContain("data-coverage-all-mapped");
     expect(html).toContain("nothing was skipped");
+  });
+
+  it("points the blank-field rows at deduped, sorted form pages", () => {
+    // Single page — the common row.
+    expect(pagePointer([16])).toBe("page 16 of the form");
+    // Multi-page: sorted, joined.
+    expect(pagePointer([17, 16])).toBe("pages 16 and 17 of the form");
+    expect(pagePointer([18, 16, 17])).toBe("pages 16, 17 and 18 of the form");
+    // Duplicates collapse (a two-widget field lists its page once).
+    expect(pagePointer([19, 19])).toBe("page 19 of the form");
+    // Empty input — impossible from the committed registry (schema
+    // minItems: 1) — never renders "undefined" at a person.
+    expect(pagePointer([])).toBe("the form");
   });
 
   it("keeps a hierarchical heading outline", () => {
