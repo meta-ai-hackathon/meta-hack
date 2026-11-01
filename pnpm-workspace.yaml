@@ -2,4 +2,4 @@ ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
 onlyBuiltDependencies:
-  - "@nationaldesignstudio/rampart@https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/e2bd8f8e2bd5a26dc82bbf21e1955a9d0f22397d"
+  - "@nationaldesignstudio/rampart@https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/349345fd9d2b07445bf95932364148d49474bcbb"
