@@ -11,7 +11,6 @@ import {
 import {
   QUESTION_BY_ID,
   QUESTIONS,
-  type Question,
 } from "../../../lib/intake/spec";
 import { SESSION_COOKIE } from "../../../lib/intake/store";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
@@ -20,6 +19,7 @@ import { GET as getState } from "./state/route";
 import { POST as postAnswer } from "./answer/route";
 import { GET as getSession } from "../session/route";
 import { POST as postPurge } from "../session/purge/route";
+import { specValueFor } from "./spec-value-fixture";
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -106,25 +106,6 @@ function purgeRequest(cookie?: string, body?: Record<string, unknown>): Request 
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-}
-
-/** A spec-valid known value for each question type (test fixture only). */
-function specValueFor(question: Question): string | number | boolean | string[] {
-  switch (question.type) {
-    case "text":
-    case "address":
-      return `A test answer for ${question.id}`;
-    case "number":
-      return 3;
-    case "boolean":
-      return false;
-    case "date":
-      return "1990-05-14";
-    case "single_select":
-      return question.options![0]!.value;
-    case "multi_select":
-      return [question.options![0]!.value];
-  }
 }
 
 /** The quick-question universe the engine asks for the default programs. */

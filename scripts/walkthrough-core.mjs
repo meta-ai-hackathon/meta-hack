@@ -272,6 +272,12 @@ export function quickQuestionsCounterProblem(previousState, nextState, answeredI
   if (!Array.isArray(requiredIds) || !Array.isArray(remainingIds)) {
     return "the quickQuestions block carries no question-id lists";
   }
+  if (typeof requiredCount !== "number" || typeof remainingCount !== "number") {
+    return "the quickQuestions block carries non-numeric counts";
+  }
+  if (requiredCount !== requiredIds.length) {
+    return `requiredCount ${requiredCount} does not match the required list (${requiredIds.length})`;
+  }
   if (remainingCount !== remainingIds.length) {
     return `remainingCount ${remainingCount} does not match the remaining list (${remainingIds.length})`;
   }

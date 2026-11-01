@@ -311,9 +311,12 @@ describe("the quick-questions counter check (VAL-QQ-008: progress counts consist
     expect(quickQuestionsCounterProblem(null, after, "application_role")).toContain(
       "does not match the remaining list",
     );
-    // remaining (2) over a required universe of 1: the block claims more
-    // still-to-ask questions than the universe holds.
+    // remaining (2) over a required universe of 1, with each count
+    // matching its own list: more still-to-ask questions than the
+    // universe holds (the stray check would also catch this; the count
+    // check fires first).
     const oversized = clientState(questions, answered, 1);
+    oversized.quickQuestions.requiredIds = ["main_goal"];
     oversized.quickQuestions.requiredCount = 1;
     oversized.quickQuestions.remainingIds = ["main_goal", "state"];
     oversized.quickQuestions.remainingCount = 2;
@@ -378,6 +381,7 @@ describe("the quick-questions counter check (VAL-QQ-008: progress counts consist
       null,
     );
     dishonestState.quickQuestions.remainingIds = ["application_role"];
+    dishonestState.remainingCount = 1;
     dishonestState.quickQuestions.remainingCount = 1;
     dishonestState.quickQuestions.complete = false;
     routes[2].respondNext = queue([jsonResponse(200, dishonestState)]);
@@ -387,6 +391,157 @@ describe("the quick-questions counter check (VAL-QQ-008: progress counts consist
       "quick_questions_counter",
     ]);
     expect(exitCodeForRun(false)).toBe(EXIT_VIOLATION);
+  });
+
+  it("a requiredCount that disagrees with the required list is a violation", () => {
+    const after = clientState(questions, answered, 1);
+    after.quickQuestions.requiredCount = 7;
+    expect(quickQuestionsCounterProblem(null, after, "application_role")).toContain(
+      "does not match the required list",
+    );
+    // Non-numeric counts can never pass silently (NaN comparisons are
+    // false, which would let an "exceeds" check slip through).
+    const NaNCount = clientState(questions, answered, 1);
+    NaNCount.quickQuestions.requiredCount = undefined;
+    expect(quickQuestionsCounterProblem(null, NaNCount, "application_role")).toContain(
+      "non-numeric counts",
+    );
+  });
+});
+
+describe("the quick-questions counter check — properties (production logic)", () => {
+  const idArb = fc.stringMatching(/^[a-z_]{1,10}$/);
+  const idListArb = fc.uniqueArray(idArb, { minLength: 1, maxLength: 8 });
+
+  /** A consistent N-of-M block for a required-id list and a subset. */
+  function block(requiredIds, remainingIds) {
+    return {
+      quickQuestions: {
+        requiredIds,
+        requiredCount: requiredIds.length,
+        remainingIds,
+        remainingCount: remainingIds.length,
+      },
+    };
+  }
+
+  /**
+   * A flat case: an id list, a boolean mask selecting the remaining
+   * subset (index-wise; missing mask entries count as false), and the
+   * index of the just-answered id within the UNASKED list (or null).
+   * Flat generation keeps every arbitrary shrinkable without dependent
+   * chains (a chained fc.subarray blew up fast-check's shrinker here).
+   */
+  const caseArb = fc.record({
+    ids: idListArb,
+    mask: fc.array(fc.boolean(), { maxLength: 12 }),
+    answeredPick: fc.option(fc.integer({ min: 0, max: 11 }), { nil: undefined }),
+    prevCount: fc.option(fc.integer({ min: 0, max: 12 }), { nil: undefined }),
+  });
+
+  function toCase({ ids, mask, answeredPick, prevCount }) {
+    const remaining = ids.filter((_, index) => mask[index] === true);
+    const unasked = ids.filter((id) => !remaining.includes(id));
+    const answeredId =
+      answeredPick !== null && answeredPick < unasked.length
+        ? unasked[answeredPick]
+        : undefined;
+    const after = block(ids, remaining);
+    // The consistent previous state's remaining set is a SUPERSET of the
+    // next's (extra answers accumulated between the two states) — the
+    // only transition shape the monotone rule allows.
+    const before =
+      prevCount === null
+        ? null
+        : block(
+            ids,
+            ids.filter(
+              (id) =>
+                remaining.includes(id) || ids.slice(0, prevCount).includes(id),
+            ),
+          );
+    return { ids, remaining, answeredId, after, before };
+  }
+
+  it("PROPERTY: any consistent block passes, whatever the id list, the remaining subset, or the just-answered id", () => {
+    fc.assert(
+      fc.property(caseArb, (raw) => {
+        const { answeredId, after, before } = toCase(raw);
+        expect(quickQuestionsCounterProblem(null, after, answeredId)).toBeNull();
+        // A consistent PREVIOUS state never makes a consistent next state
+        // a problem unless its own remaining count grew past the next's —
+        // and this previous state's count is the full universe, which can
+        // only be ≥ the next's.
+        expect(
+          quickQuestionsCounterProblem(before, after, answeredId),
+        ).toBeNull();
+      }),
+    );
+  });
+
+  it("PROPERTY: any remainingCount that disagrees with its list is detected", () => {
+    fc.assert(
+      fc.property(caseArb, fc.integer({ min: -3, max: 12 }), (raw, delta) => {
+        const { remaining } = toCase(raw);
+        const wrong = remaining.length + delta;
+        if (wrong === remaining.length) {
+          return;
+        }
+        // The universe is the remaining list itself: every structural
+        // check is consistent except the mutated count.
+        const nextState = block(remaining, remaining);
+        nextState.quickQuestions.remainingCount = wrong;
+        expect(
+          quickQuestionsCounterProblem(null, nextState, undefined),
+        ).toContain("does not match the remaining list");
+      }),
+    );
+  });
+
+  it("PROPERTY: a just-answered question left in the remaining set is always the ask-once violation", () => {
+    fc.assert(
+      fc.property(
+        fc.record({
+          ids: idListArb,
+          mask: fc.array(fc.boolean(), { maxLength: 12 }),
+          answeredPick: fc.integer({ min: 0, max: 11 }),
+        }),
+        (raw) => {
+          const { ids } = raw;
+          const remaining = ids.filter(
+            (_, index) => raw.mask[index] === true,
+          );
+          fc.pre(remaining.length > 0);
+          const answeredId = remaining[raw.answeredPick % remaining.length];
+          const after = block(ids, remaining);
+          expect(
+            quickQuestionsCounterProblem(null, after, answeredId),
+          ).toContain("ask-once violated");
+        },
+      ),
+    );
+  });
+
+  it("PROPERTY: a remaining count that grows across consistent blocks is always detected", () => {
+    fc.assert(
+      fc.property(
+        idListArb.filter((ids) => ids.length >= 2),
+        fc.integer({ min: 0, max: 7 }),
+        fc.integer({ min: 1, max: 8 }),
+        (ids, beforeRaw, rise) => {
+          const before = Math.min(beforeRaw, ids.length - 1);
+          const after = Math.min(before + rise, ids.length);
+          if (after <= before) {
+            return;
+          }
+          const prevState = block(ids, ids.slice(0, before));
+          const nextState = block(ids, ids.slice(0, after));
+          expect(
+            quickQuestionsCounterProblem(prevState, nextState, undefined),
+          ).toContain(`grew from ${before} to ${after}`);
+        },
+      ),
+    );
   });
 });
 

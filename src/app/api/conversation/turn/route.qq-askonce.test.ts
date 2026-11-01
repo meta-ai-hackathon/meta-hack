@@ -15,11 +15,11 @@ import {
 import {
   QUESTION_BY_ID,
   QUESTIONS,
-  type Question,
 } from "../../../../lib/intake/spec";
 import { SESSION_COOKIE } from "../../../../lib/intake/store";
 import type { IntakeClientState } from "../../../../lib/intake/serialize";
 import { CONSENT_HEADER } from "../../../../lib/consent";
+import { specValueFor } from "../../intake/spec-value-fixture";
 import { POST as postAnswer } from "../../intake/answer/route";
 import { GET as historyGet } from "../history/route";
 import { POST } from "./route";
@@ -430,22 +430,3 @@ describe("POST /api/conversation/turn — the talk stage after quick questions (
     }
   });
 });
-
-/** A spec-valid known value for each question type (test fixture only). */
-function specValueFor(question: Question): string | number | boolean | string[] {
-  switch (question.type) {
-    case "text":
-    case "address":
-      return `A test answer for ${question.id}`;
-    case "number":
-      return 3;
-    case "boolean":
-      return false;
-    case "date":
-      return "1990-05-14";
-    case "single_select":
-      return question.options![0]!.value;
-    case "multi_select":
-      return [question.options![0]!.value];
-  }
-}
