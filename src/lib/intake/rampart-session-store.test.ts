@@ -46,7 +46,7 @@ function deps(kv: DeviceKv): DeviceAnswerStoreDeps {
   return { kv, subtle: crypto.subtle };
 }
 
-const SERIALIZED = JSON.stringify({ version: 1, entries: [{ token: "[SSN_1]", value: "123-45-6789" }] });
+const SERIALIZED = JSON.stringify({ version: 1, entries: [{ token: "[SSN_1]", value: "000-00-0000" }] });
 
 describe("rampart-session-store", () => {
   it("reuses a stored sealing key instead of rewriting it (HACK-107 review P1)", async () => {
@@ -93,7 +93,7 @@ describe("rampart-session-store", () => {
     await saveRampartSession(deps(kv), SERIALIZED);
     for (const value of store.values()) {
       if (typeof value === "string") {
-        expect(value).not.toContain("123-45-6789");
+        expect(value).not.toContain("000-00-0000");
         expect(value).not.toContain(SERIALIZED);
       }
     }

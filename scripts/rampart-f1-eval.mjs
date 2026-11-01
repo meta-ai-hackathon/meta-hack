@@ -72,21 +72,21 @@ const FIXTURES = [
   {
     id: "ssn-and-phone",
     input:
-      "For the DSS office you can reach me at (704) 555-0199, and my social security number is 428-76-1103.",
+      "For the DSS office you can reach me at (704) 555-0199, and my social security number is 666-42-7103.",
     private: [
       { text: "(704) 555-0199", label: "PHONE" },
-      { text: "428-76-1103", label: "SSN" },
+      { text: "666-42-7103", label: "SSN" },
     ],
     publicTerms: ["DSS office"],
   },
   {
     id: "caseworker-email",
     input:
-      "Someone named Tasha Jenkins emailed me from t.jenkins@dhhs.nc.gov about my North Carolina benefits case.",
+      "Someone named Tasha Jenkins emailed me from t.jenkins@dhhs.example.com about my North Carolina benefits case.",
     private: [
       { text: "Tasha", label: "GIVEN_NAME" },
       { text: "Jenkins", label: "SURNAME" },
-      { text: "t.jenkins@dhhs.nc.gov", label: "EMAIL" },
+      { text: "t.jenkins@dhhs.example.com", label: "EMAIL" },
     ],
     publicTerms: ["emailed", "benefits case"],
   },
@@ -121,9 +121,9 @@ const FIXTURES = [
   {
     id: "w2-and-employer",
     input:
-      "My W-2 tax id 530-11-2267 is under my maiden name Keyla Fournier, though my driver's license says Keyla Fournier Bautista now.",
+      "My W-2 tax id 666-11-2267 is under my maiden name Keyla Fournier, though my driver's license says Keyla Fournier Bautista now.",
     private: [
-      { text: "530-11-2267", label: "TAX_ID" },
+      { text: "666-11-2267", label: "TAX_ID" },
       { text: "Keyla", label: "GIVEN_NAME" },
       { text: "Fournier", label: "SURNAME" },
       { text: "Bautista", label: "SURNAME" },
@@ -181,11 +181,11 @@ const FIXTURES = [
   {
     id: "family-ssn",
     input:
-      "My son Elias Morin was born March 2024; his social security 890-01-6647 is on the blue card in my folder.",
+      "My son Elias Morin was born March 2024; his social security 666-01-6647 is on the blue card in my folder.",
     private: [
       { text: "Elias", label: "GIVEN_NAME" },
       { text: "Morin", label: "SURNAME" },
-      { text: "890-01-6647", label: "SSN" },
+      { text: "666-01-6647", label: "SSN" },
     ],
     publicTerms: ["born March 2024", "blue card"],
   },
