@@ -58,6 +58,19 @@ describe("Home page (the round-2 entry shell, VAL-FIX-003)", () => {
     expect(html).not.toContain('data-journey-stage-link="results"');
   });
 
+  it("spreads the content region across wide viewports (VAL-FIX-005)", () => {
+    const html = renderToStaticMarkup(<Home />);
+    // The generous content-region maximum (85rem = 1360px): the framed
+    // card plus the journey sidebar fill ~90% of a 1280/1440 viewport
+    // with only the intentional outer padding — the old 64rem cap left
+    // dead left/right gutters. lg:px-10 is that intentional padding.
+    expect(html).toContain("max-w-[85rem]");
+    expect(html).toContain("lg:px-10");
+    // The round-2 shell is preserved: the sidebar stays a sidebar beside
+    // the framed card on desktop (never stacked below).
+    expect(html).toContain("md:grid-cols-[14rem_minmax(0,1fr)]");
+  });
+
   it("keeps the intake wizard reachable by navigation (VAL-CROSS-004)", () => {
     const html = renderToStaticMarkup(<Home />);
     expect(html).toContain('href="/intake"');
