@@ -33,6 +33,7 @@ import {
   TURN_WINDOW_MS,
   UsageError,
   finishRun,
+  isLocalTarget,
   parseArgs,
   runEvaluation,
 } from "./eval-record.mjs";
@@ -504,7 +505,8 @@ describe("phrase matching", PROPERTY_BUDGET, () => {
         expect(valuesMatch(decimal, Number(decimal))).toBe(true);
       }),
     );
-  });});
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Scoring and the record
@@ -1470,6 +1472,7 @@ describe("CLI arguments", () => {
     const options = parseArgs([
       "--url",
       "https://meta-hack-omega.vercel.app/",
+      "--deployed",
       "--commit",
       "bda2d00",
       "--out",
@@ -1477,21 +1480,76 @@ describe("CLI arguments", () => {
     ]);
     expect(options).toMatchObject({
       url: "https://meta-hack-omega.vercel.app",
+      deployed: true,
       commit: "bda2d00",
       out: "docs/evaluation-record.md",
     });
     fc.assert(
       fc.property(fc.stringMatching(/^--[a-z]{1,10}$/), (flag) => {
-        fc.pre(!["--url", "--commit", "--out", "--timeout", "--help", "--force"].includes(flag));
+        fc.pre(!["--url", "--commit", "--out", "--timeout", "--help", "--force", "--deployed"].includes(flag));
         expect(() => parseArgs([flag])).toThrow(UsageError);
       }),
     );
     expect(parseArgs([]).force).toBe(false);
+    expect(parseArgs([]).deployed).toBe(false);
     expect(parseArgs(["--force"]).force).toBe(true);
     expect(() => parseArgs(["--commit", "not-a-sha"])).toThrow(UsageError);
     expect(() => parseArgs(["--out", "/tmp/record.md"])).toThrow(UsageError);
     expect(() => parseArgs(["--out", "../record.md"])).toThrow(UsageError);
     expect(() => parseArgs(["--url", "ftp://example.com"])).toThrow(UsageError);
+  });
+
+  it("runs only against a local app unless --deployed is given", () => {
+    // Production and every preview deployment share the production
+    // database, so any other target is a choice the command line has to
+    // state, whichever side of --url the flag sits on.
+    const label = fc.stringMatching(/^[a-z][a-z0-9]{0,9}$/);
+    const octet = fc.integer({ min: 0, max: 255 });
+    const port = fc.option(fc.integer({ min: 1, max: 65535 }), { nil: undefined });
+    const path = fc.constantFrom("", "/", "/intake");
+    const withScheme = (hostArb) =>
+      fc
+        .tuple(fc.constantFrom("http", "https"), hostArb, port, path)
+        .map(([scheme, host, portNumber, rest]) => `${scheme}://${host}${portNumber === undefined ? "" : `:${portNumber}`}${rest}`);
+    const localArb = withScheme(
+      fc.oneof(
+        fc.constantFrom("localhost", "LOCALHOST", "[::1]", "0.0.0.0"),
+        fc.tuple(octet, octet, octet).map(([a, b, c]) => `127.${a}.${b}.${c}`),
+        label.map((name) => `${name}.localhost`),
+      ),
+    );
+    const deployedArb = withScheme(
+      fc.oneof(
+        fc.constant("meta-hack-omega.vercel.app"),
+        label.map((name) => `meta-hack-${name}-yifus-projects.vercel.app`),
+        label.map((name) => `${name}.example.com`),
+        label.map((name) => `localhost.${name}.com`),
+        label.map((name) => `${name}localhost`),
+        fc.tuple(octet, octet).map(([a, b]) => `127.0.${a}.${b}.nip.io`),
+        fc.tuple(octet, octet).map(([a, b]) => `192.168.${a}.${b}`),
+      ),
+    );
+    fc.assert(
+      fc.property(localArb, deployedArb, fc.boolean(), (local, deployed, flagFirst) => {
+        expect(isLocalTarget(local)).toBe(true);
+        expect(parseArgs(["--url", local])).toMatchObject({ deployed: false });
+        expect(isLocalTarget(deployed)).toBe(false);
+        expect(() => parseArgs(["--url", deployed])).toThrow(UsageError);
+        const argv = flagFirst ? ["--deployed", "--url", deployed] : ["--url", deployed, "--deployed"];
+        expect(parseArgs(argv)).toMatchObject({ url: deployed.replace(/\/+$/, ""), deployed: true });
+      }),
+    );
+  });
+
+  it("names --deployed in the record's command exactly when the run used it", () => {
+    fc.assert(
+      fc.property(fc.constantFrom(true, false, "yes", 1, undefined), (deployed) => {
+        const markdown = renderRecord(buildRecord(EVAL_CASES, new Map(), { ...META, deployed }));
+        const command = markdown.split("\n").find((line) => line.startsWith("| Command |"));
+        expect(command.includes(" --deployed")).toBe(deployed === true);
+        expect(command).toContain(`--url ${META.target}`);
+      }),
+    );
   });
 });
 

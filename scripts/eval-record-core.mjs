@@ -359,6 +359,7 @@ function normalizeMeta(meta = {}) {
     commit: typeof meta.commit === "string" && SAFE_COMMIT.test(meta.commit) ? meta.commit : null,
     model: typeof meta.model === "string" && /^[a-z0-9.-]{1,60}$/.test(meta.model) ? meta.model : RECORD_MODEL,
     out: typeof meta.out === "string" && SAFE_OUT.test(meta.out) ? meta.out : null,
+    deployed: meta.deployed === true,
     turnsCompleted: count(meta.turnsCompleted),
     turnRequestsFailed: count(meta.turnRequestsFailed),
     sessionsOpened: count(meta.sessionsOpened),
@@ -604,9 +605,12 @@ export function renderRecord(record) {
   lines.push(`| Turn requests that failed | ${meta.turnRequestsFailed} |`);
   lines.push(`| Synthetic sessions | ${meta.sessionsOpened} opened, ${meta.sessionsPurged} purged |`);
   if (meta.target !== null) {
+    const deployedArg = meta.deployed ? " --deployed" : "";
     const commitArg = meta.commit === null ? "" : ` --commit ${meta.commit}`;
     const outArg = meta.out === null ? "" : ` --out ${meta.out}`;
-    lines.push(`| Command | ${code(`node scripts/eval-record.mjs --url ${meta.target}${commitArg}${outArg}`)} |`);
+    lines.push(
+      `| Command | ${code(`node scripts/eval-record.mjs --url ${meta.target}${deployedArg}${commitArg}${outArg}`)} |`,
+    );
   }
   lines.push("");
   lines.push(

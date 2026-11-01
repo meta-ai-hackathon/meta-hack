@@ -6,8 +6,15 @@
 // markdown record that states its denominator and lists every negative:
 //
 //   node scripts/eval-record.mjs                       # http://localhost:3100, record to stdout
-//   node scripts/eval-record.mjs --url https://meta-hack-omega.vercel.app \
+//   node scripts/eval-record.mjs --url http://localhost:3100 \
 //     --commit <sha served> --out docs/evaluation-record.md
+//
+// Run it against a local app. Production and every preview deployment share
+// the production database (docs/deployment.md), and the purge leaves each
+// session's bare person and session rows behind by design (HACK-80), so a
+// run against any deployed URL leaves one of each per category there. Like
+// the walkthrough (docs/runbooks.md), it refuses a target that is not a
+// local app unless --deployed is given.
 //
 // Like walkthrough.mjs it talks to the app over HTTP only, never an app
 // import, so it measures whatever that surface serves. Each category of
@@ -488,9 +495,31 @@ export class UsageError extends Error {
   }
 }
 
+/**
+ * Whether a target only reaches an app on this machine: localhost, a name
+ * under .localhost, a 127.x address, [::1] or 0.0.0.0. Every other target
+ * needs --deployed, because production and every preview deployment share
+ * the production database.
+ */
+export function isLocalTarget(url) {
+  let hostname;
+  try {
+    hostname = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "[::1]" ||
+    hostname === "0.0.0.0" ||
+    /^127(?:\.\d{1,3}){3}$/.test(hostname)
+  );
+}
+
 export function usage() {
   return [
-    "Usage: node scripts/eval-record.mjs [--url <base-url>] [--commit <sha>] [--out <file>] [--force] [--timeout <ms>]",
+    "Usage: node scripts/eval-record.mjs [--url <base-url>] [--deployed] [--commit <sha>] [--out <file>] [--force] [--timeout <ms>]",
     "",
     "Runs the frozen, labeled cases in scripts/eval-cases.mjs against a running",
     "Benefits Navigator over HTTP, scores each one, and writes the BN-38",
@@ -499,10 +528,16 @@ export function usage() {
     "purged at the end. Typed turns only, with the AI consent receipt (voice off).",
     "",
     "Options:",
-    `  --url <base-url>   Target app (default: ${DEFAULT_URL}).`,
-    "  --commit <sha>     The main commit the target serves, for the record. The",
-    "                     app does not report its build, so check the head of",
-    "                     main and its finished production deployment first.",
+    `  --url <base-url>   Target app (default: ${DEFAULT_URL}). A local app only,`,
+    "                     unless --deployed is given.",
+    "  --deployed         Allow a target that is not a local app. Production and",
+    "                     every preview deployment share the production database,",
+    "                     and each run leaves a bare person and session row there",
+    "                     for every category, even after the purge.",
+    "  --commit <sha>     The commit the target serves, for the record. The app",
+    "                     does not report its build, so name it yourself: the",
+    "                     local checkout's commit, or the commit of a deployed",
+    "                     target's finished deployment.",
     "  --out <file>       Write the record here (relative path) instead of stdout.",
     "  --force            Write --out even when no case ran (an outage).",
     `  --timeout <ms>     Per-request timeout (default: ${V2_TIMEOUT_MS}).`,
@@ -532,7 +567,14 @@ export function finishRun(record, meta, options) {
 
 /** Parse CLI arguments; null when --help was handled. */
 export function parseArgs(argv) {
-  const options = { url: DEFAULT_URL, commit: null, out: null, timeoutMs: V2_TIMEOUT_MS, force: false };
+  const options = {
+    url: DEFAULT_URL,
+    commit: null,
+    out: null,
+    timeoutMs: V2_TIMEOUT_MS,
+    force: false,
+    deployed: false,
+  };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--help") {
@@ -541,6 +583,10 @@ export function parseArgs(argv) {
     }
     if (arg === "--force") {
       options.force = true;
+      continue;
+    }
+    if (arg === "--deployed") {
+      options.deployed = true;
       continue;
     }
     if (arg === "--url" || arg === "--commit" || arg === "--out" || arg === "--timeout") {
@@ -565,6 +611,13 @@ export function parseArgs(argv) {
     throw new UsageError(`--url must be an http(s) URL, got: ${options.url}`);
   }
   options.url = options.url.replace(/\/+$/, "");
+  if (!options.deployed && !isLocalTarget(options.url)) {
+    throw new UsageError(
+      "--url is not a local app. Production and every preview deployment share the production database, "
+        + "and a run leaves a bare person and session row there for every category, even after the purge. "
+        + "Run it against a local app, or pass --deployed to run it against this target anyway.",
+    );
+  }
   if (options.commit !== null && !/^[0-9a-f]{7,40}$/.test(options.commit)) {
     throw new UsageError("--commit must be a 7 to 40 character lowercase hex commit id");
   }
@@ -596,6 +649,7 @@ export async function main(argv = process.argv.slice(2)) {
       ...meta,
       commit: options.commit,
       out: options.out,
+      deployed: options.deployed,
     });
     const markdown = renderRecord(record);
     const finish = finishRun(record, meta, options);
