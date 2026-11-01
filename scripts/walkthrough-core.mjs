@@ -254,6 +254,45 @@ export function deepEqual(a, b) {
   return keysA.every((key) => deepEqual(a[key], b[key]));
 }
 
+/**
+ * The quick-questions counter's honesty (VAL-QQ-008, progress counts
+ * consistent): every served client state carries the engine's N-of-M
+ * block, the numbers agree with the id lists, the remaining set never
+ * leaves the required universe, a just-answered question never stays
+ * "remaining" (ask-once through the HTTP surface), and the count only
+ * ever shrinks while the journey accumulates answers. Returns a problem
+ * string, or null when the block is consistent.
+ */
+export function quickQuestionsCounterProblem(previousState, nextState, answeredId) {
+  const block = nextState?.quickQuestions;
+  if (block === null || typeof block !== "object" || Array.isArray(block)) {
+    return "the served client state carries no quickQuestions counter block";
+  }
+  const { requiredIds, requiredCount, remainingIds, remainingCount } = block;
+  if (!Array.isArray(requiredIds) || !Array.isArray(remainingIds)) {
+    return "the quickQuestions block carries no question-id lists";
+  }
+  if (remainingCount !== remainingIds.length) {
+    return `remainingCount ${remainingCount} does not match the remaining list (${remainingIds.length})`;
+  }
+  if (requiredCount < remainingCount) {
+    return `remainingCount ${remainingCount} exceeds the required universe (${requiredCount})`;
+  }
+  const required = new Set(requiredIds);
+  const stray = remainingIds.filter((id) => !required.has(id));
+  if (stray.length > 0) {
+    return `remaining ids outside the required universe: ${stray.join(", ")}`;
+  }
+  if (answeredId !== undefined && remainingIds.includes(answeredId)) {
+    return `the just-answered question "${answeredId}" is still in the remaining set (ask-once violated)`;
+  }
+  const previousCount = previousState?.quickQuestions?.remainingCount;
+  if (typeof previousCount === "number" && remainingCount > previousCount) {
+    return `the remaining count grew from ${previousCount} to ${remainingCount} as answers accumulated`;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Walkthrough state
 // ---------------------------------------------------------------------------
@@ -1207,6 +1246,14 @@ export class Walkthrough {
       }
 
       if (this.scanResponse(`answer ${step.id}`, answer.text, newState)) {
+        return this.reportViolations();
+      }
+      const counterProblem = quickQuestionsCounterProblem(state, newState, step.id);
+      if (counterProblem) {
+        this.recordViolation("quick_questions_counter", {
+          where: `answer ${step.id}`,
+          detail: counterProblem,
+        });
         return this.reportViolations();
       }
       state = newState;

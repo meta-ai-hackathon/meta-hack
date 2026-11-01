@@ -14,6 +14,7 @@ import {
   deepEqual,
   exitCodeForRun,
   parseArgs,
+  quickQuestionsCounterProblem,
   usage,
 } from "./walkthrough-core.mjs";
 import {
@@ -57,12 +58,27 @@ function question(id, { pii = false, type = "single_select" } = {}) {
 
 function clientState(questions, answers, currentIndex) {
   const complete = currentIndex === null;
+  // The served shape always carries the quick-questions counter block
+  // (VAL-QQ-008); fixtures derive a consistent one from the same
+  // questions/answers the state carries, the way buildClientState does.
+  const requiredIds = questions.map((question) => question.id);
+  const remainingIds = questions
+    .filter((question) => answers[question.id] === undefined)
+    .map((question) => question.id);
   return {
     questions,
     answers,
     progress: { answered: questions.length, remaining: 0, total: questions.length },
     currentIndex: complete ? null : currentIndex,
     complete,
+    quickQuestions: {
+      programs: ["nc_medicaid"],
+      requiredIds,
+      requiredCount: requiredIds.length,
+      remainingIds,
+      remainingCount: remainingIds.length,
+      complete: remainingIds.length === 0,
+    },
   };
 }
 
@@ -267,6 +283,110 @@ describe("walkthrough journey exit-code contract", () => {
     expect(EXIT_OK).toBe(0);
     expect(EXIT_VIOLATION).not.toBe(0);
     expect(EXIT_JOURNEY_ERROR).not.toBe(0);
+  });
+});
+
+describe("the quick-questions counter check (VAL-QQ-008: progress counts consistent)", () => {
+  const answered = { application_role: { status: "known", value: "self" } };
+  const questions = [question("application_role"), question("main_goal")];
+
+  it("a consistent block passes: counts match the lists, the answered question left the set", () => {
+    const before = clientState(questions, {}, 0);
+    const after = clientState(questions, answered, 1);
+    expect(quickQuestionsCounterProblem(before, after, "application_role")).toBeNull();
+    expect(quickQuestionsCounterProblem(null, after, "application_role")).toBeNull();
+  });
+
+  it("a served state without the counter block is a violation", () => {
+    const after = clientState(questions, answered, 1);
+    delete after.quickQuestions;
+    expect(quickQuestionsCounterProblem(null, after, "application_role")).toContain(
+      "no quickQuestions counter block",
+    );
+  });
+
+  it("numbers that disagree with the id lists, or stray ids, are violations", () => {
+    const after = clientState(questions, answered, 1);
+    after.quickQuestions.remainingCount = 5;
+    expect(quickQuestionsCounterProblem(null, after, "application_role")).toContain(
+      "does not match the remaining list",
+    );
+    // remaining (2) over a required universe of 1: the block claims more
+    // still-to-ask questions than the universe holds.
+    const oversized = clientState(questions, answered, 1);
+    oversized.quickQuestions.requiredCount = 1;
+    oversized.quickQuestions.remainingIds = ["main_goal", "state"];
+    oversized.quickQuestions.remainingCount = 2;
+    expect(quickQuestionsCounterProblem(null, oversized, "application_role")).toContain(
+      "exceeds the required universe",
+    );
+    const stray = clientState(questions, answered, 1);
+    stray.quickQuestions.remainingIds = ["not_a_required_id"];
+    stray.quickQuestions.remainingCount = 1;
+    expect(quickQuestionsCounterProblem(null, stray, "application_role")).toContain(
+      "outside the required universe",
+    );
+  });
+
+  it("a just-answered question still in the remaining set is the ask-once violation", () => {
+    const before = clientState(questions, {}, 0);
+    const after = clientState(questions, answered, 1);
+    after.quickQuestions.remainingIds = ["application_role", "main_goal"];
+    after.quickQuestions.remainingCount = 2;
+    expect(quickQuestionsCounterProblem(before, after, "application_role")).toContain(
+      "ask-once violated",
+    );
+  });
+
+  it("a remaining count that grows as answers accumulate is a violation", () => {
+    // Hand-built blocks (bypassing the fixture helper): a consistent
+    // before-state of 3, then a served state whose universe — and with it
+    // the remaining count — grew mid-journey. Every earlier check passes;
+    // the monotone rule is what bites.
+    const before = {
+      quickQuestions: {
+        requiredIds: ["a", "b", "c"],
+        requiredCount: 3,
+        remainingIds: ["a", "b", "c"],
+        remainingCount: 3,
+      },
+    };
+    const grown = {
+      quickQuestions: {
+        requiredIds: ["a", "b", "c", "d", "e"],
+        requiredCount: 5,
+        remainingIds: ["b", "c", "d", "e"],
+        remainingCount: 4,
+      },
+    };
+    expect(quickQuestionsCounterProblem(before, grown, "a")).toContain(
+      "grew from 3 to 4",
+    );
+  });
+
+  it("an inconsistent served counter stops the journey as a violation (exit 1)", async () => {
+    const finalState = clientState(
+      [question("application_role")],
+      { application_role: { status: "known", value: "self" } },
+      null,
+    );
+    const routes = cleanJourneyRoutes(finalState);
+    // The app's counter lies: the answered question is still "remaining".
+    const dishonestState = clientState(
+      [question("application_role")],
+      { application_role: { status: "known", value: "self" } },
+      null,
+    );
+    dishonestState.quickQuestions.remainingIds = ["application_role"];
+    dishonestState.quickQuestions.remainingCount = 1;
+    dishonestState.quickQuestions.complete = false;
+    routes[2].respondNext = queue([jsonResponse(200, dishonestState)]);
+    const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
+    await expect(walk.run()).resolves.toBe(false);
+    expect(walk.violations.map((violation) => violation.kind)).toEqual([
+      "quick_questions_counter",
+    ]);
+    expect(exitCodeForRun(false)).toBe(EXIT_VIOLATION);
   });
 });
 
