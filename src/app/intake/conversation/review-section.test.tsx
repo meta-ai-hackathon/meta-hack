@@ -213,8 +213,14 @@ describe("ReviewSectionContent structure", () => {
     // blank on the download so the person completes them by hand
     // (claude-review P2 on this PR).
     expect(html).toContain("complete those by hand if they apply to you");
-    // The blank-by-disposition rows render with their reasons, so nothing
-    // is silently unmapped.
+    // Each row points at where the box sits on the printed form (the
+    // follow-up P2: an applicant can act on "page 16", not on developer
+    // notes about templates).
+    expect(html).toContain("page 16 of the form");
+    expect(html).not.toContain("the template's tooltip is undefined");
+    expect(html).not.toContain("The form author embedded");
+    // The blank-by-disposition rows render with their class copy, so
+    // nothing is silently unmapped.
     expect(html).toContain("data-coverage-field=");
     expect(html).toContain("This conversation doesn't collect it");
     expect(html).toContain("A printed line, not an answer box");

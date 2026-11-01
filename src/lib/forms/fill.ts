@@ -83,11 +83,11 @@ export const MAX_FORM_ANSWER_LENGTH = 200;
  * Full-form mapping (VAL-FIX-007, owner decision "map every answerable
  * field across all 21 pages"): the person's review-and-complete step at
  * fill time is the answer carrier for every mapped field the interview
- * doesn't collect — on the real DHB-5200 that is 355 of the template's
- * 614 fields (the registry's mapped disposition across parts 1-3), five
- * times this cap's original 50. The bound covers every field the
- * committed template has (614) with headroom; the pinned boundary lives
- * in fill.test.ts.
+ * doesn't collect — 350 of the template's 571 named fields (355 mapped in
+ * total; 614 is the widget-rectangle count the discovery pass walks),
+ * roughly seven times this cap's original 50. The bound covers every
+ * field the committed template has with headroom; the pinned boundary
+ * lives in fill.test.ts.
  */
 export const MAX_FORM_VALUES = 650;
 
