@@ -92,6 +92,7 @@ export async function POST(request: Request): Promise<Response> {
       const { sessionId, assistantTurnId, ...outcome } = await processUserTurn(
         userText,
         cookieValue,
+        isVoice,
       );
       const engineMs = Date.now() - engineStarted;
 

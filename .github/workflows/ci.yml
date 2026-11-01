@@ -72,6 +72,15 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # The pinned git-hosted @nationaldesignstudio/rampart dependency builds
+      # its dist through a bun prepack during install (the pnpm-workspace
+      # allowlist grants it), so bun must exist before pnpm install. pnpm's
+      # prepare step shells out to `npm install` inside that package, and
+      # Node 22's bundled npm 10.9.x crashes in its arborist peer resolver
+      # (npm/cli #9960); npm 11 resolves the same tree cleanly (verified with
+      # the exact versions).
+      - uses: oven-sh/setup-bun@v2
+      - run: npm install -g npm@11.19.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint

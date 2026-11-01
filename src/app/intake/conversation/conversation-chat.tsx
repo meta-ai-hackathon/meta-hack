@@ -31,6 +31,11 @@ import {
 } from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { takeStoredEntryMode } from "../../../lib/entry-mode";
+import {
+  RampartShield,
+  type RampartShieldStatus,
+} from "../../../lib/intake/rampart-guard";
+import { selectSpokenText } from "../../../lib/spoken-reply";
 import { IntakeWizard } from "../intake-wizard";
 import { ComingTogether, themesForQuestionIds, themeLabelFor } from "./coming-together";
 import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
@@ -199,6 +204,24 @@ interface TurnResponse {
   redactedUserTranscript: string;
   nextQuestionId: string | null;
   state: IntakeClientState;
+  spokenReply?: string;
+}
+
+// HACK-107: stored assistant turns may carry placeholders from token-bearing
+// typed turns; the user's own turns keep their redacted marks. Unknown tokens
+// stay literal and an unready shield leaves the history as-is (coherence
+// degradation, never a wrong display).
+function revealHistory(
+  turns: ConversationTurn[],
+  shield: RampartShield | null,
+): ConversationTurn[] {
+  return turns.map((turn) => ({
+    ...turn,
+    transcript:
+      turn.role === "assistant"
+        ? (shield?.reveal(turn.transcript) ?? turn.transcript)
+        : turn.transcript,
+  }));
 }
 
 let localTurnId = 0;
@@ -369,6 +392,29 @@ export function ConversationChat() {
     null,
   );
 
+  // HACK-107: the on-device PII shield starts with the page (the detection
+  // model loads in the background) and gates every TYPED send — text leaves
+  // the device only tokenized, and assistant replies are rehydrated for
+  // display only. Voice turns are separately consent-gated and never pass
+  // through this layer (recorded audio is inherently identifying; Rampart
+  // addresses typed text, per HACK-107).
+  const shieldRef = useRef<RampartShield | null>(null);
+  const [shieldStatus, setShieldStatus] =
+    useState<RampartShieldStatus>("loading");
+  useEffect(() => {
+    let cancelled = false;
+    const shield = new RampartShield();
+    shieldRef.current = shield;
+    void shield.start().then(() => {
+      if (!cancelled) {
+        setShieldStatus(shield.status);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // The consent surface is open when no decided receipt exists (nothing
   // sent yet) or the user asked to change the choices. Derived — no effect.
   const panelOpen = receipt === null || reopened;
@@ -385,7 +431,13 @@ export function ConversationChat() {
         if (cancelled) {
           return;
         }
-        setTurns(data.turns);
+        // HACK-107: stored assistant turns may carry placeholders from
+        // token-bearing typed turns. Rehydrate the assistant side only —
+        // the user's own turns keep their redacted marks. Unknown tokens
+        // stay literal and an unready shield leaves the history as-is
+        // (coherence degradation, never a wrong display).
+        const shield = shieldRef.current;
+        setTurns(revealHistory(data.turns, shield));
         setState(data.state);
       } catch {
         if (!cancelled) {
@@ -432,7 +484,7 @@ export function ConversationChat() {
         }
         const data = (await response.json()) as HistoryResponse;
         if (!cancelled) {
-          setTurns(data.turns);
+          setTurns(revealHistory(data.turns, shieldRef.current));
           setState(data.state);
         }
       })
@@ -628,6 +680,25 @@ export function ConversationChat() {
     setReopened(true);
   }
 
+  async function speakVerifiedText(text: string): Promise<void> {
+    // HACK-107: client-verified spoken rendition only. This text is
+    // token-free by selectSpokenText verification/fallback, but it is
+    // NOT the stored display reply, so it must never go to
+    // /api/conversation/speak (which speaks the stored turn by id and
+    // accepts no client-supplied text). Speak it locally only; never
+    // send rehydrated PII or raw bracketed tokens to any TTS path.
+    try {
+      await new Promise<void>((resolve) => {
+        const spoke = queueSpeech(text, undefined, resolve);
+        if (!spoke) {
+          resolve();
+        }
+      });
+    } catch {
+      // Speech is enhancement; the subtitle is the accessible path.
+    }
+  }
+
   async function speakReply(turnId: string, subtitle: string): Promise<void> {
     // Spoken replies (VAL-VOICE-003): ElevenLabs audio for the STORED reply
     // (the server speaks the turn by id — never client-supplied text)
@@ -736,6 +807,14 @@ export function ConversationChat() {
       (questionId) => !previouslyAnswered.has(questionId),
     );
     const turnThemes = themesForQuestionIds(newlyAnswered);
+    // HACK-107: the assistant reply is rehydrated from the device-only
+    // session table for DISPLAY only — the user sees values, the provider
+    // saw placeholders. The typed user transcript keeps its redacted marks
+    // (the copy below says so), and the spoken selection derives from the
+    // UNREVEALED reply, so no rehydrated value can reach TTS.
+    const shield = shieldRef.current;
+    const displayReply =
+      shield?.reveal(data.assistantReply) ?? data.assistantReply;
     setTurns((previous) => [
       ...previous,
       {
@@ -744,7 +823,7 @@ export function ConversationChat() {
         transcript: data.redactedUserTranscript,
         ...(turnThemes.length > 0 ? { themes: turnThemes } : {}),
       },
-      { id: nextLocalTurnId(), role: "assistant", transcript: data.assistantReply },
+      { id: nextLocalTurnId(), role: "assistant", transcript: displayReply },
     ]);
     setState(data.state);
     setDraft("");
@@ -768,7 +847,22 @@ export function ConversationChat() {
       sessionRef.current?.hold();
       playbackHoldRef.current = true;
       setVoicePhase("speaking");
-      await speakReply(data.assistantTurnId, data.assistantReply);
+      // HACK-107 dual-output voice: the display reply may carry Rampart
+      // tokens (rehydrated locally before display), so never speak it
+      // unverified. Speak only the verified token-free spoken rendition,
+      // or the deterministic type+ordinal fallback; if neither passes,
+      // fail closed to subtitles with no audio.
+      const selection = selectSpokenText({
+        spokenReply: data.spokenReply,
+        displayReply: data.assistantReply,
+      });
+      if (selection.kind !== "silent") {
+        if (selection.text === data.assistantReply) {
+          await speakReply(data.assistantTurnId, data.assistantReply);
+        } else {
+          await speakVerifiedText(selection.text);
+        }
+      }
     }
     // The auto-advance (VAL-VJS-003): when the deterministic engine has no
     // unanswered question left, speak the short wrap-up and hand off to
@@ -816,16 +910,36 @@ export function ConversationChat() {
       );
       return;
     }
+    // HACK-107 (fail closed): typed text leaves this device only through
+    // Rampart's protect() pass. While the detection model is still loading
+    // nothing is sent; if it failed, the session says so and offers voice
+    // or refresh instead of ever sending raw text.
+    const shield = shieldRef.current;
+    if (shield === null || shield.status !== "ready") {
+      setNotice(
+        shieldStatus === "failed"
+          ? "This session's privacy shield failed to load, so typed messages can't be sent right now. Refresh to try again — voice or the wizard below still work."
+          : "Hold on — the privacy shield is still loading. Nothing is sent before it is ready.",
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice("");
     try {
+      const prepaid = await shield.protectTyped(text);
+      if (prepaid.kind === "blocked") {
+        setNotice(
+          "Your privacy shield couldn't prepare that message, so nothing was sent. Please try again.",
+        );
+        return;
+      }
       const response = await fetch("/api/conversation/turn", {
         method: "POST",
         headers: attachConsentHeader(
           new Headers({ "content-type": "application/json" }),
         ),
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: prepaid.text }),
       });
       await handleTurnResponse(response, false);
     } catch {

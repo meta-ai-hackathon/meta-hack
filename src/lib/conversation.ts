@@ -27,6 +27,7 @@ import {
 } from "./intake/store";
 import { KB_ENTRIES, type KbEntry } from "./kb";
 import { chatCompletion, transcribeAudio, type ChatMessage } from "./model";
+import { containsPlaceholder } from "./spoken-reply";
 import { PILOT_CONFIG } from "./pilot";
 import {
   AppError,
@@ -322,6 +323,7 @@ export function buildCombinedTurnPrompt(
   answers: AnswerMap = {},
   questions: readonly Question[] = QUESTIONS,
   entries: readonly KbEntry[] = KB_ENTRIES,
+  voiceTurn: boolean = false,
 ): string {
   const lines: string[] = [];
   lines.push(
@@ -488,11 +490,24 @@ export function buildCombinedTurnPrompt(
       "'verbatim' to the exact words from the message that contained the " +
       "answer. Extract nothing beyond what the message supports.",
   );
+  if (voiceTurn) {
+    lines.push(
+      "Spoken rendition (voice turns only): also include a \"spoken_reply\" " +
+        "field — a short plain-language version of \"reply\" written to be " +
+        "read aloud. It must contain no bracketed placeholder such as " +
+        "[GIVEN_NAME_1] and no token text, must invent no value for any " +
+        "placeholder, and must restate no private detail. Refer to a person " +
+        "or detail only generically, for example \"the person you mentioned\".",
+    );
+  }
   lines.push(
     `Output ONLY a JSON object with exactly the keys "answers", "reply", and ` +
       `"next_question_id" (plus the optional "followup" exactly when you ` +
-      "propose a follow-up) — no prose, no code fences: {\"answers\": [...], " +
-      `"reply": "...", "next_question_id": "...", "followup": "..."}. In ` +
+      `propose a follow-up${voiceTurn ? ', and the "spoken_reply" described above' : ""}) — ` +
+      "no prose, no code fences: {\"answers\": [...], " +
+      `"reply": "...", "next_question_id": "...", "followup": "..."${
+        voiceTurn ? ', "spoken_reply": "..."' : ""
+      }}. In ` +
       "\"next_question_id\", set " +
       "the id of the question from the list your reply asks next — the id in " +
       "parentheses at the start of each list line — or omit it when every " +
@@ -541,6 +556,9 @@ const COMBINED_SCHEMA = {
     // The model's PROPOSED follow-up question (HACK-106, VAL-NCF-004) —
     // engine-gated before it is ever asked; absent on ordinary turns.
     followup: { type: "string" },
+    // HACK-107: optional token-free spoken rendition for voice turns -
+    // engine-gated before use; absent on typed turns.
+    spoken_reply: { type: "string" },
   },
 } as const;
 
@@ -582,6 +600,8 @@ export interface CombinedEnvelope {
    * never the model's to choose.
    */
   readonly followup?: string;
+  /** Optional token-free spoken rendition (HACK-107, voice turns). */
+  readonly spokenReply?: string;
 }
 
 /**
@@ -668,6 +688,7 @@ export function parseCombinedEnvelope(
     reply?: unknown;
     next_question_id?: unknown;
     followup?: unknown;
+    spoken_reply?: unknown;
   };
   const reply = typeof record.reply === "string" ? record.reply.trim() : "";
   if (reply === "") {
@@ -689,11 +710,16 @@ export function parseCombinedEnvelope(
     typeof record.followup === "string" && record.followup.trim() !== ""
       ? record.followup.trim()
       : undefined;
+  const spokenReply =
+    typeof record.spoken_reply === "string" && record.spoken_reply.trim() !== ""
+      ? record.spoken_reply.trim()
+      : undefined;
   return {
     answers: parseAnswerItems(record.answers),
     reply,
     nextQuestionId: declaredNext,
     ...(followup !== undefined ? { followup } : {}),
+    ...(spokenReply !== undefined ? { spokenReply } : {}),
   };
 }
 
@@ -933,6 +959,29 @@ export function followupGateProblem(
 }
 
 // ---------------------------------------------------------------------------
+export function spokenGateProblem(
+  spoken: string,
+  piiValues: readonly string[],
+): "empty" | "placeholder" | "banned_claim" | "pii_echo" | "structural_pii" | null {
+  const trimmed = spoken.trim();
+  if (trimmed === "") {
+    return "empty";
+  }
+  if (/\[[A-Z][A-Z_]*_\d+\]|\b[A-Z][A-Z_]*_\d+\b/.test(trimmed)) {
+    return "placeholder";
+  }
+  if (findBannedClaimsEverySentence(trimmed).length > 0) {
+    return "banned_claim";
+  }
+  if (findPiiEchoes(trimmed, piiValues).length > 0) {
+    return "pii_echo";
+  }
+  if (sweepStructuralPii(trimmed, activeKbGrounding()) !== trimmed) {
+    return "structural_pii";
+  }
+  return null;
+}
+
 // Turn persistence (redacted transcripts only)
 // ---------------------------------------------------------------------------
 
@@ -1072,6 +1121,8 @@ export interface ChatCallScript {
   readonly nextQuestionId?: string;
   /** Optional proposed follow-up question the scripted envelope carries. */
   readonly followup?: string;
+  /** Optional token-free spoken rendition the scripted envelope carries. */
+  readonly spokenReply?: string;
 }
 
 /**
@@ -1096,6 +1147,7 @@ async function runCombinedTurn(
   currentQuestion: Question | null,
   answersBefore: AnswerMap,
   history: readonly ConversationTurnView[],
+  voiceTurn: boolean = false,
 ): Promise<{
   envelope: CombinedEnvelope | null;
   /** The scripted transport's own per-call latency (chatCompletion's). */
@@ -1107,7 +1159,7 @@ async function runCombinedTurn(
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: buildCombinedTurnPrompt(currentQuestion, answersBefore),
+      content: buildCombinedTurnPrompt(currentQuestion, answersBefore, QUESTIONS, KB_ENTRIES, voiceTurn),
     },
     ...history.map((turn) => ({
       role: turn.role,
@@ -1164,6 +1216,8 @@ export interface TurnOutcome {
   readonly assistantTurnId: string;
   readonly redactedUserTranscript: string;
   readonly nextQuestionId: string | null;
+  /** Gated token-free spoken rendition for voice turns (HACK-107); omitted when absent or blocked. Never persisted. */
+  readonly spokenReply?: string;
 }
 
 /**
@@ -1251,6 +1305,7 @@ export function findPiiEchoes(
 export async function processUserTurn(
   userText: string,
   cookieValue: string | null,
+  voiceTurn: boolean = false,
 ): Promise<TurnOutcome> {
   const turnStarted = Date.now();
   // 0. Resolve an existing session WITHOUT creating one (read-only), and
@@ -1281,6 +1336,7 @@ export async function processUserTurn(
     currentQuestion,
     answersBefore,
     history,
+    voiceTurn,
   );
   const envelope = calls.envelope;
 
@@ -1550,10 +1606,40 @@ export async function processUserTurn(
       logWarn("conversation_reply_structural_pii_blocked");
       reply = PII_ECHO_FALLBACK_REPLY;
     }
+    // The token gate (HACK-107 review P2): type transcripts carry Rampart
+    // placeholders now, so a model echoing a history token ("Thanks
+    // [GIVEN_NAME_1]") could pass the gates above and be persisted — and
+    // then served to TTS by /api/conversation/speak, breaking this PR's
+    // own invariant that no raw token is spoken. A violating reply falls
+    // back to the honest copy, never the token itself.
+    if (containsPlaceholder(reply)) {
+      logWarn("conversation_reply_token_blocked");
+      reply = PII_ECHO_FALLBACK_REPLY;
+    }
 
     // 8. Persist BOTH turns — only after the reply succeeded and passed
     // every gate (hardening item 1). The user turn lands as the redacted
     // words only; the raw text never lands anywhere.
+    let spokenReply: string | undefined;
+    if (voiceTurn && envelope !== null && envelope.spokenReply !== undefined) {
+      // Only the reply verbatim from the envelope may be spoken (HACK-107
+      // review P2): every prefixed variant (the partial-save loss
+      // disclosure, a flow mismatch) carries the server's own words in
+      // front of the model's text, and the gated spoken rendition covers
+      // only the envelope's reply — speaking it would silently drop the
+      // honest disclosure the displayed subtitle carries. The client's
+      // type+ordinal fallback renders the DISPLAY text (prefix and all),
+      // so the disclosure is still heard; otherwise it fails closed to
+      // subtitles.
+      if (reply === envelope.reply) {
+        const blocked = spokenGateProblem(envelope.spokenReply, echoValues);
+        if (blocked) {
+          logWarn("conversation_spoken_blocked", { reason: blocked });
+        } else {
+          spokenReply = envelope.spokenReply;
+        }
+      }
+    }
     const savesMs = Date.now() - savesStarted;
     const persistStarted = Date.now();
     await persistTurn(activeSessionId, "user", redactedUserTranscript);
@@ -1588,6 +1674,7 @@ export async function processUserTurn(
       assistantTurnId,
       redactedUserTranscript,
       nextQuestionId: nextQuestion?.id ?? null,
+      ...(spokenReply ? { spokenReply } : {}),
     };
   } catch (error) {
     if (fresh && sessionId !== null) {
