@@ -5,13 +5,15 @@ import {
   visibleQuestions,
   type AnswerMap,
 } from "./flow";
+import { remainingQuickQuestions } from "./requirements";
 import { QUESTIONS, type Question, type QuestionOption, type QuestionType } from "./spec";
 
 // The intake's client-visible state (BN-09): what the step-by-step page
 // renders. Built the same way whether the answers come from the server
 // store (serialize.ts re-exports this as the API's response shape) or from
 // the sealed on-device store (HACK-99). Pure and browser-safe: only the
-// flow engine and the question spec, never a server module.
+// flow engine, the question spec, and the program-requirements layer,
+// never a server module.
 //
 // A pii:true answer contributes its tri-state status alone — its value is
 // structurally omitted, so no pii value reaches the page's rendered state
@@ -40,6 +42,25 @@ export interface IntakeProgress {
   readonly total: number;
 }
 
+/**
+ * The quick-questions counter (VAL-QQ-004): the honest N of M, computed
+ * live from the requirements engine for the targeted programs. Ids only —
+ * never an answer value; every remaining id has its client-safe
+ * definition in this state's questions list.
+ */
+export interface QuickQuestionsClientState {
+  readonly programs: readonly string[];
+  /** The required-for-programs universe, spec order. */
+  readonly requiredIds: readonly string[];
+  /** M — the total required-for-programs universe size. */
+  readonly requiredCount: number;
+  /** N — still to ask: required minus answered minus skippable. */
+  readonly remainingIds: readonly string[];
+  readonly remainingCount: number;
+  /** True when nothing required is left to ask. */
+  readonly complete: boolean;
+}
+
 export interface IntakeClientState {
   /** Visible questions in spec order — skipped questions are absent. */
   readonly questions: readonly ClientQuestion[];
@@ -49,6 +70,8 @@ export interface IntakeClientState {
   /** Index into questions of the first unanswered one; null when complete. */
   readonly currentIndex: number | null;
   readonly complete: boolean;
+  /** The quick-questions N-of-M counter for the targeted programs. */
+  readonly quickQuestions: QuickQuestionsClientState;
 }
 
 function toClientQuestion(question: Question): ClientQuestion {
@@ -82,11 +105,22 @@ export function buildClientState(answers: AnswerMap): IntakeClientState {
   }
   const progress = progressCounts(visible, answers);
   const firstUnanswered = firstUnansweredIndex(visible, answers);
+  // The quick-questions counter targets the committed default programs;
+  // the same pure computation runs server- and device-side.
+  const quick = remainingQuickQuestions(answers);
   return {
     questions: visible.map(toClientQuestion),
     answers: clientAnswers,
     progress,
     currentIndex: firstUnanswered === -1 ? null : firstUnanswered,
     complete: firstUnanswered === -1,
+    quickQuestions: {
+      programs: quick.programs,
+      requiredIds: quick.requiredIds,
+      requiredCount: quick.requiredCount,
+      remainingIds: quick.remainingIds,
+      remainingCount: quick.remainingCount,
+      complete: quick.complete,
+    },
   };
 }

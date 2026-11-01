@@ -94,6 +94,14 @@ const EMPTY_STATE: IntakeClientState = {
   progress: { answered: 0, remaining: 1, total: 1 },
   currentIndex: 0,
   complete: false,
+  quickQuestions: {
+    programs: ["nc_medicaid"],
+    requiredIds: ["application_role"],
+    requiredCount: 1,
+    remainingIds: ["application_role"],
+    remainingCount: 1,
+    complete: false,
+  },
 };
 
 function stubFetch(): void {

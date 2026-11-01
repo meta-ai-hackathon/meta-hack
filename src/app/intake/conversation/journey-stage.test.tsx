@@ -103,6 +103,14 @@ const OPEN_STATE: IntakeClientState = {
   progress: { answered: 0, remaining: 1, total: 1 },
   currentIndex: 0,
   complete: false,
+  quickQuestions: {
+    programs: ["nc_medicaid"],
+    requiredIds: ["application_role"],
+    requiredCount: 1,
+    remainingIds: ["application_role"],
+    remainingCount: 1,
+    complete: false,
+  },
 };
 
 const COMPLETE_STATE: IntakeClientState = {
@@ -111,6 +119,14 @@ const COMPLETE_STATE: IntakeClientState = {
   progress: { answered: 1, remaining: 0, total: 1 },
   currentIndex: null,
   complete: true,
+  quickQuestions: {
+    programs: ["nc_medicaid"],
+    requiredIds: ["application_role"],
+    requiredCount: 1,
+    remainingIds: [],
+    remainingCount: 0,
+    complete: true,
+  },
 };
 
 function historyResponse(state: IntakeClientState): Response {
