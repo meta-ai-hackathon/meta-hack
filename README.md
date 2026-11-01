@@ -2,13 +2,13 @@
 
 Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to Nov 4, 2026. $1M prize pool, solo entry, indie track.
 
-**Status: Benefits Navigator built and validated — 127/127 validation assertions green, all demo-day and layout fixes merged with CI. Submission due Wed Nov 4, 9 PM ET (internal target 6 PM ET).**
+**Status: Benefits Navigator built and validated — 128/128 validation assertions green, all demo-day and layout fixes merged with CI, and the full DHB-5200 form-mapping round is merged. Submission due Wed Nov 4, 9 PM ET (internal target 6 PM ET).**
 
 ## Where we stand
 
 - **Product:** Benefits Navigator (app contract in `architecture.md`; feature map in `feature.md`) — a guided North Carolina **initial MAGI Medicaid** application journey. One persona anchors the demo: a North Carolina resident with current self-employment (LLC) income and no tax return showing it yet, plus stale prior-year internship W-2 income. Earlier footage-search and rescue-vertical ideas (`ideas/`) are historical, not the build.
 - **Two problems, one product:** applicants face high-stakes, paperwork-heavy applications; state offices face H.R. 1 six-month redeterminations with income verification funded at roughly $200M across all 50 states. At that budget neither a legacy system nor manual caseworker review is affordable, so the product automates consented income verification and form preparation instead.
-- **Privacy rules that shape every build decision** (recorded as agent rules in the Legal section of `AGENTS.md`): answers live on the user's device and fill forms from an on-device vault; the only way form data leaves the device is the user-consented fax at the end; PII goes to an API only with explicit informed consent (voice and the fax); the app never acts as the applicant's authorized representative; after the fax confirmation, the app shows it purging the user's answers. All mission milestones are validated (127/127 assertions), and the demo-day fix round of Oct 31 is merged to main with CI green (PRs #87, #89, #90, #92): researched prompt endpointing for the voice journey, honest per-turn pipeline timing, a fixed-height auto-scrolling transcript pane that now mirrors the Lovable prototype's frame geometry exactly, and the three-stage journey shell as the entry/home.
+- **Privacy rules that shape every build decision** (recorded as agent rules in the Legal section of `AGENTS.md`): answers live on the user's device and fill forms from an on-device vault; the only way form data leaves the device is the user-consented fax at the end; PII goes to an API only with explicit informed consent (voice and the fax); the app never acts as the applicant's authorized representative; after the fax confirmation, the app shows it purging the user's answers. All mission milestones are validated (128/128 assertions), and the demo-day fix round of Oct 31 is merged to main with CI green (PRs #87, #89, #90, #92): researched prompt endpointing for the voice journey, honest per-turn pipeline timing, a fixed-height auto-scrolling transcript pane that now mirrors the Lovable prototype's frame geometry exactly, and the three-stage journey shell as the entry/home. The form-mapping round of Nov 1 (PRs #99-#104) is also merged: the form registry now covers all 614 discovered fields across all 21 pages of the real NC DHB-5200, with every field dispositioned.
 
 ## Timeline
 
@@ -123,13 +123,18 @@ drives three surfaces:
   already know this"), and the flow's skip logic applies to them.
 - **Review** (`GET /api/forms/<formId>/review`) is the prepared-package
   view: every field with its state (pre-filled / still needed / not
-  applicable) and provenance, a to-resolve list of everything still needed,
-  and the ordered handoff steps — the app prepares, you review and submit
-  yourself.
+  applicable) and provenance, an honest coverage summary of the fillable
+  fields (571 fillable, 355 taking your answers), a to-resolve list of
+  everything still needed, and the ordered handoff steps — the app
+  prepares, you review and submit yourself.
 - **Download** (`POST /api/forms/<formId>/fill`) fills the registered
   template and returns the PDF as an attachment, generated on the fly and
   never persisted server-side. Unknown answers stay visibly blank and are
-  listed as to-resolve.
+  listed as to-resolve; contradictory checks inside a mapped Yes/No pair
+  or check-one group are flagged for you to resolve, never silently
+  picked. The registry covers all 614 fields across all 21 pages of the
+  real NC DHB-5200; the per-field inventory is in
+  `docs/dhb5200-field-inventory.md`.
 
 ### Benefit match
 
