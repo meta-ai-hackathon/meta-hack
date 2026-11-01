@@ -2,13 +2,13 @@
 
 Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to Nov 4, 2026. $1M prize pool, solo entry, indie track.
 
-**Status: Benefits Navigator built and validated — 125/125 validation assertions green, all demo-day fixes merged with CI. Submission due Wed Nov 4, 9 PM ET (internal target 6 PM ET).**
+**Status: Benefits Navigator built and validated — 127/127 validation assertions green, all demo-day and layout fixes merged with CI. Submission due Wed Nov 4, 9 PM ET (internal target 6 PM ET).**
 
 ## Where we stand
 
 - **Product:** Benefits Navigator (app contract in `architecture.md`; feature map in `feature.md`) — a guided North Carolina **initial MAGI Medicaid** application journey. One persona anchors the demo: a North Carolina resident with current self-employment (LLC) income and no tax return showing it yet, plus stale prior-year internship W-2 income. Earlier footage-search and rescue-vertical ideas (`ideas/`) are historical, not the build.
 - **Two problems, one product:** applicants face high-stakes, paperwork-heavy applications; state offices face H.R. 1 six-month redeterminations with income verification funded at roughly $200M across all 50 states. At that budget neither a legacy system nor manual caseworker review is affordable, so the product automates consented income verification and form preparation instead.
-- **Privacy rules that shape every build decision** (recorded as agent rules in the Legal section of `AGENTS.md`): answers live on the user's device and fill forms from an on-device vault; the only way form data leaves the device is the user-consented fax at the end; PII goes to an API only with explicit informed consent (voice and the fax); the app never acts as the applicant's authorized representative; after the fax confirmation, the app shows it purging the user's answers. All mission milestones are validated (111/111 assertions), and the demo-day fix round of Oct 31 is merged to main with CI green (PRs #87, #89, #90, #92): researched prompt endpointing for the voice journey, honest per-turn pipeline timing, a fixed-height auto-scrolling transcript pane, and the three-stage journey shell as the entry/home.
+- **Privacy rules that shape every build decision** (recorded as agent rules in the Legal section of `AGENTS.md`): answers live on the user's device and fill forms from an on-device vault; the only way form data leaves the device is the user-consented fax at the end; PII goes to an API only with explicit informed consent (voice and the fax); the app never acts as the applicant's authorized representative; after the fax confirmation, the app shows it purging the user's answers. All mission milestones are validated (127/127 assertions), and the demo-day fix round of Oct 31 is merged to main with CI green (PRs #87, #89, #90, #92): researched prompt endpointing for the voice journey, honest per-turn pipeline timing, a fixed-height auto-scrolling transcript pane that now mirrors the Lovable prototype's frame geometry exactly, and the three-stage journey shell as the entry/home.
 
 ## Timeline
 
@@ -18,6 +18,7 @@ Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to 
 | Tue Oct 27 – Fri Oct 30 | Workshops (agents 101/102, Fireworks) |
 | **Wed Nov 4, 9 PM ET** | **Submission due + last day to claim API credits** |
 | Fri Oct 31 | Demo-day fix round merged to main (PRs #87, #89, #90, #92), all validation green |
+| Fri Oct 31 evening | Layout round merged to main (PRs #95, #96): intake surfaces adopt the Lovable prototype's literal frame geometry, all validation green |
 | Nov 5–8 | Judging |
 | Mon Nov 9, 12 PM | Closing ceremony, top 10 live final |
 
