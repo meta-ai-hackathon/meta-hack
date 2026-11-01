@@ -27,6 +27,7 @@ import {
 } from "./intake/store";
 import { KB_ENTRIES, type KbEntry } from "./kb";
 import { chatCompletion, transcribeAudio, type ChatMessage } from "./model";
+import { containsPlaceholder } from "./spoken-reply";
 import { PILOT_CONFIG } from "./pilot";
 import {
   AppError,
@@ -492,35 +493,26 @@ export function buildCombinedTurnPrompt(
   if (voiceTurn) {
     lines.push(
       "Spoken rendition (voice turns only): also include a \"spoken_reply\" " +
-        "field - a short plain-language version of \"reply\" written to be " +
+        "field — a short plain-language version of \"reply\" written to be " +
         "read aloud. It must contain no bracketed placeholder such as " +
         "[GIVEN_NAME_1] and no token text, must invent no value for any " +
         "placeholder, and must restate no private detail. Refer to a person " +
         "or detail only generically, for example \"the person you mentioned\".",
     );
-    lines.push(
-      `Output ONLY a JSON object with exactly the keys "answers", "reply", and ` +
-        `"next_question_id" (plus the optional "followup" exactly when you ` +
-        "propose a follow-up, and the \"spoken_reply\" described above) - no " +
-        "prose, no code fences: {\"answers\": [...], " +
-        `"reply": "...", "next_question_id": "...", "followup": "...", "spoken_reply": "..."}. In ` +
-        "\"next_question_id\", set " +
-        "the id of the question from the list your reply asks next - the id in " +
-        "parentheses at the start of each list line - or omit it when every " +
-        "question is answered.",
-    );
-  } else {
-    lines.push(
-      `Output ONLY a JSON object with exactly the keys "answers", "reply", and ` +
-        `"next_question_id" (plus the optional "followup" exactly when you ` +
-        "propose a follow-up) — no prose, no code fences: {\"answers\": [...], " +
-        `"reply": "...", "next_question_id": "...", "followup": "..."}. In ` +
-        "\"next_question_id\", set " +
-        "the id of the question from the list your reply asks next — the id in " +
-        "parentheses at the start of each list line — or omit it when every " +
-        "question is answered.",
-    );
   }
+  lines.push(
+    `Output ONLY a JSON object with exactly the keys "answers", "reply", and ` +
+      `"next_question_id" (plus the optional "followup" exactly when you ` +
+      `propose a follow-up${voiceTurn ? ', and the "spoken_reply" described above' : ""}) — ` +
+      "no prose, no code fences: {\"answers\": [...], " +
+      `"reply": "...", "next_question_id": "...", "followup": "..."${
+        voiceTurn ? ', "spoken_reply": "..."' : ""
+      }}. In ` +
+      "\"next_question_id\", set " +
+      "the id of the question from the list your reply asks next — the id in " +
+      "parentheses at the start of each list line — or omit it when every " +
+      "question is answered.",
+  );
   return lines.join("\n");
 }
 
@@ -1614,15 +1606,32 @@ export async function processUserTurn(
       logWarn("conversation_reply_structural_pii_blocked");
       reply = PII_ECHO_FALLBACK_REPLY;
     }
+    // The token gate (HACK-107 review P2): type transcripts carry Rampart
+    // placeholders now, so a model echoing a history token ("Thanks
+    // [GIVEN_NAME_1]") could pass the gates above and be persisted — and
+    // then served to TTS by /api/conversation/speak, breaking this PR's
+    // own invariant that no raw token is spoken. A violating reply falls
+    // back to the honest copy, never the token itself.
+    if (containsPlaceholder(reply)) {
+      logWarn("conversation_reply_token_blocked");
+      reply = PII_ECHO_FALLBACK_REPLY;
+    }
 
     // 8. Persist BOTH turns — only after the reply succeeded and passed
     // every gate (hardening item 1). The user turn lands as the redacted
     // words only; the raw text never lands anywhere.
     let spokenReply: string | undefined;
     if (voiceTurn && envelope !== null && envelope.spokenReply !== undefined) {
-      const replyIsEnvelopeDerived =
-        reply === envelope.reply || reply.endsWith(envelope.reply);
-      if (replyIsEnvelopeDerived) {
+      // Only the reply verbatim from the envelope may be spoken (HACK-107
+      // review P2): every prefixed variant (the partial-save loss
+      // disclosure, a flow mismatch) carries the server's own words in
+      // front of the model's text, and the gated spoken rendition covers
+      // only the envelope's reply — speaking it would silently drop the
+      // honest disclosure the displayed subtitle carries. The client's
+      // type+ordinal fallback renders the DISPLAY text (prefix and all),
+      // so the disclosure is still heard; otherwise it fails closed to
+      // subtitles.
+      if (reply === envelope.reply) {
         const blocked = spokenGateProblem(envelope.spokenReply, echoValues);
         if (blocked) {
           logWarn("conversation_spoken_blocked", { reason: blocked });
