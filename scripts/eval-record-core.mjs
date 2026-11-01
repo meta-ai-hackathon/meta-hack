@@ -134,9 +134,14 @@ export function defersDecision(reply, deferTo) {
     );
 }
 
+/** A plain decimal, the only string form a saved number may take. */
+const DECIMAL = /^-?\d+(?:\.\d+)?$/;
+
 /**
  * Whether a saved value is the labeled one: numbers by numeric value, lists
- * as sets, everything else exactly.
+ * as sets, everything else exactly. A number only matches a finite number
+ * or a plain decimal string, so a blank string, a hex or exponent string,
+ * an array or a boolean never passes for a label like 0.
  */
 export function valuesMatch(saved, expected) {
   if (Array.isArray(expected)) {
@@ -148,10 +153,10 @@ export function valuesMatch(saved, expected) {
     return want.size === got.size && [...want].every((item) => got.has(item));
   }
   if (typeof expected === "number") {
-    if (saved === null || saved === undefined || saved === "" || typeof saved === "boolean") {
-      return false;
+    if (typeof saved === "number") {
+      return Number.isFinite(saved) && saved === expected;
     }
-    return Number(saved) === expected;
+    return typeof saved === "string" && DECIMAL.test(saved) && Number(saved) === expected;
   }
   return saved === expected;
 }

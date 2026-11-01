@@ -470,7 +470,41 @@ describe("phrase matching", PROPERTY_BUDGET, () => {
       ),
     );
   });
-});
+
+  it("matches a number only to a finite number or a plain decimal string", () => {
+    // Number() reads " ", "0x0", "0e0", [0] and [] all as 0, so a label of 0
+    // (household_seniors) would pass for a malformed saved value without
+    // this rule.
+    const malformedArb = fc.constantFrom(
+      () => "",
+      () => " ",
+      () => "\t\n",
+      (n) => `0x${n.toString(16)}`,
+      (n) => `${n}e0`,
+      (n) => ` ${n}`,
+      (n) => `${n} `,
+      (n) => `+${n}`,
+      (n) => [n],
+      () => [],
+      (n) => ({ value: n }),
+      () => false,
+      () => true,
+      () => null,
+      () => undefined,
+      () => Number.NaN,
+      () => Number.POSITIVE_INFINITY,
+    );
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 100000 }), malformedArb, fc.nat({ max: 99 }), (n, malformed, cents) => {
+        expect(valuesMatch(malformed(n), n)).toBe(false);
+        expect(valuesMatch(n, n)).toBe(true);
+        expect(valuesMatch(String(n), n)).toBe(true);
+        expect(valuesMatch(`${n}.00`, n)).toBe(true);
+        const decimal = `${n}.${String(cents).padStart(2, "0")}`;
+        expect(valuesMatch(decimal, Number(decimal))).toBe(true);
+      }),
+    );
+  });});
 
 // ---------------------------------------------------------------------------
 // Scoring and the record
