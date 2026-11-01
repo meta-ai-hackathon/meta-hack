@@ -9,13 +9,16 @@ import { JourneyNav } from "./journey-nav";
 // content (the approved mode-choice card, per
 // evidence/lovable-design/round2-mode-choice-entry-desktop.png). The
 // brand mark lives in the app header; the card echoes the waveform mark.
-// Single column on mobile. The honesty/consent copy is NOT redesigned
+// Single column on mobile. The content region (sidebar + framed card)
+// spreads across the available width up to the generous 85rem maximum
+// (VAL-FIX-005) — only intentional outer padding, no dead gutters.
+// The honesty/consent copy is NOT redesigned
 // here: the consent surface still owns every gate-gated word, and the
 // mode choice only picks how the conversation starts — never what may be
 // sent.
 export default function Home() {
   return (
-    <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
+    <div className="mx-auto w-full max-w-[85rem] flex-1 px-6 py-10 lg:px-10">
       <div className="flex flex-col gap-2">
         <h1 className="font-display text-4xl font-bold tracking-tight">
           Benefits Navigator

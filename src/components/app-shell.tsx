@@ -13,7 +13,9 @@ import { DisplayControls } from "./display-controls";
  * app's name. The same header carries the display controls (HACK-84:
  * huge-text zoom + high contrast) so they are reachable from every page —
  * including the intake, review, consent, and purge surfaces — before any
- * content needs reading.
+ * content needs reading. The header's inner width matches the pages'
+ * generous content-region sizing (VAL-FIX-005) so the brand mark lines
+ * up with the widened surfaces' edges.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -28,7 +30,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         data-app-header
         className="border-b border-surface-border bg-background"
       >
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-6 py-4">
+        <div className="mx-auto flex w-full max-w-[85rem] flex-col gap-3 px-6 py-4 lg:px-10">
           <Link
             href="/"
             data-brand-link

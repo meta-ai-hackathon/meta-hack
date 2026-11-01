@@ -263,6 +263,25 @@ describe("the talk-stage transcript pane (VAL-FIX-002)", () => {
     ).not.toBeNull();
   });
 
+  it("keeps the Coming Together sidebar beside the widened transcript (VAL-FIX-005) with the pane's clip intact", async () => {
+    const { container, act } = await renderChat();
+    await beginTalkStage(container, act);
+    // The talk-stage layout stays a two-column grid: the conversation
+    // column absorbs the widened content region and the Coming Together
+    // sidebar remains a sidebar on desktop (never stacked below).
+    const aside = q(container, "coming-together");
+    expect(aside).not.toBeNull();
+    expect(aside?.parentElement?.className).toContain(
+      "md:grid-cols-[minmax(0,1fr)_20rem]",
+    );
+    // The VAL-FIX-002 guards ride along unchanged: the pane keeps its
+    // positioning context (the sr-only labels' containing block) and its
+    // overflow clip, so page height stays byte-stable as turns grow.
+    const pane = q(container, "transcript-pane");
+    expect(pane?.className).toContain("relative");
+    expect(pane?.className).toContain("overflow-y-auto");
+  });
+
   it("is a positioning context so the absolute sr-only labels stay inside its overflow clip", async () => {
     const { container, act } = await renderChat();
     const pane = await beginTalkStage(container, act);

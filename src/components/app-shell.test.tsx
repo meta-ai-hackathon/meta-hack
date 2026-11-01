@@ -21,6 +21,13 @@ describe("AppShell (BN-07)", () => {
     );
   });
 
+  it("aligns the header with the wide content region (VAL-FIX-005)", () => {
+    const html = renderToStaticMarkup(<AppShell><p>Page content</p></AppShell>);
+    // The brand mark shares the pages' generous content-region sizing so
+    // the shell's edges line up with the widened surfaces.
+    expect(html).toContain("max-w-[85rem]");
+  });
+
   it("provides the main landmark as the skip target", () => {
     const html = renderToStaticMarkup(<AppShell><p>Page content</p></AppShell>);
     expect((html.match(/<main[\s>]/g) ?? []).length).toBe(1);

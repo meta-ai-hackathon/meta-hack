@@ -17,6 +17,16 @@ function headingLevels(html: string): number[] {
 }
 
 describe("Conversation page shell", () => {
+  it("spreads the talk stage across wide viewports (VAL-FIX-005)", () => {
+    const html = renderToStaticMarkup(<ConversationPage />);
+    // The generous content-region maximum (85rem = 1360px): the framed
+    // transcript card plus the Coming Together sidebar fill ~90% of a
+    // 1280/1440 viewport with only the intentional outer padding — the
+    // old 48rem cap left the ~350px conversation column and dead gutters.
+    expect(html).toContain("max-w-[85rem]");
+    expect(html).toContain("lg:px-10");
+  });
+
   it("renders exactly one h1 and mounts the chat shell", () => {
     const html = renderToStaticMarkup(<ConversationPage />);
     expect((html.match(/<h1[\s>]/g) ?? []).length).toBe(1);
