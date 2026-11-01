@@ -117,6 +117,12 @@ export function themeLabelFor(themeId: string): string {
  * page's primary content; the checklist is real text (badge labels are
  * words, the ✓/○ glyphs are decorative), the counters are mono per the
  * spec's counter style.
+ *
+ * Geometry is the prototype's `.voice-progress` right rail, copied
+ * literally (VAL-FIX-006): a FIXED 195px grid track (the stage grid's
+ * second column), `border-left: 1px solid`, `padding-left: 23px`,
+ * `padding-top: 6px` — no card chrome. The 1100px breakpoint rule hides
+ * the rail and collapses the stage grid to one column.
  */
 export function ComingTogether(props: { state: IntakeClientState | null }) {
   const themes = deriveThemeProgress(props.state);
@@ -125,7 +131,7 @@ export function ComingTogether(props: { state: IntakeClientState | null }) {
       data-coming-together
       data-journey-stage="talk"
       aria-labelledby="coming-together-heading"
-      className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface p-6"
+      className="hidden flex-col gap-4 border-l border-surface-border pl-[23px] pt-1.5 min-[1101px]:flex"
     >
       <h2 id="coming-together-heading" className="font-display text-2xl font-bold">
         Coming Together

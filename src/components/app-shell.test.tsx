@@ -21,11 +21,18 @@ describe("AppShell (BN-07)", () => {
     );
   });
 
-  it("aligns the header with the wide content region (VAL-FIX-005)", () => {
+  it("carries the prototype frame-header geometry (VAL-FIX-006)", () => {
     const html = renderToStaticMarkup(<AppShell><p>Page content</p></AppShell>);
-    // The brand mark shares the pages' generous content-region sizing so
-    // the shell's edges line up with the widened surfaces.
-    expect(html).toContain("max-w-[85rem]");
+    // The product frame is edge-to-edge (no centered max-width, no dead
+    // gutters) and the header takes the prototype's exact geometry:
+    // 84px tall with 24px 36px padding on wide viewports (the 760px rule
+    // drops it to 75px with 18px 20px padding, single-column on phones).
+    expect(html).not.toContain("max-w-[85rem]");
+    expect(html).toContain("min-[1101px]:h-[84px]");
+    expect(html).toContain("min-[761px]:px-9");
+    expect(html).toContain("min-[761px]:py-6");
+    expect(html).toContain("min-h-[75px]");
+    expect(html).toContain("px-5");
   });
 
   it("provides the main landmark as the skip target", () => {

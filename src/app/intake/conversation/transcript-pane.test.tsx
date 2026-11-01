@@ -249,9 +249,10 @@ describe("the talk-stage transcript pane (VAL-FIX-002)", () => {
     expect(pane.getAttribute("role")).toBe("region");
     expect(pane.getAttribute("aria-label")).toBe("Conversation transcript");
     expect(pane.className).toContain("overflow-y-auto");
-    // A fixed height, not a growing one: the page stops growing with the
-    // conversation.
-    expect(pane.className).toContain("h-[");
+    // The prototype's .voice-scroll cap (VAL-FIX-006): the pane scrolls
+    // at a 620px max height — the page stops growing once the
+    // conversation passes the cap.
+    expect(pane.className).toContain("max-h-[620px]");
     // The a11y structure the transcript already carried is intact.
     expect(
       container.querySelector(
@@ -263,16 +264,16 @@ describe("the talk-stage transcript pane (VAL-FIX-002)", () => {
     ).not.toBeNull();
   });
 
-  it("keeps the Coming Together sidebar beside the widened transcript (VAL-FIX-005) with the pane's clip intact", async () => {
+  it("keeps the Coming Together sidebar beside the transcript on the prototype's stage grid (VAL-FIX-006) with the pane's clip intact", async () => {
     const { container, act } = await renderChat();
     await beginTalkStage(container, act);
-    // The talk-stage layout stays a two-column grid: the conversation
-    // column absorbs the widened content region and the Coming Together
-    // sidebar remains a sidebar on desktop (never stacked below).
+    // The talk-stage layout is the prototype's grid: the conversation
+    // column (fluid) plus the Coming Together sidebar as a fixed 195px
+    // right rail on wide viewports (never stacked below).
     const aside = q(container, "coming-together");
     expect(aside).not.toBeNull();
     expect(aside?.parentElement?.className).toContain(
-      "md:grid-cols-[minmax(0,1fr)_20rem]",
+      "min-[1101px]:grid-cols-[minmax(0,1fr)_195px]",
     );
     // The VAL-FIX-002 guards ride along unchanged: the pane keeps its
     // positioning context (the sr-only labels' containing block) and its

@@ -9,17 +9,21 @@ import { JourneyNav } from "./journey-nav";
 // content (the approved mode-choice card, per
 // evidence/lovable-design/round2-mode-choice-entry-desktop.png). The
 // brand mark lives in the app header; the card echoes the waveform mark.
-// Single column on mobile. The content region (sidebar + framed card)
-// spreads across the available width up to the generous 85rem maximum
-// (VAL-FIX-005) — only intentional outer padding, no dead gutters.
-// The honesty/consent copy is NOT redesigned
-// here: the consent surface still owns every gate-gated word, and the
-// mode choice only picks how the conversation starts — never what may be
-// sent.
+// Single column on mobile.
+//
+// The surface is the prototype's ENTRY frame geometry, copied literally
+// (VAL-FIX-006): the framed surface spans edge-to-edge — no centered
+// max-width column, no dead gutters (the VAL-FIX-005 85rem cap is
+// superseded) — and the entry content (the mode-choice card, which
+// carries the prototype's .voice-entry metrics itself) is centered
+// INSIDE the full-width frame at 490px. The honesty/consent copy is NOT
+// redesigned here: the consent surface still owns every gate-gated
+// word, and the mode choice only picks how the conversation starts —
+// never what may be sent.
 export default function Home() {
   return (
-    <div className="mx-auto w-full max-w-[85rem] flex-1 px-6 py-10 lg:px-10">
-      <div className="flex flex-col gap-2">
+    <div className="flex w-full flex-1 flex-col">
+      <div className="flex flex-col gap-2 px-5 pt-7 min-[761px]:px-9 min-[761px]:pt-9">
         <h1 className="font-display text-4xl font-bold tracking-tight">
           Benefits Navigator
         </h1>
@@ -29,11 +33,11 @@ export default function Home() {
           submitted.
         </p>
       </div>
-      <div className="mt-8 grid gap-6 md:grid-cols-[14rem_minmax(0,1fr)] md:items-start">
+      <div className="flex w-full flex-1 flex-col gap-6 px-5 pt-4 pb-8 min-[761px]:grid min-[761px]:grid-cols-[14rem_minmax(0,1fr)] min-[761px]:items-start min-[761px]:px-9 min-[761px]:pb-10">
         <JourneyNav />
         <HomeEntryChoice />
       </div>
-      <p className="mt-6 text-sm text-muted">
+      <p className="px-5 pb-8 text-sm text-muted min-[761px]:px-9 min-[761px]:pb-10">
         Prefer step-by-step questions?{" "}
         <Link href="/intake" className="text-teal underline hover:opacity-80">
           Use the form instead

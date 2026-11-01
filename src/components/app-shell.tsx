@@ -13,9 +13,16 @@ import { DisplayControls } from "./display-controls";
  * app's name. The same header carries the display controls (HACK-84:
  * huge-text zoom + high contrast) so they are reachable from every page —
  * including the intake, review, consent, and purge surfaces — before any
- * content needs reading. The header's inner width matches the pages'
- * generous content-region sizing (VAL-FIX-005) so the brand mark lines
- * up with the widened surfaces' edges.
+ * content needs reading.
+ *
+ * The header IS the product frame's header (VAL-FIX-006, the literal
+ * Lovable prototype geometry): the frame spans edge-to-edge — no centered
+ * max-width, no dead gutters — and the header takes the prototype's exact
+ * shape: 84px tall with 24px 36px padding, brand left and controls right.
+ * The 760px breakpoint rule drops the paddings to 18px 20px with a 75px
+ * height FLOOR (the controls wrap on phones — the height grows, it never
+ * clips); the fixed 84px applies on wide viewports, where the prototype's
+ * own control heights also ride the 84px box.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -30,7 +37,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         data-app-header
         className="border-b border-surface-border bg-background"
       >
-        <div className="mx-auto flex w-full max-w-[85rem] flex-col gap-3 px-6 py-4 lg:px-10">
+        <div className="flex min-h-[75px] w-full flex-col justify-center gap-3 px-5 py-[18px] min-[761px]:flex-row min-[761px]:items-center min-[761px]:justify-between min-[761px]:gap-8 min-[761px]:px-9 min-[761px]:py-6 min-[1101px]:h-[84px]">
           <Link
             href="/"
             data-brand-link
