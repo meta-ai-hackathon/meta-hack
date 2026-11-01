@@ -74,11 +74,6 @@ export class RampartShield {
     return this._status;
   }
 
-  /** Whether a sealed session envelope exists for this conversation. */
-  get hasPersistedSession(): boolean {
-    return this.persisted;
-  }
-
   /** Start once; later calls await the same startup. Never rejects. */
   start(): Promise<void> {
     if (this.startPromise === null) {
@@ -103,6 +98,10 @@ export class RampartShield {
     const load = this.store === null ? null : await loadRampartSession(this.store);
     const options: GuardOptions =
       load !== null && load.status === "ok" ? { session: load.serialized } : {};
+    // Whether a persisted copy existed as we opened (a restored envelope,
+    // or an unreadable one we may re-seal). From now on a confirmed purge
+    // wins over this shield's later saves, mirroring recordDeviceAnswer.
+    this.persisted = load !== null && load.status !== "none";
     this.guard = await this.deps.createGuard(options);
     this._status = "ready";
   }
@@ -149,8 +148,17 @@ export class RampartShield {
   private async persistSession(): Promise<void> {
     if (this.store === null || this.guard === null) return;
     try {
-      const saved = await saveRampartSession(this.store, this.guard.serialize());
-      if (saved === "saved") this.persisted = true;
+      // Once a persistence was seen (restored or saved here), a save after
+      // a user-confirmed purge must not recreate the sealed session — the
+      // store returns "purged" and this shield stops writing.
+      const saved = await saveRampartSession(this.store, this.guard.serialize(), {
+        expectStored: this.persisted,
+      });
+      if (saved === "saved") {
+        this.persisted = true;
+      } else if (saved === "purged") {
+        this.store = null;
+      }
     } catch {
       // The map stays in memory only; sends keep working.
     }
