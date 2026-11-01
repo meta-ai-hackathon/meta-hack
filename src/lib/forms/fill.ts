@@ -71,9 +71,11 @@ export interface FillOutcome {
   /**
    * The fill-time consistency check's flags (full-form proof, VAL-FIX-007):
    * mapped Yes/No checkbox pairs and check-one groups where the value set
-   * checks two or more members of one group. The flag names the group for
-   * the person to resolve — the fill NEVER silently picks a side: what the
-   * person asked checked is what the form prints, conflict or not.
+   * checks two or more members of one group. The fill NEVER silently picks
+   * a side — what the person asked checked is what the form prints — and
+   * the flag reaches the person the way every still-needed item does: the
+   * packet cover's missing rows (provenanceFromFill) and the fill logs
+   * (counts only, no values).
    */
   readonly conflicts: readonly FillConflict[];
 }
