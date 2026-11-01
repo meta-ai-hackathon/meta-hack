@@ -92,7 +92,7 @@ export function isSealingKey(value: unknown): value is CryptoKey {
  * save seals under a fresh IV, so every envelope is a different string), or
  * something else, which a save may replace.
  */
-function envelopeIdentity(raw: unknown): string {
+export function envelopeIdentity(raw: unknown): string {
   if (raw === undefined || raw === null) {
     return "none";
   }
@@ -103,6 +103,8 @@ interface StoredRead {
   readonly identity: string;
   /** The stored key, when it is a usable sealing key. */
   readonly key: CryptoKey | null;
+  /** True when the key slot holds nothing at all (a fresh device). */
+  readonly keySlotEmpty: boolean;
   /** True when nothing is stored or the stored answers opened under the key. */
   readonly readable: boolean;
   readonly state: ClientAnswerState;
@@ -115,17 +117,18 @@ async function readStored(deps: DeviceAnswerStoreDeps): Promise<StoredRead> {
   ]);
   const identity = envelopeIdentity(rawEnvelope);
   const key = isSealingKey(rawKey) ? rawKey : null;
+  const keySlotEmpty = rawKey === undefined || rawKey === null;
   if (identity === "none") {
-    return { identity, key, readable: true, state: EMPTY_CLIENT_ANSWERS };
+    return { identity, key, keySlotEmpty, readable: true, state: EMPTY_CLIENT_ANSWERS };
   }
   if (typeof rawEnvelope !== "string" || key === null) {
-    return { identity, key, readable: false, state: EMPTY_CLIENT_ANSWERS };
+    return { identity, key, keySlotEmpty, readable: false, state: EMPTY_CLIENT_ANSWERS };
   }
   const plaintext = await openSealed(rawEnvelope, key, deps.subtle);
   if (plaintext === null) {
-    return { identity, key, readable: false, state: EMPTY_CLIENT_ANSWERS };
+    return { identity, key, keySlotEmpty, readable: false, state: EMPTY_CLIENT_ANSWERS };
   }
-  return { identity, key, readable: true, state: parseClientAnswers(plaintext) };
+  return { identity, key, keySlotEmpty, readable: true, state: parseClientAnswers(plaintext) };
 }
 
 export function generateSealingKey(subtle: SubtleCrypto): Promise<CryptoKey> {
@@ -179,21 +182,38 @@ export async function recordDeviceAnswer(
     // Unreadable answers cannot be merged into; this answer replaces them,
     // under a fresh key, as the load already told the person.
     const next = saveClientAnswer(read.readable ? read.state : EMPTY_CLIENT_ANSWERS, record);
-    const key =
-      read.key !== null && read.readable ? read.key : await generateSealingKey(deps.subtle);
+    // A usable stored key is reused and never rewritten: a concurrent first
+    // save (the same device open in two tabs, or a wizard answer save racing
+    // a conversation send) must not be able to orphan its envelope by
+    // rewriting the shared sealing key. Only a generated key is written, and
+    // the write checks in its own transaction that the key slot is still
+    // empty, so only one of the overlapping first saves wins; the loser
+    // retries under the winner's key.
+    const reuseKey = read.key !== null && read.readable;
+    const key = reuseKey ? read.key : await generateSealingKey(deps.subtle);
     const sealed = await sealForStorage(serializeClientAnswers(next), key, deps.subtle);
     // The key is written with the envelope it sealed, so the pair on the
     // device always matches. The write checks, in its own transaction, that
-    // the envelope is still the one read above.
+    // what was read has not changed: either the key slot is still empty
+    // (a generated key, so no overlapping save has landed one) or the
+    // envelope is still the one read (a reused key).
+    const requiresEmptyKeySlot = !reuseKey && read.keySlotEmpty;
     const written = await deps.kv.setMany(
-      [
-        [DEVICE_ANSWERS_CRYPTO_KEY_KEY, key],
-        [DEVICE_ANSWERS_ENVELOPE_KEY, sealed],
-      ],
-      {
-        key: DEVICE_ANSWERS_ENVELOPE_KEY,
-        keep: (current) => envelopeIdentity(current) !== read.identity,
-      },
+      requiresEmptyKeySlot || !reuseKey
+        ? [
+            [DEVICE_ANSWERS_CRYPTO_KEY_KEY, key],
+            [DEVICE_ANSWERS_ENVELOPE_KEY, sealed],
+          ]
+        : [[DEVICE_ANSWERS_ENVELOPE_KEY, sealed]],
+      requiresEmptyKeySlot
+        ? {
+            key: DEVICE_ANSWERS_CRYPTO_KEY_KEY,
+            keep: (current) => current !== undefined && current !== null,
+          }
+        : {
+            key: DEVICE_ANSWERS_ENVELOPE_KEY,
+            keep: (current) => envelopeIdentity(current) !== read.identity,
+          },
     );
     if (written) {
       return { status: "saved", state: next };

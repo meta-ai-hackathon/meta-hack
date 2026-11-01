@@ -21,6 +21,7 @@ import {
   DEVICE_ANSWERS_CRYPTO_KEY_KEY,
   DEVICE_SAVE_ATTEMPTS,
   DEVICE_SESSION_ENVELOPE_KEY,
+  envelopeIdentity,
   generateSealingKey,
   isSealingKey,
   type DeviceAnswerStoreDeps,
@@ -37,15 +38,12 @@ export interface SaveRampartSessionOptions {
   expectStored?: boolean;
 }
 
-function envelopeIdentity(raw: unknown): string {
-  if (raw === undefined) return "none";
-  if (typeof raw === "string") return `sealed:${raw}`;
-  return "other";
-}
-
 interface SessionRead {
   identity: string;
   key: CryptoKey | null;
+  /** True when the key slot holds nothing at all (a fresh device). */
+  keySlotEmpty: boolean;
+  /** The plaintext serialized session, or null when none/unreadable. */
   serialized: string | null;
 }
 
@@ -56,30 +54,24 @@ async function readStored(deps: DeviceAnswerStoreDeps): Promise<SessionRead> {
   ]);
   const identity = envelopeIdentity(rawEnvelope);
   const key = isSealingKey(rawKey) ? rawKey : null;
-  if (rawEnvelope === undefined) {
-    return { identity, key, serialized: null };
+  const keySlotEmpty = rawKey === undefined || rawKey === null;
+  if (identity === "none") {
+    return { identity, key, keySlotEmpty, serialized: null };
   }
   if (typeof rawEnvelope !== "string" || key === null) {
-    return { identity, key, serialized: null };
+    return { identity, key, keySlotEmpty, serialized: null };
   }
   const serialized = await openSealed(rawEnvelope, key, deps.subtle);
-  return { identity, key, serialized };
+  return { identity, key, keySlotEmpty, serialized };
 }
 
 export async function loadRampartSession(
   deps: DeviceAnswerStoreDeps,
 ): Promise<RampartSessionLoad> {
-  const [rawEnvelope, rawKey] = await deps.kv.getMany([
-    DEVICE_SESSION_ENVELOPE_KEY,
-    DEVICE_ANSWERS_CRYPTO_KEY_KEY,
-  ]);
-  if (rawEnvelope === undefined) return { status: "none" };
-  if (typeof rawEnvelope !== "string" || !isSealingKey(rawKey)) {
-    return { status: "unreadable" };
-  }
-  const serialized = await openSealed(rawEnvelope, rawKey, deps.subtle);
-  if (serialized === null) return { status: "unreadable" };
-  return { status: "ok", serialized };
+  const read = await readStored(deps);
+  if (read.identity === "none") return { status: "none" };
+  if (read.serialized === null) return { status: "unreadable" };
+  return { status: "ok", serialized: read.serialized };
 }
 
 export async function saveRampartSession(
@@ -96,17 +88,31 @@ export async function saveRampartSession(
     if (expectStored && read.identity === "none") {
       return "purged";
     }
+    // A stored key is reused and never rewritten: a concurrent first save of
+    // the answers envelope must not be orphaned by this writer. A generated
+    // key is written only together with the fresh session envelope, and the
+    // write checks in its own transaction that the key slot is still empty,
+    // so only one overlapping first save lands a key; the loser retries
+    // under the winner's key.
+    const freshKey = read.key === null && read.keySlotEmpty;
     const key = read.key ?? (await generateSealingKey(deps.subtle));
     const sealed = await sealForStorage(serialized, key, deps.subtle);
     const written = await deps.kv.setMany(
-      [
-        [DEVICE_ANSWERS_CRYPTO_KEY_KEY, key],
-        [DEVICE_SESSION_ENVELOPE_KEY, sealed],
-      ],
-      {
-        key: DEVICE_SESSION_ENVELOPE_KEY,
-        keep: (current) => envelopeIdentity(current) !== read.identity,
-      },
+      freshKey
+        ? [
+            [DEVICE_ANSWERS_CRYPTO_KEY_KEY, key],
+            [DEVICE_SESSION_ENVELOPE_KEY, sealed],
+          ]
+        : [[DEVICE_SESSION_ENVELOPE_KEY, sealed]],
+      freshKey
+        ? {
+            key: DEVICE_ANSWERS_CRYPTO_KEY_KEY,
+            keep: (current) => current !== undefined && current !== null,
+          }
+        : {
+            key: DEVICE_SESSION_ENVELOPE_KEY,
+            keep: (current) => envelopeIdentity(current) !== read.identity,
+          },
     );
     if (written) return "saved";
     expectStored = expectStored || read.identity !== "none";
