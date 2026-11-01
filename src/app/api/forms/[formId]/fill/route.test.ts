@@ -365,8 +365,9 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     // nowhere else: not in the answer table, not in the vault (there is no
     // spec question for it), never prefilled. The full-form persona (the
     // shared fixture) covers EVERY in-request carrier of the real form —
-    // pages 1-8's plus the pages 9-15 household-member fields (full-form
-    // mapping part 2) — a count that rides the RAISED in-request cap.
+    // pages 1-8's, the pages 9-15 household-member fields (part 2), and
+    // the pages 16-21 fields (part 3) — a count that rides the RAISED
+    // in-request cap.
     const FULL_PERSONA = fullPersona;
     const multipart = new FormData();
     multipart.append("answers", JSON.stringify(FULL_PERSONA));
@@ -424,8 +425,8 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     const template = await PDFDocument.load(loadTemplatePdf(entry));
     const discovered = discoverAcroFormFields(template);
     // "Mapped" is the registry's mapped DISPOSITION now (full-form mapping
-    // parts 1-2): 239 fields take person answers — the person's own
-    // review-and-complete step at fill time; the other 375 carry an honest
+    // parts 1-3): 355 fields take person answers — the person's own
+    // review-and-complete step at fill time; the other 216 carry an honest
     // disposition and are never filled.
     const mapped = new Set(
       entry.fields
@@ -433,7 +434,7 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
         .map((field) => field.name),
     );
     const unmapped = discovered.filter((field) => !mapped.has(field.name));
-    expect(mapped.size).toBe(239);
+    expect(mapped.size).toBe(355);
     expect(discovered.length).toBe(614);
     // Never fabricated: every mapped name exists in the template's own
     // discovery pass (multi-widget names — radio pairs — appear once in the
