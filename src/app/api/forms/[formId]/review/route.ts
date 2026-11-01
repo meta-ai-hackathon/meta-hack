@@ -1,6 +1,7 @@
 import { PILOT_CONFIG } from "../../../../../lib/pilot";
 import { getFormRegistryEntry } from "../../../../../lib/forms/registry";
 import { buildFormFlow, FORM_SESSION_TRANSITIONS } from "../../../../../lib/forms/flow";
+import { buildDispositionReport } from "../../../../../lib/forms/disposition";
 import { conversationErrorResponse } from "../../../../../lib/conversation";
 import {
   loadAnswerRecords,
@@ -66,6 +67,11 @@ export async function GET(
         fields: view.fields,
         toResolve: view.toResolve,
         counts: view.counts,
+        // The full-form disposition report (VAL-FIX-007): every field on
+        // the template, mapped or carrying its reviewed blank-reason, so
+        // nothing is silently unmapped. Registry data only — field names,
+        // printed labels' questions, and dispositions; no person values.
+        coverage: buildDispositionReport(entry),
         sessionStatus: sessionState?.status ?? "draft",
         allowedSessionTransitions: FORM_SESSION_TRANSITIONS,
         portalLinks: PILOT_CONFIG.portalLinks,

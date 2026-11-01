@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../../../lib/honesty";
 import { getFormRegistryEntry } from "../../../lib/forms/registry";
 import { buildFormFlow } from "../../../lib/forms/flow";
+import { buildDispositionReport } from "../../../lib/forms/disposition";
 import {
   REVIEW_UNAVAILABLE_NOTICE,
   ReviewSection,
@@ -195,6 +196,35 @@ describe("ReviewSectionContent structure", () => {
     expect(html).toContain("Mecklenburg County DSS");
     expect(html).toContain("NC Medicaid");
     expect(html).toContain("the app never submits for you");
+  });
+
+  it("renders the full-form disposition report when the payload carries it (VAL-FIX-007)", () => {
+    const dhb = getFormRegistryEntry("dhb-5200");
+    const data = { ...reviewData(dhb), coverage: buildDispositionReport(dhb) };
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={data} />),
+    );
+    // The summary arithmetic renders — the honest X-of-Y accounting over
+    // all 21 pages, never a full-coverage claim.
+    expect(html).toContain("data-field-coverage");
+    expect(html).toContain("571 fillable boxes and lines");
+    expect(html).toContain("355 of them take your answers");
+    // The blank-by-disposition rows render with their reasons, so nothing
+    // is silently unmapped.
+    expect(html).toContain("data-coverage-field=");
+    expect(html).toContain("This conversation doesn't collect it");
+    expect(html).toContain("A printed line, not an answer box");
+    // And the rendered report scans clean of banned claims.
+    expect(findBannedClaims(html)).toEqual([]);
+  });
+
+  it("renders the all-mapped coverage case honestly (nothing skipped)", () => {
+    const data = { ...reviewData(), coverage: buildDispositionReport(ENTRY) };
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={data} />),
+    );
+    expect(html).toContain("data-coverage-all-mapped");
+    expect(html).toContain("nothing was skipped");
   });
 
   it("keeps a hierarchical heading outline", () => {
