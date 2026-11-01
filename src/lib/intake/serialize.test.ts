@@ -152,6 +152,74 @@ describe("no pii reaches the client payload (VAL-INTAKE-004)", () => {
   });
 });
 
+describe("income in the client payload (milestone income-capture, VAL-QQ-011/INC-003)", () => {
+  it("exposes the income gate unhandled on a fresh session", () => {
+    const state = buildClientState({});
+    expect(state.income.totalCount).toBe(7);
+    expect(state.income.answeredCount).toBe(0);
+    expect(state.income.confirmedCount).toBe(0);
+    expect(state.income.handled).toBe(false);
+  });
+
+  it("derives handled from the answers' provenances over the visible set", () => {
+    // user_supplied income answers (the QQ/talk paths) answer the
+    // questions but never satisfy the gate — the income stage's paths
+    // (user | tax_return) must capture or confirm income once.
+    const base: AnswerMap = {
+      income_sources: { status: "known", value: ["job"] },
+      income_kind: { status: "known", value: "prior_employer_only" },
+      job_income_amount: { status: "known", value: 2400 },
+      job_income_frequency: { status: "known", value: "biweekly" },
+    };
+    const supplied = buildClientState(base);
+    expect(supplied.income.answeredCount).toBe(supplied.income.totalCount);
+    expect(supplied.income.handled).toBe(false);
+
+    const confirmed = buildClientState({
+      ...base,
+      job_income_amount: {
+        status: "known",
+        value: 4017,
+        provenance: "tax_return",
+      },
+    });
+    expect(confirmed.income.confirmedCount).toBe(1);
+    expect(confirmed.income.handled).toBe(true);
+  });
+
+  it("carries the provenance field only when it is not the default user_supplied", () => {
+    const state = buildClientState({
+      application_role: { status: "known", value: "self" },
+      job_income_amount: {
+        status: "known",
+        value: 4017,
+        provenance: "tax_return",
+      },
+      job_income_frequency: {
+        status: "known",
+        value: "monthly",
+        provenance: "user",
+      },
+    });
+    // The default path's shape is byte-identical to its historical one.
+    expect(state.answers.application_role).toEqual({
+      status: "known",
+      value: "self",
+    });
+    // The income stage's badges read provenance where it carries meaning.
+    expect(state.answers.job_income_amount).toEqual({
+      status: "known",
+      value: 4017,
+      provenance: "tax_return",
+    });
+    expect(state.answers.job_income_frequency).toEqual({
+      status: "known",
+      value: "monthly",
+      provenance: "user",
+    });
+  });
+});
+
 describe("quick questions in the client payload (VAL-QQ-004)", () => {
   it("exposes the computed N-of-M counter for the default programs", () => {
     const state = buildClientState({});

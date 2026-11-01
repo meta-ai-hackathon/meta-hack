@@ -1,4 +1,5 @@
 import { AppError, logInfo, userMessageFor } from "../telemetry";
+import { TAX_RETURN_PROPOSED_QUESTION_IDS } from "../income/tax-proposal";
 import { saveAnswer, validateAnswerInput } from "./store";
 
 // The tax-return confirm flow (milestone income-capture part 2; VAL-INC-007).
@@ -10,11 +11,17 @@ import { saveAnswer, validateAnswerInput } from "./store";
 // person's per-question decision and the value they are vouching for.
 //
 // Per-entry semantics:
-// - action "confirm"  — the person accepts the parsed proposal as-is;
+// - action "confirm"  — the person accepts a parsed proposal as-is;
 //   the answer saves with provenance `tax_return` (origin badge "From
-//   your tax return").
-// - action "correct"  — the person replaced the proposal with their own
-//   value; the answer saves with provenance `user`.
+//   your tax return"). Admitted ONLY for the question ids the stage UI
+//   actually proposes from parser findings (tax-proposal.ts: the prior-
+//   year monthly figure onto job_income_amount + its monthly frequency).
+//   Tax_return provenance is otherwise client-asserted by design — this
+//   bounds it to the UI's real proposal set (the part-2 review's P2).
+// - action "correct"  — the person typed their own value; the answer
+//   saves with provenance `user`. This is also how the income stage's
+//   MANUAL card saves (the person's own typed values, all seven income
+//   questions admissible).
 //
 // Both save with status `known` (the person just vouched for the value)
 // and only ever target the income spec questions, which stay `pii:false`
@@ -54,12 +61,18 @@ function validationError(): AppError {
   return new AppError("validation_error", userMessageFor("validation_error"));
 }
 
+/** The ids the stage UI proposes from parser findings (shared, browser-safe). */
+const PROPOSED_IDS: readonly string[] = TAX_RETURN_PROPOSED_QUESTION_IDS;
+
 /**
  * Validate the confirm body against the income question set WITHOUT
  * touching the database: every entry must target an income question,
  * carry a known action, and hold a spec-valid value for status `known`.
- * Validating the WHOLE batch first means a bad entry anywhere saves
- * nothing (a rejected first confirm never leaves an orphan row behind).
+ * action:"confirm" (provenance tax_return) is admitted ONLY for the UI's
+ * proposal ids; action:"correct" (provenance user) is the person's own
+ * value — any income question. Validating the WHOLE batch first means a
+ * bad entry anywhere saves nothing (a rejected first confirm never leaves
+ * an orphan row behind).
  */
 export function parseTaxReturnConfirmations(
   input: unknown,
@@ -81,6 +94,12 @@ export function parseTaxReturnConfirmations(
       throw validationError();
     }
     if (action !== "confirm" && action !== "correct") {
+      throw validationError();
+    }
+    // The tightening: a CONFIRMED value claims it came from the parser's
+    // findings — only the ids the stage UI actually proposes may claim
+    // that. Everything else must travel as a person-corrected value.
+    if (action === "confirm" && !PROPOSED_IDS.includes(questionId)) {
       throw validationError();
     }
     // Spec validation (question id shape + value canonicalizes under

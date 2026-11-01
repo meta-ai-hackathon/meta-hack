@@ -1,4 +1,8 @@
 import { readBodyCapped } from "../../../../lib/forms/upload-cap";
+import {
+  MAX_DECOMPRESSED_PDF_BYTES,
+  decompressedPdfSize,
+} from "../../../../lib/income/pdf-size-bound";
 import { parse1040Pdf } from "../../../../lib/income/tax-parse";
 import { errorResponse } from "../../../../lib/intake/api";
 import {
@@ -67,6 +71,19 @@ export async function POST(request: Request): Promise<Response> {
         );
       }
       const file = await multipartFile(request);
+      // The decompressed-size bound (milestone part 3 ride-along): the
+      // wire cap bounds RAW bytes, but a small compressed PDF can
+      // decompress far past it (a flate bomb). Every FlateDecode stream
+      // is inflate-probed with a hard output cap BEFORE the parser loads
+      // the document — a bomb is rejected by counted bytes, never by
+      // memory pressure.
+      const decompressed = decompressedPdfSize(file);
+      if (decompressed > MAX_DECOMPRESSED_PDF_BYTES) {
+        throw new AppError(
+          "validation_error",
+          "That file is too large to read. You can type your income instead — a rough idea is okay.",
+        );
+      }
       const parsed = await parse1040Pdf(file);
       // Counts only: no field name, value, or byte ever enters the log.
       logInfo("tax_return_upload_completed", {

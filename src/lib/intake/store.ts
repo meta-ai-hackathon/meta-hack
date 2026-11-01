@@ -1,8 +1,10 @@
 import {
+  isAnswerProvenance,
   isAnswerStatus,
   isAppSettableSessionStatus,
   isSessionStatus,
   isUserReportedSessionStatus,
+  type AnswerProvenance,
   type AnswerStatus,
   type AppSettableSessionStatus,
   type SessionStatus,
@@ -42,26 +44,12 @@ export const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 export const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Where an answer's value came from — mirrors the answer table CHECK. */
-export const ANSWER_PROVENANCES = [
-  "user_supplied",
-  "ai_drafted",
-  "source_verified",
-  // The tax-return confirm flow (milestone income-capture, VAL-INC-007):
-  // a confirmed parser proposal saves as tax_return, a person-corrected
-  // value as user. Written only by the tax-return confirm path.
-  "tax_return",
-  "user",
-] as const;
-
-export type AnswerProvenance = (typeof ANSWER_PROVENANCES)[number];
-
-export function isAnswerProvenance(value: unknown): value is AnswerProvenance {
-  return (
-    typeof value === "string" &&
-    (ANSWER_PROVENANCES as readonly string[]).includes(value)
-  );
-}
+/** Where an answer's value came from — the spine's canonical vocabulary. */
+export {
+  ANSWER_PROVENANCES,
+  isAnswerProvenance,
+  type AnswerProvenance,
+} from "../honesty";
 
 export function sessionCookieHeader(sessionId: string, secure = false): string {
   return (
@@ -408,7 +396,11 @@ export async function loadAnswers(sessionId: string): Promise<AnswerMap> {
   const records = await loadAnswerRecords(sessionId);
   const answers: Record<string, StoredAnswer> = {};
   for (const [questionId, record] of Object.entries(records)) {
-    answers[questionId] = { status: record.status, value: record.value };
+    answers[questionId] = {
+      status: record.status,
+      value: record.value,
+      provenance: record.provenance,
+    };
   }
 
   // Merge vault-stored pii values so the flow engine can evaluate skip
@@ -421,7 +413,11 @@ export async function loadAnswers(sessionId: string): Promise<AnswerMap> {
     if (!stored || !question || stored.status === "unknown") {
       continue;
     }
-    answers[field] = { status: stored.status, value: vaultValueToAnswer(question, raw) };
+    answers[field] = {
+      status: stored.status,
+      value: vaultValueToAnswer(question, raw),
+      provenance: stored.provenance,
+    };
   }
   return answers;
 }

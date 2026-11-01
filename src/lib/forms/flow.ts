@@ -109,7 +109,10 @@ export function buildFormFlow(
             field,
             "prefilled",
             stored.status,
-            provenances[field.specQuestionId],
+            // The answer map's own provenance (the intake store carries it
+            // on every row) is the first source; the explicit lookup —
+            // the fill route's per-question map — overrides it.
+            stored.provenance ?? provenances[field.specQuestionId],
           ),
           ...(field.piiLikely || displayValue === null
             ? {}

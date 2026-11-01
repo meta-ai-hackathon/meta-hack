@@ -98,6 +98,13 @@ const EMPTY_STATE: IntakeClientState = {
     remainingCount: 1,
     complete: false,
   },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
+  },
 };
 
 function turnResponse(): Response {

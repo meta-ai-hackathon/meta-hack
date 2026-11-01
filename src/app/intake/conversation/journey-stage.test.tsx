@@ -13,10 +13,13 @@ import { ConversationChat, RESULTS_WRAP_UP } from "./conversation-chat";
 // ENTRY stage, the QUICK QUESTIONS stage (the requirements engine's
 // computed cards — shown only while any are pending), a clean TALK stage
 // (flowing transcript bubbles + the state bar, no form/recording
-// cluster), and a RESULTS stage the journey AUTO-ADVANCES to when the
-// deterministic engine has no unanswered question left. The preserved
-// surfaces — consent gate, mode-B typing, wizard fallback, purge — stay
-// reachable exactly as before.
+// cluster), the INCOME stage (exactly two real source cards — reached
+// when the talk completes with income still unresolved), and a RESULTS
+// stage the journey AUTO-ADVANCES to when the deterministic engine has
+// no unanswered question left AND income is handled (VAL-QQ-011's
+// deliberate redefinition). The preserved surfaces — consent gate,
+// mode-B typing, wizard fallback, purge — stay reachable exactly as
+// before.
 
 // The controllable voice-session fake: the test drives the callbacks the
 // component wired and observes the session operations it called.
@@ -113,6 +116,13 @@ const OPEN_STATE: IntakeClientState = {
     remainingCount: 1,
     complete: false,
   },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
+  },
 };
 
 // A quick-questions state with TWO pending program questions: the live
@@ -152,6 +162,13 @@ const QQ_STATE: IntakeClientState = {
     remainingIds: ["application_role", "main_goal"],
     remainingCount: 2,
     complete: false,
+  },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
   },
 };
 
@@ -204,6 +221,13 @@ const ZERO_PENDING_STATE: IntakeClientState = {
     remainingCount: 0,
     complete: true,
   },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
+  },
 };
 
 const COMPLETE_STATE: IntakeClientState = {
@@ -219,6 +243,71 @@ const COMPLETE_STATE: IntakeClientState = {
     remainingIds: [],
     remainingCount: 0,
     complete: true,
+  },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
+  },
+};
+
+// The income gate's fixtures (VAL-QQ-011's redefined results gate). They
+// differ from COMPLETE_STATE only in the income block: the engine is
+// complete either way, and results requires income handled too.
+const INCOME_QUESTIONS: IntakeClientState["questions"] = [
+  {
+    id: "income_sources",
+    prompt: "Where does money come from for your household?",
+    help: "",
+    type: "multi_select",
+    required: true,
+    pii: false,
+    options: [
+      { value: "job", label: "A job" },
+      { value: "none", label: "No money coming in right now" },
+    ],
+  },
+  {
+    id: "job_income_amount",
+    prompt: "About how much money comes in from jobs each time you get paid?",
+    help: "",
+    type: "number",
+    required: true,
+    pii: false,
+  },
+];
+
+// A COMPLETED intake whose income is still unresolved: the journey must
+// land on the income stage — results is unreachable (VAL-QQ-011,
+// blocking).
+const INCOME_PENDING_STATE: IntakeClientState = {
+  ...COMPLETE_STATE,
+  questions: INCOME_QUESTIONS,
+  answers: {
+    income_sources: { status: "known", value: ["job"] },
+    job_income_amount: { status: "known", value: 2400 },
+  },
+  income: {
+    questionIds: ["income_sources", "job_income_amount"],
+    answeredCount: 2,
+    confirmedCount: 0,
+    totalCount: 2,
+    handled: false,
+  },
+};
+
+// The same session with income handled (a confirm saved it): results is
+// reachable — the income stage is skipped (VAL-QQ-011, non-blocking).
+const INCOME_HANDLED_STATE: IntakeClientState = {
+  ...INCOME_PENDING_STATE,
+  income: {
+    questionIds: ["income_sources", "job_income_amount"],
+    answeredCount: 2,
+    confirmedCount: 1,
+    totalCount: 2,
+    handled: true,
   },
 };
 
@@ -325,6 +414,7 @@ function stubFetch(
   turnState?: IntakeClientState,
   speakStatus = 200,
   answerState?: IntakeClientState,
+  confirmState?: IntakeClientState,
 ): void {
   vi.stubGlobal(
     "fetch",
@@ -345,6 +435,14 @@ function stubFetch(
           status: 200,
           headers: { "content-type": "application/json" },
         });
+      }
+      if (url === "/api/intake/tax-return/confirm") {
+        // The confirm route (the income stage's saves): returns the
+        // handled state the caller seeded.
+        return new Response(
+          JSON.stringify({ saved: [], state: confirmState ?? state }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
       }
       if (url === "/api/intake/state") {
         // The zero-send wizard loads its own state (the deterministic
@@ -513,6 +611,12 @@ describe("the voice journey stages (VAL-VJS-001..004, VAL-QQ-002)", () => {
   });
 
   it("auto-advance: the completed turn transitions to results with no clicks — spoken wrap-up, match, download, purge (VAL-VJS-003/004)", async () => {
+    // UPDATED for the income-capture redefinition (VAL-QQ-011): results
+    // = intake complete AND income handled. COMPLETE_STATE's income
+    // block is empty (no income questions were asked), which is
+    // vacuously HANDLED — so this session still advances straight to
+    // results, now pinned as the non-blocking conjunct's behavior. The
+    // income-unresolved blocking case is the describe block below.
     stubFetch(OPEN_STATE, COMPLETE_STATE);
     const { container, act: actFn } = await renderChat();
     await beginMode(container, actFn, "voice-plus-typing");
@@ -611,6 +715,75 @@ describe("the voice journey stages (VAL-VJS-001..004, VAL-QQ-002)", () => {
     // The ai-only path is unstaged: sections render inline as before.
     expect(container.textContent).toContain("Your answers so far");
     expect(q(container, "results-stage")).toBeNull();
+  });
+});
+
+describe("the income stage between talk-complete and results (VAL-QQ-001/011, VAL-INC-001/002/003)", () => {
+  it("the completed turn with income unresolved lands on the INCOME stage — exactly two source cards, results unreachable (VAL-INC-001/002)", async () => {
+    // The redefined gate (VAL-QQ-011, blocking side): a completed intake
+    // with income still unresolved is NOT results — the journey hands
+    // off to the income stage instead.
+    stubFetch(OPEN_STATE, INCOME_PENDING_STATE);
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-plus-typing");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    // The five-stage order (VAL-QQ-001): entry → quick questions →
+    // talk → INCOME → results.
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("income");
+    expect(q(container, "income-stage")).not.toBeNull();
+    expect(q(container, "results-stage")).toBeNull();
+    expect(q(container, "match-section")).toBeNull();
+    expect(q(container, "review-section")).toBeNull();
+    // Exactly two real source cards (VAL-INC-002): manual + tax upload.
+    expect(q(container, "income-manual-card")).not.toBeNull();
+    expect(q(container, "income-upload-card")).not.toBeNull();
+    // The session ended with the completed turn: the mic never opens
+    // over the income cards.
+    expect(sessionOps).toContain("stop");
+    // The shared frame surfaces stay reachable on the new stage.
+    expect(q(container, "purge-wrapper")).not.toBeNull();
+    expect(q(container, "coming-together")).not.toBeNull();
+  });
+
+  it("confirming through the income stage is what reaches results — the wrap-up speaks at the actual hand-off (VAL-QQ-011)", async () => {
+    stubFetch(OPEN_STATE, INCOME_PENDING_STATE, 200, undefined, INCOME_HANDLED_STATE);
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-plus-typing");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("income");
+    queueSpeechMock.mockClear();
+    // The person saves the prefilled income from the manual card: the
+    // stage POSTs the confirm route, whose fresh state flips the handled
+    // gate — and the journey reaches results.
+    await actFn(async () => {
+      q(container, "income-save-manual")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("results");
+    expect(q(container, "results-stage")).not.toBeNull();
+    // The spoken wrap-up happens HERE — at the actual hand-off to
+    // results, not on the earlier completion turn.
+    expect(queueSpeechMock).toHaveBeenCalled();
+    expect(q(container, "results-wrap-up")?.textContent).toBe(RESULTS_WRAP_UP);
+  });
+
+  it("a completed session with income already handled skips the income stage (VAL-QQ-011 non-blocking)", async () => {
+    // The gate's second conjunct only ADDS a requirement — sessions that
+    // already handled income reach results exactly as before.
+    stubFetch(OPEN_STATE, INCOME_HANDLED_STATE);
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-plus-typing");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("results");
+    expect(q(container, "income-stage")).toBeNull();
+    expect(q(container, "results-stage")).not.toBeNull();
   });
 });
 
