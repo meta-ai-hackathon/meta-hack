@@ -225,9 +225,14 @@ const COMPLETE_STATE: IntakeClientState = {
   income: {
     questionIds: ["income_sources"],
     answeredCount: 1,
-    confirmedCount: 0,
+    // UPDATED for the income-capture redefinition (VAL-QQ-011): results
+    // = intake complete AND income handled. This fixture drives the
+    // results-stage rendering tests, so its income block must be
+    // HANDLED (confirmed) — under the old gate `handled: false` was
+    // inert; now it reroutes the journey to the income stage.
+    confirmedCount: 1,
     totalCount: 1,
-    handled: false,
+    handled: true,
   },
 };
 

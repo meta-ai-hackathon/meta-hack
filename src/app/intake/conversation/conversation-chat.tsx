@@ -34,6 +34,7 @@ import { takeStoredEntryMode } from "../../../lib/entry-mode";
 import { IntakeWizard } from "../intake-wizard";
 import { ComingTogether, themesForQuestionIds, themeLabelFor } from "./coming-together";
 import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
+import { IncomeStage } from "./income-stage";
 import { MatchSection } from "./match-section";
 import { ModeChoice, type ConversationEntryMode } from "./mode-choice";
 import { PurgeSection } from "./purge-section";
@@ -464,37 +465,44 @@ export function ConversationChat() {
   const sharingDeclined = receipt !== null && !receipt.ai;
   const zeroSend = sharingDeclined && !panelOpen;
 
-  // The voice journey (VAL-VJS-001..004 + VAL-QQ-002) — entry →
-  // quick questions → talk → results today; the income stage lands in
-  // the income-capture milestone to complete the five-stage flow —
-  // derived, no extra state machine to desync. A voice-consented visitor
-  // (AI + voice on, panel closed, not the zero-send path) moves ENTRY
-  // (the mode choice, VAL-VJS-001) → QUICK QUESTIONS (the requirements
-  // engine's computed cards — only while any are pending and not yet
-  // moved past) → TALK (the clean transcript stage, VAL-VJS-002) →
-  // RESULTS the moment the deterministic engine reports no unanswered
-  // question left (state.complete — the auto-advance, VAL-VJS-003).
-  // A zero-pending visitor (nothing left for the requirements engine to
-  // ask) passes straight through to the talk stage — the quick-questions
-  // stage is never shown empty. Every non-voice path (consent panel
-  // open, zero-send, ai-only typed) keeps the single-scroll layout
-  // untouched — with consent declined the deterministic wizard covers
-  // the quick questions among its questions and reaches every section
-  // (VAL-QQ-010: refusal never blocks; the wizard makes zero model
-  // sends).
+  // The voice journey (VAL-VJS-001..004 + VAL-QQ-002 + VAL-INC-001) —
+  // the full five-stage flow: ENTRY (the mode choice, VAL-VJS-001) →
+  // QUICK QUESTIONS (the requirements engine's computed cards — only
+  // while any are pending and not yet moved past) → TALK (the clean
+  // transcript stage, VAL-VJS-002) → INCOME (the income-capture stage —
+  // exactly two real source cards, manual + tax-return upload) → RESULTS
+  // (VAL-VJS-003). The auto-advance's "complete" is REDEFINED DELIBERATELY
+  // (VAL-QQ-011, milestone income-capture): results = intake complete
+  // (state.complete — the engine's every-visible-question-answered) AND
+  // income handled (state.income.handled — the income stage's own paths
+  // captured or confirmed income at least once). So a session whose talk
+  // stage completes lands on the INCOME stage first; results becomes
+  // reachable only after the person confirms or types their income there;
+  // no session reaches results with income unresolved, and no session is
+  // dead-ended (the manual card is always available — a rough idea is
+  // okay). A zero-pending quick-questions visitor passes straight through
+  // to the talk stage — that stage is never shown empty. Every non-voice
+  // path (consent panel open, zero-send, ai-only typed) keeps the
+  // single-scroll layout untouched — with consent declined the
+  // deterministic wizard covers the quick questions AND the income
+  // questions among its questions and reaches every section (VAL-QQ-010:
+  // refusal never blocks; the wizard makes zero model sends).
   const voiceConsented =
     !panelOpen && !zeroSend && aiSharingOn && voiceSharingOn;
   const journeyComplete = state?.complete ?? false;
+  const incomeHandled = state?.income.handled ?? false;
   const quickQuestionsPending =
     (state?.quickQuestions.remainingCount ?? 0) > 0;
-  const resultsStage = voiceConsented && journeyComplete;
-  const entryStage = voiceConsented && entryMode === null && !journeyComplete;
+  const resultsStage = voiceConsented && journeyComplete && incomeHandled;
+  const entryStage = voiceConsented && entryMode === null && !resultsStage;
   const quickQuestionsStage =
     voiceConsented &&
     entryMode !== null &&
     !journeyComplete &&
     quickQuestionsPending &&
     !quickQuestionsDismissed;
+  const incomeStage =
+    voiceConsented && entryMode !== null && journeyComplete && !incomeHandled;
   const talkStage =
     voiceConsented &&
     entryMode !== null &&
@@ -503,13 +511,16 @@ export function ConversationChat() {
 
   // Surface conditions (the two-mode rule, VAL-NCF-002): mode A shows no
   // typing at all; mode B offers the switch at any point; the typed form
-  // carries the ai-only, switched, and mic-fallback cases.
+  // carries the ai-only, switched, and mic-fallback cases. The income
+  // stage renders neither (the conversation is complete there; its own
+  // cards are the surface).
   const voiceSessionSurface = talkStage && sessionOn && !typingMode;
   const typedSurface =
     !panelOpen &&
     !zeroSend &&
     aiSharingOn &&
     !resultsStage &&
+    !incomeStage &&
     (!voiceSharingOn || typingMode || micBlocked);
 
   // Auto-scroll (VAL-FIX-002): the talk-stage transcript is a
@@ -626,6 +637,53 @@ export function ConversationChat() {
     setDraftAi(receipt?.ai ?? false);
     setDraftVoice(receipt?.voice ?? false);
     setReopened(true);
+  }
+
+  // Whether this fresh state leaves income handled — the results gate's
+  // second conjunct (VAL-QQ-011). Module-level truth, no closure capture.
+  function incomeHandledNow(state: IntakeClientState): boolean {
+    return state.income.handled;
+  }
+
+  // The results stage's spoken wrap-up (VAL-VJS-003), moved here from the
+  // completion turn by the income-capture redefinition: results arrives
+  // when the INCOME stage completes (the completion turn now hands off to
+  // the income stage), so the wrap-up speaks at the actual hand-off. Local
+  // speech only (UI copy, not an assistant turn — the speak route is not
+  // involved), bounded exactly as before: speechSynthesis quirks must
+  // never leave the interaction unsettled.
+  async function speakResultsWrapUp(): Promise<void> {
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        const spoke = queueSpeech(RESULTS_WRAP_UP, undefined, resolve);
+        if (!spoke) {
+          resolve();
+        }
+      }),
+      new Promise<void>((resolve) =>
+        setTimeout(
+          resolve,
+          Math.max(5_000, 2_000 + RESULTS_WRAP_UP.length * 80),
+        ),
+      ),
+    ]);
+  }
+
+  // The income stage's fresh-state application (its saves and confirms
+  // flow through here): when the income gate turns handled, the journey
+  // hands off to results — with the spoken wrap-up when voice is on.
+  async function applyIncomeState(fresh: IntakeClientState): Promise<void> {
+    const wasHandled = state?.income.handled ?? false;
+    setState(fresh);
+    if (!wasHandled && fresh.income.handled) {
+      setNotice("Your income step is complete. Your results are ready.");
+      if (voiceSharingOn) {
+        sessionRef.current?.hold();
+        playbackHoldRef.current = true;
+        setVoicePhase("speaking");
+        await speakResultsWrapUp();
+      }
+    }
   }
 
   async function speakReply(turnId: string, subtitle: string): Promise<void> {
@@ -751,7 +809,9 @@ export function ConversationChat() {
     setNotice(
       data.nextQuestionId
         ? "The assistant asked the next question."
-        : "Your conversation is complete. Your results are ready.",
+        : incomeHandledNow(data.state)
+          ? "Your conversation is complete. Your results are ready."
+          : "Your conversation is complete. One more step: your income details.",
     );
     if (spoken && voiceSharingOn) {
       // The reply is about to speak: suspend capture FIRST, so the
@@ -770,34 +830,21 @@ export function ConversationChat() {
       setVoicePhase("speaking");
       await speakReply(data.assistantTurnId, data.assistantReply);
     }
-    // The auto-advance (VAL-VJS-003): when the deterministic engine has no
-    // unanswered question left, speak the short wrap-up and hand off to
-    // the results stage — no additional form clicks (the results render
-    // from state.complete itself). The wrap-up speaks locally (no send):
-    // it is UI copy, not an assistant turn, so the speak route — which
-    // speaks stored turns by id — is not involved. Gated on the VOICE
-    // journey: an ai-only typed completion never hears audio (and its
-    // layout is the single-scroll one, not the results stage).
+    // The auto-advance (VAL-VJS-003 + the income-capture redefinition,
+    // VAL-QQ-011): the completed turn hands the journey to the INCOME
+    // stage (results = intake complete AND income handled), so the spoken
+    // wrap-up waits for the income stage's completion — the income stage's
+    // save handler speaks it when the fresh state turns results-reachable
+    // (speakResultsWrapUp). The conversation-engine's provenances can
+    // never satisfy the income gate (user_supplied/ai_drafted only), so a
+    // completion turn never lands on results directly.
     if (data.state.complete && !wasComplete && voiceSharingOn && entryMode !== null) {
-      // Same echo-proof for the spoken wrap-up, and it is AWAITED: the
-      // turn settles only after the wrap-up finishes playing, so the
-      // settled cleanup's resume really starts after the audio (the
-      // journey-complete effect then ends the session). The wait is
-      // bounded — speechSynthesis quirks must never leave the turn
-      // unsettled (claude-review round).
+      // The echo-proof holds while the reply and the next stage's arrival
+      // settle: the turn is held open (the settled cleanup resumes
+      // listening only when the turn settles — and the journey-complete
+      // effect ends the session once intake is complete).
       sessionRef.current?.hold();
       playbackHoldRef.current = true;
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          const spoke = queueSpeech(RESULTS_WRAP_UP, undefined, resolve);
-          if (!spoke) {
-            resolve();
-          }
-        }),
-        new Promise<void>((resolve) =>
-          setTimeout(resolve, Math.max(5_000, 2_000 + RESULTS_WRAP_UP.length * 80)),
-        ),
-      ]);
     }
   }
 
@@ -1237,9 +1284,11 @@ export function ConversationChat() {
             ? "talk"
             : quickQuestionsStage
               ? "quick-questions"
-              : entryStage
-                ? "entry"
-                : undefined
+              : incomeStage
+                ? "income"
+                : entryStage
+                  ? "entry"
+                  : undefined
       }
       // The frame's inner flow (VAL-FIX-006): the frame spans edge-to-edge
       // and this root carries the frame's side inset (32px on wide
@@ -1297,11 +1346,12 @@ export function ConversationChat() {
 
       {/* The transcript lives on the TALK stage (VAL-VJS-002). The entry
       stage is the clean mode-choice screen, the quick-questions stage the
-      engine's question cards (VAL-QQ-002), and the results stage replaces
-      the conversation with the handoff — per the approved frames. The talk
+      engine's question cards (VAL-QQ-002), the income stage its two source
+      cards (VAL-INC-001/002), and the results stage replaces the
+      conversation with the handoff — per the approved frames. The talk
       stage splits the stream with the "Coming Together" sidebar
       (VAL-VJS2-001); the typed paths keep today's single column. */}
-      {!entryStage && !resultsStage && !quickQuestionsStage ? (
+      {!entryStage && !resultsStage && !quickQuestionsStage && !incomeStage ? (
         <div
           className={
             talkStage
@@ -1489,6 +1539,27 @@ export function ConversationChat() {
         </div>
       ) : null}
 
+      {/* The INCOME stage (VAL-INC-001/002): the journey's fourth stage,
+      after the talk stage's completion and before results — exactly two
+      real source cards (type it in yourself, or upload your tax return)
+      and no dead ends. Its saves apply the routes' fresh state through
+      applyIncomeState, which hands the journey to the results stage when
+      the income gate turns handled (VAL-QQ-011's deliberate redefinition).
+      The stage shares the literal Lovable grid and the Coming Together
+      rail. */}
+      {incomeStage && state ? (
+        <div className={STAGE_GRID_CLASS}>
+          <IncomeStage
+            state={state}
+            onStateChange={(fresh) => {
+              void applyIncomeState(fresh);
+            }}
+            onNotice={setNotice}
+          />
+          <ComingTogether state={state} stage="income" />
+        </div>
+      ) : null}
+
       {voiceSessionSurface ? (
         <div
           data-voice-bottom
@@ -1658,7 +1729,7 @@ export function ConversationChat() {
           &ldquo;Your privacy choices&rdquo;, or just type above.
         </p>
       ) : null}
-      {micBlocked && !panelOpen && aiSharingOn && !resultsStage ? (
+      {micBlocked && !panelOpen && aiSharingOn && !resultsStage && !incomeStage ? (
         <p
           data-mic-blocked-guidance
           className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"
