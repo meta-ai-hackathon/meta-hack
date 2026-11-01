@@ -140,7 +140,7 @@ function sleep(ms) {
  * (HACK-81). No session data rides this header; the receipt names the
  * decision only.
  */
-function consentHeaderValue() {
+export function consentHeaderValue() {
   // Receipt v2 (41cd06c bound the receipt to a providerId; the server
   // fails closed on anything older): the AI toggle on, voice off — the
   // same grant the consent surface's typed path gives.
