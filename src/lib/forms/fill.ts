@@ -77,8 +77,18 @@ function isWinAnsiSafe(text: string): boolean {
 
 /** Bound for one in-request form answer (the review view's text inputs). */
 export const MAX_FORM_ANSWER_LENGTH = 200;
-/** Bound for how many in-request form answers one fill may carry. */
-export const MAX_FORM_VALUES = 50;
+/**
+ * Bound for how many in-request form answers one fill may carry.
+ *
+ * Full-form mapping (VAL-FIX-007, owner decision "map every answerable
+ * field across all 21 pages"): the person's review-and-complete step at
+ * fill time is the answer carrier for every mapped field the interview
+ * doesn't collect — on the real DHB-5200 that is 239 of the template's
+ * 614 fields, five times this cap's original 50. The bound covers every
+ * field the committed template has (614) with headroom; the pinned
+ * boundary lives in fill.test.ts.
+ */
+export const MAX_FORM_VALUES = 650;
 
 /**
  * Validate the in-request form values that ride the fill request: keys must
