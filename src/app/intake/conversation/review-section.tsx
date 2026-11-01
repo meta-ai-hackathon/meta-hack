@@ -459,13 +459,14 @@ export function ReviewSectionContent({
           <p data-coverage-counts className="text-sm text-muted">
             The application has {data.coverage.counts.total} fillable boxes
             and lines. {data.coverage.counts.mapped} of them take your
-            answers, and the rest stay blank on purpose:{" "}
+            answers. The rest stay blank on the downloaded form:{" "}
             {data.coverage.counts.not_collected_by_interview} this
-            conversation doesn&apos;t collect,{" "}
-            {data.coverage.counts.optional_unanswered} optional,{" "}
-            {data.coverage.counts.agency_use_only} for the agency
-            to complete, and {data.coverage.counts.duplicate_structural}{" "}
-            printed lines that were never answer boxes.
+            conversation doesn&apos;t collect — complete those by hand if
+            they apply to you; {data.coverage.counts.optional_unanswered}{" "}
+            are optional; {data.coverage.counts.agency_use_only} are for the
+            agency to complete; and{" "}
+            {data.coverage.counts.duplicate_structural} are printed lines
+            that were never answer boxes.
           </p>
           {blankCoverageFields(data.coverage).length > 0 ? (
             <details className="rounded-xl border border-surface-border bg-surface p-4 text-sm">

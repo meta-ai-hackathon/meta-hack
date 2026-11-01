@@ -6932,7 +6932,7 @@
       "name": "undefined_89",
       "type": "text",
       "label": "None",
-      "question": "About how much no other income did Person 4 get this month? (The amount box of the other-income table's None row; enter 0 if none.)",
+      "question": "What goes in this box when the None row is checked - usually 0, since None means no other income to list? (The amount box of the other-income table's None row, question 32.)",
       "spec_question_id": null,
       "pii_likely": true,
       "required": false,

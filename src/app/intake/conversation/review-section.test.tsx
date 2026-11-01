@@ -209,6 +209,10 @@ describe("ReviewSectionContent structure", () => {
     expect(html).toContain("data-field-coverage");
     expect(html).toContain("571 fillable boxes and lines");
     expect(html).toContain("355 of them take your answers");
+    // The not-collected rows are an instruction, not a shrug: they stay
+    // blank on the download so the person completes them by hand
+    // (claude-review P2 on this PR).
+    expect(html).toContain("complete those by hand if they apply to you");
     // The blank-by-disposition rows render with their reasons, so nothing
     // is silently unmapped.
     expect(html).toContain("data-coverage-field=");
