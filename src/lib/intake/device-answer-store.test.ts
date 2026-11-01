@@ -277,8 +277,16 @@ describe("several tabs", () => {
     let theirs = 0;
     const racing = memoryKv({
       beforeGuardedWrite: (store) => {
+        // The other tab wrote its own whole pair: a fresh envelope under a
+        // fresh key. Contending on the shared sealing key too (HACK-107
+        // review P1: the key slot is anchored whenever a generated key is
+        // written), not just the envelope.
         theirs += 1;
         store.set(DEVICE_ANSWERS_ENVELOPE_KEY, `sealed1.other-tab-${theirs}.x`);
+        store.set(
+          DEVICE_ANSWERS_CRYPTO_KEY_KEY,
+          crypto.getRandomValues(new Uint8Array(16)),
+        );
       },
     });
     const [record] = fc.sample(markedRecordArb, 1);

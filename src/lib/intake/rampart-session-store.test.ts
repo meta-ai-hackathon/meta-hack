@@ -6,10 +6,13 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceKv, KvGuard } from "../device-kv";
 import {
+  DEVICE_ANSWERS_CRYPTO_KEY_KEY,
+  DEVICE_ANSWERS_ENVELOPE_KEY,
   DEVICE_SESSION_ENVELOPE_KEY,
   purgeDeviceAnswers,
   type DeviceAnswerStoreDeps,
 } from "./device-answer-store";
+import { sealForStorage } from "./client-store";
 import { loadRampartSession, saveRampartSession } from "./rampart-session-store";
 
 function memoryKv(options: { beforeGuardedWrite?: (store: Map<string, unknown>) => void } = {}) {
@@ -45,6 +48,38 @@ function deps(kv: DeviceKv): DeviceAnswerStoreDeps {
 const SERIALIZED = JSON.stringify({ version: 1, entries: [{ token: "[SSN_1]", value: "123-45-6789" }] });
 
 describe("rampart-session-store", () => {
+  it("reuses a stored sealing key instead of rewriting it (HACK-107 review P1)", async () => {
+    // An answers envelope saved first (a wizard answer landing before the
+    // conversation send) owns the shared device key. The session save must
+    // seal under that same key and never touch the key slot, so neither
+    // envelope's key can be orphaned by the other writer.
+    const { kv, store } = memoryKv();
+    const d = deps(kv);
+    const key = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    );
+    const answersSealed = await sealForStorage(
+      JSON.stringify({ records: {} }),
+      key,
+      crypto.subtle,
+    );
+    store.set(DEVICE_ANSWERS_ENVELOPE_KEY, answersSealed);
+    store.set(DEVICE_ANSWERS_CRYPTO_KEY_KEY, key);
+
+    expect(await saveRampartSession(d, SERIALIZED)).toBe("saved");
+    expect(store.get(DEVICE_ANSWERS_CRYPTO_KEY_KEY)).toBe(key);
+    // Both envelopes still open under the one stored key: an overlapping
+    // first save can no longer orphan either writer's envelope.
+    const sessionEnvelope = store.get(DEVICE_SESSION_ENVELOPE_KEY) as string;
+    const { openSealed } = await import("./client-store");
+    expect(await openSealed(sessionEnvelope, key, crypto.subtle)).toBe(SERIALIZED);
+    expect(await openSealed(answersSealed, key, crypto.subtle)).toBe(
+      JSON.stringify({ records: {} }),
+    );
+  });
+
   it("round-trips a saved session exactly", async () => {
     const { kv } = memoryKv();
     const d = deps(kv);
