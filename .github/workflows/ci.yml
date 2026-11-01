@@ -72,6 +72,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # The pinned git-hosted @nationaldesignstudio/rampart dependency builds
+      # its dist through a bun prepack during install (the pnpm-workspace
+      # allowlist grants it), so bun must exist before pnpm install.
+      - uses: oven-sh/setup-bun@v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
