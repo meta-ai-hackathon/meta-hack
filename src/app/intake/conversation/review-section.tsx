@@ -112,6 +112,22 @@ function blankCoverageFields(
   return coverage.fields.filter((field) => field.disposition !== "mapped");
 }
 
+/**
+ * Where to find a blank field on the printed form: "page 16 of the form",
+ * or "pages 16 and 17 of the form" for a multi-page field. The rows'
+ * developer-facing disposition_reason stays in the payload (the
+ * retrievable record) — the applicant-facing list points at the page
+ * instead.
+ */
+function pagePointer(pages: readonly number[]): string {
+  if (pages.length === 1) {
+    return `page ${pages[0]} of the form`;
+  }
+  const head = pages.slice(0, -1).join(", ");
+  const tail = pages[pages.length - 1];
+  return `pages ${head} and ${tail} of the form`;
+}
+
 // An unverified answer must never read as confirmed (honesty spine): its
 // state line says what actually happened and asks for the check, and the
 // status badge beside it repeats "Answered but not verified".
@@ -482,8 +498,8 @@ export function ReviewSectionContent({
                   >
                     <span className="font-medium">{field.question}</span>
                     <span className="text-muted">
-                      {DISPOSITION_COPY[field.disposition] ?? field.disposition}
-                      {field.dispositionReason ? ` — ${field.dispositionReason}` : ""}
+                      {DISPOSITION_COPY[field.disposition] ?? field.disposition}{" "}
+                      — {pagePointer(field.pages)}
                     </span>
                   </li>
                 ))}
