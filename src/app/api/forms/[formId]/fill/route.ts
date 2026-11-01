@@ -59,6 +59,7 @@ export async function POST(
       logInfo("form_fill_route_completed", {
         filledCount: outcome.filled.length,
         toResolveCount: outcome.toResolve.length,
+        conflictCount: outcome.conflicts.length,
       });
 
       return new Response(Buffer.from(outcome.bytes), {

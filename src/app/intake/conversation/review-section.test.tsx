@@ -4,10 +4,12 @@ import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../../../lib/honesty";
 import { getFormRegistryEntry } from "../../../lib/forms/registry";
 import { buildFormFlow } from "../../../lib/forms/flow";
+import { buildDispositionReport } from "../../../lib/forms/disposition";
 import {
   REVIEW_UNAVAILABLE_NOTICE,
   ReviewSection,
   ReviewSectionContent,
+  pagePointer,
 } from "./review-section";
 
 // Review + handoff section tests (Mission v2 M4, BN-21/23/24/25): every
@@ -195,6 +197,58 @@ describe("ReviewSectionContent structure", () => {
     expect(html).toContain("Mecklenburg County DSS");
     expect(html).toContain("NC Medicaid");
     expect(html).toContain("the app never submits for you");
+  });
+
+  it("renders the full-form disposition report when the payload carries it (VAL-FIX-007)", () => {
+    const dhb = getFormRegistryEntry("dhb-5200");
+    const data = { ...reviewData(dhb), coverage: buildDispositionReport(dhb) };
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={data} />),
+    );
+    // The summary arithmetic renders — the honest X-of-Y accounting over
+    // all 21 pages, never a full-coverage claim.
+    expect(html).toContain("data-field-coverage");
+    expect(html).toContain("571 fillable boxes and lines");
+    expect(html).toContain("355 of them take your answers");
+    // The not-collected rows are an instruction, not a shrug: they stay
+    // blank on the download so the person completes them by hand
+    // (claude-review P2 on this PR).
+    expect(html).toContain("complete those by hand if they apply to you");
+    // Each row points at where the box sits on the printed form (the
+    // follow-up P2: an applicant can act on "page 16", not on developer
+    // notes about templates).
+    expect(html).toContain("page 16 of the form");
+    expect(html).not.toContain("the template's tooltip is undefined");
+    expect(html).not.toContain("The form author embedded");
+    // The blank-by-disposition rows render with their class copy, so
+    // nothing is silently unmapped.
+    expect(html).toContain("data-coverage-field=");
+    expect(html).toContain("This conversation doesn't collect it");
+    expect(html).toContain("A printed line, not an answer box");
+    // And the rendered report scans clean of banned claims.
+    expect(findBannedClaims(html)).toEqual([]);
+  });
+
+  it("renders the all-mapped coverage case honestly (nothing skipped)", () => {
+    const data = { ...reviewData(), coverage: buildDispositionReport(ENTRY) };
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={data} />),
+    );
+    expect(html).toContain("data-coverage-all-mapped");
+    expect(html).toContain("nothing was skipped");
+  });
+
+  it("points the blank-field rows at deduped, sorted form pages", () => {
+    // Single page — the common row.
+    expect(pagePointer([16])).toBe("page 16 of the form");
+    // Multi-page: sorted, joined.
+    expect(pagePointer([17, 16])).toBe("pages 16 and 17 of the form");
+    expect(pagePointer([18, 16, 17])).toBe("pages 16, 17 and 18 of the form");
+    // Duplicates collapse (a two-widget field lists its page once).
+    expect(pagePointer([19, 19])).toBe("page 19 of the form");
+    // Empty input — impossible from the committed registry (schema
+    // minItems: 1) — never renders "undefined" at a person.
+    expect(pagePointer([])).toBe("the form");
   });
 
   it("keeps a hierarchical heading outline", () => {

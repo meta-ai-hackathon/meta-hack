@@ -14,6 +14,16 @@ import { DisplayControls } from "./display-controls";
  * huge-text zoom + high contrast) so they are reachable from every page —
  * including the intake, review, consent, and purge surfaces — before any
  * content needs reading.
+ *
+ * The header IS the product frame's header (VAL-FIX-006, the literal
+ * Lovable prototype geometry): the frame spans edge-to-edge — no centered
+ * max-width, no dead gutters — and the header takes the prototype's exact
+ * shape: 84px tall with 24px 36px padding, brand left and controls right.
+ * The height is set in rem (`h-[5.25rem]` = 84px at the default text
+ * size) so the HACK-84 huge-text zoom grows the header WITH its content
+ * instead of clipping it (claude-review P2); the 760px breakpoint rule
+ * drops the paddings to 18px 20px with a 75px height floor (the controls
+ * wrap on phones — the height grows, it never clips).
  */
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -28,7 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         data-app-header
         className="border-b border-surface-border bg-background"
       >
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-6 py-4">
+        <div className="flex min-h-[75px] w-full flex-col justify-center gap-3 px-5 py-[18px] min-[761px]:flex-row min-[761px]:items-center min-[761px]:justify-between min-[761px]:gap-8 min-[761px]:px-9 min-[761px]:py-6 min-[1101px]:h-[5.25rem]">
           <Link
             href="/"
             data-brand-link

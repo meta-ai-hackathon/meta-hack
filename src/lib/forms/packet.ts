@@ -370,5 +370,22 @@ export function provenanceFromFill(
     fieldName: item.fieldName,
     question: item.question,
   }));
+  // The fill-time conflict flags ride the cover too (full-form proof,
+  // VAL-FIX-007): each box of a flagged group is listed among the
+  // still-needed rows, named for what it is — the person resolves the
+  // contradiction before sending. The fill never picked a side, so the
+  // printed form shows the person's own contradictory checks.
+  for (const conflict of fill.conflicts) {
+    const note =
+      conflict.kind === "yes_no"
+        ? "both Yes and No are checked"
+        : "several boxes of one check-one group are checked";
+    for (const fieldName of conflict.fields) {
+      missing.push({
+        fieldName,
+        question: `${conflict.question} (${note} — resolve before sending)`,
+      });
+    }
+  }
   return { provenance, missing };
 }

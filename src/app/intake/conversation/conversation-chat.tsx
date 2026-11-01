@@ -39,7 +39,7 @@ import { ModeChoice, type ConversationEntryMode } from "./mode-choice";
 import { PurgeSection } from "./purge-section";
 import { PresenceOrb } from "./presence-orb";
 import { ReviewSection } from "./review-section";
-import { VoiceDeck } from "./voice-deck";
+import { PauseIcon, PlayIcon, VoiceDeck } from "./voice-deck";
 
 // The conversational intake chat (Mission v2 M1 text, M2 voice, M5 consent,
 // and the HACK-106 natural-conversation rebuild). Two voice entry modes
@@ -1149,7 +1149,13 @@ export function ConversationChat() {
       data-journey-stage={
         resultsStage ? "results" : talkStage ? "talk" : entryStage ? "entry" : undefined
       }
-      className="flex flex-col gap-6"
+      // The frame's inner flow (VAL-FIX-006): the frame spans edge-to-edge
+      // and this root carries the frame's side inset (32px on wide
+      // viewports, 20px at the 760px rule). The talk-stage grid and the
+      // bottom session deck break OUT of this inset with matched negative
+      // margins and carry the prototype's own paddings, so both span the
+      // full frame width exactly.
+      className="flex w-full flex-1 flex-col gap-6 px-5 pt-6 pb-8 min-[761px]:px-8 min-[761px]:pb-10"
     >
       <p className="text-sm text-muted">
         Prefer step-by-step questions?{" "}
@@ -1206,7 +1212,17 @@ export function ConversationChat() {
         <div
           className={
             talkStage
-              ? "flex flex-col gap-6 md:grid md:grid-cols-[minmax(0,1fr)_20rem] md:items-start"
+              ? // The prototype's stage grid, copied literally
+              // (VAL-FIX-006): `grid-template-columns: minmax(0,1fr) 195px`,
+              // `padding: 35px 32px 20px`, `gap: 30px` — the conversation
+              // column takes all remaining frame width, the sidebar is a
+              // fixed 195px right rail. The matched negative margins break
+              // the grid out of the frame's side inset so the grid ELEMENT
+              // spans the full frame width and carries those paddings
+              // itself. Breakpoints per the prototype: one column at
+              // 1100px (the rail hides), block with 28px 20px paddings at
+              // 760px.
+              "-mx-5 px-5 pt-7 pb-7 min-[761px]:-mx-8 min-[761px]:grid min-[761px]:grid-cols-[minmax(0,1fr)] min-[761px]:gap-[30px] min-[761px]:px-8 min-[761px]:pt-[35px] min-[761px]:pb-5 min-[1101px]:grid-cols-[minmax(0,1fr)_195px]"
               : undefined
           }
         >
@@ -1237,7 +1253,15 @@ export function ConversationChat() {
             page. Focusable with a label so keyboard and assistive tech can
             operate the scrollbar (a11y baseline); the section's heading
             association and the list's data attribute are untouched. The
-            single-scroll paths render the same list without the pane. */}
+            single-scroll paths render the same list without the pane.
+            `relative` makes the pane the containing block for the turns'
+            absolutely-positioned sr-only labels — without it their
+            containing block is the document root, they escape the
+            overflow clip, and every turn grows the page itself.
+            The cap is the prototype's `.voice-scroll` (VAL-FIX-006):
+            max-height 620px, overflow-y auto — bounded by 60vh on phones
+            (below 761px) so the session deck's controls stay on screen
+            once the transcript fills (claude-review P3). */}
             <div
               ref={talkStage ? attachPaneRef : undefined}
               data-transcript-pane={talkStage ? "true" : undefined}
@@ -1247,7 +1271,7 @@ export function ConversationChat() {
               onScroll={talkStage ? handlePaneScroll : undefined}
               className={
                 talkStage
-                  ? "h-[min(60vh,28rem)] overflow-y-auto overscroll-contain rounded-2xl border border-surface-border p-4"
+                  ? "relative max-h-[min(60vh,620px)] overflow-y-auto overscroll-contain min-[761px]:max-h-[620px]"
                   : undefined
               }
             >
@@ -1346,66 +1370,100 @@ export function ConversationChat() {
       ) : null}
 
       {voiceSessionSurface ? (
-        <VoiceDeck
-          phase={voicePhase}
-          sessionState={paused ? "paused" : "active"}
-          caption={
-            <>
-              <VoiceInterimState phase={voicePhase} />
-              {builtInVoiceFallback ? (
-                <p
-                  data-voice-fallback-badge
-                  className="rounded-full border border-amber-ink px-3 py-1 text-sm font-medium text-amber-ink"
-                >
-                  Hearing the built-in voice — the assistant&apos;s usual voice
-                  is unavailable right now.
-                </p>
-              ) : null}
-            </>
-          }
+        <div
+          data-voice-bottom
+          // The bottom session deck spans the FULL frame width
+          // (VAL-FIX-006): the matched negative margins break out of the
+          // frame's side inset and the wrapper carries the prototype's
+          // `padding: 15px 32px 0` (10px 16px at the 760px rule).
+          className="-mx-5 px-4 pt-[10px] min-[761px]:-mx-8 min-[761px]:px-8 min-[761px]:pt-[15px]"
         >
-          {paused ? (
-            <button
-              type="button"
-              data-voice-resume
-              onClick={resumeSession}
-              // A resume while a turn is in flight would start a second
-              // recorder cycle alongside the turn's own (claude-review
-              // P2): resume waits for the turn to settle.
-              disabled={busy}
-              className="min-h-12 flex shrink-0 items-center gap-2 rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Resume listening
-            </button>
-          ) : (
-            <button
-              type="button"
-              data-voice-pause
-              onClick={holdSession}
-              disabled={busy}
-              className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft disabled:opacity-50"
-            >
-              Pause
-            </button>
-          )}
-          {entryMode === "voice-plus-typing" ? (
-            <button
-              type="button"
-              data-switch-to-typing
-              onClick={switchToTyping}
-              className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal bg-surface px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft"
-            >
-              Switch to typing
-            </button>
-          ) : null}
-          <span className="text-sm text-muted">
-            {paused
-              ? "Paused."
-              : entryMode === "voice-only"
-                ? "Speak freely — the assistant hears when you finish a thought."
-                : "Speak freely; switch to typing whenever you like."}
-          </span>
-        </VoiceDeck>
+          <VoiceDeck
+            phase={voicePhase}
+            sessionState={paused ? "paused" : "active"}
+            caption={
+              <>
+                <VoiceInterimState phase={voicePhase} />
+                {builtInVoiceFallback ? (
+                  <p
+                    data-voice-fallback-badge
+                    className="rounded-full border border-amber-ink px-3 py-1 text-sm font-medium text-amber-ink"
+                  >
+                    Hearing the built-in voice — the assistant&apos;s usual voice
+                    is unavailable right now.
+                  </p>
+                ) : null}
+              </>
+            }
+            controls={
+              paused ? (
+                <button
+                  type="button"
+                  data-voice-resume
+                  onClick={resumeSession}
+                  // A resume while a turn is in flight would start a second
+                  // recorder cycle alongside the turn's own (claude-review
+                  // P2): resume waits for the turn to settle.
+                  disabled={busy}
+                  aria-label="Resume listening"
+                  title="Resume listening"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-teal-deep text-teal-contrast hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <PlayIcon />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-voice-pause
+                  onClick={holdSession}
+                  disabled={busy}
+                  aria-label="Pause"
+                  title="Pause"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-teal text-teal hover:bg-teal-soft disabled:opacity-50"
+                >
+                  <PauseIcon />
+                </button>
+              )
+            }
+            tools={
+              <>
+                <span className="text-sm text-muted">
+                  {paused
+                    ? "Paused."
+                    : entryMode === "voice-only"
+                      ? "Speak freely — the assistant hears when you finish a thought."
+                      : "Speak freely; switch to typing whenever you like."}
+                </span>
+                {entryMode === "voice-plus-typing" ? (
+                  <button
+                    type="button"
+                    data-switch-to-typing
+                    onClick={switchToTyping}
+                    className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal bg-surface px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft"
+                  >
+                    Switch to typing
+                  </button>
+                ) : null}
+              </>
+            }
+          />
+          {/* The honesty strip (VAL-FIX-006): the prototype frame's bottom
+          honesty strip, bleeding to the frame edges (`margin: 0 -32px`;
+          -16px at the 760px rule). The words are prod's own honesty
+          sentence — the layout is copied, the copy is not. Text size is
+          rem-based (never a fixed px) so the huge-text zoom scales it,
+          muted per the de-emphasized strip look. */}
+          <div
+            data-honesty-strip
+            className="-mx-4 flex items-center justify-center gap-2 border-t border-dashed border-surface-border px-5 py-4 text-sm text-muted min-[761px]:-mx-8"
+          >
+            <span
+              aria-hidden="true"
+              className="h-[7px] w-[7px] shrink-0 border border-foreground"
+            />
+            <span>Nothing is submitted — you decide what happens next.</span>
+          </div>
+        </div>
       ) : null}
 
       {typedSurface ? (

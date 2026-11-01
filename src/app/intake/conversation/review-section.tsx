@@ -31,6 +31,28 @@ interface ReviewFieldView {
   readonly value?: string;
 }
 
+/** The disposition report's per-field row (mirrors the review route payload). */
+interface CoverageFieldView {
+  readonly fieldName: string;
+  readonly question: string;
+  readonly pages: readonly number[];
+  readonly disposition: string;
+  readonly dispositionReason?: string;
+}
+
+/** The full-form disposition report (mirrors the review route payload). */
+interface CoverageReportView {
+  readonly counts: {
+    readonly mapped: number;
+    readonly not_collected_by_interview: number;
+    readonly optional_unanswered: number;
+    readonly agency_use_only: number;
+    readonly duplicate_structural: number;
+    readonly total: number;
+  };
+  readonly fields: readonly CoverageFieldView[];
+}
+
 interface ReviewDataView {
   readonly hasSession: boolean;
   readonly form: {
@@ -43,6 +65,12 @@ interface ReviewDataView {
   readonly fields: readonly ReviewFieldView[];
   readonly toResolve: readonly { fieldName: string; question: string }[];
   readonly counts: { prefilled: number; asked: number; notApplicable: number };
+  /**
+   * The full-form disposition report (VAL-FIX-007): every field on the
+   * template with its reviewed disposition, so nothing is silently
+   * unmapped. Optional so older payloads keep rendering.
+   */
+  readonly coverage?: CoverageReportView;
   readonly sessionStatus: string;
   readonly portalLinks: readonly { label: string; url: string }[];
   readonly steps: readonly { title: string; detail: string }[];
@@ -68,6 +96,44 @@ const STATE_COPY: Readonly<Record<ReviewFieldView["state"], string>> = {
   asked: "Still needed",
   not_applicable: "Not needed for you",
 };
+
+/** Plain-language copy for each disposition bucket (VAL-FIX-007 report). */
+const DISPOSITION_COPY: Readonly<Record<string, string>> = {
+  not_collected_by_interview: "This conversation doesn't collect it",
+  optional_unanswered: "Optional — left blank",
+  agency_use_only: "For the agency to complete",
+  duplicate_structural: "A printed line, not an answer box",
+};
+
+/** The report's non-mapped rows — the ones the details list explains. */
+function blankCoverageFields(
+  coverage: CoverageReportView,
+): CoverageReportView["fields"] {
+  return coverage.fields.filter((field) => field.disposition !== "mapped");
+}
+
+/**
+ * Where to find a blank field on the printed form: "page 16 of the form",
+ * or "pages 16 and 17 of the form" for a multi-page field. Deduped and
+ * sorted first (a two-widget field lists its page once, in order); an
+ * empty list — impossible from the committed registry (schema minItems:
+ * 1) but never applicant-hostile — renders neutral copy. The rows'
+ * developer-facing disposition_reason stays in the payload (the
+ * retrievable record) — the applicant-facing list points at the page
+ * instead.
+ */
+export function pagePointer(pages: readonly number[]): string {
+  const ordered = [...new Set(pages)].sort((a, b) => a - b);
+  if (ordered.length === 0) {
+    return "the form";
+  }
+  if (ordered.length === 1) {
+    return `page ${ordered[0]} of the form`;
+  }
+  const head = ordered.slice(0, -1).join(", ");
+  const tail = ordered[ordered.length - 1];
+  return `pages ${head} and ${tail} of the form`;
+}
 
 // An unverified answer must never read as confirmed (honesty spine): its
 // state line says what actually happened and asks for the check, and the
@@ -403,6 +469,57 @@ export function ReviewSectionContent({
           ))}
         </ul>
       </section>
+
+      {data.coverage ? (
+        <section
+          aria-labelledby="coverage-heading"
+          data-field-coverage
+          className="flex flex-col gap-2"
+        >
+          <h2 id="coverage-heading" className="font-display text-xl font-bold">
+            Every field, accounted for
+          </h2>
+          <p data-coverage-counts className="text-sm text-muted">
+            The application has {data.coverage.counts.total} fillable boxes
+            and lines. {data.coverage.counts.mapped} of them take your
+            answers. The rest stay blank on the downloaded form:{" "}
+            {data.coverage.counts.not_collected_by_interview} this
+            conversation doesn&apos;t collect — complete those by hand if
+            they apply to you; {data.coverage.counts.optional_unanswered}{" "}
+            are optional; {data.coverage.counts.agency_use_only} are for the
+            agency to complete; and{" "}
+            {data.coverage.counts.duplicate_structural} are printed lines
+            that were never answer boxes.
+          </p>
+          {blankCoverageFields(data.coverage).length > 0 ? (
+            <details className="rounded-xl border border-surface-border bg-surface p-4 text-sm">
+              <summary className="cursor-pointer font-medium">
+                Why each blank field stays blank
+              </summary>
+              <ul className="mt-3 flex flex-col gap-2">
+                {blankCoverageFields(data.coverage).map((field) => (
+                  <li
+                    key={field.fieldName}
+                    data-coverage-field={field.fieldName}
+                    className="flex flex-col gap-0.5"
+                  >
+                    <span className="font-medium">{field.question}</span>
+                    <span className="text-muted">
+                      {DISPOSITION_COPY[field.disposition] ?? field.disposition}{" "}
+                      — {pagePointer(field.pages)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+            <p className="text-sm text-muted" data-coverage-all-mapped>
+              Every fillable box on this form takes an answer — nothing was
+              skipped.
+            </p>
+          )}
+        </section>
+      ) : null}
 
       {data.toResolve.length > 0 ? (
         <section
