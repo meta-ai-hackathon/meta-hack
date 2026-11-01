@@ -71,6 +71,13 @@ export function buildFormFlow(
   const counts = { prefilled: 0, asked: 0, notApplicable: 0 };
 
   for (const field of entry.fields) {
+    if (field.disposition !== "mapped") {
+      // A reviewed non-mapped disposition never joins the asked flow: the
+      // person is never asked what the interview doesn't collect. (Part 3
+      // of the full-form mapping makes the full disposition report
+      // retrievable on the review surface.)
+      continue;
+    }
     if (field.specQuestionId !== null) {
       const question =
         Object.hasOwn(QUESTION_BY_ID, field.specQuestionId)

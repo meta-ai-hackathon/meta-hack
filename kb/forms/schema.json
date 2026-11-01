@@ -82,6 +82,7 @@
           "label",
           "question",
           "spec_question_id",
+          "disposition",
           "pii_likely",
           "required",
           "pages"
@@ -108,6 +109,36 @@
           "spec_question_id": {
             "description": "Question-spec id this field pre-fills from, or null when the form collects something the spec does not ask (asked in the flow, stored as a form answer).",
             "type": ["string", "null"]
+          },
+          "disposition": {
+            "description": "The field's reviewed disposition (full-form mapping, VAL-FIX-007): mapped = takes a person answer; every other value is the honest reason the pipeline leaves it blank, carried in disposition_reason.",
+            "enum": [
+              "mapped",
+              "not_collected_by_interview",
+              "optional_unanswered",
+              "agency_use_only",
+              "duplicate_structural"
+            ]
+          },
+          "disposition_reason": {
+            "description": "The honest per-field reason a non-mapped disposition leaves the field blank. Required whenever disposition is not \"mapped\".",
+            "type": "string",
+            "minLength": 1
+          },
+          "export_value": {
+            "description": "A mapped checkbox's on-state export value as discovered in the template (the true side of its true/false semantics).",
+            "type": "string",
+            "minLength": 1
+          },
+          "export_values": {
+            "description": "A mapped yes/no radio pair's discovered export values (the checked/unchecked sides).",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["yes", "no"],
+            "properties": {
+              "yes": { "type": "string", "minLength": 1 },
+              "no": { "type": "string", "minLength": 1 }
+            }
           },
           "display_format": {
             "description": "Optional printed-date format for a mapped date question (e.g. \"mm/dd/yyyy\"): ISO yyyy-mm-dd answers render with the mm/dd/yyyy tokens replaced by the zero-padded date parts, in the format the form itself prints.",
@@ -138,7 +169,21 @@
               "max_width": { "type": "number" }
             }
           }
-        }
+        },
+        "if": {
+          "properties": {
+            "disposition": {
+              "enum": [
+                "not_collected_by_interview",
+                "optional_unanswered",
+                "agency_use_only",
+                "duplicate_structural"
+              ]
+            }
+          },
+          "required": ["disposition"]
+        },
+        "then": { "required": ["disposition_reason"] }
       }
     }
   }
