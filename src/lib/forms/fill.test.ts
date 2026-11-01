@@ -14,6 +14,7 @@ import {
   collectFillValues,
   fillForSession,
   fillFormPdf,
+  MAX_FORM_VALUES,
   parseFormValues,
   skippedFieldNames,
   type FillValue,
@@ -418,5 +419,38 @@ describe("parseFormValues (in-request form answers)", () => {
     expect(() => parseFormValues(ENTRY, ["not", "an", "object"])).toThrow();
     expect(() => parseFormValues(ENTRY, "a string")).toThrow();
     expect(parseFormValues(ENTRY, null)).toEqual({});
+  });
+
+  // Full-form mapping (VAL-FIX-007, owner decision): the review-and-
+  // complete step carries an in-request answer for EVERY mapped field of
+  // the real DHB-5200 (the full-form persona rides the fill route) — the
+  // old cap (50) was below the form's mapped-field count, so the cap now
+  // covers every field the committed template has (614) with headroom.
+  // Pinned here so the number is a reviewed decision, not a magic value.
+  it("carries a full-form persona: the cap covers every mapped field with headroom", () => {
+    expect(MAX_FORM_VALUES).toBe(650);
+    // Boundary behavior on a synthetic spec-null entry: 650 in-request
+    // answers parse; 651 is a taxonomy error.
+    const wideEntry = {
+      ...ENTRY,
+      fields: Array.from({ length: 651 }, (_, index) => ({
+        name: `persona_field_${index}`,
+        type: "text" as const,
+        label: `Persona field ${index}`,
+        question: `Synthetic persona field ${index} for the in-request cap boundary (not committed data).`,
+        specQuestionId: null,
+        piiLikely: true,
+        required: false,
+        pages: [1],
+        disposition: "mapped" as const,
+      })),
+    };
+    const values = Object.fromEntries(
+      Array.from({ length: 650 }, (_, index) => [`persona_field_${index}`, "x"]),
+    );
+    expect(Object.keys(parseFormValues(wideEntry, values))).toHaveLength(650);
+    expect(() =>
+      parseFormValues(wideEntry, { ...values, persona_field_650: "x" }),
+    ).toThrow();
   });
 });

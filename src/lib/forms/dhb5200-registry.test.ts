@@ -9,6 +9,7 @@ import type { FormFieldDisposition, FormRegistryEntry, FormRegistryField } from 
 import { buildFormFlow } from "./flow";
 import { QUESTION_BY_ID } from "../intake/spec";
 import { setLogSink } from "../telemetry";
+import fullPersonaJson from "./fixtures/dhb5200-full-persona.json";
 
 // The REAL pilot form (Mission v2.1 M6, VAL-PILOTREAL-002): the committed
 // DHB-5200 bytes parse honestly — AcroForm discovery first; the registry
@@ -46,6 +47,22 @@ function fillValueFor(display: string): FillValue {
 const STATE_OPTION_LABEL = QUESTION_BY_ID.state.options!.find(
   (option) => option.value === "NC",
 )!.label;
+
+/**
+ * The full-form persona's in-request answers (fixture data, NOT product
+ * data): a clearly-synthetic persona answering every mapped field the
+ * spec doesn't ask, keyed by the DHB-5200's real AcroForm field names —
+ * exactly what the review-and-complete step sends with the fill request.
+ */
+const DHB5200_FULL_PERSONA = fullPersonaJson as Record<string, string>;
+
+/**
+ * The residency field's name carries the form's own printed wording
+ * (derived from the spec's option label, the way this file derives the
+ * state display — the file sits inside src/lib/forms where the pilot-name
+ * scan runs).
+ */
+const RESIDENCY_P3_FIELD = `13 Is PERSON 3 a resident of ${STATE_OPTION_LABEL}`;
 
 beforeAll(() => {
   setLogSink(() => undefined);
@@ -251,12 +268,15 @@ describe("the real DHB-5200 form fixture", () => {
   it("the expanded flow view asks only mapped fields", () => {
     const registry = entry();
     const view = buildFormFlow(registry, {});
-    // 205 registry fields, 11 mapped: the dispositioned fields (not
+    // 451 registry fields after part 2 (pages 9-15), 239 mapped: every
+    // person-answerable field on pages 9-15 is now an in-request answer
+    // carrier (the owner's full-form mapping decision), so the review-and-
+    // complete step asks it at fill time; the dispositioned fields (not
     // collected / optional / agency-use / structural) never join the asked
-    // flow - part 3 of the mapping makes the full disposition report
-    // retrievable; the flow asks only what the person answers.
-    expect(registry.fields.length).toBe(205);
-    expect(view.fields.length).toBe(11);
+    // flow. Part 3 of the mapping makes the full disposition report
+    // retrievable and covers pages 16-21.
+    expect(registry.fields.length).toBe(451);
+    expect(view.fields.length).toBe(239);
     for (const field of view.fields) {
       const source = registry.fields.find((f) => f.name === field.fieldName);
       expect(source?.disposition).toBe("mapped");
@@ -331,12 +351,24 @@ describe("the real DHB-5200 form fixture", () => {
     expect(Object.keys(persona).sort()).toEqual(mappedOnPages);
 
     const outcome = await fillFormPdf(realBytes(), registry, persona);
-    // The ONLY mapped field outside pages 1-8 is the signature (page 20) —
-    // the person's fresh typed input, never a persona answer. Everything
-    // else in the persona filled.
-    expect(outcome.toResolve.map((item) => item.fieldName)).toEqual([
+    // Everything in the persona filled; the to-resolve list is exactly the
+    // mapped fields the persona does NOT cover: the pages 9-15 mapped
+    // fields (part 2's scope, covered by its own persona below) plus the
+    // signature (page 20) — the person's fresh typed input, never a
+    // persona answer.
+    const personaNames = new Set(Object.keys(persona));
+    expect(outcome.toResolve.map((item) => item.fieldName).sort()).toEqual(
+      registry.fields
+        .filter(
+          (field) =>
+            field.disposition === "mapped" && !personaNames.has(field.name),
+        )
+        .map((field) => field.name)
+        .sort(),
+    );
+    expect(outcome.toResolve.map((item) => item.fieldName)).toContain(
       "Signature",
-    ]);
+    );
     const reparsed = await PDFDocument.load(outcome.bytes, {
       ignoreEncryption: true,
     });
@@ -485,6 +517,214 @@ describe("the real DHB-5200 form fixture", () => {
   }, 30000);
 
   // --- end full-form mapping part 1 -----------------------------------------
+
+  // --- full-form mapping, part 2 (pages 9-15) --------------------------------
+
+  it("dispositions every pages 9-15 field - none left undispositioned", async () => {
+    const pdf = await assertLoadablePdf(realBytes());
+    const discovered = discoverAcroFormFields(pdf);
+    const onPages = discovered.filter(
+      (field) => field.page >= 9 && field.page <= 15,
+    );
+    // The committed template's per-page widget counts (the discovery pass's
+    // own view) - pinned like part 1's pages 1-8 block.
+    const counts = new Map<number, number>();
+    for (const field of onPages) {
+      counts.set(field.page, (counts.get(field.page) ?? 0) + 1);
+    }
+    expect([...counts.entries()].sort((a, b) => a[0] - b[0])).toEqual([
+      [9, 58],
+      [10, 13],
+      [11, 47],
+      [12, 24],
+      [13, 57],
+      [14, 14],
+      [15, 47],
+    ]);
+    // Every named field those widgets belong to carries a registry entry
+    // with an explicit disposition - mapped, or one of the honest reasons.
+    const byName = new Map(entry().fields.map((field) => [field.name, field]));
+    const named = new Set(onPages.map((field) => field.name));
+    expect(named.size).toBe(246);
+    for (const name of named) {
+      const field = byName.get(name);
+      expect(
+        field,
+        `pages 9-15 field ${JSON.stringify(name)} has no registry entry`,
+      ).toBeDefined();
+      expect(DISPOSITIONS).toContain(field!.disposition);
+      if (field!.disposition !== "mapped") {
+        expect(
+          field!.dispositionReason?.length ?? 0,
+          `field ${JSON.stringify(name)} lacks a disposition reason`,
+        ).toBeGreaterThan(0);
+      }
+      // Part 2's fields take in-request answers only (the spec doesn't ask
+      // about household members): every one is spec-null and therefore
+      // sensitive-by-default.
+      expect(field!.specQuestionId).toBeNull();
+      expect(field!.piiLikely).toBe(true);
+    }
+  });
+
+  it("maps the owner-flagged answerable topics on pages 9-15 as in-request carriers", () => {
+    const registry = entry();
+    const byName = new Map(registry.fields.map((field) => [field.name, field]));
+    // The owner flagged these topics explicitly for the full-form mapping:
+    // they are answered by the person at the review-and-complete step, so
+    // they must be MAPPED (fillable in-request), with the checkbox/radio
+    // export-value semantics the template itself discovered.
+    const flagged: [string, "checkbox" | "radio", string?][] = [
+      // Person 3's race/ethnicity checkboxes (page 11, OPTIONAL on the form)
+      ["White or Caucasian_3", "checkbox", "On"],
+      ["Black or AfricanAmerican_3", "checkbox", "On"],
+      ["Asian_3", "checkbox", "On"],
+      ["Native Hawaiian_3", "checkbox", "On"],
+      ["Other Pacific Islander_3", "checkbox", "On"],
+      [
+        "American Indian or Alaska Native If so complete Appendix B_2",
+        "checkbox",
+        "On",
+      ],
+      ["Other_6", "checkbox", "On"],
+      ["Mexican_3", "checkbox", "On"],
+      // Residency (page 12)
+      [RESIDENCY_P3_FIELD, "radio"],
+      // Pregnancy (page 12)
+      ["14 Is PERSON 3 pregnant", "radio"],
+      // Child under 18 (page 12)
+      ["Check Box14", "checkbox", "Yes"],
+      ["No_39", "checkbox", "On"],
+      // Foster care (page 12)
+      ["Carolina_2", "radio"],
+      // Disability + age/blind (page 12)
+      ["undefined_55", "checkbox", "On"],
+      ["undefined_56", "checkbox", "On"],
+      ["older_2", "radio"],
+      ["undefined_57", "checkbox", "On"],
+      ["undefined_58", "checkbox", "On"],
+      // CAP condition (page 12)
+      [
+        "living such as bathing dressing daily chores etc live in a medical facility nursing home andor need home and_2",
+        "radio",
+      ],
+      // Help paying medical bills (page 12)
+      [
+        "19 Does PERSON 3 need help paying for medical bills in the last 3 months",
+        "radio",
+      ],
+      // Person 4's race/ethnicity checkboxes (page 15)
+      ["White or Caucasian_4", "checkbox", "On"],
+      ["Mexican_4", "checkbox", "On"],
+    ];
+    for (const [name, type, onValue] of flagged) {
+      const field = byName.get(name);
+      expect(field, `flagged field ${JSON.stringify(name)} registered`).toBeDefined();
+      expect(field!.disposition, name).toBe("mapped");
+      expect(field!.type, name).toBe(type);
+      if (onValue !== undefined) {
+        expect(field!.exportValue, name).toBe(onValue);
+      }
+    }
+    // Mapped radio pairs carry their discovered yes/no export values so the
+    // fill never guesses a side.
+    const residency = byName.get(RESIDENCY_P3_FIELD);
+    expect(residency!.exportValues).toBeDefined();
+    const helpPaying = byName.get(
+      "19 Does PERSON 3 need help paying for medical bills in the last 3 months",
+    );
+    expect(helpPaying!.exportValues!.yes).toMatch(/^Yes_/);
+    expect(helpPaying!.exportValues!.no).toMatch(/^No_/);
+  });
+
+  it("round-trips every pages 9-15 mapped field through fillFormPdf with read-back (in-request persona riding the raised cap)", async () => {
+    const { PDFDocument } = await import("@cantoo/pdf-lib");
+    const registry = entry();
+    // The full-form persona's in-request answers (the same fixture the
+    // fill route's full-coverage test rides): coherent synthetic answers
+    // for every mapped field the spec doesn't ask, keyed by the form's
+    // real field names - exactly what the review-and-complete step sends.
+    // Self-checking: the persona covers EXACTLY the entry's mapped
+    // spec-null fields (the in-request carriers - pages 9-15's mapped
+    // fields plus part 1's own, signature included) - and the count rides
+    // the RAISED cap (650); the old cap (50) would have refused the
+    // persona outright.
+    const inRequestMapped = registry.fields
+      .filter(
+        (field) =>
+          field.disposition === "mapped" && field.specQuestionId === null,
+      )
+      .map((field) => field.name)
+      .sort();
+    expect(Object.keys(DHB5200_FULL_PERSONA).sort()).toEqual(inRequestMapped);
+    const mappedOnPages = registry.fields
+      .filter(
+        (field) =>
+          field.disposition === "mapped" &&
+          field.pages.every((page) => page >= 9 && page <= 15),
+      )
+      .map((field) => field.name)
+      .sort();
+    expect(mappedOnPages.length).toBeGreaterThan(50);
+
+    const persona: Record<string, FillValue> = {};
+    for (const name of mappedOnPages) {
+      persona[name] = {
+        display: DHB5200_FULL_PERSONA[name]!,
+        provenance: "user_supplied",
+        source: "in_request",
+      };
+    }
+    const outcome = await fillFormPdf(realBytes(), registry, persona);
+    // The ONLY to-resolve items are the mapped fields OUTSIDE pages 9-15
+    // (this test runs without a session and the persona covers the 9-15
+    // in-request carriers only): part 1's five spec-mapped fields (no
+    // answers on file here) plus part 1's six in-request carriers — the
+    // typed signature among them, which only ever fills from fresh input.
+    expect(outcome.toResolve.map((item) => item.fieldName).sort()).toEqual(
+      registry.fields
+        .filter(
+          (field) =>
+            field.disposition === "mapped" &&
+            !field.pages.every((page) => page >= 9 && page <= 15),
+        )
+        .map((field) => field.name)
+        .sort(),
+    );
+
+    // Read-back: EVERY mapped pages 9-15 field returns the fixture value -
+    // checkbox states included, radios by their discovered export values.
+    const reparsed = await PDFDocument.load(outcome.bytes, {
+      ignoreEncryption: true,
+    });
+    const form = reparsed.getForm();
+    for (const field of registry.fields) {
+      if (
+        field.disposition !== "mapped" ||
+        !field.pages.every((page) => page >= 9 && page <= 15)
+      ) {
+        continue;
+      }
+      const expected = DHB5200_FULL_PERSONA[field.name]!;
+      if (field.type === "checkbox") {
+        expect(form.getCheckBox(field.name).isChecked(), field.name).toBe(
+          expected === "checked",
+        );
+      } else if (field.type === "radio") {
+        expect(form.getRadioGroup(field.name).getSelected(), field.name).toBe(
+          expected === "checked"
+            ? field.exportValues!.yes
+            : field.exportValues!.no,
+        );
+      } else {
+        expect(form.getTextField(field.name).getText(), field.name).toBe(
+          expected,
+        );
+      }
+    }
+  });
+
+  // --- end full-form mapping part 2 -----------------------------------------
 
   // Property (skills/property-based-testing): whatever the person TYPES as
   // their signature — arriving exactly as the real typed-signature step
