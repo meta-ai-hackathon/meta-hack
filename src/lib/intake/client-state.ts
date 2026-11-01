@@ -57,7 +57,13 @@ export interface QuickQuestionsClientState {
   /** N — still to ask: required minus answered minus skippable. */
   readonly remainingIds: readonly string[];
   readonly remainingCount: number;
-  /** True when nothing required is left to ask. */
+  /**
+   * True when nothing required is left to ask. Ask-once semantics: any
+   * stored answer — including `unknown`/`unverified` — counts as asked,
+   * so `complete` means "nothing left to ask", never "fully confirmed
+   * data"; surfaces needing uncertainty should read the tri-state
+   * statuses in `answers`, not this flag alone.
+   */
   readonly complete: boolean;
 }
 

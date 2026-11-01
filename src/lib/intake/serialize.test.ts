@@ -204,10 +204,12 @@ describe("quick questions in the client payload (VAL-QQ-004)", () => {
     const M = view.requiredCount;
     expect(view.remainingCount).toBe(M);
     while (view.remainingIds.length > 0) {
+      const previous = view.remainingCount;
       const next = view.remainingIds[0]!;
       answers[next] = { status: "known", value: "answer-for-" + next };
       view = buildClientState(answers).quickQuestions;
       expect(view.requiredCount).toBe(M);
+      expect(view.remainingCount, next).toBeLessThan(previous);
       expect(view.remainingCount).toBeLessThanOrEqual(view.requiredCount);
     }
     expect(view.remainingCount).toBe(0);

@@ -131,7 +131,13 @@ export interface QuickQuestionsView {
    */
   readonly remainingIds: readonly string[];
   readonly remainingCount: number;
-  /** True when nothing required is left to ask. */
+  /**
+   * True when nothing required is left to ask. Ask-once semantics: a
+   * question with ANY stored answer — including `unknown`/`unverified` —
+   * is not asked again, so `complete` means "nothing left to ask", never
+   * "fully confirmed data". A surface that needs to show uncertainty
+   * should consult the answers' tri-state statuses, not this flag alone.
+   */
   readonly complete: boolean;
 }
 
