@@ -242,6 +242,65 @@ describe("the fill-time check-conflict consistency pass", () => {
 });
 
 describe("the full-form persona round-trip (VAL-FIX-007)", () => {
+  it("fills EVERY mapped field from the fixture and reads back exactly what it carries", async () => {
+    const registry = entry();
+    const values = fullFormValues();
+    // Self-checking: the value set covers EXACTLY the mapped fields (355),
+    // no padding, no omissions.
+    const mappedNames = registry.fields
+      .filter((field) => field.disposition === "mapped")
+      .map((field) => field.name)
+      .sort();
+    expect(Object.keys(values).sort()).toEqual(mappedNames);
+
+    const outcome = await fillFormPdf(
+      realBytes(),
+      registry,
+      values,
+      SPEC_ANSWER_MAP,
+    );
+    // Every mapped field filled; nothing left to resolve; and the clean
+    // persona carries ZERO conflicts (its checkbox answers never check two
+    // sides of one group).
+    expect(outcome.filled.length).toBe(mappedNames.length);
+    expect(outcome.toResolve).toEqual([]);
+    expect(outcome.conflicts).toEqual([]);
+
+    // Read-back of EVERY mapped field: text and date values in form
+    // format, checkbox states, radios by their discovered export values —
+    // what the fixture carries is what the filled form shows.
+    const reparsed = await PDFDocument.load(outcome.bytes, {
+      ignoreEncryption: true,
+    });
+    const form = reparsed.getForm();
+    for (const field of registry.fields) {
+      if (field.disposition !== "mapped") {
+        continue;
+      }
+      const expected = values[field.name]!.display;
+      if (field.type === "checkbox") {
+        expect(form.getCheckBox(field.name).isChecked(), field.name).toBe(
+          expected === "checked",
+        );
+      } else if (field.type === "radio") {
+        expect(form.getRadioGroup(field.name).getSelected(), field.name).toBe(
+          expected === "checked"
+            ? field.exportValues!.yes
+            : field.exportValues!.no,
+        );
+      } else {
+        expect(form.getTextField(field.name).getText(), field.name).toBe(
+          expected,
+        );
+      }
+    }
+    // The typed-style signature arrives exactly as the real typed-signature
+    // step sends it (in-request only) and reads back byte for byte.
+    expect(form.getTextField("Signature").getText()).toBe(
+      FULL_PERSONA.Signature,
+    );
+  }, 60000);
+
   it("flags a contradictory yes/no pair at full-form scale and still fills the rest (conflict case)", async () => {
     const registry = entry();
     const values = fullFormValues();
