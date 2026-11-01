@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { deflateSync } from "node:zlib";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { PDFDocument } from "@cantoo/pdf-lib";
@@ -140,6 +141,24 @@ async function non1040Pdf(): Promise<Uint8Array<ArrayBuffer>> {
 
 function garbageBytes(): Uint8Array<ArrayBuffer> {
   return new Uint8Array(1024).map((_, i) => (i * 37) % 256);
+}
+
+/** A minimal PDF-shaped wrapper around one flate stream (the bomb fixture). */
+function pdfWithFlateStream(deflated: Uint8Array): Uint8Array<ArrayBuffer> {
+  const head = Uint8Array.from(
+    "%PDF-1.7\n1 0 obj\n<< /Filter /FlateDecode /Length " +
+      `${deflated.length} >>\nstream\n`,
+    (ch) => ch.charCodeAt(0),
+  );
+  const tail = Uint8Array.from(
+    "\nendstream\nendobj\n%%EOF\n",
+    (ch) => ch.charCodeAt(0),
+  );
+  const out = new Uint8Array(head.length + deflated.length + tail.length);
+  out.set(head, 0);
+  out.set(deflated, head.length);
+  out.set(tail, head.length + deflated.length);
+  return out;
 }
 
 function encryptedPdf(): Uint8Array<ArrayBuffer> {
@@ -300,6 +319,23 @@ describe("POST /api/intake/tax-return", () => {
     expect(response.status).toBe(400);
     expect((await response.json()).error.code).toBe("validation_error");
   });
+
+  it("rejects a decompression bomb before parsing, by counted bytes", async () => {
+    // A small COMPRESSED pdf whose FlateDecode stream inflates far past
+    // the bound: the wire cap alone cannot catch it — the pre-parse
+    // decompressed bound must, before pdf-lib ever loads the document.
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+    const bombData = deflateSync(new Uint8Array(200 * 1024 * 1024).fill(0));
+    expect(bombData.length).toBeLessThan(1024 * 1024); // tiny on the wire
+    const bomb = pdfWithFlateStream(bombData);
+
+    const response = await POST(uploadRequest(cookie, bomb));
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("validation_error");
+    expect(await answerRowCount(sessionId)).toBe(0);
+  }, 60_000);
 
   it("caps oversized uploads with a taxonomy error before parsing", async () => {
     const cookie = await createSessionAndGetCookie();

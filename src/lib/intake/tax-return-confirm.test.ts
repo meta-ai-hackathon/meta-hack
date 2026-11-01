@@ -7,6 +7,7 @@ import {
   parseTaxReturnConfirmations,
   TAX_RETURN_ANSWER_QUESTION_IDS,
 } from "./tax-return-confirm";
+import { TAX_RETURN_PROPOSED_QUESTION_IDS } from "../income/tax-proposal";
 
 // Unit tests for the tax-return confirm-flow validation (VAL-INC-007): the
 // confirm body is bounded, targets ONLY the income spec questions (so the
@@ -24,6 +25,21 @@ function validationErrorOf(run: () => unknown): AppError {
     throw error;
   }
   throw new Error("expected a taxonomy validation_error");
+}
+
+/** A value the question spec accepts under status `known`. */
+function specValidValueFor(questionId: string): unknown {
+  const question = QUESTIONS.find((entry) => entry.id === questionId);
+  if (question === undefined) {
+    throw new Error(`unknown question ${questionId}`);
+  }
+  if (question.type === "multi_select") {
+    return [question.options?.[0]?.value ?? "x"];
+  }
+  if (question.type === "number") {
+    return 1;
+  }
+  return question.options?.[0]?.value ?? "x";
 }
 
 describe("tax-return confirmations (VAL-INC-007)", () => {
@@ -52,6 +68,40 @@ describe("tax-return confirmations (VAL-INC-007)", () => {
         value: "monthly",
       },
     ]);
+  });
+
+  it("admits action:'confirm' only for the stage UI's proposal ids (milestone part 3 tightening)", () => {
+    // tax_return provenance is client-asserted by design; the route bounds
+    // it to the ids the stage UI actually proposes from parser findings
+    // (the prior-year monthly figure + its frequency). Every OTHER income
+    // id must travel as a correction (provenance user), even with a
+    // perfectly valid value.
+    for (const questionId of TAX_RETURN_ANSWER_QUESTION_IDS) {
+      const value = specValidValueFor(questionId);
+      if (
+        (TAX_RETURN_PROPOSED_QUESTION_IDS as readonly string[]).includes(
+          questionId,
+        )
+      ) {
+        expect(
+          parseTaxReturnConfirmations([
+            { questionId, action: "confirm", value },
+          ]),
+        ).toHaveLength(1);
+      } else {
+        expect(() =>
+          parseTaxReturnConfirmations([
+            { questionId, action: "confirm", value },
+          ]),
+        ).toThrow(AppError);
+        // ...while the same id as a person-corrected value is fine.
+        expect(
+          parseTaxReturnConfirmations([
+            { questionId, action: "correct", value },
+          ]),
+        ).toHaveLength(1);
+      }
+    }
   });
 
   it("rejects a non-income question id", () => {

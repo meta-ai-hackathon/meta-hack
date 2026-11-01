@@ -113,6 +113,13 @@ const OPEN_STATE: IntakeClientState = {
     remainingCount: 1,
     complete: false,
   },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
+  },
 };
 
 // A quick-questions state with TWO pending program questions: the live
@@ -152,6 +159,13 @@ const QQ_STATE: IntakeClientState = {
     remainingIds: ["application_role", "main_goal"],
     remainingCount: 2,
     complete: false,
+  },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
   },
 };
 
@@ -204,6 +218,13 @@ const ZERO_PENDING_STATE: IntakeClientState = {
     remainingCount: 0,
     complete: true,
   },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
+  },
 };
 
 const COMPLETE_STATE: IntakeClientState = {
@@ -219,6 +240,13 @@ const COMPLETE_STATE: IntakeClientState = {
     remainingIds: [],
     remainingCount: 0,
     complete: true,
+  },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
   },
 };
 

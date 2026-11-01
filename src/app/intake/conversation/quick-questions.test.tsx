@@ -88,6 +88,17 @@ const DISABILITY: ClientQuestion = question({
 
 const ALL_QUESTIONS = [INCOME_SOURCES, MAIN_GOAL, HOUSEHOLD_SIZE, CITIZENSHIP, DISABILITY];
 
+// The income gate's block for this fixture set: income_sources is the one
+// income question present, unanswered — the income stage owns it, so the
+// gate is closed (handled false) until the income stage's own paths save.
+const INCOME_BLOCK = {
+  questionIds: ["income_sources"],
+  answeredCount: 0,
+  confirmedCount: 0,
+  totalCount: 1,
+  handled: false,
+};
+
 function stageState(overrides?: Partial<IntakeClientState>): IntakeClientState {
   return {
     questions: ALL_QUESTIONS,
@@ -103,6 +114,7 @@ function stageState(overrides?: Partial<IntakeClientState>): IntakeClientState {
       remainingCount: ALL_QUESTIONS.length,
       complete: false,
     },
+    income: INCOME_BLOCK,
     ...overrides,
   };
 }

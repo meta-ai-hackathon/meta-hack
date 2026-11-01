@@ -202,10 +202,18 @@ describe("tax-parse import boundary (VAL-INC-005)", () => {
     expect(result.violations).toEqual([]);
   });
 
-  it("admits only the two PDF libraries as external packages", () => {
+  it("admits only the two PDF libraries and node:zlib as external packages", () => {
+    // node:zlib is the decompressed-size bound's inflater (the part-3
+    // ride-along): deterministic local byte math on the uploaded bytes —
+    // no network, no model, nothing leaves the process. The forbidden
+    // set (model/LLM/prompt imports) is unchanged and still bites below.
     const result = scanIncomeImports(INCOME_ROOT);
     expect([...result.externals].sort()).toEqual(
-      ["@cantoo/pdf-lib", "pdfjs-dist/legacy/build/pdf.mjs"],
+      [
+        "@cantoo/pdf-lib",
+        "node:zlib",
+        "pdfjs-dist/legacy/build/pdf.mjs",
+      ],
     );
   });
 
@@ -218,21 +226,28 @@ describe("tax-parse import boundary (VAL-INC-005)", () => {
     expect(closure.escapes).toEqual([]);
   });
 
-  it("the module source carries no network, logging, env, time, or randomness tokens", () => {
-    const source = readFileSync(
-      path.join(INCOME_ROOT, "tax-parse.ts"),
-      "utf8",
-    );
-    for (const banned of [
-      "console.",
-      "fetch(",
-      "XMLHttpRequest",
-      "process.env",
-      "Date.now",
-      "new Date(",
-      "Math.random",
-    ]) {
-      expect(source.includes(banned)).toBe(false);
+  it("every income production module carries no network, logging, env, time, or randomness tokens", () => {
+    // Strengthened with the part-3 modules (the proposal mapping and the
+    // decompressed-size bound): the WHOLE income folder stays pure — a
+    // pure function of its inputs, nothing else.
+    const result = scanIncomeImports(INCOME_ROOT);
+    expect(result.scanned.length).toBeGreaterThan(0);
+    for (const relative of result.scanned) {
+      const source = readFileSync(
+        path.join(INCOME_ROOT, relative),
+        "utf8",
+      );
+      for (const banned of [
+        "console.",
+        "fetch(",
+        "XMLHttpRequest",
+        "process.env",
+        "Date.now",
+        "new Date(",
+        "Math.random",
+      ]) {
+        expect(source.includes(banned), `${relative}: ${banned}`).toBe(false);
+      }
     }
   });
 

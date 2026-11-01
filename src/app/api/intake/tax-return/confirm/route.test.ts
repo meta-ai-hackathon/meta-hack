@@ -143,12 +143,15 @@ describe("POST /api/intake/tax-return/confirm", () => {
 
     const response = await POST(
       confirmRequest(cookie, [
-        { questionId: "income_sources", action: "confirm", value: ["job"] },
+        // The person-corrected entries (including the manual card's own
+        // typed values) save as `user`; the UI-proposed frequency (the
+        // prior-year monthly proposal) saves as `tax_return`.
+        { questionId: "income_sources", action: "correct", value: ["job"] },
         { questionId: "job_income_amount", action: "correct", value: 500 },
         {
           questionId: "job_income_frequency",
           action: "confirm",
-          value: "varies",
+          value: "monthly",
         },
       ]),
     );
@@ -161,7 +164,7 @@ describe("POST /api/intake/tax-return/confirm", () => {
     expect(byQuestion.get("income_sources")).toMatchObject({
       value: ["job"],
       status: "known",
-      provenance: "tax_return",
+      provenance: "user",
     });
     expect(byQuestion.get("job_income_amount")).toMatchObject({
       value: 500,
@@ -169,10 +172,31 @@ describe("POST /api/intake/tax-return/confirm", () => {
       provenance: "user",
     });
     expect(byQuestion.get("job_income_frequency")).toMatchObject({
-      value: "varies",
+      value: "monthly",
       status: "known",
       provenance: "tax_return",
     });
+  });
+
+  it("rejects action:'confirm' for a question the stage UI does not propose (milestone part 3 tightening)", async () => {
+    // tax_return provenance is client-asserted by design; the route bounds
+    // it to the stage UI's actual proposal set (tax-proposal.ts: the
+    // prior-year monthly figure + its frequency). income_sources is never
+    // proposed from parser findings — a prior-year return cannot vouch for
+    // CURRENT income sources — so a confirm on it is rejected and saves
+    // nothing (whole-batch validation).
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+
+    const response = await POST(
+      confirmRequest(cookie, [
+        { questionId: "income_sources", action: "confirm", value: ["job"] },
+      ]),
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("validation_error");
+    expect(await answerRows(sessionId)).toHaveLength(0);
   });
 
   it("re-confirming updates the same rows (update-not-duplicate)", async () => {

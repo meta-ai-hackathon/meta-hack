@@ -1,12 +1,17 @@
-import type { AnswerStatus } from "../honesty";
+import type { AnswerProvenance, AnswerStatus } from "../honesty";
 import {
   firstUnansweredIndex,
   progressCounts,
   visibleQuestions,
   type AnswerMap,
 } from "./flow";
+import { incomeClientState, type IncomeClientState } from "./income";
 import { remainingQuickQuestions } from "./requirements";
 import { QUESTIONS, type Question, type QuestionOption, type QuestionType } from "./spec";
+
+// Re-exported: the income block is part of this module's public state
+// shape (serialize.ts re-exports it onward with the rest).
+export type { IncomeClientState };
 
 // The intake's client-visible state (BN-09): what the step-by-step page
 // renders. Built the same way whether the answers come from the server
@@ -34,6 +39,14 @@ export interface ClientAnswer {
   readonly status: AnswerStatus;
   /** Present ONLY for pii:false questions. */
   readonly value?: unknown;
+  /**
+   * Where the answer came from (the spine's provenance vocabulary).
+   * Present ONLY when it is NOT the default `user_supplied` — the quick-
+   * questions and wizard paths keep the exact shape they always had, and
+   * the income stage's badges read it when it matters ("From your tax
+   * return" / a person-corrected value). Metadata only: never a value.
+   */
+  readonly provenance?: AnswerProvenance;
 }
 
 export interface IntakeProgress {
@@ -78,6 +91,8 @@ export interface IntakeClientState {
   readonly complete: boolean;
   /** The quick-questions N-of-M counter for the targeted programs. */
   readonly quickQuestions: QuickQuestionsClientState;
+  /** The income stage's gate state (milestone income-capture). */
+  readonly income: IncomeClientState;
 }
 
 function toClientQuestion(question: Question): ClientQuestion {
@@ -93,6 +108,21 @@ function toClientQuestion(question: Question): ClientQuestion {
 }
 
 /**
+ * The provenance field is exposed ONLY when it is not the default
+ * `user_supplied`, so every payload a default-path answer produces keeps
+ * its exact historical shape ({status, value} / {status} for pii) and the
+ * income stage's badges read the field when it carries meaning.
+ */
+function clientProvenance(
+  stored: { provenance?: AnswerProvenance },
+): AnswerProvenance | undefined {
+  const { provenance } = stored;
+  return provenance !== undefined && provenance !== "user_supplied"
+    ? provenance
+    : undefined;
+}
+
+/**
  * Build the client-visible state from stored answers. Pure: a function of
  * the answer map and the read-only question spec.
  */
@@ -104,10 +134,16 @@ export function buildClientState(answers: AnswerMap): IntakeClientState {
     if (!stored) {
       continue;
     }
+    const provenance = clientProvenance(stored);
     // The pii branch never touches the stored value — structural omission.
+    // Provenance is metadata about origin, safe for both branches.
     clientAnswers[question.id] = question.pii
-      ? { status: stored.status }
-      : { status: stored.status, value: stored.value ?? null };
+      ? { status: stored.status, ...(provenance ? { provenance } : {}) }
+      : {
+          status: stored.status,
+          value: stored.value ?? null,
+          ...(provenance ? { provenance } : {}),
+        };
   }
   const progress = progressCounts(visible, answers);
   const firstUnanswered = firstUnansweredIndex(visible, answers);
@@ -128,5 +164,6 @@ export function buildClientState(answers: AnswerMap): IntakeClientState {
       remainingCount: quick.remainingCount,
       complete: quick.complete,
     },
+    income: incomeClientState(visible, answers),
   };
 }

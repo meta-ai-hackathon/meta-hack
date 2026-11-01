@@ -8,6 +8,7 @@ import {
   type ConsentReceipt,
 } from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
+import { INCOME_STAGE_QUESTION_IDS } from "../../../lib/intake/income";
 import { ConversationChat } from "./conversation-chat";
 import { deriveThemeProgress } from "./coming-together";
 import { WAVEFORM_HEIGHTS, VoiceWaveform } from "./voice-deck";
@@ -126,6 +127,15 @@ function stateWith(
   answered: Record<string, { status: "known" | "unknown" | "unverified"; value?: unknown }>,
   questions: IntakeClientState["questions"] = THEME_QUESTIONS,
 ): IntakeClientState {
+  // The income gate's block, derived over this fixture's questions with
+  // the same engine semantics (no income-stage provenances here, so the
+  // gate is closed unless no income question is visible at all).
+  const incomeVisible = questions.filter((question) =>
+    (INCOME_STAGE_QUESTION_IDS as readonly string[]).includes(question.id),
+  );
+  const incomeAnswered = incomeVisible.filter(
+    (question) => answered[question.id] !== undefined,
+  );
   return {
     questions,
     answers: answered,
@@ -145,6 +155,13 @@ function stateWith(
         .map((question) => question.id),
       remainingCount: questions.length - Object.keys(answered).length,
       complete: questions.length - Object.keys(answered).length === 0,
+    },
+    income: {
+      questionIds: incomeVisible.map((question) => question.id),
+      answeredCount: incomeAnswered.length,
+      confirmedCount: 0,
+      totalCount: incomeVisible.length,
+      handled: incomeVisible.length === 0,
     },
   };
 }
@@ -204,6 +221,13 @@ const COMPLETE_STATE: IntakeClientState = {
     remainingIds: [],
     remainingCount: 0,
     complete: true,
+  },
+  income: {
+    questionIds: ["income_sources"],
+    answeredCount: 1,
+    confirmedCount: 0,
+    totalCount: 1,
+    handled: false,
   },
 };
 
