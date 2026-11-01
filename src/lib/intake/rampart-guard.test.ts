@@ -12,6 +12,7 @@ import type { ChatGuard, GuardOptions, ScrubResult } from "@nationaldesignstudio
 import type { DeviceKv, KvGuard } from "../device-kv";
 import {
   DEVICE_SESSION_ENVELOPE_KEY,
+  purgeDeviceAnswers,
   type DeviceAnswerStoreDeps,
 } from "./device-answer-store";
 import { RampartShield, type RampartShieldDeps } from "./rampart-guard";
@@ -130,7 +131,6 @@ describe("RampartShield", () => {
     const a = new RampartShield(shieldDeps({ kv: first.kv }));
     await a.start();
     await a.protectTyped("My name is Carlos and my case is about Medicaid.");
-    expect(a.hasPersistedSession).toBe(true);
 
     // Reload: a new shield with the same device storage.
     const bDeps = shieldDeps({ kv: first.kv });
@@ -174,7 +174,25 @@ describe("RampartShield", () => {
       kind: "tokenized",
       text: "[GIVEN_NAME_1] here",
     });
-    expect(shield.hasPersistedSession).toBe(false);
+  });
+
+  it("a save after a user-confirmed purge does not recreate the sealed session", async () => {
+    const { kv, store } = memoryKv();
+    const shield = new RampartShield(shieldDeps({ kv }));
+    await shield.start();
+    await shield.protectTyped("My name is Carlos.");
+    expect(store.size).toBeGreaterThan(0);
+    // The answers-notice purge (HACK-80) deletes every envelope and the key.
+    expect(await purgeDeviceAnswers(deps(kv))).toBe(true);
+    // The next typed send must not resurrect the pre-purge PII map: nothing
+    // is written again once the confirmed purge is observed.
+    await shield.protectTyped("My name is Carlos, again.");
+    expect(store.size).toBe(0);
+    expect(shield.status).toBe("ready");
+    expect(await shield.protectTyped("Still Carlos here.")).toEqual({
+      kind: "tokenized",
+      text: "Still [GIVEN_NAME_1] here.",
+    });
   });
 
   it("reveal() is safe before start and on unknown tokens", async () => {
