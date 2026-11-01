@@ -3,6 +3,7 @@
 // - A reload returns exactly what was saved.
 // - Tampering or a wrong key fails closed to "unreadable".
 // - A purge racing a save must not be undone by that save.
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { DeviceKv, KvGuard } from "../device-kv";
 import {
@@ -168,5 +169,58 @@ describe("rampart-session-store", () => {
     const { kv, counts } = memoryKv();
     await expect(saveRampartSession(deps(kv), "   ")).rejects.toThrow();
     expect(counts.writes).toBe(0);
+  });
+});
+
+// Property-based round (repo rule): arbitrary opaque serialized sessions
+// round-trip exactly and never land in storage as plaintext.
+describe("rampart-session-store properties", () => {
+  const SERIALIZATION_CHARS = [
+    ..."abcdehilmnoprstuvwxyz0123456789",
+    " ",
+    String.fromCharCode(34),
+    "[",
+    "]",
+    "{",
+    "}",
+    ",",
+    ":",
+    "_",
+    "-",
+  ] as const;
+  const serializedArb = fc
+    .string({ unit: fc.constantFrom(...SERIALIZATION_CHARS), minLength: 1, maxLength: 80 })
+    .filter((text) => text.trim() !== "");
+
+  it("save then load returns exactly the saved serialization, for arbitrary opaque sessions", async () => {
+    await fc.assert(
+      fc.asyncProperty(serializedArb, async (serialized) => {
+        const { kv } = memoryKv();
+        const d = deps(kv);
+        expect(await saveRampartSession(d, serialized)).toBe("saved");
+        expect(await loadRampartSession(d)).toEqual({ status: "ok", serialized });
+      }),
+    );
+  });
+
+  it("the stored envelope never contains any chunk of the plaintext session", async () => {
+    await fc.assert(
+      fc.asyncProperty(serializedArb, async (serialized) => {
+        const { kv, store } = memoryKv();
+        await saveRampartSession(deps(kv), serialized);
+        const envelope = store.get(DEVICE_SESSION_ENVELOPE_KEY);
+        expect(typeof envelope).toBe("string");
+        const envelopeText = envelope as string;
+        // Since each save seals under a fresh AES-GCM IV, the envelope is
+        // random-looking: neither the session text nor a 16-char window of
+        // it may appear verbatim.
+        for (let at = 0; at + 8 <= serialized.length; at += 1) {
+          const window = serialized.slice(at, Math.min(at + 16, serialized.length));
+          if (window.length >= 8) {
+            expect(envelopeText.includes(window)).toBe(false);
+          }
+        }
+      }),
+    );
   });
 });
