@@ -1,0 +1,49 @@
+{
+  "title": "Program question requirements",
+  "version": "1.0.0",
+  "default_programs": ["nc_medicaid"],
+  "programs": [
+    {
+      "id": "nc_medicaid",
+      "title": "NC Medicaid",
+      "form_registry_ids": ["dhb-5200"],
+      "required_question_ids": [
+        "application_role",
+        "main_goal",
+        "state",
+        "county",
+        "household_size",
+        "household_children",
+        "household_seniors",
+        "income_sources",
+        "income_kind",
+        "self_employment_statements_offer",
+        "prior_employer_current",
+        "prior_employer_last_month",
+        "job_income_amount",
+        "job_income_frequency",
+        "benefits_income_amount",
+        "benefits_income_frequency",
+        "other_income_amount",
+        "housing_status",
+        "housing_cost",
+        "utilities_cost",
+        "childcare_cost",
+        "medical_cost",
+        "id_status",
+        "id_issue_detail",
+        "date_of_birth",
+        "citizenship_status",
+        "disability_status",
+        "veteran_status",
+        "mailing_situation",
+        "shelter_mail_consent",
+        "contact_preference",
+        "phone_contact",
+        "email_contact",
+        "best_time_to_reach"
+      ],
+      "rationale": "The questions the DHB-5200 health-coverage application itself asks, as reviewed in the full-form mapping round (kb/forms/dhb-5200.json): who is applying and for what coverage, household composition, income with its conditional branches, shelter and cost expenses, photo ID, date of birth, citizenship/immigration status, disability, veteran status, and how mail and messages reach the person. Deliberately left out: goal_detail (a free-text navigation note the application has no field for), student_status and received_benefits_before (the printed form does not ask them) — the talk stage still covers every spec question the quick-questions stage does not capture."
+    }
+  ]
+}

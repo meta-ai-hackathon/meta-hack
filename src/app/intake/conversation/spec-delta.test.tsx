@@ -136,6 +136,16 @@ function stateWith(
     },
     currentIndex: null,
     complete: false,
+    quickQuestions: {
+      programs: ["nc_medicaid"],
+      requiredIds: questions.map((question) => question.id),
+      requiredCount: questions.length,
+      remainingIds: questions
+        .filter((question) => answered[question.id] === undefined)
+        .map((question) => question.id),
+      remainingCount: questions.length - Object.keys(answered).length,
+      complete: questions.length - Object.keys(answered).length === 0,
+    },
   };
 }
 
@@ -187,6 +197,14 @@ const COMPLETE_STATE: IntakeClientState = {
   progress: { answered: 4, remaining: 0, total: 4 },
   currentIndex: null,
   complete: true,
+  quickQuestions: {
+    programs: ["nc_medicaid"],
+    requiredIds: THEME_QUESTIONS.map((question) => question.id),
+    requiredCount: THEME_QUESTIONS.length,
+    remainingIds: [],
+    remainingCount: 0,
+    complete: true,
+  },
 };
 
 function historyResponse(state: IntakeClientState): Response {

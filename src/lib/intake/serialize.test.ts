@@ -6,7 +6,11 @@ import {
   buildClientState,
   type IntakeClientState,
 } from "./serialize";
-import type { AnswerMap } from "./flow";
+import type { AnswerMap, StoredAnswer } from "./flow";
+import {
+  DEFAULT_PROGRAM_IDS,
+  requiredForPrograms,
+} from "./requirements";
 
 // Client-state serialization tests (BN-09): the client-visible payload
 // contains ONLY pii:false answer values. pii:true answers surface as their
@@ -144,6 +148,84 @@ describe("no pii reaches the client payload (VAL-INTAKE-004)", () => {
     const state = buildClientState(fullAnswers());
     for (const id of PII_QUESTION_IDS) {
       expect(state.answers[id]?.status, id).toBe("known");
+    }
+  });
+});
+
+describe("quick questions in the client payload (VAL-QQ-004)", () => {
+  it("exposes the computed N-of-M counter for the default programs", () => {
+    const state = buildClientState({});
+    expect(state.quickQuestions.programs).toEqual(DEFAULT_PROGRAM_IDS);
+    expect(state.quickQuestions.requiredCount).toBe(
+      requiredForPrograms(DEFAULT_PROGRAM_IDS).length,
+    );
+    // A fresh session: nothing answered, nothing skippable yet — N = M.
+    expect(state.quickQuestions.remainingCount).toBe(
+      state.quickQuestions.requiredCount,
+    );
+    expect(state.quickQuestions.complete).toBe(false);
+  });
+
+  it("matches the engine's computation over real answer maps", () => {
+    const samples: AnswerMap[] = [
+      {},
+      fullAnswers(),
+      { income_sources: { status: "known", value: ["none"] } },
+      { income_sources: { status: "unknown", value: null } },
+      {
+        housing_status: { status: "known", value: "rental_or_own" },
+        household_children: { status: "known", value: 2 },
+      },
+    ];
+    for (const answers of samples) {
+      const state = buildClientState(answers);
+      expect(state.quickQuestions.remainingIds).toEqual(
+        requiredForPrograms(DEFAULT_PROGRAM_IDS).filter(
+          (id) =>
+            answers[id] === undefined &&
+            state.questions.some((question) => question.id === id),
+        ),
+      );
+      expect(state.quickQuestions.requiredCount).toBe(
+        requiredForPrograms(DEFAULT_PROGRAM_IDS).length,
+      );
+      expect(state.quickQuestions.remainingCount).toBe(
+        state.quickQuestions.remainingIds.length,
+      );
+    }
+  });
+
+  it("decrements N as the universe is answered and never exceeds M", () => {
+    // A greedy walk of the real flow: answer the first still-to-ask
+    // question each round (skips handled by the engine, fail-open), until
+    // nothing remains. N strictly decreases each round; M never moves.
+    const answers: Record<string, StoredAnswer> = {};
+    let view = buildClientState(answers).quickQuestions;
+    const M = view.requiredCount;
+    expect(view.remainingCount).toBe(M);
+    while (view.remainingIds.length > 0) {
+      const previous = view.remainingCount;
+      const next = view.remainingIds[0]!;
+      answers[next] = { status: "known", value: "answer-for-" + next };
+      view = buildClientState(answers).quickQuestions;
+      expect(view.requiredCount).toBe(M);
+      expect(view.remainingCount, next).toBeLessThan(previous);
+      expect(view.remainingCount).toBeLessThanOrEqual(view.requiredCount);
+    }
+    expect(view.remainingCount).toBe(0);
+    expect(view.complete).toBe(true);
+  });
+
+  it("carries only ids and counts — never an answer value", () => {
+    const state = buildClientState(fullAnswers());
+    const json = JSON.stringify(state.quickQuestions);
+    expect(json).not.toContain("SENTINEL");
+    expect(json).not.toContain("answer-for-");
+    // Every remaining id has a client-safe definition in the payload for
+    // the stage to render.
+    const ids = new Set(state.questions.map((question) => question.id));
+    for (const id of state.quickQuestions.remainingIds) {
+      expect(ids.has(id), id).toBe(true);
     }
   });
 });
