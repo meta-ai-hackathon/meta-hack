@@ -31,7 +31,8 @@
       "required": true,
       "pages": [
         1
-      ]
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "applicant_date_of_birth",
@@ -43,7 +44,8 @@
       "required": true,
       "pages": [
         1
-      ]
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "household_size_count",
@@ -55,7 +57,8 @@
       "required": true,
       "pages": [
         1
-      ]
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "housing_situation",
@@ -67,7 +70,8 @@
       "required": true,
       "pages": [
         1
-      ]
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "monthly_rent_amount",
@@ -79,7 +83,8 @@
       "required": false,
       "pages": [
         1
-      ]
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "contact_phone",
@@ -91,7 +96,8 @@
       "required": false,
       "pages": [
         1
-      ]
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "contact_email",
@@ -103,7 +109,8 @@
       "required": false,
       "pages": [
         1
-      ]
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "mail_consent",
@@ -115,7 +122,8 @@
       "required": false,
       "pages": [
         1
-      ]
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "id_problem_explanation",
@@ -127,7 +135,8 @@
       "required": false,
       "pages": [
         1
-      ]
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "case_number",
@@ -139,7 +148,8 @@
       "required": false,
       "pages": [
         1
-      ]
+      ],
+      "disposition": "mapped"
     }
   ]
 }

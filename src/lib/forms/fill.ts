@@ -290,6 +290,12 @@ async function fillAcroForm(
   const form = pdf.getForm();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   for (const field of entry.fields) {
+    if (field.disposition !== "mapped") {
+      // A reviewed non-mapped disposition (not-collected / optional /
+      // agency-use / structural) stays blank by documentation: never
+      // filled, never to-resolve — even if a caller sends a value for it.
+      continue;
+    }
     if (skipped.has(field.name)) {
       continue; // not applicable by the flow's conditional logic
     }
@@ -307,6 +313,21 @@ async function fillAcroForm(
           } else {
             checkbox.uncheck();
           }
+          break;
+        }
+        case "radio": {
+          const group = form.getRadioGroup(field.name);
+          const exports = field.exportValues;
+          if (
+            !exports ||
+            (value.display !== "checked" && value.display !== "unchecked")
+          ) {
+            // Without the pair's discovered export values (or with a
+            // non-boolean display) the fill refuses to guess a side.
+            pushToResolve(field, "option_missing", toResolve);
+            continue;
+          }
+          group.select(value.display === "checked" ? exports.yes : exports.no);
           break;
         }
         case "dropdown": {
@@ -352,6 +373,10 @@ async function fillFlat(
   const pages = pdf.getPages();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   for (const field of entry.fields) {
+    if (field.disposition !== "mapped") {
+      // Dispositioned fields stay blank by documentation (see fillAcroForm).
+      continue;
+    }
     if (skipped.has(field.name)) {
       continue; // not applicable by the flow's conditional logic
     }

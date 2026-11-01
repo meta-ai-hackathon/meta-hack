@@ -1,7 +1,7 @@
 {
   "id": "dhb-5200",
   "title": "NC Medicaid application for health coverage (DHB-5200)",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "kind": "acroform",
   "program": "NC Medicaid",
   "source": {
@@ -12,7 +12,8 @@
   "pdf_path": "src/lib/forms/fixtures/dhb-5200-ia-9-2020.pdf",
   "vault_field_allowlist": [
     "date_of_birth",
-    "phone_contact"
+    "phone_contact",
+    "county"
   ],
   "fields": [
     {
@@ -23,7 +24,10 @@
       "spec_question_id": null,
       "pii_likely": true,
       "required": true,
-      "pages": [2]
+      "pages": [
+        2
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "2 Home address Leave blank if you dont have one",
@@ -33,7 +37,10 @@
       "spec_question_id": null,
       "pii_likely": true,
       "required": false,
-      "pages": [2]
+      "pages": [
+        2
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "8 Mailing Address if different from home address",
@@ -43,7 +50,10 @@
       "spec_question_id": null,
       "pii_likely": true,
       "required": false,
-      "pages": [2]
+      "pages": [
+        2
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "14 Phone Number",
@@ -53,7 +63,10 @@
       "spec_question_id": "phone_contact",
       "pii_likely": true,
       "required": false,
-      "pages": [2]
+      "pages": [
+        2
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "3 Date of Birth mmddyyyy",
@@ -64,7 +77,10 @@
       "display_format": "mm/dd/yyyy",
       "pii_likely": true,
       "required": true,
-      "pages": [3]
+      "pages": [
+        3
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "5 Social Security Number SSN",
@@ -74,7 +90,10 @@
       "spec_question_id": null,
       "pii_likely": true,
       "required": false,
-      "pages": [3]
+      "pages": [
+        3
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "undefined_10",
@@ -84,7 +103,10 @@
       "spec_question_id": "job_income_amount",
       "pii_likely": false,
       "required": false,
-      "pages": [5]
+      "pages": [
+        5
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "Your total income next year if you think it will be different",
@@ -94,7 +116,10 @@
       "spec_question_id": null,
       "pii_likely": true,
       "required": false,
-      "pages": [6]
+      "pages": [
+        6
+      ],
+      "disposition": "mapped"
     },
     {
       "name": "Signature",
@@ -104,7 +129,2752 @@
       "spec_question_id": null,
       "pii_likely": true,
       "required": false,
-      "pages": [20]
+      "pages": [
+        20
+      ],
+      "disposition": "mapped"
+    },
+    {
+      "name": "3 Apartment or Suite Number",
+      "type": "text",
+      "label": "3. Apartment or Suite Number",
+      "question": "What is your apartment or suite number, as part of your home address? (The interview collects the address as one line; this separate box is left for hand completion.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "The interview collects the home address as one line (field 2), which fills that box; the form's separate apartment/suite box stays blank for the person to complete by hand if their address needs it."
+    },
+    {
+      "name": "4 City",
+      "type": "text",
+      "label": "4. City",
+      "question": "Which city is your home address in? (The interview collects the address as one line; this separate box is left for hand completion.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "The interview collects the home address as one line (field 2); the form's separate city box stays blank for the person to complete by hand if needed."
+    },
+    {
+      "name": "5 State",
+      "type": "text",
+      "label": "5. State",
+      "question": "What state is your home address in? This fills the home address's state line (field 5) from the state answer the intake collects.",
+      "spec_question_id": "state",
+      "disposition": "mapped",
+      "pii_likely": false,
+      "required": false,
+      "pages": [
+        2
+      ]
+    },
+    {
+      "name": "6 Zip Code",
+      "type": "text",
+      "label": "6. Zip Code",
+      "question": "Which zip code is your home address in? (The interview collects the address as one line; this separate box is left for hand completion.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "The interview collects the home address as one line (field 2); the form's separate zip code box stays blank for the person to complete by hand if needed."
+    },
+    {
+      "name": "7 County",
+      "type": "text",
+      "label": "7. County",
+      "question": "What county is your home address in? The county office processes the application, and the interview asks this directly.",
+      "spec_question_id": "county",
+      "disposition": "mapped",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ]
+    },
+    {
+      "name": "9 Apartment of Suite Number",
+      "type": "text",
+      "label": "9. Apartment of Suite Number",
+      "question": "What is the apartment or suite number of your mailing address, if your mail goes somewhere different from your home address? (Collected as one line; this separate box is left for hand completion.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "The interview collects the mailing address as one line (field 8), which fills that box; the mailing block's separate apartment or suite number box stays blank for the person to complete by hand if their mailing address needs it."
+    },
+    {
+      "name": "10 City",
+      "type": "text",
+      "label": "10. City",
+      "question": "What is the city of your mailing address, if your mail goes somewhere different from your home address? (Collected as one line; this separate box is left for hand completion.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "The interview collects the mailing address as one line (field 8), which fills that box; the mailing block's separate city box stays blank for the person to complete by hand if their mailing address needs it."
+    },
+    {
+      "name": "11 State",
+      "type": "text",
+      "label": "11. State",
+      "question": "What is the state of your mailing address, if your mail goes somewhere different from your home address? (Collected as one line; this separate box is left for hand completion.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "The interview collects the mailing address as one line (field 8), which fills that box; the mailing block's separate state box stays blank for the person to complete by hand if their mailing address needs it."
+    },
+    {
+      "name": "12 Zip Code",
+      "type": "text",
+      "label": "12. Zip Code",
+      "question": "What is the zip code of your mailing address, if your mail goes somewhere different from your home address? (Collected as one line; this separate box is left for hand completion.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "The interview collects the mailing address as one line (field 8), which fills that box; the mailing block's separate zip code box stays blank for the person to complete by hand if their mailing address needs it."
+    },
+    {
+      "name": "13 County",
+      "type": "text",
+      "label": "13. County",
+      "question": "What is the county of your mailing address, if your mail goes somewhere different from your home address? (Collected as one line; this separate box is left for hand completion.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "The interview collects the mailing address as one line (field 8), which fills that box; the mailing block's separate county box stays blank for the person to complete by hand if their mailing address needs it."
+    },
+    {
+      "name": "15 Other Phone Number",
+      "type": "text",
+      "label": "15. Other Phone Number",
+      "question": "Is there another phone number the agency can reach you at, besides your main one? This box is optional and stays blank when there isn't one.",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "A second phone number is optional on this form; the interview collects one contact number, so this box stays blank unless the person adds it by hand."
+    },
+    {
+      "name": "16 What is your preferred spoken or written language if not English",
+      "type": "text",
+      "label": "16. What is your preferred spoken or written language (if not English)?",
+      "question": "What spoken or written language other than English would you prefer for your application materials, if any? (The interview doesn't collect this; the person completes it by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "The interview doesn't collect a preferred-language answer, and the pipeline never guesses one; the person completes this box by hand so the county sends materials in the language they actually want."
+    },
+    {
+      "name": "If you are NOT registered to vote where you live now would you like to register to vote here today",
+      "type": "checkbox",
+      "label": "If you are NOT registered to vote where you live now, would you like to register to vote here today",
+      "question": "If you are not registered to vote where you live now, would you like to register to vote here today? (Answered by the person on the form; declining never affects assistance.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "Voter-registration declination is outside the interview's scope, and declining can never affect assistance; the person completes this section by hand at their own choice."
+    },
+    {
+      "name": "Yes",
+      "type": "checkbox",
+      "label": "Yes",
+      "question": "Do you want to register to vote here today? (The Yes box of question 17 on the form; the person answers it by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        2
+      ],
+      "disposition_reason": "The Yes box of the voter-registration question (question 17); the interview doesn't collect voter-registration choices and the person completes this section by hand."
+    },
+    {
+      "name": "Complete Step 2 for yourself your spouse your children under age 21 who live with you and anyone you claimed on",
+      "type": "text",
+      "label": "Complete Step 2 for yourself, your spouse, your children under age 21 who live with you and anyone you claimed on",
+      "question": "The printed Step 2 instruction line, telling the reader who Step 2 covers (embedded in the template as a field, carrying no answer).",
+      "spec_question_id": null,
+      "disposition": "duplicate_structural",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form author embedded the printed instruction line itself as a text field; it is not an answer box and the pipeline never writes to it."
+    },
+    {
+      "name": "1 First name Middle name Last name and Suffix",
+      "type": "text",
+      "label": "1. First name, Middle name, Last name and Suffix",
+      "question": "The Person 1 block repeats the applicant's full legal name already collected at Step 1; this second box is left for hand copying.",
+      "spec_question_id": null,
+      "disposition": "duplicate_structural",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The Person 1 block repeats the applicant's name already collected at Step 1 (field 1, page 2), which the pipeline fills; this repeated name box stays blank for the person or caseworker to copy if they want it inked here too."
+    },
+    {
+      "name": "undefined",
+      "type": "text",
+      "label": "2. Relationship to you:",
+      "question": "What is this person's relationship to you? (Pre-printed SELF for Person 1; the interview doesn't collect relationship labels.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The relationship box beside the Person 1 name line (the page pre-prints SELF there for the applicant); the interview collects household size, not relationship labels, so the pipeline leaves it as printed."
+    },
+    {
+      "name": "4 Sex Male Female",
+      "type": "text",
+      "label": "4. Sex Male Female",
+      "question": "The printed sex question line (embedded in the template as a field, carrying no answer).",
+      "spec_question_id": null,
+      "disposition": "duplicate_structural",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form author embedded the printed question line ('4. Sex Male Female') itself as a text field; the answer goes in the Male/Female boxes beside it, not here."
+    },
+    {
+      "name": "undefined_2",
+      "type": "checkbox",
+      "label": "4. Sex",
+      "question": "Is this person's sex Male? (The interview doesn't collect sex or gender; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The Male box of the sex question; the interview doesn't collect sex or gender, so the pipeline never checks either box and the person completes it by hand."
+    },
+    {
+      "name": "undefined_3",
+      "type": "checkbox",
+      "label": "4. Sex",
+      "question": "Is this person's sex Female? (The interview doesn't collect sex or gender; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The Female box of the sex question; the interview doesn't collect sex or gender, so the pipeline never checks either box and the person completes it by hand."
+    },
+    {
+      "name": "Yes_2",
+      "type": "checkbox",
+      "label": "Yes",
+      "question": "Do you plan to file a federal income tax return next year? (The Yes box; the interview doesn't collect tax-filing plans.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The Yes box of the tax-filing question (question 6); the interview doesn't collect tax-filing plans and the pipeline never guesses them."
+    },
+    {
+      "name": "Will you file jointly with a spouse",
+      "type": "radio",
+      "label": "Will you file jointly with a spouse",
+      "question": "If you file a tax return next year, will you file jointly with a spouse? (The interview doesn't collect tax-filing plans.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "Question 6a's yes/no pair; the interview doesn't collect tax-filing plans, so the pipeline never checks either box."
+    },
+    {
+      "name": "Will you claim any dependents on your tax return",
+      "type": "radio",
+      "label": "Will you claim any dependents on your tax return",
+      "question": "Will you claim any dependents on your tax return? (The interview doesn't collect tax-filing plans.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "Question 6b's yes/no pair (the template wires this group's two boxes across questions 6 and 6b - recorded as discovered); the interview doesn't collect tax-filing plans."
+    },
+    {
+      "name": "If yes name of spouse",
+      "type": "text",
+      "label": "If yes, name of spouse",
+      "question": "What is your spouse's name, if you will file jointly? (The interview doesn't collect tax-filing details.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The follow-up name box for question 6a; the interview doesn't collect tax-filing details."
+    },
+    {
+      "name": "No_3",
+      "type": "checkbox",
+      "label": "No",
+      "question": "Will you claim any dependents on your tax return - No box. (The interview doesn't collect tax-filing plans.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The No box of question 6b; the interview doesn't collect tax-filing plans."
+    },
+    {
+      "name": "If yes list name s of dependents",
+      "type": "text",
+      "label": "If yes, list name (s) of dependents",
+      "question": "Who are the dependents you will claim, if any? (The interview doesn't collect tax-filing details.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The follow-up name box for question 6b; the interview doesn't collect tax-filing details."
+    },
+    {
+      "name": "Will you be claimed as a dependent on someone elses tax return",
+      "type": "radio",
+      "label": "Will you be claimed as a dependent on someone else’s tax return",
+      "question": "Will you be claimed as a dependent on someone else's tax return? (The interview doesn't collect tax-filing plans.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "Question 6c's yes/no pair; the interview doesn't collect tax-filing plans."
+    },
+    {
+      "name": "If yes please list the name of the tax filer",
+      "type": "text",
+      "label": "If yes, please list the name of the tax filer",
+      "question": "Whose tax return will you be claimed on, if anyone's? (The interview doesn't collect tax-filing details.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The follow-up name box for question 6c; the interview doesn't collect tax-filing details."
+    },
+    {
+      "name": "How are you related to this tax filer",
+      "type": "text",
+      "label": "How are you related to this tax filer",
+      "question": "How are you related to the person who claims you on their tax return? (The interview doesn't collect tax-filing details.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The follow-up relationship box for question 6c; the interview doesn't collect tax-filing details."
+    },
+    {
+      "name": "7",
+      "type": "text",
+      "label": "7",
+      "question": "The printed question number for the health-coverage question (embedded in the template as a field, carrying no answer).",
+      "spec_question_id": null,
+      "disposition": "duplicate_structural",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The question-number box ('7.') the form author embedded beside the health-coverage question line; not an answer box."
+    },
+    {
+      "name": "Do you need health coverage",
+      "type": "text",
+      "label": "Do you need health coverage?",
+      "question": "The printed health-coverage question line (embedded in the template as a field, carrying no answer).",
+      "spec_question_id": null,
+      "disposition": "duplicate_structural",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form author embedded the printed question line itself as a text field; the answer goes in the Yes/No boxes below it, not here."
+    },
+    {
+      "name": "Yes If yes answer all the questions below",
+      "type": "checkbox",
+      "label": "Yes, If yes, answer all the questions below",
+      "question": "Do you need health coverage? (The Yes box; answered by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The Yes box of the health-coverage question (question 7); the interview doesn't ask this exact yes/no and never checks a coverage box on the person's behalf."
+    },
+    {
+      "name": "No If no SKIP to the income question on page 4 Leave the rest of this section blank",
+      "type": "checkbox",
+      "label": "No, If no, SKIP to the income question on page 4. Leave the rest of this section blank",
+      "question": "Do you need health coverage - the No box of question 7. (The interview doesn't ask this exact yes/no; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The No box of the health-coverage question (question 7); the interview doesn't ask this exact yes/no and never checks a coverage box on the person's behalf."
+    },
+    {
+      "name": "Are you a US citizen or US National",
+      "type": "radio",
+      "label": "Are you a U.S. citizen or U.S. National",
+      "question": "Are you a U.S. citizen or U.S. national? (Answered by the person on the form; the interview's four-value citizenship answer can't honestly collapse onto yes/no.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The interview collects citizenship as a four-value answer (citizen, green-card holder, another status, not sure); a yes/no pair would force a not-sure answer into a definite No, so the pipeline never checks either box and the person completes this question by hand."
+    },
+    {
+      "name": "Yes Fill in your document type and ID number below",
+      "type": "checkbox",
+      "label": "Yes. Fill in your document type and ID number below",
+      "question": "If you are not a U.S. citizen or national, do you have eligible immigration status? (The Yes box; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The Yes box of the immigration-status question (9a); the interview doesn't collect immigration documents and never asserts a status."
+    },
+    {
+      "name": "Immigration document type",
+      "type": "text",
+      "label": "Immigration document type",
+      "question": "What immigration document type are you providing, if any? (The interview doesn't collect immigration documents.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "Immigration document details are outside the interview's questions; the person completes them by hand if they choose to."
+    },
+    {
+      "name": "Document ID number",
+      "type": "text",
+      "label": "Document ID number",
+      "question": "What is the ID number of your immigration document, if any? (The interview doesn't collect immigration documents.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "Immigration document details are outside the interview's questions; the person completes them by hand if they choose to."
+    },
+    {
+      "name": "Date of entry into the US",
+      "type": "text",
+      "label": "Date of entry into the U.S",
+      "question": "When did you enter the U.S., if you're providing an immigration document? (The interview doesn't collect immigration documents.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "Immigration document details are outside the interview's questions; the person completes them by hand if they choose to. The form's box carries no printed date format."
+    },
+    {
+      "name": "Mexican",
+      "type": "checkbox",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Hispanic or Latino, which ethnicity descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "MexicanAmerican",
+      "type": "checkbox",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Hispanic or Latino, which ethnicity descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Puerto Rican",
+      "type": "checkbox",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Hispanic or Latino, which ethnicity descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Cuban",
+      "type": "checkbox",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Hispanic or Latino, which ethnicity descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Other",
+      "type": "checkbox",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Hispanic or Latino, which ethnicity descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "undefined_4",
+      "type": "text",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Hispanic or Latino, which ethnicity descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "11 Race OPTIONAL  Check all that apply",
+      "type": "text",
+      "label": "11. Race (OPTIONAL – Check all that apply",
+      "question": "The printed race question line (embedded in the template as a field, carrying no answer).",
+      "spec_question_id": null,
+      "disposition": "duplicate_structural",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form author embedded the printed race question line itself as a text field; the answer goes in the checkboxes below, not here."
+    },
+    {
+      "name": "White or Caucasian",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Other Pacific Islander",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "American Indian or Alaska Native If you complete Appendix B",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Other_2",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Black or AfricanAmerican",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Asian",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Native Hawaiian",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "undefined_5",
+      "type": "text",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to you? (Optional on the form; the person answers by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Check Box9",
+      "type": "checkbox",
+      "label": "d. Are you, your spouse or parent a veteran or an active- duty member of the U.S. Military?",
+      "question": "Are you, your spouse or parent a veteran or active-duty member of the U.S. military? (The Yes box; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The Yes box of the military-service question (9d), which asks about the person, their spouse or parent; the interview's veteran question covers the person only, so the pipeline never checks this box."
+    },
+    {
+      "name": "Check Box10",
+      "type": "checkbox",
+      "label": "d. Are you, your spouse or parent a veteran or an active- duty member of the U.S. Military?",
+      "question": "Are you, your spouse or parent a veteran or active-duty member of the U.S. military - No box. (The person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        3
+      ],
+      "disposition_reason": "The No box of the military-service question (9d); see the Yes box's reason - the interview's veteran question has a different scope."
+    },
+    {
+      "name": "12 Are you a resident of North Carolina",
+      "type": "radio",
+      "label": "12. Are you a resident of North Carolina",
+      "question": "Are you a resident of North Carolina? (The interview records where you live as a state answer; this legal-residency yes/no pair is answered by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The interview doesn't collect residency as a yes/no answer, and the pipeline never checks a box on the person's behalf; the person completes this pair by hand."
+    },
+    {
+      "name": "13 Are you pregnant",
+      "type": "radio",
+      "label": "13. Are you pregnant",
+      "question": "Are you pregnant right now? (The interview doesn't collect this; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The interview doesn't collect pregnancy as a yes/no answer, and the pipeline never checks a box on the person's behalf; the person completes this pair by hand."
+    },
+    {
+      "name": "If yes how many babies are expected during this pregnancy",
+      "type": "text",
+      "label": "If yes, how many babies are expected during this pregnancy",
+      "question": "How many babies are expected during this pregnancy, if applicable? (The interview doesn't collect this.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The follow-up count box for the pregnancy question; the interview doesn't collect it."
+    },
+    {
+      "name": "are you the main person taking care of that child",
+      "type": "radio",
+      "label": "are you the main person taking care of that child",
+      "question": "Do you live with at least one child under 18 and take main care of them? (The interview doesn't collect this; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The interview doesn't collect child care as a yes/no answer, and the pipeline never checks a box on the person's behalf; the person completes this pair by hand."
+    },
+    {
+      "name": "you turned 18",
+      "type": "radio",
+      "label": "you turned 18",
+      "question": "Were you in foster care in North Carolina when you turned 18? (The interview doesn't collect this; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The interview doesn't collect foster care as a yes/no answer, and the pipeline never checks a box on the person's behalf; the person completes this pair by hand."
+    },
+    {
+      "name": "undefined_6",
+      "type": "checkbox",
+      "label": "16. Are you disabled?",
+      "question": "Are you disabled? (The Yes box; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The Yes box of the disability question (16); the interview's disability answer has a not-sure value that a yes/no pair would force into a definite No, so the pipeline never checks either box."
+    },
+    {
+      "name": "undefined_7",
+      "type": "checkbox",
+      "label": "16. Are you disabled?",
+      "question": "Are you disabled - No box. (The person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The No box of the disability question (16); see the Yes box's reason - a not-sure answer can't honestly collapse onto yes/no."
+    },
+    {
+      "name": "16b Are you aged 65 or older",
+      "type": "radio",
+      "label": "16b. Are you aged 65 or older",
+      "question": "Are you aged 65 or older? (The interview doesn't collect age as a yes/no; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The interview doesn't collect age 65 as a yes/no answer, and the pipeline never checks a box on the person's behalf; the person completes this pair by hand."
+    },
+    {
+      "name": "undefined_8",
+      "type": "checkbox",
+      "label": "16c. Are you blind?",
+      "question": "Are you blind? (The Yes box; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The Yes box of the blindness question (16c); the interview doesn't collect it."
+    },
+    {
+      "name": "undefined_9",
+      "type": "checkbox",
+      "label": "16c. Are you blind?",
+      "question": "Are you blind - No box. (The person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The No box of the blindness question (16c); the interview doesn't collect it."
+    },
+    {
+      "name": "such as bathing dressing daily chores etc live in a medical facility nursing home andor need home and",
+      "type": "radio",
+      "label": "such as bathing, dressing, daily chores, etc.), live in a medical facility, nursing home and/or need home and",
+      "question": "Do you have a health condition limiting daily living activities, live in a medical facility or nursing home, or need home and community based services (CAP)? (The interview doesn't collect this; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The interview doesn't collect CAP condition as a yes/no answer, and the pipeline never checks a box on the person's behalf; the person completes this pair by hand."
+    },
+    {
+      "name": "Do you want help paying for medical bills in the last 3 months",
+      "type": "radio",
+      "label": "Do you want help paying for medical bills in the last 3 months",
+      "question": "Do you want help paying for medical bills from the last three months? (The interview doesn't collect this; the person answers on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        4
+      ],
+      "disposition_reason": "The interview doesn't collect retroactive coverage as a yes/no answer, and the pipeline never checks a box on the person's behalf; the person completes this pair by hand."
+    },
+    {
+      "name": "Employed",
+      "type": "checkbox",
+      "label": "Employed",
+      "question": "Are you employed, self-employed, or not employed? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "Question 19's employment-status boxes are a one-of-three pick; the interview's income questions don't collapse onto it without guessing, so the person checks the right box by hand."
+    },
+    {
+      "name": "SelfEmployed",
+      "type": "checkbox",
+      "label": "Self-Employed",
+      "question": "Are you employed, self-employed, or not employed - self-employed box. (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "Question 19's employment-status boxes are a one-of-three pick; the interview's income questions don't collapse onto it without guessing, so the person checks the right box by hand."
+    },
+    {
+      "name": "Not employed",
+      "type": "checkbox",
+      "label": "Not employed",
+      "question": "Are you employed, self-employed, or not employed - not-employed box. (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "Question 19's employment-status boxes are a one-of-three pick; the interview's income questions don't collapse onto it without guessing, so the person checks the right box by hand."
+    },
+    {
+      "name": "Text1",
+      "type": "text",
+      "label": "20. Employer name and address",
+      "question": "What is the name and address of your employer (current job 1)? (The interview doesn't collect employer identity.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "The current-job-1 employer name and address box; the interview collects pay amount and frequency, not employer identity."
+    },
+    {
+      "name": "21 Employer phone number",
+      "type": "text",
+      "label": "21. Employer phone number: ( ) -",
+      "question": "What is your employer's phone number (current job 1)? (The interview doesn't collect employer contact details.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "The current-job-1 employer phone box; the interview doesn't collect employer contact details."
+    },
+    {
+      "name": "Check Box5",
+      "type": "checkbox",
+      "label": "22. Wages/tips (before taxes)",
+      "question": "How often do you get paid at current job 1 - hourly box. (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "The Hourly box of current job 1's pay-frequency line; the interview's pay-frequency answer can't honestly collapse onto this six-box line (hourly and yearly have no interview counterpart), so the person checks the right box by hand."
+    },
+    {
+      "name": "Weekly",
+      "type": "checkbox",
+      "label": "Weekly",
+      "question": "How often do you get paid at current job 1 - weekly box. (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A pay-frequency box of current job 1's line; the interview's pay-frequency answer can't honestly collapse onto this six-box line, so the person checks the right box by hand."
+    },
+    {
+      "name": "Every 2 weeks",
+      "type": "checkbox",
+      "label": "Every 2 weeks",
+      "question": "How often do you get paid at current job 1 - every 2 weeks box. (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A pay-frequency box of current job 1's line; the interview's pay-frequency answer can't honestly collapse onto this six-box line, so the person checks the right box by hand."
+    },
+    {
+      "name": "Twice a Monthly",
+      "type": "checkbox",
+      "label": "Twice a Monthly",
+      "question": "How often do you get paid at current job 1 - twice a monthly box. (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A pay-frequency box of current job 1's line; the interview's pay-frequency answer can't honestly collapse onto this six-box line, so the person checks the right box by hand."
+    },
+    {
+      "name": "Monthly",
+      "type": "checkbox",
+      "label": "Monthly",
+      "question": "How often do you get paid at current job 1 - monthly box. (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A pay-frequency box of current job 1's line; the interview's pay-frequency answer can't honestly collapse onto this six-box line, so the person checks the right box by hand."
+    },
+    {
+      "name": "Yearly",
+      "type": "checkbox",
+      "label": "Yearly",
+      "question": "How often do you get paid at current job 1 - yearly box. (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A pay-frequency box of current job 1's line; the interview's pay-frequency answer can't honestly collapse onto this six-box line, so the person checks the right box by hand."
+    },
+    {
+      "name": "23 Average hours worked each WEEK",
+      "type": "text",
+      "label": "23. Average hours worked each WEEK",
+      "question": "How many hours do you work each week on average (current job 1)? (The interview doesn't collect hours worked.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "The interview doesn't collect hours worked."
+    },
+    {
+      "name": "Text2",
+      "type": "text",
+      "label": "24. Employer name and address",
+      "question": "What is the name and address of your employer (current job 2)? (The interview doesn't collect employer identity.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "The current-job-2 employer name and address box; the interview collects one job's pay amount, not a second job's employer identity."
+    },
+    {
+      "name": "25 Employer phone number",
+      "type": "text",
+      "label": "25. Employer phone number: ( ) -",
+      "question": "What is your employer's phone number (current job 2)? (The interview doesn't collect employer contact details.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "The current-job-2 employer phone box; the interview doesn't collect employer contact details."
+    },
+    {
+      "name": "Hourly_2",
+      "type": "checkbox",
+      "label": "Hourly",
+      "question": "How often do you get paid at current job 2 (hourly 2 box)? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A pay-frequency box of current job 2's line; the interview collects one job's pay frequency at most, so the person checks the right box by hand."
+    },
+    {
+      "name": "Weekly_2",
+      "type": "checkbox",
+      "label": "Weekly",
+      "question": "How often do you get paid at current job 2 (weekly 2 box)? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A pay-frequency box of current job 2's line; the interview collects one job's pay frequency at most, so the person checks the right box by hand."
+    },
+    {
+      "name": "Every 2 weeks_2",
+      "type": "checkbox",
+      "label": "Every 2 weeks",
+      "question": "How often do you get paid at current job 2 (every 2 weeks 2 box)? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A pay-frequency box of current job 2's line; the interview collects one job's pay frequency at most, so the person checks the right box by hand."
+    },
+    {
+      "name": "Twice a Monthly_2",
+      "type": "checkbox",
+      "label": "Twice a Monthly",
+      "question": "How often do you get paid at current job 2 (twice a monthly 2 box)? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A pay-frequency box of current job 2's line; the interview collects one job's pay frequency at most, so the person checks the right box by hand."
+    },
+    {
+      "name": "Monthly_2",
+      "type": "checkbox",
+      "label": "Monthly",
+      "question": "How often do you get paid at current job 2 (monthly 2 box)? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A pay-frequency box of current job 2's line; the interview collects one job's pay frequency at most, so the person checks the right box by hand."
+    },
+    {
+      "name": "Yearly_2",
+      "type": "checkbox",
+      "label": "Yearly",
+      "question": "How often do you get paid at current job 2 (yearly 2 box)? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A pay-frequency box of current job 2's line; the interview collects one job's pay frequency at most, so the person checks the right box by hand."
+    },
+    {
+      "name": "undefined_11",
+      "type": "text",
+      "label": "26. Wages/tips (before taxes)",
+      "question": "About how much are you paid in wages or tips at current job 2? (The interview collects one job's pay amount; this box is left for hand completion.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "The current-job-2 wages/tips box; the interview collects one job's pay amount (which fills job 1's box), so this stays blank rather than duplicating a number the person didn't give for this job."
+    },
+    {
+      "name": "27 Average hours worked each WEEK",
+      "type": "text",
+      "label": "27. Average hours worked each WEEK",
+      "question": "How many hours do you work each week on average (current job 2)? (The interview doesn't collect hours worked.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "The interview doesn't collect hours worked."
+    },
+    {
+      "name": "Change Jobs",
+      "type": "checkbox",
+      "label": "Change Jobs",
+      "question": "In the past year, did you change jobs, stop working, or start working fewer hours? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A box of question 28 (employment changes in the past year); the interview doesn't collect it."
+    },
+    {
+      "name": "Stop Working",
+      "type": "checkbox",
+      "label": "Stop Working",
+      "question": "In the past year, did you change jobs, stop working, or start working fewer hours? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A box of question 28 (employment changes in the past year); the interview doesn't collect it."
+    },
+    {
+      "name": "Start working fewer hours",
+      "type": "checkbox",
+      "label": "Start working fewer hours",
+      "question": "In the past year, did you change jobs, stop working, or start working fewer hours? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A box of question 28 (employment changes in the past year); the interview doesn't collect it."
+    },
+    {
+      "name": "None of these",
+      "type": "checkbox",
+      "label": "None of these",
+      "question": "In the past year, did you change jobs, stop working, or start working fewer hours? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A box of question 28 (employment changes in the past year); the interview doesn't collect it."
+    },
+    {
+      "name": "Type of work",
+      "type": "text",
+      "label": "Type of work",
+      "question": "What type of work is your self-employment business? (The interview doesn't collect this.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "The self-employment work-type box (question 29a); the interview doesn't collect it."
+    },
+    {
+      "name": "month",
+      "type": "text",
+      "label": "month",
+      "question": "How much net income will you get from self-employment this month? (The interview doesn't collect this; the person fills it by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "The self-employment net-income box (question 29b); the interview doesn't collect a self-employment net-income figure, and the pipeline never computes one."
+    },
+    {
+      "name": "None",
+      "type": "checkbox",
+      "label": "None",
+      "question": "Did you get none income this month? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A checkbox of the other-income table (question 30); the interview collects income sources as its own answer set and a household benefit amount, which can't honestly collapse onto these per-source row boxes, so the person checks rows by hand."
+    },
+    {
+      "name": "undefined_12",
+      "type": "text",
+      "label": "None",
+      "question": "What amount did you get for the None row of the other-income table? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "An amount box of the other-income table (question 30); the interview's benefit-amount answer can't honestly collapse onto these per-source rows, so the person fills rows by hand."
+    },
+    {
+      "name": "How Often",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often do you get that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A how-often box of the other-income or deductions table; the interview doesn't collect per-source frequency, so the person fills it by hand."
+    },
+    {
+      "name": "Net farmingfishing",
+      "type": "checkbox",
+      "label": "Net farming/fishing",
+      "question": "Did you get net farming/fishing income this month? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A checkbox of the other-income table (question 30); the interview collects income sources as its own answer set and a household benefit amount, which can't honestly collapse onto these per-source row boxes, so the person checks rows by hand."
+    },
+    {
+      "name": "undefined_13",
+      "type": "text",
+      "label": "Net farming/fishing",
+      "question": "What amount did you get for the net farming/fishing row of the other-income table? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "An amount box of the other-income table (question 30); the interview's benefit-amount answer can't honestly collapse onto these per-source rows, so the person fills rows by hand."
+    },
+    {
+      "name": "How Often_2",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often do you get that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A how-often box of the other-income or deductions table; the interview doesn't collect per-source frequency, so the person fills it by hand."
+    },
+    {
+      "name": "Unemployment",
+      "type": "checkbox",
+      "label": "Unemployment",
+      "question": "Did you get unemployment income this month? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A checkbox of the other-income table (question 30); the interview collects income sources as its own answer set and a household benefit amount, which can't honestly collapse onto these per-source row boxes, so the person checks rows by hand."
+    },
+    {
+      "name": "undefined_14",
+      "type": "text",
+      "label": "Unemployment",
+      "question": "What amount did you get for the unemployment row of the other-income table? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "An amount box of the other-income table (question 30); the interview's benefit-amount answer can't honestly collapse onto these per-source rows, so the person fills rows by hand."
+    },
+    {
+      "name": "How Often_3",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often do you get that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A how-often box of the other-income or deductions table; the interview doesn't collect per-source frequency, so the person fills it by hand."
+    },
+    {
+      "name": "Net rentalroyalty",
+      "type": "checkbox",
+      "label": "Net rental/royalty",
+      "question": "Did you get net rental/royalty income this month? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A checkbox of the other-income table (question 30); the interview collects income sources as its own answer set and a household benefit amount, which can't honestly collapse onto these per-source row boxes, so the person checks rows by hand."
+    },
+    {
+      "name": "undefined_15",
+      "type": "text",
+      "label": "Net rental/royalty",
+      "question": "What amount did you get for the net rental/royalty row of the other-income table? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "An amount box of the other-income table (question 30); the interview's benefit-amount answer can't honestly collapse onto these per-source rows, so the person fills rows by hand."
+    },
+    {
+      "name": "How Often_4",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often do you get that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A how-often box of the other-income or deductions table; the interview doesn't collect per-source frequency, so the person fills it by hand."
+    },
+    {
+      "name": "Pensions",
+      "type": "checkbox",
+      "label": "Pensions",
+      "question": "Did you get pensions income this month? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A checkbox of the other-income table (question 30); the interview collects income sources as its own answer set and a household benefit amount, which can't honestly collapse onto these per-source row boxes, so the person checks rows by hand."
+    },
+    {
+      "name": "undefined_16",
+      "type": "text",
+      "label": "Pensions",
+      "question": "What amount did you get for the pensions row of the other-income table? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "An amount box of the other-income table (question 30); the interview's benefit-amount answer can't honestly collapse onto these per-source rows, so the person fills rows by hand."
+    },
+    {
+      "name": "How Often_5",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often do you get that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A how-often box of the other-income or deductions table; the interview doesn't collect per-source frequency, so the person fills it by hand."
+    },
+    {
+      "name": "Other income",
+      "type": "checkbox",
+      "label": "Other income",
+      "question": "Did you get other income income this month? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A checkbox of the other-income table (question 30); the interview collects income sources as its own answer set and a household benefit amount, which can't honestly collapse onto these per-source row boxes, so the person checks rows by hand."
+    },
+    {
+      "name": "undefined_17",
+      "type": "text",
+      "label": "Other income",
+      "question": "What amount did you get for the other-income row of the other-income table? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "An amount box of the other-income table (question 30); the interview's benefit-amount answer can't honestly collapse onto these per-source rows, so the person fills rows by hand."
+    },
+    {
+      "name": "How Often_6",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often do you get that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A how-often box of the other-income or deductions table; the interview doesn't collect per-source frequency, so the person fills it by hand."
+    },
+    {
+      "name": "Social Security",
+      "type": "checkbox",
+      "label": "Social Security",
+      "question": "Did you get Social Security income this month? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A checkbox of the other-income table (question 30); the interview collects income sources as its own answer set and a household benefit amount, which can't honestly collapse onto these per-source row boxes, so the person checks rows by hand."
+    },
+    {
+      "name": "1",
+      "type": "text",
+      "label": "[1]",
+      "question": "What amount did you get for the Social Security row of the other-income table? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "An amount box of the other-income table (question 30); the interview's benefit-amount answer can't honestly collapse onto these per-source rows, so the person fills rows by hand."
+    },
+    {
+      "name": "How Often_7",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often do you get that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A how-often box of the other-income or deductions table; the interview doesn't collect per-source frequency, so the person fills it by hand."
+    },
+    {
+      "name": "Type",
+      "type": "text",
+      "label": "Type",
+      "question": "What type of benefit is that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "The type box beside the other-income table's Social Security row; the interview doesn't collect it."
+    },
+    {
+      "name": "Retirement Accounts",
+      "type": "checkbox",
+      "label": "Retirement Accounts",
+      "question": "Did you get retirement accounts income this month? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A checkbox of the other-income table (question 30); the interview collects income sources as its own answer set and a household benefit amount, which can't honestly collapse onto these per-source row boxes, so the person checks rows by hand."
+    },
+    {
+      "name": "2",
+      "type": "text",
+      "label": "[2]",
+      "question": "What amount did you get for the retirement-accounts row of the other-income table? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "An amount box of the other-income table (question 30); the interview's benefit-amount answer can't honestly collapse onto these per-source rows, so the person fills rows by hand."
+    },
+    {
+      "name": "How Often_8",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often do you get that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A how-often box of the other-income or deductions table; the interview doesn't collect per-source frequency, so the person fills it by hand."
+    },
+    {
+      "name": "Alimony Received",
+      "type": "checkbox",
+      "label": "Alimony Received",
+      "question": "Did you get alimony received income this month? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A checkbox of the other-income table (question 30); the interview collects income sources as its own answer set and a household benefit amount, which can't honestly collapse onto these per-source row boxes, so the person checks rows by hand."
+    },
+    {
+      "name": "undefined_18",
+      "type": "text",
+      "label": "Alimony Received",
+      "question": "What amount did you get for the alimony row of the other-income table? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "An amount box of the other-income table (question 30); the interview's benefit-amount answer can't honestly collapse onto these per-source rows, so the person fills rows by hand."
+    },
+    {
+      "name": "How Often_9",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often do you get that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        5
+      ],
+      "disposition_reason": "A how-often box of the other-income or deductions table; the interview doesn't collect per-source frequency, so the person fills it by hand."
+    },
+    {
+      "name": "31 DEDUCTIONS Check all that apply and give the amount and how often you get it",
+      "type": "text",
+      "label": "31. DEDUCTIONS: Check all that apply, and give the amount and how often you get it",
+      "question": "The printed deductions question line (embedded in the template as a field, carrying no answer).",
+      "spec_question_id": null,
+      "disposition": "duplicate_structural",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "The form author embedded the printed deductions question line itself as a text field; the answers go in the checkboxes and boxes below, not here."
+    },
+    {
+      "name": "Alimony Paid",
+      "type": "checkbox",
+      "label": "Alimony Paid",
+      "question": "Do you pay alimony paid? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "A checkbox of the deductions table (question 31); the interview doesn't collect deductions, so the person checks rows by hand."
+    },
+    {
+      "name": "Student Loan Interest",
+      "type": "checkbox",
+      "label": "Student Loan Interest",
+      "question": "Do you pay student loan interest? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "A checkbox of the deductions table (question 31); the interview doesn't collect deductions, so the person checks rows by hand."
+    },
+    {
+      "name": "Other Deductions",
+      "type": "checkbox",
+      "label": "Other Deductions",
+      "question": "Do you pay other deductions? (Checked by the person on the form.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "A checkbox of the deductions table (question 31); the interview doesn't collect deductions, so the person checks rows by hand."
+    },
+    {
+      "name": "undefined_19",
+      "type": "text",
+      "label": "Alimony Paid",
+      "question": "What amount do you pay for the alimony-paid row? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "An amount box of the deductions table (question 31); the interview doesn't collect deductions."
+    },
+    {
+      "name": "undefined_20",
+      "type": "text",
+      "label": "Student Loan Interest",
+      "question": "What amount do you pay for the student-loan-interest row? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "An amount box of the deductions table (question 31); the interview doesn't collect deductions."
+    },
+    {
+      "name": "How Often_10",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often do you get that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "A how-often box of the other-income or deductions table; the interview doesn't collect per-source frequency, so the person fills it by hand."
+    },
+    {
+      "name": "undefined_21",
+      "type": "text",
+      "label": "Other Deductions",
+      "question": "What amount do you pay for the other-deductions row? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "An amount box of the deductions table (question 31); the interview doesn't collect deductions."
+    },
+    {
+      "name": "How Often_11",
+      "type": "text",
+      "label": "How Often",
+      "question": "How often do you get that income? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "A how-often box of the other-income or deductions table; the interview doesn't collect per-source frequency, so the person fills it by hand."
+    },
+    {
+      "name": "Type_2",
+      "type": "text",
+      "label": "Type",
+      "question": "What type of deduction is that? (Filled by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "The type box of the deductions table (question 31); the interview doesn't collect deductions."
+    },
+    {
+      "name": "undefined_22",
+      "type": "text",
+      "label": "Your total income this year",
+      "question": "What is your total income this year? (The interview doesn't collect a yearly total; the person fills it by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "The this-year total income box (question 32); the interview doesn't collect a yearly total, and the pipeline never computes one."
+    },
+    {
+      "name": "undefined_23",
+      "type": "text",
+      "label": "32. YEARLY INCOME",
+      "question": "A yearly-income box of question 32. (The person fills it by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        6
+      ],
+      "disposition_reason": "A second box in the yearly-income section (question 32) with an undefined tooltip in the template; the pipeline leaves it for the person to complete by hand."
+    },
+    {
+      "name": "Complete Step 2 for PERSON 2 their spouse their children under age 21 who live with them and anyone they claimed",
+      "type": "text",
+      "label": "Complete Step 2 for PERSON 2, their spouse, their children under age 21 who live with them and anyone they claimed",
+      "question": "The printed Person 2 instruction line, telling the reader who Person 2's step covers (embedded in the template as a field, no answer).",
+      "spec_question_id": null,
+      "disposition": "duplicate_structural",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form author embedded the printed instruction line itself as a text field; it is not an answer box."
+    },
+    {
+      "name": "1 First name Middle name Last name and Suffix_2",
+      "type": "text",
+      "label": "1. First name, Middle name, Last name and Suffix",
+      "question": "What is Person 2's full legal name? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "2 Relationship to you",
+      "type": "text",
+      "label": "2. Relationship to you:",
+      "question": "What is Person 2's relationship to you? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "undefined_24",
+      "type": "text",
+      "label": "2. Relationship to you:",
+      "question": "Person 2's relationship box (an auxiliary box beside the name line). (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "3 Date of Birth mmddyyyy_2",
+      "type": "text",
+      "label": "3. Date of Birth (mm/dd/yyyy):",
+      "question": "What is Person 2's date of birth? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "4 Sex Male Female_2",
+      "type": "text",
+      "label": "4. Sex Male Female",
+      "question": "The printed Person 2 sex question line (embedded in the template as a field, carrying no answer).",
+      "spec_question_id": null,
+      "disposition": "duplicate_structural",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form author embedded the printed question line itself as a text field; the answer goes in the Male/Female boxes beside it."
+    },
+    {
+      "name": "undefined_25",
+      "type": "checkbox",
+      "label": "4. Sex",
+      "question": "Is Person 2's sex Male? (The interview doesn't collect sex or gender; Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "undefined_26",
+      "type": "checkbox",
+      "label": "4. Sex",
+      "question": "Is Person 2's sex Female? (The interview doesn't collect sex or gender; Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "5 Social Security Number SSN_2",
+      "type": "text",
+      "label": "5. Social Security Number (SSN",
+      "question": "What is Person 2's Social Security number? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Yes_16",
+      "type": "checkbox",
+      "label": "Yes",
+      "question": "Person 2's tax-filing question - Yes box. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "If yes please answer question ac",
+      "type": "radio",
+      "label": "If yes, please answer question a-c",
+      "question": "Person 2's tax questions - a yes/no pair box. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Yes_17",
+      "type": "checkbox",
+      "label": "Yes",
+      "question": "Person 2's file-jointly question - Yes box. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "If yes name of spouse_2",
+      "type": "text",
+      "label": "If yes, name of spouse",
+      "question": "Person 2's spouse name box. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Will PERSON 2 claim any dependents on their tax return",
+      "type": "radio",
+      "label": "Will PERSON 2 claim any dependents on their tax return",
+      "question": "Will Person 2 claim dependents? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "If yes list name s of dependents_2",
+      "type": "text",
+      "label": "If yes, list name (s) of dependents",
+      "question": "Person 2's dependents name box. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "c Will PERSON 2 be claimed as a dependent on someone elses tax return",
+      "type": "radio",
+      "label": "c. Will PERSON 2 be claimed as a dependent on someone else’s tax return",
+      "question": "Will Person 2 be claimed as a dependent? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "If yes please list the name of the tax filer_2",
+      "type": "text",
+      "label": "If yes, please list the name of the tax filer",
+      "question": "Person 2's tax-filer name box. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Is PERSON 2 related to this tax filer If so how",
+      "type": "text",
+      "label": "Is PERSON 2 related to this tax filer? If so, how",
+      "question": "How is Person 2 related to the tax filer? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Yes If yes answer all the questions below_2",
+      "type": "checkbox",
+      "label": "Yes, If yes, answer all the questions below",
+      "question": "Person 2's health-coverage question - Yes box. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "No If no SKIP to the income question on page 8 Leave the rest of this section blank",
+      "type": "checkbox",
+      "label": "No, If no, SKIP to the income question on page 8. Leave the rest of this section blank",
+      "question": "Person 2's health-coverage question - No box. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Is PERSON 2 a US citizen or US National",
+      "type": "radio",
+      "label": "Is PERSON 2 a U.S. citizen or U.S. National",
+      "question": "Is Person 2 a U.S. citizen or national? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Yes Fill in their document type and ID number below",
+      "type": "checkbox",
+      "label": "Yes. Fill in their document type and ID number below",
+      "question": "Person 2's immigration-status question - Yes box. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Immigration document type_2",
+      "type": "text",
+      "label": "Immigration document type",
+      "question": "Person 2's immigration document type. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Document ID number_2",
+      "type": "text",
+      "label": "Document ID number",
+      "question": "Person 2's immigration document ID number. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Date of entry into the US_2",
+      "type": "text",
+      "label": "Date of entry into the U.S",
+      "question": "Person 2's date of entry into the U.S. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Mexican_2",
+      "type": "checkbox",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Person 2 is Hispanic or Latino, which ethnicity descriptions apply? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "MexicanAmerican_2",
+      "type": "checkbox",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Person 2 is Hispanic or Latino, which ethnicity descriptions apply? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Puerto Rican_2",
+      "type": "checkbox",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Person 2 is Hispanic or Latino, which ethnicity descriptions apply? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Cuban_2",
+      "type": "checkbox",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Person 2 is Hispanic or Latino, which ethnicity descriptions apply? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "undefined_27",
+      "type": "checkbox",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Person 2 is Hispanic or Latino, which ethnicity descriptions apply? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Other_3",
+      "type": "text",
+      "label": "10. If Hispanic/Latino, ethnicity (OPTIONAL",
+      "question": "If Person 2 is Hispanic or Latino, which ethnicity descriptions apply? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks ethnicity OPTIONAL (question 10, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "11 Race OPTIONAL  Check all that apply_2",
+      "type": "text",
+      "label": "11. Race (OPTIONAL – Check all that apply",
+      "question": "The printed Person 2 race question line (embedded in the template as a field, carrying no answer).",
+      "spec_question_id": null,
+      "disposition": "duplicate_structural",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form author embedded the printed race question line itself as a text field; the answer goes in the checkboxes below, not here."
+    },
+    {
+      "name": "White or Caucasian_2",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to Person 2? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Other Pacific Islander_2",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to Person 2? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "American Indian or Alaska Native If so complete Appendix B",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to Person 2? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "undefined_28",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to Person 2? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Black or AfricanAmerican_2",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to Person 2? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Asian_2",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to Person 2? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Native Hawaiian_2",
+      "type": "checkbox",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to Person 2? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Other_4",
+      "type": "text",
+      "label": "11. Race (OPTIONAL",
+      "question": "Which race descriptions apply to Person 2? (Optional on the form; answered by hand.)",
+      "spec_question_id": null,
+      "disposition": "optional_unanswered",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The form marks race OPTIONAL (question 11, Person 2); the interview doesn't collect it and the boxes stay blank unless the person checks them by hand."
+    },
+    {
+      "name": "Check Box7",
+      "type": "checkbox",
+      "label": "d. Is PERSON 2, their spouse or parent a veteran or an active-duty member of the U.S. Military?",
+      "question": "Is Person 2, their spouse or parent a veteran or active-duty member of the U.S. military (Yes box)? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Check Box8",
+      "type": "checkbox",
+      "label": "d. Is PERSON 2, their spouse or parent a veteran or an active-duty member of the U.S. Military?",
+      "question": "Is Person 2, their spouse or parent a veteran or active-duty member of the U.S. military (No box)? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        7
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "If no list address",
+      "type": "text",
+      "label": "If no, list address",
+      "question": "Person 2's different-address line. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "undefined_29",
+      "type": "checkbox",
+      "label": "13. Is PERSON 2 a resident of North Carolina?",
+      "question": "Is Person 2 a resident of North Carolina? (Yes box.) (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "undefined_30",
+      "type": "checkbox",
+      "label": "13. Is PERSON 2 a resident of North Carolina?",
+      "question": "Is Person 2 a resident of North Carolina? (No box.) (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "14 Is PERSON 2 pregnant",
+      "type": "radio",
+      "label": "14. Is PERSON 2 pregnant",
+      "question": "Is Person 2 pregnant? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "If yes how many babies are expected during this pregnancy_2",
+      "type": "text",
+      "label": "If yes, how many babies are expected during this pregnancy",
+      "question": "Person 2's pregnancy count box. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Check Box13",
+      "type": "checkbox",
+      "label": "15. Do PERSON 2 lives with at least one child under the age of 18",
+      "question": "Does Person 2 live with a child under 18 and take main care of them? (Yes box.) (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "No_24",
+      "type": "checkbox",
+      "label": "15. Do PERSON 2 lives with at least one child under the age of 18",
+      "question": "Does Person 2 live with a child under 18 and take main care of them? (No box.) (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "Carolina",
+      "type": "radio",
+      "label": "Carolina",
+      "question": "Was Person 2 in foster care in North Carolina when they turned 18? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "undefined_31",
+      "type": "checkbox",
+      "label": "17a. Is PERSON 2 disabled?",
+      "question": "Is Person 2 disabled? (Yes box.) (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "undefined_32",
+      "type": "checkbox",
+      "label": "17a. Is PERSON 2 disabled?",
+      "question": "Is Person 2 disabled? (No box.) (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "undefined_33",
+      "type": "checkbox",
+      "label": "17c. Is PERSON 2 blind?",
+      "question": "Is Person 2 blind? (Yes box.) (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "undefined_34",
+      "type": "checkbox",
+      "label": "17c. Is PERSON 2 blind?",
+      "question": "Is Person 2 blind? (No box.) (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "older",
+      "type": "radio",
+      "label": "older",
+      "question": "Is Person 2 aged 65 or older? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "living such as bathing dressing daily chores etc live in a medical facility nursing home andor need home and",
+      "type": "radio",
+      "label": "living (such as bathing, dressing, daily chores, etc.), live in a medical facility, nursing home and/or need home and",
+      "question": "Does Person 2 have a health condition limiting daily living activities, live in a medical facility or nursing home, or need home and community based services (CAP)? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "19 Does PERSON 2 need help paying for medical bills in the last 3 months",
+      "type": "radio",
+      "label": "19. Does PERSON 2 need help paying for medical bills in the last 3 months",
+      "question": "Does Person 2 need help paying last-3-month medical bills? (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "undefined_35",
+      "type": "checkbox",
+      "label": "20. Did PERSON 2 have insurance through a job and lose it within the past 3 months",
+      "question": "Did Person 2 have job insurance and lose it in the past 3 months? (Yes box.) (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "No_28",
+      "type": "checkbox",
+      "label": "20. Did PERSON 2 have insurance through a job and lose it within the past 3 months",
+      "question": "Did Person 2 have job insurance and lose it in the past 3 months? (No box.) (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
+    },
+    {
+      "name": "20 Did PERSON 2 have insurance through a job and lose it within the past 3 months",
+      "type": "text",
+      "label": "20. Did PERSON 2 have insurance through a job and lose it within the past 3 months",
+      "question": "The printed Person 2 job-insurance question line (embedded in the template as a field, carrying no answer).",
+      "spec_question_id": null,
+      "disposition": "duplicate_structural",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The form author embedded part of the printed question line itself as a text field; the answers go in the boxes beside it."
+    },
+    {
+      "name": "Yes_28",
+      "type": "text",
+      "label": "Yes",
+      "question": "An auxiliary box of Person 2's job-insurance question. (Person 2's section is completed by the person by hand.)",
+      "spec_question_id": null,
+      "disposition": "not_collected_by_interview",
+      "pii_likely": true,
+      "required": false,
+      "pages": [
+        8
+      ],
+      "disposition_reason": "The interview collects household size, not per-member details, so Person 2's section is left for the person to complete by hand for each additional household member."
     }
   ]
 }

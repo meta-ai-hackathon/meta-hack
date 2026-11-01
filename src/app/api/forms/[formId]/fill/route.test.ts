@@ -206,11 +206,14 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
   it("fills the committed official bytes from the demo persona; unanswered fields stay blank with the honest report", async () => {
     const cookie = await createSessionAndGetCookie();
     const sessionId = cookie.split("=")[1];
-    // Mapped answers: pii values (dob, phone) cross the vault through the
-    // entry's allowlist; the wage amount rides the answer table (non-pii).
-    // income_sources keeps job_income_amount inside the flow's visibility.
+    // Mapped answers: pii values (dob, phone, county) cross the vault
+    // through the entry's allowlist; the wage + state ride the answer
+    // table (non-pii). income_sources keeps job_income_amount inside the
+    // flow's visibility.
     await saveAnswer(sessionId, "date_of_birth", "known", "1980-02-03");
     await saveAnswer(sessionId, "phone_contact", "known", "555-010-9911");
+    await saveAnswer(sessionId, "state", "known", "NC");
+    await saveAnswer(sessionId, "county", "known", "Mecklenburg");
     await saveAnswer(sessionId, "income_sources", "known", ["job"]);
     await saveAnswer(sessionId, "job_income_amount", "known", 1200);
 
@@ -249,6 +252,11 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
       "555-010-9911",
     );
     expect(form.getTextField("undefined_10").getText()).toBe("1200");
+    // The newly mapped home-address lines (full-form mapping part 1): the
+    // state renders in its option-label display form; the county crosses
+    // the vault through the entry's allowlist.
+    expect(form.getTextField("5 State").getText()).toBe("North Carolina");
+    expect(form.getTextField("7 County").getText()).toBe("Mecklenburg");
     // Unmapped persona answers rode the request and filled their fields.
     expect(
       form.getTextField("1 First name Middle name Last name  Suffix").getText(),
@@ -300,6 +308,8 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
         "1 First name Middle name Last name  Suffix",
         "2 Home address Leave blank if you dont have one",
         "3 Date of Birth mmddyyyy",
+        "5 State",
+        "7 County",
         "14 Phone Number",
         "undefined_10",
       ].sort(),
@@ -311,9 +321,11 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     const sessionId = cookie.split("=")[1];
     // Synthetic full-coverage persona: a KNOWN answer for every mapped
     // spec question (pii values ride the vault through the entry's
-    // allowlist; the wage rides the answer table).
+    // allowlist; the wage + state ride the answer table).
     await saveAnswer(sessionId, "date_of_birth", "known", "1979-07-08");
     await saveAnswer(sessionId, "phone_contact", "known", "555-014-2277");
+    await saveAnswer(sessionId, "state", "known", "NC");
+    await saveAnswer(sessionId, "county", "known", "Mecklenburg");
     await saveAnswer(sessionId, "income_sources", "known", ["job"]);
     await saveAnswer(sessionId, "job_income_amount", "known", 1500);
     // The unmapped persona fields — INCLUDING the typed signature — arrive
@@ -365,6 +377,8 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     expect(form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe(
       "07/08/1979",
     );
+    expect(form.getTextField("5 State").getText()).toBe("North Carolina");
+    expect(form.getTextField("7 County").getText()).toBe("Mecklenburg");
     expect(form.getTextField("5 Social Security Number SSN").getText()).toBe(
       "000-00-0000",
     );
@@ -385,9 +399,16 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     const entry = getFormRegistryEntry("dhb-5200");
     const template = await PDFDocument.load(loadTemplatePdf(entry));
     const discovered = discoverAcroFormFields(template);
-    const mapped = new Set(entry.fields.map((field) => field.name));
+    // "Mapped" is the registry's mapped DISPOSITION now (full-form mapping
+    // part 1): 11 fields take person answers; the other 194 carry an
+    // honest disposition and are never filled.
+    const mapped = new Set(
+      entry.fields
+        .filter((field) => field.disposition === "mapped")
+        .map((field) => field.name),
+    );
     const unmapped = discovered.filter((field) => !mapped.has(field.name));
-    expect(mapped.size).toBe(9);
+    expect(mapped.size).toBe(11);
     expect(discovered.length).toBe(614);
     expect(unmapped.length).toBe(discovered.length - mapped.size);
     // Text-kind unmapped fields, sampled deterministically for speed.
@@ -406,7 +427,7 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
       sessionId,
       FULL_PERSONA,
     );
-    expect(outcome.filled.length).toBe(entry.fields.length);
+    expect(outcome.filled.length).toBe(mapped.size);
     expect(outcome.toResolve).toEqual([]);
   });
 
