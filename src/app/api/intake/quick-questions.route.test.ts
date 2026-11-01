@@ -143,13 +143,16 @@ async function vaultRow(
 describe("quick-question persistence through the existing tri-state path (VAL-QQ-007)", () => {
   it("keeps the HTTP surface to the existing intake endpoints — no new storage route", () => {
     // The stage saves through POST /api/intake/answer exactly like the
-    // wizard; no QQ-specific endpoint, table, or route exists.
+    // wizard; no QQ-specific endpoint, table, or route exists. The
+    // tax-return route (milestone income-capture part 2) is the mission's
+    // own addition under /api/intake/tax-return — it is not a QQ storage
+    // route and persists nothing itself; the QQ surface is unchanged.
     const intakeRoutes = readdirSync(
       fileURLToPath(new URL(".", import.meta.url)),
     )
       .filter((entry) => !entry.includes("."))
       .sort();
-    expect(intakeRoutes).toEqual(["answer", "state"]);
+    expect(intakeRoutes).toEqual(["answer", "state", "tax-return"]);
   });
 
   it("round-trips the full required universe: pii → vault + NULL, plain → answer row, known + user_supplied", async () => {

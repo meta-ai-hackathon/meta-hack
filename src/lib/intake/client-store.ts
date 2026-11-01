@@ -46,6 +46,10 @@ export const CLIENT_ANSWER_PROVENANCES = [
   "user_supplied",
   "ai_drafted",
   "source_verified",
+  // The tax-return confirm flow's provenances (VAL-INC-007), mirroring
+  // the answer table CHECK extension.
+  "tax_return",
+  "user",
 ] as const;
 
 export type ClientAnswerProvenance =
@@ -95,6 +99,14 @@ function recordIsValid(record: ClientAnswerRecord): boolean {
     return false;
   }
   if (record.provenance === "ai_drafted" && record.status !== "unverified") {
+    return false;
+  }
+  // The tax-return provenances pair only with known (a confirmed proposal
+  // or the person's own correction is a vouched-for value).
+  if (
+    (record.provenance === "tax_return" || record.provenance === "user") &&
+    record.status !== "known"
+  ) {
     return false;
   }
   return true;

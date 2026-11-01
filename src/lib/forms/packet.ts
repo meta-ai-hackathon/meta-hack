@@ -36,7 +36,11 @@ export type PacketValueSource = "spec_answer" | "vault" | "in_request";
 export type PacketProvenance =
   | "user_supplied"
   | "ai_drafted"
-  | "source_verified";
+  | "source_verified"
+  // The tax-return confirm flow's provenances (VAL-INC-007), mirroring
+  // the answer table's vocabulary.
+  | "tax_return"
+  | "user";
 
 /** One filled field's audit line: field, who supplied it, from where. */
 export interface ProvenanceEntry {
@@ -117,6 +121,8 @@ const PROVENANCE_KINDS: readonly string[] = [
   "user_supplied",
   "ai_drafted",
   "source_verified",
+  "tax_return",
+  "user",
 ];
 const SOURCE_KINDS: readonly string[] = ["spec_answer", "vault", "in_request"];
 
