@@ -1,6 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { builtinModules } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 // The on-device intake's boundary (HACK-99), checked on the source: the
@@ -52,28 +54,74 @@ const TEMPLATE_LOADER = "lib/intake/device-template.ts";
 const REQUEST_API = /\bfetch\b|XMLHttpRequest|sendBeacon|WebSocket|EventSource/;
 
 /**
- * The modules a file imports at runtime, by path relative to src, loaded
- * up front or on demand with import(). Type-only imports are erased by the
- * compiler, so they never reach the bundle.
+ * Every module a file loads at runtime: imports and re-exports, imports run
+ * only for their side effects, and import() of a literal path, in either
+ * quote style. Type-only imports are erased by the compiler, so they never
+ * reach the bundle.
  */
-function localImports(file: string): string[] {
-  const source = readFileSync(join(SRC, file), "utf8");
-  const specifiers = [
-    ...source.matchAll(/^\s*(?:import|export)\s(?!type\s)[^;]*?from\s+"([^"]+)"/gm),
-    ...source.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g),
+function runtimeSpecifiers(source: string): string[] {
+  return [
+    ...source.matchAll(/^\s*(?:import|export)\s(?!type\s)[^;]*?from\s+["']([^"']+)["']/gm),
+    ...source.matchAll(/^\s*import\s*["']([^"']+)["']/gm),
+    ...source.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g),
   ].map((match) => match[1]);
+}
+
+/** A specifier for a file in this repo: a relative path, or one through tsconfig's "@/" alias for src. */
+function isLocal(specifier: string): boolean {
+  return specifier.startsWith(".") || specifier.startsWith("@/");
+}
+
+/** What a local specifier may leave off, as the bundler resolves it. */
+const MODULE_SUFFIXES = ["", ".ts", ".tsx", "/index.ts", "/index.tsx"];
+
+/** Source the bundler runs, as opposed to data or styles a module imports. */
+const CODE_FILE = /\.[cm]?[jt]sx?$/;
+
+/** The file a local specifier written in `file` names, by path relative to src, or null for none. */
+function resolveLocal(file: string, specifier: string): string | null {
+  const base = specifier.startsWith("@/")
+    ? join(SRC, specifier.slice(2))
+    : join(dirname(join(SRC, file)), specifier);
+  const found = MODULE_SUFFIXES.map((suffix) => base + suffix).find(
+    (candidate) => existsSync(candidate) && statSync(candidate).isFile(),
+  );
+  return found === undefined ? null : relative(SRC, found);
+}
+
+/**
+ * The repo modules a file loads at runtime, by path relative to src, up
+ * front or on demand with import(). A local import this check can't follow
+ * could lead anywhere, so it fails the check instead of being skipped.
+ */
+function localImports(file: string, source = readFileSync(join(SRC, file), "utf8")): string[] {
   const local: string[] = [];
-  for (const specifier of specifiers) {
-    if (!specifier.startsWith(".")) {
+  for (const specifier of runtimeSpecifiers(source)) {
+    if (!isLocal(specifier)) {
       continue;
     }
-    const base = join(dirname(join(SRC, file)), specifier);
-    const resolved = [".ts", ".tsx", "/index.ts"].map((ext) => base + ext).find(existsSync);
-    if (resolved) {
-      local.push(relative(SRC, resolved));
+    const resolved = resolveLocal(file, specifier);
+    if (resolved === null) {
+      throw new Error(`${file} imports ${specifier}, which the boundary check can't resolve`);
+    }
+    if (CODE_FILE.test(resolved)) {
+      local.push(resolved);
     }
   }
   return local;
+}
+
+/** The packages a file loads at runtime, by name. */
+function packageImports(source: string): string[] {
+  return runtimeSpecifiers(source).filter((specifier) => !isLocal(specifier));
+}
+
+/**
+ * A package the browser can't run or that only the server may: Node's
+ * built-ins, with or without "node:", and the database driver.
+ */
+function isServerPackage(specifier: string): boolean {
+  return specifier === "postgres" || specifier.startsWith("node:") || builtinModules.includes(specifier);
 }
 
 function reachable(entries: readonly string[]): Set<string> {
@@ -123,6 +171,9 @@ describe("the on-device intake path", () => {
       const source = readFileSync(join(SRC, file), "utf8");
       expect(source, `${file} imports a Node built-in`).not.toMatch(/from\s+"node:/);
       expect(source, `${file} imports postgres`).not.toMatch(/from\s+"postgres"/);
+      for (const specifier of packageImports(source)) {
+        expect(isServerPackage(specifier), `${file} loads ${specifier}`).toBe(false);
+      }
     }
   });
 
@@ -163,5 +214,81 @@ describe("the on-device intake path", () => {
     expect(source).not.toMatch(/\bbody\s*:|XMLHttpRequest|sendBeacon|WebSocket|EventSource/);
     expect(source).toMatch(/method: "GET"/);
     expect(source).toMatch(/credentials: "omit"/);
+  });
+});
+
+describe("the boundary check's reading of imports", () => {
+  // The checks above are only as good as this reading: an import spelled a
+  // way it skipped would bring a server module onto the path unseen. So
+  // however a device module writes an import of a server module, the check
+  // must follow it there.
+  const files = [...reachable(DEVICE_PATH_ENTRIES)];
+
+  /** A specifier for `target` as written in `file`, without its extension. */
+  function specifierFor(file: string, target: string, alias: boolean): string {
+    const bare = target.replace(/\.tsx?$/, "");
+    if (alias) {
+      return `@/${bare}`;
+    }
+    const path = relative(dirname(join(SRC, file)), join(SRC, bare));
+    return path.startsWith(".") ? path : `./${path}`;
+  }
+
+  const STATEMENTS: readonly ((specifier: string) => string)[] = [
+    (specifier) => `import { loaded } from ${specifier};`,
+    (specifier) => `import * as loaded from ${specifier};`,
+    (specifier) => `import loaded, {\n  other,\n  type Shape,\n} from ${specifier};`,
+    (specifier) => `export { loaded } from ${specifier};`,
+    (specifier) => `export * from ${specifier};`,
+    (specifier) => `import ${specifier};`,
+    (specifier) => `const loaded = await import(${specifier});`,
+  ];
+
+  const importOfServerModule = fc.record({
+    file: fc.constantFrom(...files),
+    target: fc.constantFrom(...SERVER_ONLY),
+    alias: fc.boolean(),
+    quote: fc.constantFrom('"', "'"),
+    statement: fc.constantFrom(...STATEMENTS),
+  });
+
+  it("follows an import of a server module however it is written", () => {
+    fc.assert(
+      fc.property(importOfServerModule, ({ file, target, alias, quote, statement }) => {
+        const source = statement(`${quote}${specifierFor(file, target, alias)}${quote}`);
+        expect(localImports(file, source)).toContain(target);
+      }),
+    );
+  });
+
+  it("fails on a local import it can't resolve instead of skipping it", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...files),
+        fc.stringMatching(/^[a-z]{4,10}$/),
+        fc.boolean(),
+        (file, name, alias) => {
+          const missing = alias ? `@/lib/no-such-module-${name}` : `./no-such-module-${name}`;
+          expect(() => localImports(file, `import { loaded } from "${missing}";`)).toThrow(
+            /can't resolve/,
+          );
+        },
+      ),
+    );
+  });
+
+  it("names every Node built-in a server package, with or without the node: prefix", () => {
+    const builtins = builtinModules.filter((name) => !name.startsWith("node:") && !name.startsWith("_"));
+    fc.assert(
+      fc.property(fc.constantFrom(...builtins), fc.boolean(), (name, prefixed) => {
+        const specifier = prefixed ? `node:${name}` : name;
+        expect(packageImports(`import loaded from "${specifier}";`)).toEqual([specifier]);
+        expect(isServerPackage(specifier)).toBe(true);
+      }),
+    );
+    // The packages the path does load stay allowed.
+    for (const specifier of ["react", "@cantoo/pdf-lib"]) {
+      expect(isServerPackage(specifier)).toBe(false);
+    }
   });
 });
