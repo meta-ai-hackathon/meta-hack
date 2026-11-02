@@ -611,6 +611,113 @@ describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
     expect(turnCalls).toHaveLength(2);
   });
 
+  it("HACK-107 review: a token-free reply is spoken verbatim — the paraphrase does not replace the stored words", async () => {
+    const { container: _container, act } = await renderChat();
+    await beginMode(_container, act, "voice-only");
+    const speakCalls: string[] = [];
+    replyText = "Thanks for the detail. What is your zip code?";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          // A voice turn whose model rendition DIFFERS from the stored
+          // reply, while the stored reply carries no token.
+          return new Response(
+            JSON.stringify({
+              assistantReply: replyText,
+              assistantTurnId: "turn-9",
+              spokenReply: "Thanks to you — what zip are we talking about?",
+              redactedUserTranscript: "a household of three",
+              nextQuestionId: "state",
+              state: EMPTY_STATE,
+              voiceUrl: null,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url === "/api/conversation/speak") {
+          speakCalls.push(String(init?.body) ?? "");
+          return new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      sessionCallbacks.onUtterance(new Blob(["x"], { type: "audio/webm" }));
+    });
+    // Let the reply settle through display, hold, and the speak call.
+    await act(async () => undefined);
+    await act(async () => undefined);
+    // The play path speaks the STORED words via the speak route (by turn
+    // id): the differing spoken rendition is never preferred for a reply
+    // that carries no token.
+    expect(speakCalls.length).toBe(1);
+    expect(speakCalls[0]).toContain("turn-9");
+  });
+
+  it("HACK-107 review: against a token-bearing reply — a state the server cannot produce — the paraphrase covers (defense in depth)", async () => {
+    const { container, act } = await renderChat();
+    await beginMode(container, act, "voice-only");
+    replyText = "Thanks [GIVEN_NAME_1] — got it. What is your zip code?";
+    let speakCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return new Response(
+            JSON.stringify({
+              assistantReply: replyText,
+              assistantTurnId: "turn-9",
+              spokenReply: "Thanks to you — what zip are we talking about?",
+              redactedUserTranscript: "a household of three",
+              nextQuestionId: "state",
+              state: EMPTY_STATE,
+              voiceUrl: null,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url === "/api/conversation/speak") {
+          speakCalls += 1;
+          return new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      sessionCallbacks.onUtterance(new Blob(["x"], { type: "audio/webm" }));
+    });
+    await act(async () => undefined);
+    await act(async () => undefined);
+    // The display rehydrated the token (defense-in-depth reveal), and the
+    // verified spoken rendition went out locally — never to the speak
+    // route, which speaks the stored turn verbatim.
+    expect(container.textContent).toContain("Carlos");
+    expect(speakCalls).toBe(0);
+  });
+
   it("VAL-FIX-001: a flushed blob arriving during reply playback queues without reopening the mic", async () => {
     const { container: _container, act } = await renderChat();
     await beginMode(_container, act, "voice-only");
@@ -818,6 +925,9 @@ describe("typed sends through the on-device shield (HACK-107)", () => {
   });
 
   it("displays the assistant reply rehydrated, transcript keeps its marks", async () => {
+    // Defense in depth (review P2): the server gates every reply token-free,
+    // so it cannot produce a token-bearing reply; this exercises the client
+    // reveal path against a misconfigured or future server anyway.
     replyText = "Thanks [GIVEN_NAME_1] — got it. What is your zip code?";
     const { container, act } = await typingMode();
     await typeText(container, act, "My case is for me.");

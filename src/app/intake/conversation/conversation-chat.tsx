@@ -35,7 +35,7 @@ import {
   RampartShield,
   type RampartShieldStatus,
 } from "../../../lib/intake/rampart-guard";
-import { selectSpokenText } from "../../../lib/spoken-reply";
+import { containsPlaceholder, selectSpokenText } from "../../../lib/spoken-reply";
 import { IntakeWizard } from "../intake-wizard";
 import { ComingTogether, themesForQuestionIds, themeLabelFor } from "./coming-together";
 import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
@@ -869,7 +869,10 @@ export function ConversationChat() {
     // session table for DISPLAY only — the user sees values, the provider
     // saw placeholders. The typed user transcript keeps its redacted marks
     // (the copy below says so), and the spoken selection derives from the
-    // UNREVEALED reply, so no rehydrated value can reach TTS.
+    // UNREVEALED reply, so no rehydrated value can reach TTS. The server
+    // gates every reply token-free before it is stored, so this reveal is
+    // defense in depth (HACK-107 review): nothing the server can produce
+    // needs it, and an untokenizable token rehydrates to itself.
     const shield = shieldRef.current;
     const displayReply =
       shield?.reveal(data.assistantReply) ?? data.assistantReply;
@@ -909,13 +912,18 @@ export function ConversationChat() {
       setVoicePhase("speaking");
       // HACK-107 dual-output voice: the display reply may carry Rampart
       // tokens (rehydrated locally before display), so never speak it
-      // unverified. Speak only the verified token-free spoken rendition,
-      // or the deterministic type+ordinal fallback; if neither passes,
-      // fail closed to subtitles with no audio.
-      const selection = selectSpokenText({
-        spokenReply: data.spokenReply,
-        displayReply: data.assistantReply,
-      });
+      // unverified. The server itself replaces any token-bearing reply,
+      // so when THIS reply carries no placeholder the exact stored words
+      // are spoken — the verified rendition or the deterministic fallback
+      // is preferred only against that guarantee, when the reply after
+      // all carries a token (defense in depth, review P2); if neither
+      // passes, fail closed to subtitles with no audio.
+      const selection = containsPlaceholder(data.assistantReply)
+        ? selectSpokenText({
+            spokenReply: data.spokenReply,
+            displayReply: data.assistantReply,
+          })
+        : ({ kind: "verbatim", text: data.assistantReply } as const);
       if (selection.kind !== "silent") {
         if (selection.text === data.assistantReply) {
           await speakReply(data.assistantTurnId, data.assistantReply);
