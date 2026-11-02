@@ -79,7 +79,12 @@ jobs:
       # Node 22's bundled npm 10.9.x crashes in its arborist peer resolver
       # (npm/cli #9960); npm 11 resolves the same tree cleanly (verified with
       # the exact versions).
+      # Pinned so the fork's bun prepack stays reproducible (review P3): a
+      # floating bun release can change or break the build with no repo
+      # change. Rampart's own CI pins the same version.
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
       - run: npm install -g npm@11.19.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
