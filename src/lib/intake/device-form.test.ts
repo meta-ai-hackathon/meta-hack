@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import fc from "fast-check";
 import postgres from "postgres";
-import { PDFDocument } from "@cantoo/pdf-lib";
+import {
+  PDFCheckBox,
+  PDFDocument,
+  PDFDropdown,
+  PDFRadioGroup,
+  PDFTextField,
+  type PDFField,
+} from "@cantoo/pdf-lib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GET as matchRoute } from "../../app/api/match/route";
 import { GET as reviewRoute } from "../../app/api/forms/[formId]/review/route";
@@ -245,23 +252,32 @@ function sentWithDownload(typed: Readonly<Record<string, string>>): Record<strin
   return Object.fromEntries(Object.entries(typed).filter(([, value]) => value.trim() !== ""));
 }
 
+/**
+ * One field's value as a PDF viewer would read it, by the field's own kind
+ * in the PDF. That can differ from the registry's: the DSS-8207 registers
+ * its digital signature widget as text, and the fill leaves it blank by
+ * disposition. A field with no value to read is compared by its kind.
+ */
+function readField(field: PDFField): unknown {
+  if (field instanceof PDFCheckBox) {
+    return field.isChecked();
+  }
+  if (field instanceof PDFRadioGroup) {
+    return field.getSelected() ?? null;
+  }
+  if (field instanceof PDFDropdown) {
+    return field.getSelected();
+  }
+  if (field instanceof PDFTextField) {
+    return field.getText() ?? "";
+  }
+  return field.constructor.name;
+}
+
 /** Every registry field's value as a PDF viewer would read it. */
 async function readFields(bytes: Uint8Array, entry: FormRegistryEntry): Promise<Record<string, unknown>> {
   const form = (await PDFDocument.load(bytes)).getForm();
-  return Object.fromEntries(
-    entry.fields.map((field) => {
-      switch (field.type) {
-        case "checkbox":
-          return [field.name, form.getCheckBox(field.name).isChecked()];
-        case "radio":
-          return [field.name, form.getRadioGroup(field.name).getSelected() ?? null];
-        case "dropdown":
-          return [field.name, form.getDropdown(field.name).getSelected()];
-        default:
-          return [field.name, form.getTextField(field.name).getText() ?? ""];
-      }
-    }),
-  );
+  return Object.fromEntries(entry.fields.map((field) => [field.name, readField(form.getField(field.name))]));
 }
 
 const asJson = (value: unknown) => JSON.parse(JSON.stringify(value)) as unknown;
