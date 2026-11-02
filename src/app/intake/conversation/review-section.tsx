@@ -69,6 +69,9 @@ interface ReviewDataView {
     sourceUrl: string;
     retrievedAt: string;
   };
+  /** The program this form belongs to (the pilot seam's per-form answer). */
+  readonly programName?: string;
+  readonly countyName?: string;
   readonly fields: readonly ReviewFieldView[];
   readonly toResolve: readonly { fieldName: string; question: string }[];
   readonly counts: { prefilled: number; asked: number; notApplicable: number };
@@ -171,7 +174,29 @@ export const REVIEW_UNAVAILABLE_NOTICE =
  */
 export const SIGNATURE_FIELD_NAME = "Signature";
 
-export function ReviewSection({ refreshKey, stagger = false }: { refreshKey: number; stagger?: boolean }) {
+export function ReviewSection({
+  refreshKey,
+  stagger = false,
+  formId = PILOT_CONFIG.formRegistryId,
+  idPrefix = "",
+  ownsSessionLifecycle = true,
+}: {
+  refreshKey: number;
+  stagger?: boolean;
+  /**
+   * The form-registry id to review. Defaults to the pilot's primary form;
+   * the additional applications ("also prepare" reuse) pass their own.
+   */
+  formId?: string;
+  /** DOM-id prefix — the sibling review sections pass their form ids. */
+  idPrefix?: string;
+  /**
+   * Whether this review renders the session's lifecycle controls (the
+   * BN-25 status is one per session, not per form). Additional
+   * applications pass false — their reviews are preparation surfaces.
+   */
+  ownsSessionLifecycle?: boolean;
+}) {
   const [data, setData] = useState<ReviewDataView | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -179,12 +204,10 @@ export function ReviewSection({ refreshKey, stagger = false }: { refreshKey: num
     let cancelled = false;
     async function loadReview() {
       try {
-        // The REAL pilot form (owner demo-day decision 2026-10-31): the
-        // review + fill surface targets the pilot seam's registered form —
-        // the official DHB-5200 — never a hardcoded id here.
-        const response = await fetch(
-          `/api/forms/${PILOT_CONFIG.formRegistryId}/review`,
-        );
+        // The form under review: the pilot's primary application by
+        // default; an additional application ("Also prepare…") passes its
+        // own registered form id. Both run the same form-agnostic route.
+        const response = await fetch(`/api/forms/${formId}/review`);
         if (!response.ok) {
           throw new Error("review unavailable");
         }
@@ -203,11 +226,18 @@ export function ReviewSection({ refreshKey, stagger = false }: { refreshKey: num
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [refreshKey, formId]);
 
   return (
     <>
-      {data ? <ReviewSectionContent data={data} stagger={stagger} /> : null}
+      {data ? (
+        <ReviewSectionContent
+          data={data}
+          stagger={stagger}
+          idPrefix={idPrefix}
+          ownsSessionLifecycle={ownsSessionLifecycle}
+        />
+      ) : null}
       <StatusRegion
         message={failed ? REVIEW_UNAVAILABLE_NOTICE : ""}
         className="text-sm text-muted"
@@ -226,10 +256,29 @@ export function ReviewSection({ refreshKey, stagger = false }: { refreshKey: num
 export function ReviewSectionContent({
   data,
   stagger = false,
+  idPrefix = "",
+  ownsSessionLifecycle = true,
 }: {
   data: ReviewDataView;
   stagger?: boolean;
+  /**
+   * DOM-id prefix for this section's labelled controls. Two prepared
+   * applications render as sibling review sections (the ask-once reuse);
+   * ids must stay unique per form for the label wiring and axe.
+   */
+  idPrefix?: string;
+  /**
+   * Whether THIS review owns the session's lifecycle controls (the BN-25
+   * status is one per session, not per form — claude-review P2 on PR
+   * #121). The additional applications' reviews are preparation surfaces:
+   * they leave the status line and the lifecycle transitions to the
+   * pilot's primary review, so a package step marked on one form can
+   * never misstate where the other form stands.
+   */
+  ownsSessionLifecycle?: boolean;
 }) {
+  const idFor = (suffix: string): string =>
+    idPrefix === "" ? suffix : `${idPrefix}-${suffix}`;
   // The session's lifecycle status: the server's value until THIS component
   // advances it locally (derived state — no setState-in-effect cascade).
   const [localStatus, setLocalStatus] = useState<string | null>(null);
@@ -327,10 +376,23 @@ export function ReviewSectionContent({
   }
 
   return (
-    <div data-review-section className="flex flex-col gap-6">
-      <section aria-labelledby="review-heading" className="flex flex-col gap-3">
-        <h2 id="review-heading" className="font-display text-2xl font-bold">
-          Your application, prepared from your answers
+    <div
+      data-review-section
+      data-review-form={data.form.id}
+      className="flex flex-col gap-6"
+    >
+      <section
+        aria-labelledby={idFor("review-heading")}
+        className="flex flex-col gap-3"
+      >
+        {/* The heading carries the form's own title: two prepared
+        applications (the ask-once reuse) render as sibling sections, and
+        assistive-tech heading navigation must tell them apart. */}
+        <h2
+          id={idFor("review-heading")}
+          className="font-display text-2xl font-bold"
+        >
+          {data.form.title} — prepared from your answers
         </h2>
         <p className="text-sm text-muted">
           {data.form.title} — source:{" "}
@@ -408,21 +470,24 @@ export function ReviewSectionContent({
                   className="flex flex-col gap-1"
                 >
                   <label
-                    htmlFor="signature-input"
+                    htmlFor={idFor("signature-input")}
                     className="font-medium"
                   >
                     Type your full name to sign
                   </label>
-                  <span id="signature-help" className="text-sm text-muted">
+                  <span
+                    id={idFor("signature-help")}
+                    className="text-sm text-muted"
+                  >
                     Typing your full name signs this application, like an
                     e-signature. The app never signs for you, and your
                     signature is never filled in from anything you told us
                     before. Leave it blank to sign the printed form by hand.
                   </span>
                   <input
-                    id="signature-input"
+                    id={idFor("signature-input")}
                     type="text"
-                    aria-describedby="signature-help"
+                    aria-describedby={idFor("signature-help")}
                     autoComplete="name"
                     value={drafts[SIGNATURE_FIELD_NAME] ?? ""}
                     onChange={(event) =>
@@ -448,12 +513,12 @@ export function ReviewSectionContent({
                 <span className="flex flex-col gap-1">
                   <label
                     className="sr-only"
-                    htmlFor={`form-answer-${field.fieldName}`}
+                    htmlFor={idFor(`form-answer-${field.fieldName}`)}
                   >
                     {field.question}
                   </label>
                   <input
-                    id={`form-answer-${field.fieldName}`}
+                    id={idFor(`form-answer-${field.fieldName}`)}
                     type="text"
                     value={drafts[field.fieldName] ?? ""}
                     onChange={(event) =>
@@ -485,14 +550,25 @@ export function ReviewSectionContent({
 
       {data.coverage ? (
         <section
-          aria-labelledby="coverage-heading"
+          aria-labelledby={idFor("coverage-heading")}
           data-field-coverage
           className="flex flex-col gap-2"
         >
-          <h2 id="coverage-heading" className="font-display text-xl font-bold">
+          <h2
+            id={idFor("coverage-heading")}
+            className="font-display text-xl font-bold"
+          >
             Every field, accounted for
+            {/* Two prepared applications render as sibling review sections;
+            the regions' accessible names stay unique per form (axe
+            landmark-unique) — the form's own title rides visually hidden. */}
+            <span className="sr-only"> — {data.form.title}</span>
           </h2>
-          <p data-coverage-counts className="text-sm text-muted">
+          <p
+            data-coverage-counts
+            data-coverage-count={data.coverage.counts.total}
+            className="text-sm text-muted"
+          >
             The application has {data.coverage.counts.total} fillable boxes
             and lines. {data.coverage.counts.mapped} of them take your
             answers. The rest stay blank on the downloaded form:{" "}
@@ -536,12 +612,16 @@ export function ReviewSectionContent({
 
       {data.toResolve.length > 0 ? (
         <section
-          aria-labelledby="form-to-resolve-heading"
+          aria-labelledby={idFor("form-to-resolve-heading")}
           data-form-to-resolve
           className="flex flex-col gap-2 rounded-2xl border border-dashed border-amber-line bg-amber-soft p-5"
         >
-          <h2 id="form-to-resolve-heading" className="font-display text-xl font-bold text-amber-ink">
+          <h2
+            id={idFor("form-to-resolve-heading")}
+            className="font-display text-xl font-bold text-amber-ink"
+          >
             Still needed on the form
+            <span className="sr-only"> — {data.form.title}</span>
           </h2>
           <p className="text-amber-ink">
             These are left blank on the prepared form — nothing is guessed.
@@ -555,23 +635,31 @@ export function ReviewSectionContent({
       ) : null}
 
       <section
-        aria-labelledby="handoff-heading"
+        aria-labelledby={idFor("handoff-heading")}
         data-handoff
         className="flex flex-col gap-3 rounded-2xl border border-surface-border bg-surface p-6"
       >
-        <h2 id="handoff-heading" className="font-display text-2xl font-bold">
+        <h2
+          id={idFor("handoff-heading")}
+          className="font-display text-2xl font-bold"
+        >
           Getting it done
+          <span className="sr-only"> — {data.form.title}</span>
         </h2>
-        <p className="text-sm text-muted">
-          Where you are: <span data-session-status={sessionStatus}>{SESSION_STATUS_COPY[sessionStatus] ?? sessionStatus}</span>
-        </p>
+        {ownsSessionLifecycle ? (
+          <p className="text-sm text-muted">
+            Where you are: <span data-session-status={sessionStatus}>{SESSION_STATUS_COPY[sessionStatus] ?? sessionStatus}</span>
+          </p>
+        ) : null}
         {/* The destination line (adjudicated spec Step 4, ADOPT): where the
         person submits the form themselves — the publicly published
-        destination, carried by the pilot seam. The app never submits. */}
+        destination, carried by the pilot seam per form (the ask-once
+        reuse surfaces each application's own program). The app never
+        submits. */}
         <p data-destination-line className="text-sm font-medium">
-          Where it goes: {PILOT_CONFIG.countyName} DSS —{" "}
-          {PILOT_CONFIG.programName}. You submit it yourself; the app never
-          submits for you.
+          Where it goes: {data.countyName ?? PILOT_CONFIG.countyName} DSS —{" "}
+          {data.programName ?? PILOT_CONFIG.programName}. You submit it
+          yourself; the app never submits for you.
         </p>
         <ol className="flex flex-col gap-2 pl-5" data-handoff-steps>
           {data.steps.map((step, index) => (
@@ -585,16 +673,18 @@ export function ReviewSectionContent({
             </li>
           ))}
         </ol>
+        {!ownsSessionLifecycle ? (
+          // The additional applications' reviews are preparation surfaces:
+          // the one session lifecycle (BN-25) is marked on the pilot's
+          // primary review, so a step marked for one form can never
+          // misstate where the other form stands.
+          <p className="text-sm text-muted" data-lifecycle-owner-note>
+            One journey, two prepared applications: the package steps —
+            prepared, handed off, submitted — are marked on the{" "}
+            {PILOT_CONFIG.programName} application&apos;s review.
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={busy || sessionStatus !== "draft"}
-            onClick={() => void advance({ status: "prepared" })}
-            data-action="prepare"
-            className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
-          >
-            Mark my package prepared
-          </button>
           <button
             type="button"
             disabled={busy}
@@ -604,32 +694,48 @@ export function ReviewSectionContent({
           >
             Download the filled PDF
           </button>
-          <button
-            type="button"
-            disabled={busy || !downloaded || sessionStatus !== "prepared"}
-            onClick={() => void advance({ status: "handed_off" })}
-            data-action="hand-off"
-            className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
-          >
-            I picked up my application — mark handed off
-          </button>
-          <button
-            type="button"
-            disabled={busy || sessionStatus !== "handed_off"}
-            onClick={() =>
-              void advance({ userReportedStatus: "user_reported_submitted" })
-            }
-            data-action="report-submitted"
-            className="rounded-full border border-surface-border bg-surface px-4 py-2 text-sm font-semibold hover:bg-teal-soft disabled:opacity-50"
-          >
-            I submitted it myself
-          </button>
+          {ownsSessionLifecycle ? (
+            <>
+              <button
+                type="button"
+                disabled={busy || sessionStatus !== "draft"}
+                onClick={() => void advance({ status: "prepared" })}
+                data-action="prepare"
+                className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
+              >
+                Mark my package prepared
+              </button>
+              <button
+                type="button"
+                disabled={busy || !downloaded || sessionStatus !== "prepared"}
+                onClick={() => void advance({ status: "handed_off" })}
+                data-action="hand-off"
+                className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
+              >
+                I picked up my application — mark handed off
+              </button>
+              <button
+                type="button"
+                disabled={busy || sessionStatus !== "handed_off"}
+                onClick={() =>
+                  void advance({
+                    userReportedStatus: "user_reported_submitted",
+                  })
+                }
+                data-action="report-submitted"
+                className="rounded-full border border-surface-border bg-surface px-4 py-2 text-sm font-semibold hover:bg-teal-soft disabled:opacity-50"
+              >
+                I submitted it myself
+              </button>
+            </>
+          ) : null}
         </div>
         <HandoffSection
           formId={data.form.id}
           sessionStatus={sessionStatus}
           downloaded={downloaded}
           stillNeededCount={data.toResolve.length}
+          idPrefix={idPrefix}
         />
         <div className="flex flex-col gap-1">
           <h3 className="font-medium">Official portal (submit here yourself)</h3>

@@ -46,6 +46,7 @@ import { PurgeSection } from "./purge-section";
 import { PresenceOrb } from "./presence-orb";
 import { QuickQuestionsStage } from "./quick-questions";
 import { ReviewSection } from "./review-section";
+import { AlsoPrepareSection } from "./also-prepare-section";
 import { STAGE_GRID_CLASS } from "./stage-grid";
 import { PauseIcon, PlayIcon, VoiceDeck } from "./voice-deck";
 
@@ -1388,6 +1389,10 @@ export function ConversationChat() {
 
       <MatchSection refreshKey={turns.length + answersRefresh} stagger={resultsStage} />
       <ReviewSection refreshKey={turns.length + answersRefresh} stagger={resultsStage} />
+      {/* The ask-once reuse (snap-form milestone): the same answers also
+      prepare the pilot seam's additional applications — the honest
+      "Also prepare your SNAP application" entry point + its review. */}
+      <AlsoPrepareSection refreshKey={turns.length + answersRefresh} stagger={resultsStage} />
       <PurgeSection onPurged={purgeClientState} />
     </>
   ) : null;
