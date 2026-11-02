@@ -1,3 +1,4 @@
+import { existsSync, writeFileSync } from "node:fs";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
@@ -7,6 +8,7 @@ import {
   EXIT_VIOLATION,
   JOURNEY_PLAN,
   SAMPLE_FORM_ID,
+  SPRINT_FORM_IDS,
   TURN_ATTEMPTS,
   TURN_RETRY_WAIT_MS,
   Walkthrough,
@@ -15,12 +17,14 @@ import {
   exitCodeForRun,
   parseArgs,
   quickQuestionsCounterProblem,
+  scriptedWavBytes,
   usage,
 } from "./walkthrough-core.mjs";
 import {
   CONVERSATION_PLAN,
   FORM_JOURNEY_PLAN,
   SAMPLE_FORM_UNMAPPED_ANSWERS,
+  SPRINT_FORM_UNMAPPED_ANSWERS,
 } from "./walkthrough-plans.mjs";
 
 // The walkthrough CLI's own logic, unit-tested the way its sibling
@@ -83,12 +87,19 @@ function clientState(questions, answers, currentIndex) {
 }
 
 /** A scripted transport: each route matches (method, path) and answers
- * from a queue of canned responses. */
+ * from a queue of canned responses. Each call is recorded with its
+ * consent headers and whether the body was multipart (FormData), so the
+ * consent-path tests can assert WHICH receipt rode WHICH call. */
 function fakeTransport(routes) {
   const calls = [];
   const transport = async (base, path, options = {}) => {
     const method = options.method ?? "GET";
-    calls.push({ method, path });
+    calls.push({
+      method,
+      path,
+      headers: options.headers,
+      multipart: options.body instanceof FormData,
+    });
     const route = routes.find(
       (candidate) => candidate.method === method && candidate.path === path,
     );
@@ -567,7 +578,13 @@ describe("walkthrough journey plan", () => {
 
 describe("walkthrough CLI argument parsing", () => {
   it("defaults to the local dev server, the wizard mode, and a 30s timeout", () => {
-    expect(parseArgs([])).toEqual({ url: "http://localhost:3100", timeoutMs: 30000, mode: "wizard" });
+    expect(parseArgs([])).toEqual({
+      url: "http://localhost:3100",
+      timeoutMs: 30000,
+      mode: "wizard",
+      consent: "voice",
+      dbVerify: false,
+    });
   });
 
   it("parses --url and strips trailing slashes", () => {
@@ -1355,7 +1372,10 @@ describe("v2 journey plans (scripts/walkthrough-plans.mjs)", () => {
 
 describe("v2 CLI argument parsing", () => {
   it("defaults to the wizard mode and its 30s timeout", () => {
-    expect(parseArgs([])).toEqual({ url: "http://localhost:3100", timeoutMs: 30000, mode: "wizard" });
+    const options = parseArgs([]);
+    expect(options.mode).toBe("wizard");
+    expect(options.timeoutMs).toBe(30000);
+    expect(options.url).toBe("http://localhost:3100");
   });
 
   it("the v2 modes default to a 90s per-request timeout (two live model calls a turn)", () => {
@@ -1441,5 +1461,634 @@ describe("BN-25 session vocabulary (v2 review)", () => {
   it("the sample form id mirrors the pilot seam (drift test)", async () => {
     const pilot = await import("../src/lib/pilot");
     expect(SAMPLE_FORM_ID).toBe(pilot.PILOT_CONFIG.sampleFormRegistryId);
+  });
+
+  it("the sprint form ids mirror the pilot seam's two applications (drift test)", async () => {
+    const pilot = await import("../src/lib/pilot");
+    expect([...SPRINT_FORM_IDS]).toEqual([
+      pilot.PILOT_CONFIG.formRegistryId,
+      ...pilot.PILOT_CONFIG.additionalApplications.map(
+        (application) => application.formRegistryId,
+      ),
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sprint cross-journey proof (VAL-SPRINT-001/002/003): the five-stage
+// journey — Choose mode → Quick questions → Talk → Income → Results — in
+// ONE real session, both consent paths, both real applications prepared
+// from the same answers, and the visible purge. The same
+// injected-transport contract as the other journeys; the scripted-audio
+// generator and the psql runner are injectable too, so no test ever
+// shells out to `say` or docker.
+// ---------------------------------------------------------------------------
+
+const SPRINT_COOKIE =
+  "bn_session=9f0d7bd0-5b0d-4bcc-81f4-35a1cd94d310; Path=/; HttpOnly";
+
+function incomeBlock(handled = true) {
+  return {
+    questionIds: ["job_income_amount", "job_income_frequency", "benefits_income_amount"],
+    answeredCount: 3,
+    confirmedCount: 2,
+    totalCount: 3,
+    handled,
+  };
+}
+
+/** A review response fixture: `prefilledCount` pre-filled fields for the
+ * carry-over assertion, the rest of the view minimal (a pre-filled
+ * pii-likely field never carries a value — the boundary the review
+ * payload itself keeps). */
+function reviewBody(formId, prefilledCount) {
+  const state = prefilledCount > 0 ? "prefilled" : "asked";
+  return {
+    hasSession: true,
+    form: {
+      id: formId,
+      title: `Form ${formId}`,
+      version: "1.0.0",
+      sourceUrl: "https://example.org/form.pdf",
+      retrievedAt: "2026-11-01",
+    },
+    fields: [
+      {
+        fieldName: "name_field",
+        type: "text",
+        question: "What is your full name?",
+        state,
+        specQuestionId: null,
+        required: true,
+        piiLikely: true,
+        ...(prefilledCount > 0 ? { status: "known", provenance: "user_supplied" } : {}),
+      },
+      {
+        fieldName: "role_field",
+        type: "single_select",
+        question: "Who is this application for?",
+        state,
+        specQuestionId: "application_role",
+        required: false,
+        piiLikely: false,
+        ...(prefilledCount > 0
+          ? { status: "known", provenance: "user_supplied", value: "self" }
+          : {}),
+      },
+    ],
+    toResolve: [],
+    counts: { prefilled: prefilledCount, asked: 2 - prefilledCount, notApplicable: 0 },
+    sessionStatus: "draft",
+    steps: [],
+  };
+}
+
+function pdfResponse() {
+  return {
+    status: 200,
+    text: `%PDF-1.7\n${"x".repeat(2000)}`,
+    response: {
+      headers: {
+        getSetCookie: () => [],
+        get: (key) => (key === "content-type" ? "application/pdf" : null),
+      },
+    },
+  };
+}
+
+/** The sprint journey's scripted app: three questions (one answered by
+ * the quick-questions phase, two by the talk stage), the income stage's
+ * two routes, both real forms' review+fill, the purge refusal and the
+ * confirmed purge, and the post-purge resume + reviews. */
+function sprintJourneyRoutes() {
+  const questions = [
+    v2Question("wr_exempt_situations"),
+    v2Question("application_role"),
+    v2Question("county", { pii: true, type: "text" }),
+  ];
+  const S0 = { ...clientState(questions, {}, 0), income: incomeBlock(false) };
+  const S1 = {
+    ...clientState(
+      questions,
+      { wr_exempt_situations: { status: "known", value: ["parent_child_under_18"] } },
+      1,
+    ),
+    income: incomeBlock(false),
+  };
+  const S2 = {
+    ...clientState(
+      questions,
+      {
+        wr_exempt_situations: { status: "known", value: ["parent_child_under_18"] },
+        application_role: { status: "known", value: "self" },
+      },
+      2,
+    ),
+    income: incomeBlock(false),
+  };
+  const S3 = {
+    ...clientState(
+      questions,
+      {
+        wr_exempt_situations: { status: "known", value: ["parent_child_under_18"] },
+        application_role: { status: "known", value: "self" },
+        county: { status: "known" },
+      },
+      null,
+    ),
+    income: incomeBlock(false),
+  };
+  const S4 = { ...S3, income: incomeBlock(true) };
+  const S_EMPTY = { ...clientState(questions, {}, 0), income: incomeBlock(false) };
+  return [
+    {
+      method: "GET",
+      path: "/api/health",
+      respondNext: queue([jsonResponse(200, { ok: true }), jsonResponse(200, { ok: true })]),
+    },
+    {
+      method: "POST",
+      path: "/api/session",
+      respondNext: queue([
+        jsonResponse(201, { session: { status: "draft" }, state: S0 }, { setCookie: SPRINT_COOKIE }),
+      ]),
+    },
+    {
+      method: "POST",
+      path: "/api/intake/answer",
+      respondNext: queue([
+        jsonResponse(200, S1),
+        jsonResponse(200, S2),
+        jsonResponse(200, S3),
+      ]),
+    },
+    {
+      method: "POST",
+      path: "/api/conversation/turn",
+      respondNext: queue([
+        jsonResponse(
+          200,
+          turnBody({
+            reply: "Thanks. Which county or city area do you live in?",
+            transcript: "It's for myself.",
+            nextQuestionId: "county",
+            state: S2,
+            fresh: true,
+          }),
+        ),
+        jsonResponse(
+          200,
+          turnBody({
+            reply: "That's everything on my list.",
+            transcript: `My county is [redacted answer to "Which county or city area do you live in?"].`,
+            nextQuestionId: null,
+            state: S3,
+          }),
+        ),
+      ]),
+    },
+    {
+      method: "POST",
+      path: "/api/intake/tax-return",
+      respondNext: queue([
+        jsonResponse(200, {
+          readable: true,
+          findings: [
+            { field: "agi_line_11", value: 12000, origin: "positional_text", confidence: "high" },
+          ],
+          monthlyDerived: 1000,
+          message: null,
+        }),
+      ]),
+    },
+    {
+      method: "POST",
+      path: "/api/intake/tax-return/confirm",
+      respondNext: queue([
+        jsonResponse(200, {
+          saved: [
+            { questionId: "job_income_amount", provenance: "tax_return" },
+            { questionId: "job_income_frequency", provenance: "tax_return" },
+            { questionId: "benefits_income_amount", provenance: "user" },
+          ],
+          state: S4,
+        }),
+      ]),
+    },
+    {
+      method: "GET",
+      path: "/api/match",
+      respondNext: queue([jsonResponse(200, { hasSession: true, matches: [], toResolve: [] })]),
+    },
+    {
+      method: "GET",
+      path: "/api/forms/dhb-5200/review",
+      respondNext: queue([
+        jsonResponse(200, reviewBody("dhb-5200", 2)),
+        jsonResponse(200, reviewBody("dhb-5200", 0)),
+      ]),
+    },
+    {
+      method: "GET",
+      path: "/api/forms/dss-8207/review",
+      respondNext: queue([
+        jsonResponse(200, reviewBody("dss-8207", 2)),
+        jsonResponse(200, reviewBody("dss-8207", 0)),
+      ]),
+    },
+    {
+      method: "POST",
+      path: "/api/forms/dhb-5200/fill",
+      respondNext: queue([pdfResponse()]),
+    },
+    {
+      method: "POST",
+      path: "/api/forms/dss-8207/fill",
+      respondNext: queue([pdfResponse()]),
+    },
+    {
+      method: "POST",
+      path: "/api/session/purge",
+      respondNext: queue([
+        jsonResponse(400, { error: { code: "validation_error", message: "not confirmed" } }),
+        jsonResponse(200, {
+          purged: true,
+          deleted: { answers: 6, vaultEntries: 1, turns: 4, auditNotes: 0 },
+        }),
+      ]),
+    },
+    {
+      method: "GET",
+      path: "/api/session",
+      respondNext: queue([
+        jsonResponse(200, { session: { status: "draft" }, state: S_EMPTY }),
+      ]),
+    },
+  ];
+}
+
+/** The sprint talk plan: the two questions the talk stage asks after the
+ * quick-questions phase captured the sensitive screen (the county turn's
+ * value is private and must never reappear in any body). */
+const SPRINT_TALK_PLAN = [
+  { id: "application_role", text: "It's for myself.", retry: "Me", intent: "known" },
+  {
+    id: "county",
+    text: "Wake County.",
+    retry: "Wake County",
+    intent: "known",
+    privateValue: "Wake County",
+  },
+];
+
+const SPRINT_UNMAPPED = {
+  "dhb-5200": { Signature: "Jamie Watts" },
+  "dss-8207": { "Date Signed": "11/02/2026" },
+};
+
+const fakeAudioGenerator = (record) => async (text) => {
+  record.push(text);
+  return new Uint8Array([0x00, 0x01, 0x02]);
+};
+
+// The income upload leg's bytes, injected so the unit tests never read
+// the real fixture or load the PDF library (the local journey runs prove
+// the real bytes parse).
+const FAKE_UPLOAD_BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
+describe("sprint cross-journey (VAL-SPRINT-001: five stages, both consent paths)", () => {
+  it("the voice-consented path walks every leg in stage order, with the scripted audio turn first", async () => {
+    const spokenTexts = [];
+    const transport = fakeTransport(sprintJourneyRoutes());
+    const walk = new Walkthrough("http://fake.test", 1000, transport);
+    await expect(
+      walk.runSprintJourney({
+        plan: SPRINT_TALK_PLAN,
+        unmappedAnswers: SPRINT_UNMAPPED,
+        audioGenerator: fakeAudioGenerator(spokenTexts),
+        uploadBytes: FAKE_UPLOAD_BYTES,
+      }),
+    ).resolves.toBe(true);
+    expect(walk.violations).toEqual([]);
+    expect(exitCodeForRun(true)).toBe(EXIT_OK);
+    expect(spokenTexts).toEqual(["It's for myself."]);
+    const paths = transport.calls.map((call) => `${call.method} ${call.path}`);
+    expect(paths).toEqual([
+      "GET /api/health",
+      "POST /api/session",
+      // Stage 2: the quick-questions phase through the answer route.
+      "POST /api/intake/answer",
+      // Stage 3: the talk stage — one scripted-audio turn, then typed.
+      "POST /api/conversation/turn",
+      "POST /api/conversation/turn",
+      // Stage 4: the income stage's two legs.
+      "POST /api/intake/tax-return",
+      "POST /api/intake/tax-return/confirm",
+      // Stage 5: the results stage — one session, both applications.
+      "GET /api/match",
+      "GET /api/forms/dhb-5200/review",
+      "POST /api/forms/dhb-5200/fill",
+      "GET /api/forms/dss-8207/review",
+      "POST /api/forms/dss-8207/fill",
+      // The visible purge: refusal first, then the confirmed erasure.
+      "POST /api/session/purge",
+      "POST /api/session/purge",
+      "GET /api/session",
+      "GET /api/forms/dhb-5200/review",
+      "GET /api/forms/dss-8207/review",
+      "GET /api/health",
+    ]);
+    // The scripted-audio turn rode the VOICE path: multipart body, voice
+    // consent receipt attached; the typed turn carries the AI receipt
+    // with voice off (per-send receipts, like the consent surface).
+    const turnCalls = transport.calls.filter((call) => call.path === "/api/conversation/turn");
+    expect(turnCalls[0].multipart).toBe(true);
+    const voiceReceipt = JSON.parse(turnCalls[0].headers["x-bn-consent"]);
+    expect(voiceReceipt.ai).toBe(true);
+    expect(voiceReceipt.voice).toBe(true);
+    expect(turnCalls[1].multipart).toBe(false);
+    const typedReceipt = JSON.parse(turnCalls[1].headers["x-bn-consent"]);
+    expect(typedReceipt.ai).toBe(true);
+    expect(typedReceipt.voice).toBe(false);
+    // The income stage's tax proposal saved with tax_return provenance,
+    // the typed-over row with user — and the transcript says the results
+    // stage was reached with income handled.
+    const transcript = walk.lines.join("\n");
+    expect(transcript).toContain("income handled");
+    expect(transcript).toContain("pre-filled from this session's answers");
+  });
+
+  it("the declined-consent path completes with ZERO conversation sends and no consent receipt anywhere", async () => {
+    const transport = fakeTransport(sprintJourneyRoutes());
+    const walk = new Walkthrough("http://fake.test", 1000, transport);
+    await expect(
+      walk.runSprintJourney({
+        plan: SPRINT_TALK_PLAN,
+        unmappedAnswers: SPRINT_UNMAPPED,
+        consent: "declined",
+        uploadBytes: FAKE_UPLOAD_BYTES,
+      }),
+    ).resolves.toBe(true);
+    expect(walk.violations).toEqual([]);
+    const paths = transport.calls.map((call) => `${call.method} ${call.path}`);
+    // No /api/conversation/turn call at all: the deterministic wizard
+    // covered every remaining question through the answer route, and the
+    // income stage's routes are the app's own deterministic endpoints.
+    expect(paths).toEqual([
+      "GET /api/health",
+      "POST /api/session",
+      "POST /api/intake/answer",
+      "POST /api/intake/answer",
+      "POST /api/intake/answer",
+      "POST /api/intake/tax-return",
+      "POST /api/intake/tax-return/confirm",
+      "GET /api/match",
+      "GET /api/forms/dhb-5200/review",
+      "POST /api/forms/dhb-5200/fill",
+      "GET /api/forms/dss-8207/review",
+      "POST /api/forms/dss-8207/fill",
+      "POST /api/session/purge",
+      "POST /api/session/purge",
+      "GET /api/session",
+      "GET /api/forms/dhb-5200/review",
+      "GET /api/forms/dss-8207/review",
+      "GET /api/health",
+    ]);
+    // And no consent receipt rode ANY call — the declined journey never
+    // claims a grant the person did not give.
+    for (const call of transport.calls) {
+      expect(call.headers?.["x-bn-consent"], call.path).toBeUndefined();
+    }
+  });
+
+  it("the declined path's transcript names the zero-send talk stage honestly", async () => {
+    const transport = fakeTransport(sprintJourneyRoutes());
+    const walk = new Walkthrough("http://fake.test", 1000, transport);
+    await walk.runSprintJourney({
+      plan: SPRINT_TALK_PLAN,
+      unmappedAnswers: SPRINT_UNMAPPED,
+      consent: "declined",
+    });
+    const transcript = walk.lines.join("\n");
+    expect(transcript).toContain("zero conversation sends");
+  });
+
+  it("a post-purge resume that still carries answers is a journey error", async () => {
+    const routes = sprintJourneyRoutes();
+    const transport = fakeTransport(routes);
+    const walk = new Walkthrough("http://fake.test", 1000, transport);
+    // The resume after the purge serves the pre-purge state instead of
+    // the empty journey — the client state did not reset.
+    routeOf(routes, "GET", "/api/session").respondNext = queue([
+      jsonResponse(200, {
+        session: { status: "draft" },
+        state: {
+          ...clientState(
+            [v2Question("application_role")],
+            { application_role: { status: "known", value: "self" } },
+            null,
+          ),
+          income: incomeBlock(true),
+        },
+      }),
+    ]);
+    await expect(
+      walk.runSprintJourney({
+        plan: SPRINT_TALK_PLAN,
+        unmappedAnswers: SPRINT_UNMAPPED,
+        audioGenerator: fakeAudioGenerator([]),
+        uploadBytes: FAKE_UPLOAD_BYTES,
+      }),
+    ).rejects.toThrow(/did not reset the client state/);
+  });
+
+  it("a post-purge review that still pre-fills fields is a journey error", async () => {
+    const routes = sprintJourneyRoutes();
+    // Both post-purge reviews still carry pre-filled fields (the queue's
+    // second response is another prefilled review, not the empty one).
+    routeOf(routes, "GET", "/api/forms/dhb-5200/review").respondNext = queue([
+      jsonResponse(200, reviewBody("dhb-5200", 2)),
+      jsonResponse(200, reviewBody("dhb-5200", 2)),
+    ]);
+    const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
+    await expect(
+      walk.runSprintJourney({
+        plan: SPRINT_TALK_PLAN,
+        unmappedAnswers: SPRINT_UNMAPPED,
+        audioGenerator: fakeAudioGenerator([]),
+        uploadBytes: FAKE_UPLOAD_BYTES,
+      }),
+    ).rejects.toThrow(/did not clear/);
+  });
+});
+
+describe("sprint cross-journey (VAL-SPRINT-003: purge completeness)", () => {
+  it("the unconfirmed purge being accepted is a violation, never a pass", async () => {
+    const routes = sprintJourneyRoutes();
+    routeOf(routes, "POST", "/api/session/purge").respondNext = queue([
+      jsonResponse(200, { purged: true, deleted: { answers: 6, vaultEntries: 1, turns: 4, auditNotes: 0 } }),
+    ]);
+    const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
+    await expect(
+      walk.runSprintJourney({
+        plan: SPRINT_TALK_PLAN,
+        unmappedAnswers: SPRINT_UNMAPPED,
+        audioGenerator: fakeAudioGenerator([]),
+        uploadBytes: FAKE_UPLOAD_BYTES,
+      }),
+    ).resolves.toBe(false);
+    expect(walk.violations.map((violation) => violation.kind)).toEqual([
+      "purge_unconfirmed_accepted",
+    ]);
+    expect(exitCodeForRun(false)).toBe(EXIT_VIOLATION);
+  });
+
+  it("a purge receipt short of the journey's own ledger is a violation", async () => {
+    const routes = sprintJourneyRoutes();
+    routeOf(routes, "POST", "/api/session/purge").respondNext = queue([
+      jsonResponse(400, { error: { code: "validation_error", message: "not confirmed" } }),
+      // The route claims success but deleted nothing the journey saved.
+      jsonResponse(200, { purged: true, deleted: { answers: 0, vaultEntries: 0, turns: 0, auditNotes: 0 } }),
+    ]);
+    const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
+    await expect(
+      walk.runSprintJourney({
+        plan: SPRINT_TALK_PLAN,
+        unmappedAnswers: SPRINT_UNMAPPED,
+        audioGenerator: fakeAudioGenerator([]),
+        uploadBytes: FAKE_UPLOAD_BYTES,
+      }),
+    ).resolves.toBe(false);
+    // The all-zero receipt is short of every ledger bound the journey
+    // holds (answers, vault rows, transcript rows) — each is named.
+    const kinds = walk.violations.map((violation) => violation.kind);
+    expect(kinds.length).toBe(3);
+    expect(new Set(kinds)).toEqual(new Set(["purge_incomplete"]));
+    const detail = JSON.stringify(walk.violations.map((violation) => violation.detail));
+    expect(detail).toContain("short of the");
+  });
+
+  it("--db-verify captures before/after psql row counts against the session's uuid, and nonzero after-counts are a violation", async () => {
+    const routes = sprintJourneyRoutes();
+    const dbCalls = [];
+    const zeroCounts = { answer: 0, vault_entry: 0, conversation_turn: 0, session_audit_note: 0 };
+    const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
+    await expect(
+      walk.runSprintJourney({
+        plan: SPRINT_TALK_PLAN,
+        unmappedAnswers: SPRINT_UNMAPPED,
+        audioGenerator: fakeAudioGenerator([]),
+        uploadBytes: FAKE_UPLOAD_BYTES,
+        dbVerify: true,
+        dbRunner: async (sessionId) => {
+          dbCalls.push(sessionId);
+          return { ...zeroCounts };
+        },
+      }),
+    ).resolves.toBe(true);
+    // The runner ran BEFORE and AFTER the purge, against the session
+    // uuid the journey's own cookie carries.
+    expect(dbCalls).toEqual([
+      "9f0d7bd0-5b0d-4bcc-81f4-35a1cd94d310",
+      "9f0d7bd0-5b0d-4bcc-81f4-35a1cd94d310",
+    ]);
+    const transcript = walk.lines.join("\n");
+    expect(transcript).toContain("DB row counts BEFORE");
+    expect(transcript).toContain("DB row counts AFTER");
+    expect(transcript).toContain("zero rows in answer, vault_entry, conversation_turn, session_audit_note");
+
+    // Now the after-counts come back nonzero: the DB kept rows the purge
+    // claimed to delete — a violation, exit 1.
+    const failingRoutes = sprintJourneyRoutes();
+    const violatingWalk = new Walkthrough("http://fake.test", 1000, fakeTransport(failingRoutes));
+    await expect(
+      violatingWalk.runSprintJourney({
+        plan: SPRINT_TALK_PLAN,
+        unmappedAnswers: SPRINT_UNMAPPED,
+        audioGenerator: fakeAudioGenerator([]),
+        uploadBytes: FAKE_UPLOAD_BYTES,
+        dbVerify: true,
+        dbRunner: async () => ({ answer: 3, vault_entry: 0, conversation_turn: 0, session_audit_note: 0 }),
+      }),
+    ).resolves.toBe(false);
+    expect(violatingWalk.violations.map((violation) => violation.kind)).toEqual([
+      "purge_incomplete",
+    ]);
+  });
+});
+
+describe("sprint CLI plumbing", () => {
+  it("the sprint mode defaults to the 90s timeout and the voice-consented path", () => {
+    const options = parseArgs(["--mode", "sprint"]);
+    expect(options.mode).toBe("sprint");
+    expect(options.timeoutMs).toBe(90000);
+    expect(options.consent).toBe("voice");
+    expect(options.dbVerify).toBe(false);
+  });
+
+  it("--consent declined and --db-verify parse on the sprint mode", () => {
+    const options = parseArgs(["--mode", "sprint", "--consent", "declined", "--db-verify"]);
+    expect(options.consent).toBe("declined");
+    expect(options.dbVerify).toBe(true);
+  });
+
+  it("--consent and --db-verify are sprint-only options", () => {
+    expect(() => parseArgs(["--consent", "declined"])).toThrow(WalkthroughError);
+    expect(() => parseArgs(["--mode", "conversation", "--consent", "declined"])).toThrow(WalkthroughError);
+    expect(() => parseArgs(["--db-verify"])).toThrow(WalkthroughError);
+    expect(() => parseArgs(["--mode", "form", "--db-verify"])).toThrow(WalkthroughError);
+  });
+
+  it("an unknown --consent value is a journey error", () => {
+    expect(() => parseArgs(["--mode", "sprint", "--consent", "bogus"])).toThrow(WalkthroughError);
+  });
+
+  it("usage documents the sprint mode and its options", () => {
+    const help = usage();
+    expect(help).toContain("sprint");
+    expect(help).toContain("--consent");
+    expect(help).toContain("--db-verify");
+  });
+
+  it("the sprint fill answers cover exactly the two real forms' in-request fields", () => {
+    expect([...Object.keys(SPRINT_FORM_UNMAPPED_ANSWERS)].sort()).toEqual(
+      [...SPRINT_FORM_IDS].sort(),
+    );
+    for (const answers of Object.values(SPRINT_FORM_UNMAPPED_ANSWERS)) {
+      expect(Object.keys(answers).length).toBeGreaterThan(0);
+      for (const value of Object.values(answers)) {
+        expect(typeof value).toBe("string");
+        expect(value.trim().length).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe("the scripted voice turn (VAL-SPRINT-001's voice-consented talk)", () => {
+  it("renders the spoken sentence to a 16 kHz mono WAV via say + afconvert and cleans up", () => {
+    let spoken;
+    let aiffPath;
+    const fakeExec = (command, args) => {
+      if (command === "say") {
+        aiffPath = args[1];
+        spoken = args[2];
+      }
+      if (command === "afconvert") {
+        writeFileSync(args[args.length - 1], Buffer.from("fake-wav-bytes"));
+      }
+    };
+    const bytes = scriptedWavBytes("It's for myself.", fakeExec);
+    expect(spoken).toBe("It's for myself.");
+    expect(new TextDecoder().decode(bytes)).toBe("fake-wav-bytes");
+    // The scratch directory is gone: the fixture lives only for the turn.
+    expect(existsSync(aiffPath)).toBe(false);
+  });
+
+  it("a say/afconvert failure is a journey error, never a silent typed fallback", () => {
+    const failing = () => {
+      throw new Error("no say here");
+    };
+    expect(() => scriptedWavBytes("hello", failing)).toThrow(WalkthroughError);
+    expect(() => scriptedWavBytes("hello", failing)).toThrow(/say \+ afconvert/);
   });
 });

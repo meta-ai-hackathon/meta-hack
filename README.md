@@ -196,10 +196,12 @@ PR preview). No browser and no extra dependencies:
 pnpm walkthrough                                              # wizard, localhost:3100
 pnpm walkthrough --mode conversation                          # the v2 conversational journey
 pnpm walkthrough --mode form                                  # the v2 form-driven journey
+pnpm walkthrough --mode sprint                                # the sprint cross-journey (voice-consented)
+pnpm walkthrough --mode sprint --consent declined --db-verify # the sprint journey, zero-send path + psql purge evidence
 pnpm walkthrough --url https://meta-hack-omega.vercel.app     # any mode, production
 ```
 
-Three modes:
+Four modes:
 
 - **wizard** (default): create a session, answer the intake questions with a
   realistic mix (known answers that trigger skips and follow-ups, "I'm not
@@ -220,6 +222,24 @@ Three modes:
   conversation, mapped fields pre-filled from the session's answers, the
   review's to-resolve list asserted consistent with the served state, then
   the filled-PDF download.
+- **sprint** (the cross-journey proof): the full five-stage journey —
+  Choose mode → Quick questions → Talk → Income → Results — in one real
+  session. The quick-questions phase answers through the local answer
+  route (no model); the talk stage opens with a scripted spoken turn
+  (synthesized with `say` + `afconvert`, the voice consent receipt
+  attached) and exits to typing; the income stage uploads the committed
+  1040 fixture (deterministic in-memory parse) and confirms the
+  proposals; the results stage prepares both real applications
+  (DHB-5200 and DSS-8207) from the same answers with no re-asking. Then
+  the visible purge: the unconfirmed call must be refused, the confirmed
+  call's deleted-count receipt is checked against the journey's own
+  ledger, and the resume + both reviews must show the empty journey.
+  `--consent declined` runs the deterministic path instead — zero
+  conversation sends, no consent receipt anywhere, income and results
+  still reachable. `--db-verify` (local only) adds `docker exec` psql
+  row counts before and after the purge, proving zero rows remain for
+  the session in `answer`, `vault_entry`, `conversation_turn`, and
+  `session_audit_note`.
 
 While it walks, the CLI scans every response for violations: banned promise
 language (including on assistant turns specifically — a reply that promises
