@@ -1546,7 +1546,21 @@ class ShortKeyPieceProperties(unittest.TestCase):
 PGP_HEADER = "-----BEGIN PGP PRIVATE KEY BLOCK-----"
 # A PGP block's checksum line, = and four base64 characters, which some
 # writers leave out.
-PGP_CHECKSUMS = st.just("") | st.text(alphabet=string.ascii_letters + "+/", min_size=4, max_size=4).map(lambda crc: "=" + crc)
+PGP_CHECKSUM_LINES = st.text(alphabet=string.ascii_letters + "+/", min_size=4, max_size=4).map(lambda crc: "=" + crc)
+PGP_CHECKSUMS = st.just("") | PGP_CHECKSUM_LINES
+# Runs shorter than a key line that are code a reviewer has to see, such as
+# an assignment that turns a check off.
+SHORT_CODE = st.builds(
+    lambda name, value: name + "=" + value,
+    st.text(alphabet=string.ascii_lowercase, min_size=1, max_size=8),
+    st.sampled_from(["True", "False", "None", "0", "1", "true", "false", "null"]),
+)
+# What can stand before the = of a run shaped like a checksum: a row of +
+# and / of any length, or backslashes before a /, the way a string escapes
+# one.
+CHECKSUM_MARKS = st.text(alphabet="+/", max_size=24) | st.builds(
+    lambda escapes, slashes: "\\" * escapes + "/" * slashes, st.integers(1, 20), st.integers(1, 3)
+)
 # Armor headers the way OpenPGP.js, GPG Suite and Keybase write them.
 PGP_ARMOR = st.lists(
     st.sampled_from(
@@ -1607,6 +1621,36 @@ class PgpKeyBlockProperties(unittest.TestCase):
                 self.assertNotIn(line.replace("/", form.slash), out)
         self.assertNotIn("-----BEGIN", out)
         self.assertNotIn("-----END", out)
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    @PBT
+    @given(
+        st.sampled_from([PGP_HEADER, "-----BEGIN PRIVATE KEY-----"]),
+        st.lists(KEY_LINE, max_size=3),
+        SHORT_CODE,
+        CHECKSUM_MARKS,
+        PGP_CHECKSUM_LINES,
+        st.lists(CODE_LINES, max_size=1),
+        MULTILINE_KEY_FORMS,
+        SAFE_TEXT,
+    )
+    @example(PGP_HEADER, ["FAKEFAKE" * 8], "isAdmin=True", "+" * 16, "=FAKE", ["send(answers);"], KeyForm(("# ",), "", "\n"), "")
+    @example(PGP_HEADER, [], "isAdmin=True", "\\" * 16 + "/", "=FAKE", [], KeyForm(("# ",), "", "\n"), "")
+    def test_with_no_footer_a_checksum_never_hides_the_code_before_it(
+        self, header: str, above: list[str], code: str, marks: str, checksum: str, rest: list[str], form: KeyForm, after: str
+    ) -> None:
+        # After a key's header and its lines, a short run that is code, then
+        # a run shaped like a checksum with any row of +, / and backslashes
+        # before its =, and no footer anywhere: the key lines go as always,
+        # and the code and that run reach the model. The checksum is a short
+        # run however long it is written, so it can never end a line of key
+        # material that takes the code before it along.
+        lines = [header, *above, code, marks + checksum, *rest]
+        out, _count = review.redact_sensitive(form.starts[0] + form.write(lines) + form.end + "\n" + after)
+        self.assertIn(code, out)
+        self.assertIn((marks + checksum).replace("/", form.slash), out)
+        for line in above:
+            self.assertNotIn(line.replace("/", form.slash), out)
         self.assertEqual(review.redact_sensitive(out), (out, 0))
 
     def test_pgp_markers_and_checksum_lines_take_linear_time(self) -> None:
