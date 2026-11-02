@@ -8,6 +8,10 @@
 //
 // See walkthrough.mjs for the full journey description.
 
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ANSWER_STATUS_LABELS,
   findBannedClaims,
@@ -20,6 +24,7 @@ import {
   CONVERSATION_PLAN,
   FORM_JOURNEY_PLAN,
   SAMPLE_FORM_UNMAPPED_ANSWERS,
+  SPRINT_FORM_UNMAPPED_ANSWERS,
 } from "./walkthrough-plans.mjs";
 
 export const DEFAULT_URL = "http://localhost:3100";
@@ -34,6 +39,11 @@ const SESSION_COOKIE = "bn_session";
  * seam's stated contract ("the registry entry the validation journeys
  * fill", src/lib/pilot.ts); the sample stays registered for exactly this. */
 export const SAMPLE_FORM_ID = "sample-application-form";
+/** The TWO REAL applications one sprint session prepares (milestone
+ * snap-form, VAL-SPRINT-002): the pilot's primary form plus the
+ * additional application. Order mirrors the pilot seam; a drift test
+ * pins both ids against src/lib/pilot.ts. */
+export const SPRINT_FORM_IDS = Object.freeze(["dhb-5200", "dss-8207"]);
 /** The BN-25 lifecycle vocabulary (src/lib/honesty.ts) — the review leg
  * asserts the served session status is one of these. */
 export const BN25_SESSION_STATUSES = Object.freeze([
@@ -119,7 +129,10 @@ export const JOURNEY_PLAN = [
   // makes at least $580 a month — so the Civilla two-section design's
   // reporting section (wr_work_activity_who/types/hours) is never asked
   // (the exemption and income paths hide it), and neither is the
-  // which-situations follow-up (wr_applied_last_month = no).
+  // which-situations follow-up (wr_applied_last_month = no). The four
+  // branch-covered ids below are still plan entries — the coverage check
+  // demands the plan can answer anything the flow could ask if an answer
+  // landed differently than intended.
   { id: "wr_exempt_situations", status: "known", value: ["parent_child_under_18"] },
   { id: "wr_pregnant", status: "known", value: "no" },
   { id: "wr_drug_alcohol_treatment", status: "known", value: "no" },
@@ -131,10 +144,21 @@ export const JOURNEY_PLAN = [
   { id: "wr_foster_care_under_26", status: "known", value: "no" },
   { id: "wr_veteran_100_disabled", status: "known", value: "no" },
   { id: "wr_applied_last_month", status: "known", value: "no" },
+  // Branch coverage: asked only when wr_applied_last_month = yes.
+  { id: "wr_applied_last_month_which", status: "known", value: ["parent_child_under_18"] },
   { id: "wr_medical_travel_1hr", status: "known", value: "no" },
   { id: "wr_hospital_care_24hr", status: "known", value: "no" },
   { id: "wr_student_enrolled", status: "known", value: "not_enrolled" },
   { id: "wr_income_580", status: "known", value: "yes" },
+  // Branch coverage: the work-activity reporting section, asked only when
+  // no exemption/income/student path applies (the persona's answers hide
+  // it). The who is free-form private content; the hours number is NOT
+  // tracked as a private value (digits-only needles over-match — the
+  // structural leak check carries the boundary, per the vault-row
+  // deflake lesson).
+  { id: "wr_work_activity_who", status: "known", value: "Me and my sister", privateValue: "Me and my sister" },
+  { id: "wr_work_activity_types", status: "known", value: ["job_internship", "caregiving"] },
+  { id: "wr_work_activity_hours", status: "known", value: 30 },
 ];
 
 const PLAN_BY_ID = new Map(JOURNEY_PLAN.map((step) => [step.id, step]));
@@ -155,21 +179,23 @@ function sleep(ms) {
 }
 
 /**
- * The consent receipt the v2 journeys send with every typed turn (and the
- * match explanation request): the AI toggle on, voice off — the exact
- * grant the consent surface's typed path gives, named in the transcript
- * (HACK-81). No session data rides this header; the receipt names the
- * decision only.
+ * The consent receipt the v2 journeys send with every typed turn (and
+ * the match explanation request): the AI toggle on, voice off — the
+ * exact grant the consent surface's typed path gives, named in the
+ * transcript (HACK-81). No session data rides this header; the receipt
+ * names the decision only. The sprint journey's scripted-audio turn
+ * passes { voice: true } — the voice path's own receipt (the voice
+ * toggle rides ON the AI consent, src/lib/consent.ts).
  */
-export function consentHeaderValue() {
+export function consentHeaderValue({ voice = false } = {}) {
   // Receipt v2 (41cd06c bound the receipt to a providerId; the server
-  // fails closed on anything older): the AI toggle on, voice off — the
-  // same grant the consent surface's typed path gives.
+  // fails closed on anything older): the AI toggle on, voice on only for
+  // a scripted-audio turn — the same grant the consent surface gives.
   return JSON.stringify({
     v: 2,
     providerId: "meta-model-api",
     ai: true,
-    voice: false,
+    voice,
     at: new Date().toISOString(),
   });
 }
@@ -275,6 +301,119 @@ export function deepEqual(a, b) {
   return keysA.every((key) => deepEqual(a[key], b[key]));
 }
 
+// ---------------------------------------------------------------------------
+// Sprint journey helpers (scripted audio, local DB evidence, 1040 fixture)
+// ---------------------------------------------------------------------------
+
+/**
+ * A scripted spoken turn (the mission's VAL-VOICE-001 synthetic-voice
+ * pattern): the plan sentence rendered to a 16 kHz mono 16-bit PCM WAV
+ * with the machine's `say` + `afconvert` — exactly the audio format the
+ * STT route accepts. macOS-only tools; a failure is a journey error,
+ * NEVER a silent typed fallback (the voice-consented path must actually
+ * ride the voice rail for its transcript to mean anything). `exec` is
+ * injectable so the unit tests never shell out.
+ */
+export function scriptedWavBytes(text, exec = execFileSync) {
+  const dir = mkdtempSync(join(tmpdir(), "walkthrough-voice-"));
+  try {
+    const aiffPath = join(dir, "turn.aiff");
+    const wavPath = join(dir, "turn.wav");
+    exec("say", ["-o", aiffPath, text]);
+    exec("afconvert", [
+      "-f", "WAVE",
+      "-d", "LEI16@16000",
+      "-c", "1",
+      aiffPath,
+      wavPath,
+    ]);
+    return new Uint8Array(readFileSync(wavPath));
+  } catch (error) {
+    throw new WalkthroughError(
+      `could not synthesize the scripted voice turn (say + afconvert are the `
+        + `mission's macOS tools): ${error?.message ?? error}`,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Local-only DB evidence for the purge (VAL-SPRINT-003): row counts for
+ * one session in the four data tables, read with docker exec psql
+ * against the compose Postgres. Opt-in (--db-verify) because the
+ * walkthrough also runs against deployed URLs where no local container
+ * exists. `sessionId` MUST be the UUID the session cookie carries (the
+ * caller validates it — it is interpolated into the SQL). `exec` is
+ * injectable so the unit tests never shell out.
+ */
+export function psqlRowCounts(sessionId, exec = execFileSync) {
+  const tables = ["answer", "vault_entry", "conversation_turn", "session_audit_note"];
+  const counts = {};
+  for (const table of tables) {
+    const output = exec(
+      "docker",
+      [
+        "exec", "benefits-navigator-pg",
+        "psql", "-U", "postgres", "-d", "benefits_navigator",
+        "-tAc", `SELECT count(*) FROM ${table} WHERE session_id = '${sessionId}'`,
+      ],
+      { encoding: "utf8", timeout: 15_000 },
+    );
+    counts[table] = Number(output.trim());
+  }
+  return counts;
+}
+
+/**
+ * The committed 1040 test fixture the income stage's upload leg posts
+ * (read from disk — the walkthrough never imports app code; this is test
+ * data, not app behavior).
+ */
+function taxReturnFixtureBytes() {
+  return new Uint8Array(
+    readFileSync(new URL("../src/lib/income/fixtures/f1040.pdf", import.meta.url)),
+  );
+}
+
+/**
+ * A FILLED copy of the committed 1040 fixture, built in memory the same
+ * way the tax-parse suite synthesizes its filled inputs (HACK-58's
+ * synthetic pattern — never a committed filled persona). The committed
+ * template is BLANK, so an honest parse of the raw fixture proposes
+ * nothing; the walkthrough needs the findings so the confirm leg can
+ * exercise the tax_return provenance the purge must cover. Uses the
+ * app's own pinned @cantoo/pdf-lib (lazy import — the other modes never
+ * load it); the same IRS AcroForm names the parser reads back.
+ */
+let cachedFilled1040 = null;
+async function filled1040FixtureBytes() {
+  if (cachedFilled1040 !== null) {
+    return cachedFilled1040;
+  }
+  const { PDFDocument } = await import("@cantoo/pdf-lib");
+  const pdf = await PDFDocument.load(taxReturnFixtureBytes(), {
+    ignoreEncryption: true,
+    updateMetadata: false,
+  });
+  const form = pdf.getForm();
+  const P1 = "topmostSubform[0].Page1[0].";
+  form.getTextField(`${P1}f1_47[0]`).setText("52500"); // line 1a wages
+  form.getTextField(`${P1}f1_75[0]`).setText("48200"); // line 11 AGI
+  form.getCheckBox(`${P1}Checkbox_ReadOrder[0].c1_8[1]`).check(); // MFJ
+  cachedFilled1040 = await pdf.save();
+  return cachedFilled1040;
+}
+
+/** The multipart body of a scripted voice turn: the `audio` part the
+ * turn route reads (src/app/api/conversation/turn/route.ts). A Blob part
+ * is re-readable, so one FormData survives the turn's retry loop. */
+function audioTurnFormData(audio) {
+  const form = new FormData();
+  form.set("audio", new Blob([audio], { type: "audio/wav" }), "turn.wav");
+  return form;
+}
+
 /**
  * The quick-questions counter's honesty (VAL-QQ-008, progress counts
  * consistent): every served client state carries the engine's N-of-M
@@ -347,6 +486,35 @@ export class Walkthrough {
     this.turnTimes = [];
     this.turnsSent = 0;
     this.lastAssistantReply = null;
+    // The purge ledger (VAL-SPRINT-003): every answer id this journey
+    // saved (any route), the subset that is private (vault rows), and
+    // the turn count. The confirmed purge's deleted-count receipt is
+    // checked against these lower bounds.
+    this.savedAnswerIds = new Set();
+    this.savedPiiAnswerIds = new Set();
+  }
+
+  /**
+   * Note one answer the journey saved through any route (ask-once
+   * evidence + the purge ledger's lower bound). `vaulted` — a pii save
+   * that carried a VALUE: a status-only "I'm not sure" writes the answer
+   * row but no vault row (the store's delete-on-disavow), so it must not
+   * inflate the vault ledger.
+   */
+  noteSavedAnswer(questionId, vaulted = false) {
+    this.savedAnswerIds.add(questionId);
+    if (vaulted) {
+      this.savedPiiAnswerIds.add(questionId);
+    }
+  }
+
+  /** The purge receipt's lower bounds from this journey's own ledger. */
+  purgeLedger() {
+    return {
+      answers: this.savedAnswerIds.size,
+      vaultEntries: this.savedPiiAnswerIds.size,
+      turns: this.turnsSent,
+    };
   }
 
   stamp() {
@@ -462,21 +630,25 @@ export class Walkthrough {
   }
 
   /**
-   * One typed conversation turn (text mode). The walkthrough is an
-   * AI-consented client: the consent header carries the ai toggle on and
-   * voice off, exactly what the consent surface's typed path grants
-   * (HACK-81). The response — reply, redacted transcript, state, and any
-   * extra field — is scanned with the full detector set:
+   * One conversation turn — typed text (JSON) or scripted audio
+   * (multipart, when `audio` bytes are passed). The walkthrough is an
+   * AI-consented client: the consent header carries the AI toggle on,
+   * and the voice toggle ONLY on the audio turn — each send carries the
+   * receipt for what it actually is, exactly what the consent surface's
+   * grants name (HACK-81). The response — reply, redacted transcript,
+   * state, and any extra field — is scanned with the full detector set:
    * banned claims (whole body + assistant turn specifically), pii echoes
    * on the parsed payload, structural pii leaks in the state, raw-text
    * exposure of every tracked private value, and the redaction of this
    * turn's own words.
    *
-   * @param {string} userText the words typed for this turn
+   * @param {string} userText the words typed or spoken for this turn
+   * @param {{audio?: Uint8Array}} [options] audio bytes for a voice turn
    * @returns {object} the parsed turn response
    */
-  async conversationTurn(userText) {
+  async conversationTurn(userText, { audio } = {}) {
     await this.paceTurns();
+    const isVoice = audio instanceof Uint8Array;
     let response;
     for (let attempt = 1; attempt <= TURN_ATTEMPTS; attempt++) {
       // Every attempt is a real server turn: if the engine counts failed
@@ -489,9 +661,11 @@ export class Walkthrough {
         "/api/conversation/turn",
         {
           method: "POST",
-          body: { text: userText },
+          body: isVoice
+            ? audioTurnFormData(audio)
+            : { text: userText },
           cookie: this.cookie,
-          headers: { "x-bn-consent": consentHeaderValue() },
+          headers: { "x-bn-consent": consentHeaderValue({ voice: isVoice }) },
         },
         this.timeoutMs,
       );
@@ -560,13 +734,19 @@ export class Walkthrough {
     return body;
   }
 
-  /** GET (or POST) /api/match with the AI consent header — the ranked
-   * cards, each scanned like every other body. */
-  async getMatch() {
+  /** GET (or POST) /api/match — the ranked cards, each scanned like
+   * every other body. The AI explanation request carries the AI consent
+   * receipt; the DECLINED path asks with NO receipt at all (the
+   * deterministic cards must serve fine without one — a consent refusal
+   * never blocks the journey, HACK-81). */
+  async getMatch({ consented = true } = {}) {
     const response = await this.transport(
       this.base,
       "/api/match",
-      { cookie: this.cookie, headers: { "x-bn-consent": consentHeaderValue() } },
+      {
+        cookie: this.cookie,
+        headers: consented ? { "x-bn-consent": consentHeaderValue() } : {},
+      },
       this.timeoutMs,
     );
     if (response.status !== 200) {
@@ -582,7 +762,8 @@ export class Walkthrough {
     const toResolveCount = Array.isArray(body.toResolve) ? body.toResolve.length : -1;
     this.log(
       `MATCH     GET /api/match → ${response.status}, ${matchCount} card(s) `
-        + `that may be worth pursuing, ${toResolveCount} to resolve`,
+        + `that may be worth pursuing, ${toResolveCount} to resolve`
+        + (consented ? "" : " (no consent receipt — the deterministic cards, zero sends)"),
     );
     this.scanResponse("match", response.text);
     for (const echo of findPiiEcho(body, this.privateValues)) {
@@ -645,6 +826,44 @@ export class Walkthrough {
       });
     }
     return body;
+  }
+
+  /**
+   * The ask-once proof on one form's prepared-package review
+   * (VAL-SPRINT-002): at least one field pre-filled from the session's
+   * answers, and every still-needed field's spec question genuinely has
+   * no known answer — an answered question is never re-asked, and a
+   * mapped field is never left blank while its answer exists. Throws
+   * (journey error) on either breach. Returns the pre-filled count.
+   */
+  assertReviewCarryover(review, formId) {
+    const fields = Array.isArray(review.fields) ? review.fields : [];
+    const stateAnswers = this.state?.answers ?? {};
+    const prefilled = fields.filter((field) => field.state === "prefilled");
+    if (prefilled.length < 1) {
+      throw new WalkthroughError(
+        `no ${formId} field pre-filled from the session's answers — the `
+          + "carry-over round-trip did not happen",
+      );
+    }
+    for (const item of Array.isArray(review.toResolve) ? review.toResolve : []) {
+      const field = fields.find((candidate) => candidate.fieldName === item.fieldName);
+      if (!field) {
+        throw new WalkthroughError(
+          `review to-resolve names "${item.fieldName}", which the field view does not contain`,
+        );
+      }
+      if (field.specQuestionId) {
+        const answer = stateAnswers[field.specQuestionId];
+        if (answer && answer.status === "known") {
+          throw new WalkthroughError(
+            `review still needs "${item.fieldName}" although its question was `
+              + `answered — ask-once violated on ${formId}`,
+          );
+        }
+      }
+    }
+    return prefilled.length;
   }
 
   /** GET /api/conversation/history — the resume transcript: turns were
@@ -739,9 +958,14 @@ export class Walkthrough {
    * @param {readonly {id: string, text: string, retry: string,
    *   intent: string, privateValue?: string}[]} plan typed turns by id
    * @param {string} what transcript label for the loop
+   * @param {{audioFirstTurn?: boolean, audioGenerator?: (text: string) =>
+   *   Promise<Uint8Array>}} [options] the sprint journey's voice-consented
+   *   talk speaks its FIRST turn as scripted audio (the injected generator
+   *   renders the plan sentence to WAV) and types the rest — the sanctioned
+   *   mode B (voice with exit-to-typing at any point)
    * @returns {Promise<{skippedBy: Map<string, string>}>}
    */
-  async runTurnLoop(plan, what) {
+  async runTurnLoop(plan, what, { audioFirstTurn = false, audioGenerator } = {}) {
     const planById = new Map(plan.map((step) => [step.id, step]));
     let state = this.state;
     let turnNumber = 0;
@@ -769,7 +993,18 @@ export class Walkthrough {
       }
       const beforeIds = new Set(state.questions.map((item) => item.id));
 
-      let outcome = await this.conversationTurn(step.text);
+      const isAudioTurn = audioFirstTurn && turnNumber === 0;
+      let outcome = isAudioTurn
+        ? await this.conversationTurn(step.text, {
+            audio: await audioGenerator(step.text),
+          })
+        : await this.conversationTurn(step.text);
+      if (isAudioTurn) {
+        this.log(
+          "VOICE     the talk stage opens with a scripted spoken turn "
+            + "(WAV → the STT route) — voice consent receipt attached",
+        );
+      }
       let newState = outcome.state;
       if (!newState || typeof newState !== "object") {
         throw new WalkthroughError(`turn for "${question.id}" returned no client state`);
@@ -793,8 +1028,8 @@ export class Walkthrough {
         }
       }
       turnNumber += 1;
-
       const servedStatus = newState.answers[question.id]?.status ?? "unknown";
+      this.noteSavedAnswer(question.id, isPii && servedStatus !== "unknown");
       const statusLabel = ANSWER_STATUS_LABELS[servedStatus] ?? servedStatus;
       const displayValue = isPii
         ? "(answer kept private)"
@@ -911,6 +1146,7 @@ export class Walkthrough {
         );
       }
       answerNumber += 1;
+      this.noteSavedAnswer(step.id, isPii && step.status !== "unknown");
       this.log(
         `QQ-ANSWER ${String(answerNumber).padStart(2, "0")}  ${step.id} = ` +
           `${Walkthrough.plannedDisplay(step, isPii)} — ` +
@@ -931,6 +1167,14 @@ export class Walkthrough {
           parts.push(`newly asked: ${nowAsked.join(", ")}`);
         }
         this.log(`          ${parts.join(" · ")}`);
+      }
+      const counterProblem = quickQuestionsCounterProblem(state, newState, step.id);
+      if (counterProblem) {
+        this.recordViolation("quick_questions_counter", {
+          where: `answer ${step.id}`,
+          detail: counterProblem,
+        });
+        return { skippedBy };
       }
       state = newState;
       this.state = newState;
@@ -1100,37 +1344,10 @@ export class Walkthrough {
     if (this.violations.length > 0) {
       return this.reportViolations();
     }
+    const prefilledCount = this.assertReviewCarryover(review, formId);
     const fields = Array.isArray(review.fields) ? review.fields : [];
-    const stateAnswers = this.state?.answers ?? {};
-    const prefilled = fields.filter((field) => field.state === "prefilled");
-    if (prefilled.length < 1) {
-      throw new WalkthroughError(
-        "no form field pre-filled from the conversation's answers — the "
-          + "pre-fill round-trip did not happen",
-      );
-    }
-    // Internal consistency: a field may only be still-needed when its
-    // spec question has no known answer in the served state (or no spec
-    // question at all — the fill-request fields).
-    for (const item of Array.isArray(review.toResolve) ? review.toResolve : []) {
-      const field = fields.find((candidate) => candidate.fieldName === item.fieldName);
-      if (!field) {
-        throw new WalkthroughError(
-          `review to-resolve names "${item.fieldName}", which the field view does not contain`,
-        );
-      }
-      if (field.specQuestionId) {
-        const answer = stateAnswers[field.specQuestionId];
-        if (answer && answer.status === "known") {
-          throw new WalkthroughError(
-            `review still needs "${item.fieldName}" although its question was `
-              + "answered through the conversation",
-          );
-        }
-      }
-    }
     this.log(
-      `          pre-fill observed: ${prefilled.length} field(s) from the `
+      `          pre-fill observed: ${prefilledCount} field(s) from the `
         + `conversation's answers; `
         + `${fields.filter((field) => field.state === "not_applicable").length} not applicable`,
     );
@@ -1141,6 +1358,423 @@ export class Walkthrough {
     }
     await this.endHealthCheck();
     this.summarizePlan(plan, "form journey plan");
+    this.log("WALKTHROUGH PASSED");
+    return true;
+  }
+
+  /**
+   * The income stage's legs (milestone income-capture; VAL-SPRINT-001's
+   * fourth stage): the 1040 upload's deterministic in-memory parse —
+   * never persisted, never a model — followed by the confirm-or-correct
+   * save. The parser's proposals are confirmed with provenance
+   * `tax_return`; one row is typed over with provenance `user` (both
+   * real paths of the stage). The served state must then report income
+   * handled — the results gate's income conjunct (VAL-QQ-011).
+   */
+  async incomeStage({ uploadBytes } = {}) {
+    const file = uploadBytes ?? (await filled1040FixtureBytes());
+    const uploadForm = new FormData();
+    uploadForm.set(
+      "file",
+      new Blob([file], { type: "application/pdf" }),
+      "f1040.pdf",
+    );
+    const uploaded = await this.transport(
+      this.base,
+      "/api/intake/tax-return",
+      { method: "POST", body: uploadForm, cookie: this.cookie },
+      this.timeoutMs,
+    );
+    if (uploaded.status !== 200) {
+      throw new WalkthroughError(
+        `tax-return upload failed: ${uploaded.status} `
+          + this.maskPrivateValues(uploaded.text.slice(0, 200)),
+      );
+    }
+    const parsedBody = parseJsonBody(uploaded.text, "POST /api/intake/tax-return");
+    if (
+      parsedBody.readable !== true ||
+      !Array.isArray(parsedBody.findings) ||
+      parsedBody.findings.length === 0
+    ) {
+      throw new WalkthroughError(
+        "the committed 1040 test fixture did not parse readably — the "
+          + "income upload path is broken",
+      );
+    }
+    this.scanResponse("tax-return upload", uploaded.text);
+    this.log(
+      `INCOME    POST /api/intake/tax-return → 200 — ${parsedBody.findings.length} `
+        + `finding(s) parsed in memory (never stored, never a model), `
+        + `monthly proposal: `
+        + (parsedBody.monthlyDerived === null
+          ? "none (the person types instead)"
+          : parsedBody.monthlyDerived),
+    );
+
+    // Confirm-or-correct through the confirm route: the proposal ids are
+    // confirmed (provenance tax_return) and one value is typed over
+    // (provenance user). Both ride the standard answer store.
+    const confirmations = (parsedBody.monthlyDerived === null
+      ? []
+      : [
+          {
+            questionId: "job_income_amount",
+            action: "confirm",
+            value: parsedBody.monthlyDerived,
+          },
+          {
+            questionId: "job_income_frequency",
+            action: "confirm",
+            value: "monthly",
+          },
+        ]
+    ).concat([
+      { questionId: "benefits_income_amount", action: "correct", value: 300 },
+    ]);
+    const confirmed = await this.transport(
+      this.base,
+      "/api/intake/tax-return/confirm",
+      { method: "POST", body: { confirmations }, cookie: this.cookie },
+      this.timeoutMs,
+    );
+    if (confirmed.status !== 200) {
+      throw new WalkthroughError(
+        `tax-return confirm failed: ${confirmed.status} `
+          + this.maskPrivateValues(confirmed.text.slice(0, 200)),
+      );
+    }
+    const confirmedBody = parseJsonBody(confirmed.text, "POST /api/intake/tax-return/confirm");
+    this.scanResponse("tax-return confirm", confirmed.text, confirmedBody.state);
+    const savedRows = new Map(
+      (Array.isArray(confirmedBody.saved) ? confirmedBody.saved : []).map(
+        (row) => [row.questionId, row.provenance],
+      ),
+    );
+    if (savedRows.get("benefits_income_amount") !== "user") {
+      throw new WalkthroughError(
+        "the income stage's typed-over value did not save with provenance user",
+      );
+    }
+    if (parsedBody.monthlyDerived !== null && savedRows.get("job_income_amount") !== "tax_return") {
+      throw new WalkthroughError(
+        "the confirmed tax proposal did not save with provenance tax_return",
+      );
+    }
+    for (const { questionId } of confirmations) {
+      this.noteSavedAnswer(questionId, false);
+    }
+    this.state = confirmedBody.state;
+    if (this.state?.income?.handled !== true) {
+      throw new WalkthroughError(
+        "the income stage saved its answers but the served state still "
+          + "reports income unhandled — the results stage would never open",
+      );
+    }
+    this.log(
+      `INCOME    confirm → ${savedRows.size} answer(s) saved with `
+        + "tax_return + user provenances — the served state reports income "
+        + "handled, the results stage is reachable",
+    );
+  }
+
+  /**
+   * The visible purge's HTTP legs (HACK-80, VAL-DEMOEXP-006/007,
+   * VAL-SPRINT-003): the unconfirmed call is refused and deletes
+   * nothing; the confirmed call wipes every data row and its
+   * deleted-count receipt is checked against the journey's own ledger;
+   * `--db-verify` adds local psql row counts (before AND after) against
+   * the compose Postgres; the resume + both form reviews then show the
+   * empty, unstarted journey.
+   */
+  async purgeStage({ consented = true, dbVerify = false, dbRunner = psqlRowCounts } = {}) {
+    // The session id the cookie carries (the token IS the session id —
+    // src/lib/intake/store.ts loadSession). UUID-validated before any
+    // psql interpolation.
+    const sessionId = this.cookie?.startsWith(`${SESSION_COOKIE}=`)
+      ? this.cookie.slice(SESSION_COOKIE.length + 1)
+      : null;
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    // 1. The unconfirmed call is refused — no purge without confirmation.
+    const refused = await this.transport(
+      this.base,
+      "/api/session/purge",
+      { method: "POST", body: {}, cookie: this.cookie },
+      this.timeoutMs,
+    );
+    if (refused.status < 400) {
+      this.recordViolation("purge_unconfirmed_accepted", {
+        where: "POST /api/session/purge",
+        detail: `the purge went through without {confirmed: true} (status ${refused.status})`,
+      });
+      return this.reportViolations();
+    }
+    this.log(
+      `PURGE     POST /api/session/purge (no confirmation) → ${refused.status} `
+        + "— refused, nothing deleted (VAL-DEMOEXP-007)",
+    );
+
+    // Local DB evidence, BEFORE the confirmed purge.
+    if (dbVerify) {
+      if (!sessionId || !uuidPattern.test(sessionId)) {
+        throw new WalkthroughError(
+          "--db-verify needs the session's UUID for the psql row counts; "
+            + `the cookie holds: ${this.maskPrivateValues(String(sessionId))}`,
+        );
+      }
+      const beforeCounts = await dbRunner(sessionId);
+      this.log(`PURGE     DB row counts BEFORE (session ${sessionId}): ${JSON.stringify(beforeCounts)}`);
+    }
+
+    // 2. The confirmed purge — the receipt is checked against the ledger.
+    const purged = await this.transport(
+      this.base,
+      "/api/session/purge",
+      { method: "POST", body: { confirmed: true }, cookie: this.cookie },
+      this.timeoutMs,
+    );
+    if (purged.status !== 200) {
+      throw new WalkthroughError(
+        `confirmed purge failed: ${purged.status} `
+          + this.maskPrivateValues(purged.text.slice(0, 200)),
+      );
+    }
+    const purgedBody = parseJsonBody(purged.text, "POST /api/session/purge");
+    this.scanResponse("purge", purged.text);
+    const deleted = purgedBody.deleted ?? {};
+    const ledger = this.purgeLedger();
+    const problems = [];
+    if (purgedBody.purged !== true) {
+      problems.push("the route did not report purged: true");
+    }
+    if (!Number.isFinite(deleted.answers) || deleted.answers < ledger.answers) {
+      problems.push(
+        `deleted.answers ${JSON.stringify(deleted.answers)} is short of the `
+          + `${ledger.answers} answer(s) this journey saved`,
+      );
+    }
+    if (!Number.isFinite(deleted.vaultEntries) || deleted.vaultEntries < ledger.vaultEntries) {
+      problems.push(
+        `deleted.vaultEntries ${JSON.stringify(deleted.vaultEntries)} is short of the `
+          + `${ledger.vaultEntries} private answer(s) this journey saved`,
+      );
+    }
+    if (consented && (!Number.isFinite(deleted.turns) || deleted.turns < 2 * this.turnsSent)) {
+      problems.push(
+        `deleted.turns ${JSON.stringify(deleted.turns)} is short of the `
+          + `${2 * this.turnsSent} transcript row(s) this journey's `
+          + `${this.turnsSent} turn(s) wrote`,
+      );
+    }
+    if (problems.length > 0) {
+      for (const problem of problems) {
+        this.recordViolation("purge_incomplete", {
+          where: "POST /api/session/purge",
+          detail: problem,
+        });
+      }
+      return this.reportViolations();
+    }
+    this.log(
+      `PURGE     POST /api/session/purge {{confirmed: true}} → 200 — deleted `
+        + `${deleted.answers} answer(s), ${deleted.vaultEntries} vault row(s), `
+        + `${deleted.turns} transcript row(s), ${deleted.auditNotes ?? "?"} audit note(s)`,
+    );
+
+    // Local DB evidence, AFTER the confirmed purge: every data table must
+    // be empty for this session.
+    if (dbVerify) {
+      const afterCounts = await dbRunner(sessionId);
+      this.log(`PURGE     DB row counts AFTER: ${JSON.stringify(afterCounts)}`);
+      const stillThere = Object.entries(afterCounts).filter(([, count]) => count !== 0);
+      if (stillThere.length > 0) {
+        for (const [table] of stillThere) {
+          this.recordViolation("purge_incomplete", {
+            where: "psql row counts",
+            detail: `${table} still has rows for this session after the purge`,
+          });
+        }
+        return this.reportViolations();
+      }
+      this.log(
+        "PURGE     DB evidence: zero rows in answer, vault_entry, "
+          + "conversation_turn, session_audit_note for this session",
+      );
+    }
+
+    // 3. The client state resets: the resume shows the empty journey.
+    const after = await this.resumeSession();
+    if (Object.keys(after.answers ?? {}).length !== 0) {
+      throw new WalkthroughError(
+        "the resumed state still carries answers — the purge did not reset the client state",
+      );
+    }
+    const qq = after.quickQuestions;
+    if (qq && qq.remainingCount !== qq.requiredCount) {
+      throw new WalkthroughError(
+        `the post-purge quick-questions counter reads ${qq.remainingCount} of `
+          + `${qq.requiredCount} — the reset journey must ask every required `
+          + "question again",
+      );
+    }
+    this.log(
+      "PURGED    the resume shows the empty journey — every answer gone, "
+        + "the quick-questions counter back to N = M",
+    );
+
+    // 4. Both forms' prepared state is gone: zero pre-filled fields.
+    for (const formId of SPRINT_FORM_IDS) {
+      const review = await this.getReview(formId);
+      const prefilledCount = (Array.isArray(review.fields) ? review.fields : []).filter(
+        (field) => field.state === "prefilled",
+      ).length;
+      if (prefilledCount !== 0) {
+        throw new WalkthroughError(
+          `the post-purge ${formId} review still pre-fills ${prefilledCount} `
+            + "field(s) — the fill/review state did not clear",
+        );
+      }
+    }
+    this.log(
+      "PURGED    both form reviews serve zero pre-filled fields — the "
+        + "prepared applications are gone",
+    );
+  }
+
+  /**
+   * The SPRINT cross-journey proof (milestone snap-form part 4,
+   * VAL-SPRINT-001..003): the full five-stage journey — Choose mode →
+   * Quick questions → Talk → Income → Results — in ONE real session,
+   * then the visible purge. Two consent paths:
+   *
+   * - voice-consented (default): the talk stage OPENS with a scripted
+   *   spoken turn (the plan sentence rendered to WAV, the voice consent
+   *   receipt attached) and then exits to typing — the sanctioned mode B;
+   *   every send carries a receipt.
+   * - declined-consent: ZERO conversation sends — the deterministic
+   *   wizard covers every remaining question through the local answer
+   *   route, and the match leg asks with no consent receipt at all.
+   *
+   * The results stage prepares BOTH real applications from the same
+   * answers (review + fill per form, no re-asking — VAL-SPRINT-002), and
+   * the purge legs prove the erasure covers the quick-question answers,
+   * the tax-derived answers, and both forms' state (VAL-SPRINT-003).
+   *
+   * @param {{plan?: object[], consent?: "voice"|"declined", dbVerify?:
+   *   boolean, audioGenerator?: (text: string) => Promise<Uint8Array>,
+   *   dbRunner?: (sessionId: string) => Promise<Record<string, number>>,
+   *   unmappedAnswers?: object, uploadBytes?: Uint8Array}} [options]
+   *   injectables for the unit tests
+   */
+  async runSprintJourney(options = {}) {
+    const {
+      plan = CONVERSATION_PLAN,
+      consent = "voice",
+      dbVerify = false,
+      audioGenerator = (text) => scriptedWavBytes(text),
+      dbRunner = psqlRowCounts,
+      unmappedAnswers = SPRINT_FORM_UNMAPPED_ANSWERS,
+      uploadBytes,
+    } = options;
+    const declined = consent === "declined";
+    this.log(
+      `WALKTHROUGH target ${this.base} — sprint cross-journey `
+        + `(${declined ? "declined-consent deterministic" : "voice-consented"} path): `
+        + "choose mode → quick questions → talk → income → results → purge",
+    );
+
+    // Stage 1 — Choose mode: the session IS the entry stage; the mode
+    // choice is the consent decision every later send must honor.
+    await this.startSession();
+    if (this.violations.length > 0) {
+      return this.reportViolations();
+    }
+    this.log(
+      "STAGE 1   Choose mode — "
+        + (declined
+          ? "the zero-send deterministic wizard (no AI receipt anywhere)"
+          : "mode B: voice with exit-to-typing — a scripted audio turn, then typed turns"),
+    );
+
+    // Stage 2 — Quick questions: the sensitive screen answered through
+    // the stage's own route (the answer route, never the model).
+    this.log(
+      "STAGE 2   Quick questions — the pending required questions the "
+        + "quick-questions stage captures, through the answer route (no model)",
+    );
+    await this.answerWorkRequirementsLocally();
+    if (this.violations.length > 0) {
+      return this.reportViolations();
+    }
+
+    // Stage 3 — Talk: the conversation's typed turns (or, on the declined
+    // path, the deterministic wizard covering every remaining question
+    // with zero sends).
+    if (declined) {
+      this.log(
+        "STAGE 3   Talk — the deterministic path: every remaining question "
+          + "through the answer route with ZERO conversation sends",
+      );
+      const { stopped } = await this.answerFlowLocally();
+      if (stopped || this.violations.length > 0) {
+        return this.reportViolations();
+      }
+      this.log(
+        "TALK      the talk stage completed with zero conversation sends — "
+          + "consent refusal never blocked the journey (HACK-81)",
+      );
+    } else {
+      this.log("STAGE 3   Talk — the conversation's turns (scripted audio first, then typed)");
+      await this.runTurnLoop(plan, "sprint talk", { audioFirstTurn: true, audioGenerator });
+      if (this.violations.length > 0) {
+        return this.reportViolations();
+      }
+    }
+
+    // Stage 4 — Income: upload + confirm-or-correct (both real paths).
+    this.log(
+      "STAGE 4   Income — the 1040 upload's deterministic parse, then "
+        + "confirm-or-correct",
+    );
+    await this.incomeStage({ uploadBytes });
+    if (this.violations.length > 0) {
+      return this.reportViolations();
+    }
+
+    // Stage 5 — Results: one session prepares BOTH applications.
+    this.log(
+      `STAGE 5   Results — one session prepares both applications `
+        + `(${SPRINT_FORM_IDS.join(" + ")}), ask-once`,
+    );
+    await this.getMatch({ consented: !declined });
+    if (this.violations.length > 0) {
+      return this.reportViolations();
+    }
+    for (const formId of SPRINT_FORM_IDS) {
+      const review = await this.getReview(formId);
+      if (this.violations.length > 0) {
+        return this.reportViolations();
+      }
+      const prefilledCount = this.assertReviewCarryover(review, formId);
+      this.log(
+        `REUSE     ${formId}: ${prefilledCount} field(s) pre-filled from this `
+          + "session's answers — no answered question re-asked",
+      );
+      await this.fillForm(formId, unmappedAnswers[formId]);
+      if (this.violations.length > 0) {
+        return this.reportViolations();
+      }
+    }
+
+    // The visible purge: refusal, confirmed erasure, client-state reset.
+    await this.purgeStage({ consented: !declined, dbVerify, dbRunner });
+    if (this.violations.length > 0) {
+      return this.reportViolations();
+    }
+
+    await this.endHealthCheck();
+    this.summarizePlan(plan, "sprint talk plan");
     this.log("WALKTHROUGH PASSED");
     return true;
   }
@@ -1273,6 +1907,105 @@ export class Walkthrough {
       : JSON.stringify(step.value);
   }
 
+  /**
+   * The wizard's answer loop: answer whatever question the flow shows
+   * next through the local answer route (POST /api/intake/answer — no
+   * model in the loop), observing the skip behavior, tracking private
+   * free-form values, and checking the quick-questions counter after
+   * every answer. Shared by the wizard journey (run) and the sprint
+   * journey's DECLINED talk stage (the deterministic zero-send path).
+   *
+   * @returns {Promise<{answerNumber: number, skippedBy: Map<string,
+   *   string>, stopped: boolean}>} stopped=true when a violation ended
+   *   the loop (the caller reports and stops the walk)
+   */
+  async answerFlowLocally() {
+    let state = this.state;
+    let answerNumber = 0;
+    const skippedBy = new Map();
+    while (!state.complete) {
+      if (state.currentIndex === null) {
+        throw new WalkthroughError(
+          "flow is not complete but no question is current — stuck intake state",
+        );
+      }
+      const question = state.questions[state.currentIndex];
+      const step = PLAN_BY_ID.get(question.id);
+      if (!step) {
+        throw new WalkthroughError(
+          `the flow asked for "${question.id}", which the journey plan does not cover`,
+        );
+      }
+      const isPii = question.pii === true;
+      const isFreeForm = question.type === "text" || question.type === "date";
+
+      const beforeIds = new Set(state.questions.map((item) => item.id));
+      const answer = await this.transport(
+        this.base,
+        "/api/intake/answer",
+        {
+          method: "POST",
+          body: { questionId: step.id, status: step.status, value: step.value ?? null },
+          cookie: this.cookie,
+        },
+        this.timeoutMs,
+      );
+      const newState = parseJsonBody(answer.text, `answer ${step.id}`);
+      if (answer.status !== 200) {
+        throw new WalkthroughError(
+          `answer ${step.id} rejected: ${answer.status} ${this.maskPrivateValues(answer.text.slice(0, 200))}`,
+        );
+      }
+      answerNumber += 1;
+
+      if (isPii && step.status !== "unknown" && isFreeForm) {
+        // Track private free-form content (text/date answers) so every
+        // later body is scanned for it. Select-option values are spec
+        // vocabulary — they legitimately appear in every payload's option
+        // list — so the PII boundary for those rests on the structural
+        // check in scanResponse (no `value` key under a pii question, ever).
+        this.privateValues.push(String(step.value));
+      }
+      this.noteSavedAnswer(step.id, isPii && step.status !== "unknown");
+      this.log(
+        `ANSWER ${String(answerNumber).padStart(2, "0")}  ${step.id} = ` +
+          `${Walkthrough.plannedDisplay(step, isPii)} — ${ANSWER_STATUS_LABELS[step.status]}`,
+      );
+
+      const afterIds = new Set(newState.questions.map((item) => item.id));
+      const nowSkipped = [...beforeIds].filter((id) => !afterIds.has(id));
+      const nowAsked = [...afterIds].filter((id) => !beforeIds.has(id));
+      for (const id of nowSkipped) {
+        skippedBy.set(id, step.id);
+      }
+      if (nowSkipped.length > 0 || nowAsked.length > 0) {
+        const parts = [];
+        if (nowSkipped.length > 0) {
+          parts.push(`no longer asked: ${nowSkipped.join(", ")}`);
+        }
+        if (nowAsked.length > 0) {
+          parts.push(`newly asked: ${nowAsked.join(", ")}`);
+        }
+        this.log(`          ${parts.join(" · ")}`);
+      }
+
+      if (this.scanResponse(`answer ${step.id}`, answer.text, newState)) {
+        return { answerNumber, skippedBy, stopped: true };
+      }
+      const counterProblem = quickQuestionsCounterProblem(state, newState, step.id);
+      if (counterProblem) {
+        this.recordViolation("quick_questions_counter", {
+          where: `answer ${step.id}`,
+          detail: counterProblem,
+        });
+        return { answerNumber, skippedBy, stopped: true };
+      }
+      state = newState;
+      this.state = newState;
+    }
+    return { answerNumber, skippedBy, stopped: false };
+  }
+
   /** Walk the full journey; resolves true when completed cleanly, false
    * when a violation stopped the walk (never throws for violations). */
   async run() {
@@ -1321,86 +2054,10 @@ export class Walkthrough {
     // 3. Walk the flow: answer whatever question the server shows next and
     // observe the skip behavior each answer causes. Whether a question is
     // pii comes from the served payload — the one authoritative source.
-    let state = createdBody.state;
-    let answerNumber = 0;
-    const skippedBy = new Map();
-    while (!state.complete) {
-      if (state.currentIndex === null) {
-        throw new WalkthroughError(
-          "flow is not complete but no question is current — stuck intake state",
-        );
-      }
-      const question = state.questions[state.currentIndex];
-      const step = PLAN_BY_ID.get(question.id);
-      if (!step) {
-        throw new WalkthroughError(
-          `the flow asked for "${question.id}", which the journey plan does not cover`,
-        );
-      }
-      const isPii = question.pii === true;
-      const isFreeForm = question.type === "text" || question.type === "date";
-
-      const beforeIds = new Set(state.questions.map((item) => item.id));
-      const answer = await this.transport(
-        this.base,
-        "/api/intake/answer",
-        {
-          method: "POST",
-          body: { questionId: step.id, status: step.status, value: step.value ?? null },
-          cookie: this.cookie,
-        },
-        this.timeoutMs,
-      );
-      const newState = parseJsonBody(answer.text, `answer ${step.id}`);
-      if (answer.status !== 200) {
-        throw new WalkthroughError(
-          `answer ${step.id} rejected: ${answer.status} ${this.maskPrivateValues(answer.text.slice(0, 200))}`,
-        );
-      }
-      answerNumber += 1;
-
-      if (isPii && step.status !== "unknown" && isFreeForm) {
-        // Track private free-form content (text/date answers) so every
-        // later body is scanned for it. Select-option values are spec
-        // vocabulary — they legitimately appear in every payload's option
-        // list — so the PII boundary for those rests on the structural
-        // check in scanResponse (no `value` key under a pii question, ever).
-        this.privateValues.push(String(step.value));
-      }
-      this.log(
-        `ANSWER ${String(answerNumber).padStart(2, "0")}  ${step.id} = ` +
-          `${Walkthrough.plannedDisplay(step, isPii)} — ${ANSWER_STATUS_LABELS[step.status]}`,
-      );
-
-      const afterIds = new Set(newState.questions.map((item) => item.id));
-      const nowSkipped = [...beforeIds].filter((id) => !afterIds.has(id));
-      const nowAsked = [...afterIds].filter((id) => !beforeIds.has(id));
-      for (const id of nowSkipped) {
-        skippedBy.set(id, step.id);
-      }
-      if (nowSkipped.length > 0 || nowAsked.length > 0) {
-        const parts = [];
-        if (nowSkipped.length > 0) {
-          parts.push(`no longer asked: ${nowSkipped.join(", ")}`);
-        }
-        if (nowAsked.length > 0) {
-          parts.push(`newly asked: ${nowAsked.join(", ")}`);
-        }
-        this.log(`          ${parts.join(" · ")}`);
-      }
-
-      if (this.scanResponse(`answer ${step.id}`, answer.text, newState)) {
-        return this.reportViolations();
-      }
-      const counterProblem = quickQuestionsCounterProblem(state, newState, step.id);
-      if (counterProblem) {
-        this.recordViolation("quick_questions_counter", {
-          where: `answer ${step.id}`,
-          detail: counterProblem,
-        });
-        return this.reportViolations();
-      }
-      state = newState;
+    this.state = createdBody.state;
+    const { answerNumber, skippedBy, stopped } = await this.answerFlowLocally();
+    if (stopped || this.violations.length > 0) {
+      return this.reportViolations();
     }
 
     const statusCounts = { known: 0, unknown: 0, unverified: 0 };
@@ -1452,7 +2109,7 @@ export class Walkthrough {
     }
     // The save response is the server's own current view of the session —
     // the baseline the resume must restore identically.
-    if (!deepEqual(savedBody.state ?? state, resumedBody.state)) {
+    if (!deepEqual(savedBody.state ?? this.state, resumedBody.state)) {
       throw new WalkthroughError(
         "resumed state differs from the saved state — progress did not restore identically",
       );
@@ -1520,6 +2177,19 @@ export function usage() {
     "                     through the conversation, mapped fields",
     "                     pre-filled from the session's answers, then the",
     "                     filled-PDF download.",
+    "  sprint             The sprint cross-journey proof: the full",
+    "                     five-stage journey (Choose mode → Quick",
+    "                     questions → Talk → Income → Results) in ONE",
+    "                     session, both real applications prepared from",
+    "                     the same answers (review + fill each), then the",
+    "                     visible purge with its receipt checked against",
+    "                     the journey's own ledger. --consent voice (the",
+    "                     default) opens the talk stage with a scripted",
+    "                     spoken turn (say + afconvert → the STT route);",
+    "                     --consent declined runs the deterministic path",
+    "                     with ZERO conversation sends. --db-verify adds",
+    "                     local psql row counts (before/after the purge)",
+    "                     against the compose Postgres.",
     "",
     "The v2 typed turns send the AI consent receipt (voice off), the same",
     "grant the consent surface's typed path gives. Assistant replies are",
@@ -1532,9 +2202,15 @@ export function usage() {
     "                     Any deployed URL works, e.g. the Vercel",
     "                     production or preview deployment.",
     "  --timeout <ms>     Per-request timeout (default: 30000 wizard,",
-    "                     90000 for the v2 modes — each typed turn runs",
-    "                     two live model calls).",
-    "  --mode <mode>      wizard | conversation | form (default: wizard).",
+    "                     90000 for the v2 and sprint modes — each typed",
+    "                     turn runs live model calls).",
+    "  --mode <mode>      wizard | conversation | form | sprint",
+    "                     (default: wizard).",
+    "  --consent <path>   sprint mode only: voice (default) | declined.",
+    "                     The declined path makes ZERO conversation sends",
+    "                     — the deterministic wizard completes the journey.",
+    "  --db-verify        sprint mode only: verify the purge with local",
+    "                     docker exec psql row counts (before/after).",
     "  --help             Show this help.",
     "",
     "Exit codes: 0 clean journey, 1 violation detected (the transcript",
@@ -1546,7 +2222,13 @@ export function usage() {
 /** Parse CLI arguments; returns null when --help was handled (usage was
  * printed). Throws WalkthroughError on anything unrecognized. */
 export function parseArgs(argv) {
-  const options = { url: DEFAULT_URL, timeoutMs: DEFAULT_TIMEOUT_MS, mode: "wizard" };
+  const options = {
+    url: DEFAULT_URL,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    mode: "wizard",
+    consent: "voice",
+    dbVerify: false,
+  };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--help") {
@@ -1559,14 +2241,31 @@ export function parseArgs(argv) {
       options.timeoutExplicit = true;
     } else if (arg === "--mode") {
       options.mode = argv[++index];
+    } else if (arg === "--consent") {
+      options.consent = argv[++index];
+    } else if (arg === "--db-verify") {
+      options.dbVerify = true;
     } else {
       throw new WalkthroughError(`unknown argument: ${arg}\n\n${usage()}`);
     }
   }
-  if (!["wizard", "conversation", "form"].includes(options.mode)) {
+  if (!["wizard", "conversation", "form", "sprint"].includes(options.mode)) {
     throw new WalkthroughError(
-      `--mode must be wizard, conversation, or form — got: ${options.mode}`,
+      `--mode must be wizard, conversation, form, or sprint — got: ${options.mode}`,
     );
+  }
+  // The sprint-only options bite on misuse: a typo'd mode should never
+  // silently run the wrong consent path or skip the DB evidence.
+  if (!["voice", "declined"].includes(options.consent)) {
+    throw new WalkthroughError(
+      `--consent must be voice or declined — got: ${options.consent}`,
+    );
+  }
+  if (options.consent !== "voice" && options.mode !== "sprint") {
+    throw new WalkthroughError("--consent applies only to --mode sprint");
+  }
+  if (options.dbVerify && options.mode !== "sprint") {
+    throw new WalkthroughError("--db-verify applies only to --mode sprint");
   }
   // The v2 modes run two live model calls per turn; their default timeout
   // is higher. An explicit --timeout always wins.
@@ -1599,6 +2298,11 @@ export async function main() {
       completed = await walk.runConversation();
     } else if (options.mode === "form") {
       completed = await walk.runFormJourney();
+    } else if (options.mode === "sprint") {
+      completed = await walk.runSprintJourney({
+        consent: options.consent,
+        dbVerify: options.dbVerify,
+      });
     } else {
       completed = await walk.run();
     }

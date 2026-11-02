@@ -205,14 +205,19 @@ describe("tax-parse import boundary (VAL-INC-005)", () => {
   it("admits only the two PDF libraries and node:zlib as external packages", () => {
     // node:zlib is the decompressed-size bound's inflater (the part-3
     // ride-along): deterministic local byte math on the uploaded bytes —
-    // no network, no model, nothing leaves the process. The forbidden
-    // set (model/LLM/prompt imports) is unchanged and still bites below.
+    // no network, no model, nothing leaves the process. The pdf.worker
+    // specifier is the same pdfjs-dist package as the main module (the
+    // loader imports it so the worker's own top-level installs the
+    // globalThis.pdfjsWorker hook — see pdf-engine-load.test.ts); it adds
+    // no new package and no model surface. The forbidden set
+    // (model/LLM/prompt imports) is unchanged and still bites below.
     const result = scanIncomeImports(INCOME_ROOT);
     expect([...result.externals].sort()).toEqual(
       [
         "@cantoo/pdf-lib",
         "node:zlib",
         "pdfjs-dist/legacy/build/pdf.mjs",
+        "pdfjs-dist/legacy/build/pdf.worker.mjs",
       ],
     );
   });
