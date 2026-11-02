@@ -313,13 +313,6 @@ async function visit() {
   return { container, text, byId, act, click, type, waitFor, answerEverything, download, unmount, copy: DEVICE_RESULTS_COPY };
 }
 
-/** A browser that has never been to /intake: an empty IndexedDB and no requests yet. */
-function freshDevice() {
-  device = fakeIndexedDb();
-  vi.stubGlobal("indexedDB", device.factory);
-  requests = [];
-}
-
 /** Every request so far: its URL and body carry none of these values. */
 function expectNoAnswerInRequests(values: readonly string[]) {
   for (const { url, init } of requests) {
@@ -515,9 +508,10 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.unmount();
   }, 60_000);
 
-  it("keeps whatever was typed into the review through a trip to a question and back", async () => {
+  it("keeps whatever was typed into the review through trips to a question and back", async () => {
     // The page holds what was typed in its memory, above the review, so
-    // answering a question the form still needs doesn't wipe the rest.
+    // answering or rereading a question doesn't wipe the rest. One visit
+    // keeps this cheap: each trip after the first rereads the last question.
     const { DEVICE_FORM_ENTRY } = await import("../../lib/intake/device-form");
     const typedFields = DEVICE_FORM_ENTRY.fields
       .filter((field) => field.disposition === "mapped" && field.specQuestionId === null)
@@ -527,45 +521,62 @@ describe("/intake to the review and the filled form, on the device", () => {
       fc.oneof(fc.stringMatching(/^[A-Za-z0-9][A-Za-z0-9 .,#'-]{0,30}$/), fc.constantFrom("checked", "unchecked")),
       { minKeys: 1, maxKeys: 6 },
     );
+    const page = await visit();
+    // Not sure of the county, so the review asks for it.
+    await page.answerEverything(new Set(["county"]));
+    const input = (name: string) =>
+      page.container.querySelector<HTMLInputElement>(`[data-review-field="${name}"] input`)!;
+    const typedSoFar: Record<string, string> = {};
+    async function typeIntoReview(typed: Readonly<Record<string, string>>) {
+      for (const [name, value] of Object.entries(typed)) {
+        await page.type(input(name), value);
+        typedSoFar[name] = value;
+      }
+    }
+    function expectEverythingTyped() {
+      expect(page.text()).toContain("All questions answered for now");
+      for (const [name, value] of Object.entries(typedSoFar)) {
+        expect(input(name).value, name).toBe(value);
+      }
+    }
+
+    // Answer this question: the county, from the review, and back.
+    await typeIntoReview({ [NAME_FIELD]: TYPED_NAME });
+    await page.click(page.container.querySelector<HTMLButtonElement>('[data-review-field="7 County"] button')!);
+    expect(page.container.querySelector("[data-device-results]")).toBeNull();
+    await page.type(page.byId<HTMLInputElement>("intake-county"), "Quillfeather County");
+    await page.click(page.byId("county-continue"));
+    expect(
+      page.container.querySelector('[data-review-field="7 County"] [data-field-state]')?.getAttribute("data-field-state"),
+    ).toBe("prefilled");
+    expectEverythingTyped();
+
+    // Review this answer, for whatever was typed: everything typed so far survives.
     await fc.assert(
       fc.asyncProperty(typedArb, async (typed) => {
-        freshDevice();
-        const page = await visit();
-        // Not sure of the county, so the review asks for it.
-        await page.answerEverything(new Set(["county"]));
-        const input = (name: string) =>
-          page.container.querySelector<HTMLInputElement>(`[data-review-field="${name}"] input`)!;
-        for (const [name, value] of Object.entries(typed)) {
-          await page.type(input(name), value);
-        }
-        await page.click(
-          page.container.querySelector<HTMLButtonElement>('[data-review-field="7 County"] button')!,
+        await typeIntoReview(typed);
+        const reviews = [...page.container.querySelectorAll<HTMLButtonElement>("button")].filter(
+          (button) => button.textContent === "Review this answer",
         );
+        await page.click(reviews[reviews.length - 1]);
         expect(page.container.querySelector("[data-device-results]")).toBeNull();
-        await page.type(page.byId<HTMLInputElement>("intake-county"), "Quillfeather County");
-        await page.click(page.byId("county-continue"));
-        expect(page.text()).toContain("All questions answered for now");
-        expect(
-          page.container.querySelector('[data-review-field="7 County"] [data-field-state]')?.getAttribute("data-field-state"),
-        ).toBe("prefilled");
-        for (const [name, value] of Object.entries(typed)) {
-          expect(input(name).value, name).toBe(value);
-        }
-        expectNoAnswerInRequests(PRIVATE_VALUES);
-        await page.unmount();
+        const question = page.container.querySelector<HTMLElement>("[data-intake-question]")!;
+        await page.click(page.byId(`${question.dataset.intakeQuestion}-continue`));
+        expectEverythingTyped();
       }),
-      { numRuns: 3 },
+      { numRuns: 10 },
     );
+    expectNoAnswerInRequests(PRIVATE_VALUES);
+    await page.unmount();
   }, 120_000);
 
   it("drops what was typed into the review with a delete, here, in another tab, or found by a save", async () => {
+    const page = await visit();
+    const { DEVICE_INTAKE_COPY } = await import("../../lib/intake/device-intake");
+    const nameInput = () =>
+      page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`);
+    await page.answerEverything();
     for (const where of ["here", "in another tab", "found by a save"] as const) {
-      freshDevice();
-      const page = await visit();
-      const { DEVICE_INTAKE_COPY } = await import("../../lib/intake/device-intake");
-      await page.answerEverything();
-      const nameInput = () =>
-        page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`);
       await page.type(nameInput()!, TYPED_NAME);
       if (where === "here") {
         await page.click(page.container.querySelector<HTMLButtonElement>("[data-delete-from-device]")!);
@@ -593,11 +604,12 @@ describe("/intake to the review and the filled form, on the device", () => {
         await page.click(review);
       }
       expect(page.container.querySelector("[data-device-results]"), where).toBeNull();
-      // Answering again starts the review empty: the typed name went with the answers.
+      // Answering again brings the review back empty: the typed name went with the answers.
       await page.answerEverything();
       expect(nameInput()?.value, where).toBe("");
       expect(page.text(), where).not.toContain(TYPED_NAME);
-      await page.unmount();
     }
+    expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME]);
+    await page.unmount();
   }, 120_000);
 });
