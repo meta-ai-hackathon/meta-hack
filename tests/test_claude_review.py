@@ -1683,12 +1683,13 @@ class StuckTokenProperties(unittest.TestCase):
     def test_a_token_right_after_a_letter_or_an_underscore_never_starts_a_match(
         self, word: str, token: tuple[str, str], sep: str
     ) -> None:
-        # The tail of a longer name that happens to be shaped like a token.
-        # The word has no capitals, so it can't spell the eyJ a JWT starts
-        # with. A run inside the token with a token's shape of its own may
-        # still go, but the token's own start stays.
+        # The tail of a longer name that happens to be shaped like a token:
+        # no redaction starts where the token does. A run inside the token
+        # with a token's shape of its own may still go, and so may a word
+        # that is itself the start of a token, such as github_pat_ before a
+        # GitHub token, since then the match starts at the word.
         text = word + token[1] + sep
-        self.assertTrue(review.redact_sensitive(text)[0].startswith(word + token[1][:3]), text)
+        self.assertFalse(review.redact_sensitive(text)[0].startswith(word + "[REDACTED "), text)
 
     def test_token_prefixes_after_a_digit_take_linear_time(self) -> None:
         # Rows of token prefixes, each right after a digit and each stopping
