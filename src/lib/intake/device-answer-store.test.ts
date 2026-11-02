@@ -21,6 +21,7 @@ import {
   recordDeviceAnswer,
   type DeviceAnswerStoreDeps,
 } from "./device-answer-store";
+import { loadRampartSession } from "./rampart-session-store";
 import { QUESTIONS } from "./spec";
 
 // The durable on-device answer store (HACK-99). The properties that matter
@@ -84,6 +85,11 @@ const markedRecordArb: fc.Arbitrary<ClientAnswerRecord> = fc
     provenance: "user_supplied" as const,
     value: `MARK-${marker}`,
   }));
+
+/** An opaque non-blank Rampart session serialization: pure payload here. */
+const sessionTextArb = fc
+  .string({ minLength: 1, maxLength: 80 })
+  .filter((text) => text.trim() !== "");
 
 const recordArb: fc.Arbitrary<ClientAnswerRecord> = fc.oneof(
   markedRecordArb,
@@ -241,6 +247,85 @@ describe("several tabs", () => {
     );
   });
 
+  it("retries under a usable key a concurrent first save of the session table lands (review P2)", async () => {
+    // A Rampart session's first save claims the key with the SESSION
+    // envelope: the answers envelope looks unchanged to this save, so the
+    // anchor of a generated-key write is the key slot itself. The winner's
+    // key is kept, never replaced, and the retry lands the answers under
+    // it — no envelope is left sealed under a displaced key.
+    const theirKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    );
+    const sessionText = '{"version":1,"entries":[]}';
+    const theirSession = await sealForStorage(sessionText, theirKey, crypto.subtle);
+    let injected = false;
+    const racing = memoryKv({
+      beforeGuardedWrite: (store) => {
+        if (!injected) {
+          injected = true;
+          store.set(DEVICE_ANSWERS_CRYPTO_KEY_KEY, theirKey);
+          store.set(DEVICE_SESSION_ENVELOPE_KEY, theirSession);
+        }
+      },
+    });
+    const [record] = fc.sample(markedRecordArb, 1);
+    const result = await recordDeviceAnswer(deps(racing.kv), record, {
+      expectStored: false,
+    });
+    expect(result.status).toBe("saved");
+    expect(racing.store.get(DEVICE_ANSWERS_CRYPTO_KEY_KEY)).toBe(theirKey);
+    const loaded = await loadDeviceAnswers(deps(racing.kv));
+    expect(loaded.state[record.questionId]?.value).toBe(record.value);
+    expect(await loadRampartSession(deps(racing.kv))).toEqual({
+      status: "ok",
+      serialized: sessionText,
+    });
+  });
+
+  it("whatever the answer and the session serialization, a session save claiming the key between this save's read and its write leaves both envelopes openable", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        markedRecordArb,
+        sessionTextArb,
+        async (record, sessionText) => {
+          const theirKey = await crypto.subtle.generateKey(
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["encrypt", "decrypt"],
+          );
+          const theirSession = await sealForStorage(sessionText, theirKey, crypto.subtle);
+          let injected = false;
+          const racing = memoryKv({
+            beforeGuardedWrite: (store) => {
+              if (!injected) {
+                injected = true;
+                store.set(DEVICE_ANSWERS_CRYPTO_KEY_KEY, theirKey);
+                store.set(DEVICE_SESSION_ENVELOPE_KEY, theirSession);
+              }
+            },
+          });
+          const result = await recordDeviceAnswer(deps(racing.kv), record, {
+            expectStored: false,
+          });
+          // The abort-and-retry semantics: the save lands under the session
+          // writer's key, the session envelope still opens with every
+          // serialization, and the answer is in the loaded answers.
+          expect(result.status).toBe("saved");
+          expect(racing.store.get(DEVICE_ANSWERS_CRYPTO_KEY_KEY)).toBe(theirKey);
+          const loaded = await loadDeviceAnswers(deps(racing.kv));
+          expect(loaded.state[record.questionId]?.value).toBe(record.value);
+          expect(await loadRampartSession(deps(racing.kv))).toEqual({
+            status: "ok",
+            serialized: sessionText,
+          });
+        },
+      ),
+      { numRuns: 20 },
+    );
+  });
+
   it("a delete in another tab is never undone by a slower save", async () => {
     const [first, second] = fc.sample(markedRecordArb, 2);
     for (const expectStored of [true, false]) {
@@ -277,18 +362,20 @@ describe("several tabs", () => {
 
   it("gives up without writing when other tabs keep winning", async () => {
     let theirs = 0;
+    // The competing tab claims the shared key slot with a usable key of
+    // its own every time (a real writer always writes a usable key with
+    // its envelope): the generated-key write's anchor is that slot
+    // (HACK-107 review P2), so this save stops again and again.
+    const foreignKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    );
     const racing = memoryKv({
       beforeGuardedWrite: (store) => {
-        // The other tab wrote its own whole pair: a fresh envelope under a
-        // fresh key. Contending on the shared sealing key too (HACK-107
-        // review P1: the key slot is anchored whenever a generated key is
-        // written), not just the envelope.
         theirs += 1;
         store.set(DEVICE_ANSWERS_ENVELOPE_KEY, `sealed1.other-tab-${theirs}.x`);
-        store.set(
-          DEVICE_ANSWERS_CRYPTO_KEY_KEY,
-          crypto.getRandomValues(new Uint8Array(16)),
-        );
+        store.set(DEVICE_ANSWERS_CRYPTO_KEY_KEY, foreignKey);
       },
     });
     const [record] = fc.sample(markedRecordArb, 1);
