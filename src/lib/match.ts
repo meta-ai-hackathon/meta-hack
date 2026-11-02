@@ -730,16 +730,36 @@ function escapeRegExpValue(text: string): string {
 const PLAIN_NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
 
 /**
- * Token edges for number answers (HACK-121). A letter or digit continues a
- * token, and so does one of these separators when it sits between two of
- * them, so dates (2026-10-30, 10/08/2026), ids (dhb-5200, travel_1hr),
- * times, decimals, and grouped numbers each stay one token. The one
- * exception is a letter right after the number: that is a unit glued on
- * ("0hrs"), so the number still stands as its own number there, unless
- * what comes before it joins it to a longer token (travel_1hr).
+ * Token edges for number answers (HACK-121). Before the number, a letter or
+ * digit joins it to a longer token, and so does a hyphen, dot, slash, or
+ * underscore right after a letter or digit, or a colon or comma right after
+ * a digit. So ids (dhb-5200, wr_income_580, travel_1hr), versions (v3), URL
+ * paths, and the later parts of dates, times, decimals, and grouped numbers
+ * each stay one token, while a label (hours:20) does not hide the number.
+ * After the number, only a digit joins it, right next to it or across one
+ * of these separators (2026-10-30, 10/08/2026, 10:30, 1.5, 1,000). A letter
+ * or a word after it is a unit (0hrs, 20-hour, 20/week), so the number
+ * still stands as its own number there.
  */
 const TOKEN_CHAR = "[a-z0-9]";
 const TOKEN_JOINER = "[-./:,_]";
+const JOINER_AFTER_TOKEN_CHAR = "[-./_]";
+const JOINER_AFTER_DIGIT = "[:,]";
+
+/**
+ * A plain number answer as its own number. Trailing zeros after a decimal
+ * point are the same number, so 20 also matches 20.0 and 7.5 matches 7.50.
+ */
+function ownNumberPattern(raw: string): RegExp {
+  const value = raw.includes(".")
+    ? `${escapeRegExpValue(raw)}0*`
+    : `${escapeRegExpValue(raw)}(?:\\.0+)?`;
+  return new RegExp(
+    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${JOINER_AFTER_TOKEN_CHAR})(?<!\\d${JOINER_AFTER_DIGIT})` +
+      `${value}(?!\\d)(?!${TOKEN_JOINER}\\d)`,
+    "i",
+  );
+}
 
 /**
  * The numbers a match response computes itself: the entry version (on each
@@ -768,11 +788,7 @@ interface PrivateValueMatcher {
 
 function privateValueMatcher(questionId: string, raw: string): PrivateValueMatcher {
   if (QUESTION_BY_ID[questionId]?.type === "number" && PLAIN_NUMBER_PATTERN.test(raw)) {
-    const ownNumber = new RegExp(
-      `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${TOKEN_JOINER})${escapeRegExpValue(raw)}` +
-        `(?!\\d)(?!${TOKEN_JOINER}${TOKEN_CHAR})`,
-      "i",
-    );
+    const ownNumber = ownNumberPattern(raw);
     return {
       wholeNumber: true,
       carriedBy: (text) => ownNumber.test(text),

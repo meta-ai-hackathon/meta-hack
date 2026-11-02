@@ -1257,13 +1257,18 @@ describe("number answers in the pii gate (HACK-121)", () => {
         answers,
       ),
     ).toThrow();
-    // A unit glued right after it still shows the answer.
-    expect(() =>
-      assertNoPiiValuesInMatch(
-        withReasonText(clean, "You reported 0hrs of work last month."),
-        answers,
-      ),
-    ).toThrow();
+    // A unit or a label joined on, or a trailing zero, still shows the
+    // answer.
+    for (const leak of ["0hrs of work", "a 0-hour week", "0/week", "hours:0", "0.0 hours"]) {
+      expect(
+        () =>
+          assertNoPiiValuesInMatch(
+            withReasonText(clean, `You reported ${leak} last month.`),
+            answers,
+          ),
+        leak,
+      ).toThrow();
+    }
     // The same digit inside a date, an id, and longer numbers is not the
     // answer.
     expect(() =>
@@ -1341,6 +1346,12 @@ describe("number answers in the pii gate (HACK-121)", () => {
     (value) => `${value}h`,
     (value) => `${value}hr`,
     (value) => `${value}hrs`,
+    // A word joined on after it, and a label right before it.
+    (value) => `a ${value}-hour week`,
+    (value) => `${value}/week`,
+    (value) => `hours:${value}`,
+    // The same number with a trailing zero after its decimal point.
+    (value) => (value.includes(".") ? `${value}0` : `${value}.0`),
   ];
 
   // Generated copy: plain words and embedded digits, rendered per value.
@@ -1355,7 +1366,9 @@ describe("number answers in the pii gate (HACK-121)", () => {
       fc
         .record({
           embedded: fc.nat({ max: EMBEDDED.length - 1 }),
-          digit: fc.nat({ max: 9 }),
+          // Never 0, so a digit after the value's decimal point is never
+          // a trailing zero: 20.0 is the same number as 20.
+          digit: fc.integer({ min: 1, max: 9 }),
         })
         .map((piece): Piece => piece),
     ),
