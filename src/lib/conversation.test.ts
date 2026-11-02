@@ -277,15 +277,19 @@ describe("grounded prompt builders", () => {
     // long a decision takes and where to apply online, and the model refused
     // each one because the grounding held only the rules.
     const grounding = activeKbGrounding();
-    const nc = KB_ENTRIES.find((entry) => entry.id === "nc_medicaid")!;
-    for (const fact of [
-      nc.facts.required_documents.items[0]!,
-      nc.facts.steps!.items[0]!,
-      nc.facts.deadlines.items[1]!.due,
-      nc.facts.submission_steps!.items[0]!.detail,
-      nc.facts.after_you_apply!.items[0]!.detail,
-      nc.facts.official_links.items[0]!.url,
-    ]) {
+    const nc = KB_ENTRIES.find((entry) => entry.id === "nc_medicaid");
+    expect(nc).toBeDefined();
+    const { facts } = nc!;
+    const groundedFacts = [
+      ...facts.required_documents.items,
+      ...(facts.steps?.items ?? []),
+      ...facts.deadlines.items.map((item) => item.due),
+      ...(facts.submission_steps?.items ?? []).map((step) => step.detail),
+      ...(facts.after_you_apply?.items ?? []).map((step) => step.detail),
+      ...facts.official_links.items.map((link) => link.url),
+    ];
+    expect(groundedFacts.length).toBeGreaterThan(0);
+    for (const fact of groundedFacts) {
       expect(grounding).toContain(fact);
     }
   });
