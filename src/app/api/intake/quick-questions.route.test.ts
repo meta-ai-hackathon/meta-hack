@@ -2,7 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { closeDb } from "../../../lib/db";
 import { runMigrations } from "../../../lib/migrate";
-import { isVaultEnvelope } from "../../../lib/vault-crypto";
+import {
+  decryptVaultValue,
+  isVaultEnvelope,
+} from "../../../lib/vault-crypto";
 import {
   DEFAULT_PROGRAM_IDS,
   requiredForPrograms,
@@ -140,6 +143,16 @@ async function vaultRow(
   return rows[0] ? String(rows[0].value) : null;
 }
 
+/**
+ * Mirror of store.ts's private vaultValueFor: vault values are text —
+ * strings stay as-is, everything else JSON-encoded. If the store's
+ * encoding ever drifts from this mirror, the decrypt round-trip assertion
+ * in the round-trip test fails loudly rather than silently passing.
+ */
+function vaultTextFor(value: string | number | boolean | string[]): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 describe("quick-question persistence through the existing tri-state path (VAL-QQ-007)", () => {
   it("keeps the HTTP surface to the existing intake endpoints — no new storage route", () => {
     // The stage saves through POST /api/intake/answer exactly like the
@@ -206,10 +219,35 @@ describe("quick-question persistence through the existing tri-state path (VAL-QQ
         expect(row!.value, `${id}: pii answer value is NULL`).toBeNull();
         expect(stored, `${id}: vault row exists`).not.toBeNull();
         expect(isVaultEnvelope(stored!), `${id}: AES-GCM envelope`).toBe(true);
+        const plaintext = vaultTextFor(specValueFor(question));
+        // Deterministic no-plaintext-at-rest proof: the stored envelope
+        // authenticates under the vault key and opens to EXACTLY the value
+        // that was posted — the row holds this value sealed, nothing else.
         expect(
-          stored!.includes(specValueFor(question) as string),
-          `${id}: no plaintext in the vault row`,
-        ).toBe(false);
+          decryptVaultValue(stored!),
+          `${id}: vault row decrypts to the posted value`,
+        ).toBe(plaintext);
+        // Verbatim-plaintext bite, kept only where the check is SOUND.
+        // A base64 envelope body can only contain [A-Za-z0-9+/.=], so a
+        // plaintext drawn from that alphabet (the number fixture "3", a
+        // "yes" option) collides with random ciphertext characters —
+        // measured 2026-11-02: ~44% of fresh encrypt("3") envelopes
+        // contain the digit. That is ciphertext noise, not plaintext
+        // storage (it flaked this very assertion on 2026-11-02 while the
+        // envelope assertion passed on the same row), so the substring
+        // check would be a coin flip there. For plaintexts with at least
+        // one character outside the envelope alphabet (free text, dates)
+        // any occurrence in the stored string proves verbatim plaintext —
+        // the check keeps its full bite there — and alphabet-only values
+        // are already caught deterministically by the envelope assertion
+        // above (plaintext like "3" or "yes" is not a well-formed
+        // envelope) plus the decrypt round-trip.
+        if (!/^[A-Za-z0-9+/.=]*$/.test(plaintext)) {
+          expect(
+            stored!.includes(plaintext),
+            `${id}: no plaintext in the vault row`,
+          ).toBe(false);
+        }
       } else {
         expect(row!.value, `${id}: plain value in the answer table`).toEqual(
           specValueFor(question),
