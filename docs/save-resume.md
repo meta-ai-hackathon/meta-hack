@@ -166,28 +166,38 @@ answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
   explanation composed from the matched entry's own sourced facts. The page
   never calls a model.
 - **The review:** the same form-driven field view the server's review route
-  builds (`src/lib/forms/flow.ts`). Each field is filled from an answer,
-  still needed, or not needed, with its answer's status and provenance. A
-  private answer shows its status only, never its value.
+  builds (`src/lib/forms/flow.ts`). Each field that takes an answer is
+  filled from one, still needed, or not needed, with its answer's status and
+  provenance. A private answer shows its status only, never its value. Under
+  it is the same coverage report the review route serves
+  (`src/lib/forms/disposition.ts`): how many of the form's fields take an
+  answer, and for every field left blank by design, why and on which page
+  of the printed form. It is built from the committed registry, so it holds
+  no answer.
 - **The fill:** the same value assembly and PDF fill the server's fill route
   runs (`src/lib/forms/fill-core.ts`, which `src/lib/forms/fill.ts`
   re-exports), done with `@cantoo/pdf-lib` in the browser over the device
   answers and the on-device vault view (`vaultValues` in
   `src/lib/intake/client-store.ts`). The form reads private answers only
-  through its registry entry's vault field allowlist. The device lays its
-  answers out the way the server keeps the same answers, so the filled form
-  matches the server's fill of those answers field for field. The PDF step
-  (`src/lib/intake/device-fill.ts`) is the only device module that loads
-  pdf-lib, and the page loads it only when the person downloads, so the
-  questions never wait on it.
-- **Answers the questions don't ask:** the form's other fields (the name,
-  the addresses, the Social Security number, next year's income) are typed
-  into the review. They are used for that one download and live only in the
-  page's memory, so they clear when the person leaves the screen. The page
-  never stores them, on the device or anywhere else, though the downloaded
-  file holds them like the rest of the filled form. Their inputs turn off
-  the browser's spellcheck, because a browser's cloud spellcheck sends what
-  is typed to its vendor.
+  through its registry entry's vault field allowlist. Every field the
+  registry gives a non-mapped disposition stays blank, yes/no pairs fill by
+  their export values, and the fill flags any question with more than one
+  box checked without picking a side; the page lists those after the
+  download. The device lays its answers out the way the server keeps the
+  same answers, so the filled form matches the server's fill of those
+  answers field for field. The PDF step (`src/lib/intake/device-fill.ts`)
+  is the only device module that loads pdf-lib, and the page loads it only
+  when the person downloads, so the questions never wait on it.
+- **Answers the questions don't ask:** the form's other fields that take
+  an answer (the name, the addresses, the Social Security number, next
+  year's income, and the rest of the full DHB-5200 mapping) are typed into
+  the review. As on the conversation page, a box or a yes/no pair among them
+  takes the word checked or unchecked. They are used for that one download
+  and live only in the page's memory, so they clear when the person leaves
+  the screen. The page never stores them, on the device or anywhere else,
+  though the downloaded file holds them like the rest of the filled form.
+  Their inputs turn off the browser's spellcheck, because a browser's cloud
+  spellcheck sends what is typed to its vendor.
 - **The downloaded file:** the filled PDF is an ordinary file that isn't
   encrypted, outside the sealed store, so "Delete my answers from this
   device" can't reach it. The page says what the file holds next to the
@@ -222,7 +232,11 @@ answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
 | `/intake` reaches the match, the review, and the filled form with no answer in any request, and a reload resumes them | `src/app/intake/device-results.test.tsx` (the page driven through the DOM over a fake IndexedDB, with every request recorded) + `src/lib/intake/device-path-boundary.test.ts` (no server module, Node built-in, or request on the path besides the blank form's GET) |
 | The end of `/intake` shows no banned claim and no private answer, for any answers | `src/app/intake/device-results.markup.test.tsx` (properties over generated device answers: the rendered text, attributes, and markup, plus labelled and described inputs with spellcheck off and a heading outline that never skips a level) |
 | A delete after a download claims only what it did | `src/app/intake/device-results.test.tsx` (download, then delete: the store is empty and the confirmation says the downloaded file is still on the device) |
-| The device's fill and review match the server's for the same answers | `src/lib/intake/device-form.test.ts` (properties over generated answer sets saved through the server store and on the device: the same field values, provenance, to-resolve and not-applicable lists, and the review route's view) |
+| The device's fill and review match the server's for the same answers | `src/lib/intake/device-form.test.ts` (properties over generated answer sets saved through the server store and on the device: the same field values, provenance, to-resolve and not-applicable lists, conflict flags, and the review route's view and coverage report) |
+| Every field on the form is in the review or listed as left blank, once | `src/app/intake/device-results.markup.test.tsx` (property over generated device answers: the review's fields and the coverage rows together are the form's fields, each row with its reason and page) |
+| Boxes checked on both sides of a question print as given and are named | `src/app/intake/device-results.test.tsx` (two boxes of one check-one line typed checked: both print checked and the page lists the question) |
 | The device's match is the consent-declined server match | `src/lib/match-core.test.ts` (property over answer maps) + `src/lib/intake/device-form.test.ts` (the `/api/match` route over the same answers) |
 | A form reads only the private answers its allowlist names | `src/lib/forms/fill-core.test.ts` (property over entries with fields remapped outside the allowlist) |
+| A field left blank by design is never filled or listed to resolve | `src/lib/forms/fill-core.test.ts` (property: every mapped field is filled, to resolve, or not applicable exactly once, even with values sent for the rest) |
+| The browser-safe registry refuses a field without its reviewed disposition | `src/lib/forms/registry-core.test.ts` (properties that rewrite one committed field: a missing or unknown disposition, a blank one without its reason, malformed export values or conflict groups) |
 | The static blank form is the registry's committed copy | `src/lib/intake/device-template.test.ts` (byte comparison, and the loader's one bodiless, cookieless GET) |
