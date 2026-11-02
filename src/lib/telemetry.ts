@@ -69,10 +69,13 @@ export const PII_QUESTION_IDS = [
   "phone_contact",
   "email_contact",
   // The work-requirements questions (milestone work-requirements): the
-  // health/disability/drug-alcohol/mental-health/pregnancy/incarceration/
-  // veteran/foster answers are sensitive, the which-situations follow-up
-  // reveals them, medical travel and hospital care reveal health
-  // conditions, and the who field is a text question (text is always pii).
+  // exemption screen discloses caregiving, foster, veteran, and SNAP/TANF
+  // facts, the health/disability/drug-alcohol/mental-health/pregnancy/
+  // incarceration/veteran/foster answers are sensitive, the
+  // which-situations follow-up reveals them, medical travel and hospital
+  // care reveal health conditions, and the who field is a text question
+  // (text is always pii).
+  "wr_exempt_situations",
   "wr_pregnant",
   "wr_drug_alcohol_treatment",
   "wr_drug_alcohol_disorder",

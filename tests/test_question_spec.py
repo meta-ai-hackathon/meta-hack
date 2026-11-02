@@ -58,8 +58,12 @@ WORK_ACTIVITY_IDS = [
 # pii:true (encrypted vault path only). The which-situations follow-up
 # reveals the same facts, and the medical-travel and hospital-care rows
 # reveal health conditions — all pii:true. The who field is a text
-# question (text is always pii per the schema).
+# question (text is always pii per the schema). The exemption screen is
+# pii too: checking its boxes discloses caregiving, foster, veteran, and
+# SNAP/TANF facts — the same categories its follow-ups carry
+# (claude-review P2).
 SENSITIVE_WORK_REQUIREMENTS_IDS = [
+    "wr_exempt_situations",
     "wr_pregnant",
     "wr_drug_alcohol_treatment",
     "wr_drug_alcohol_disorder",
@@ -75,11 +79,10 @@ SENSITIVE_WORK_REQUIREMENTS_IDS = [
     "wr_work_activity_who",
 ]
 
-# The work-requirements questions that carry no sensitive fact: household
-# roles, past-month applicability, student enrollment, the household
-# income screen, activity types, and hours.
+# The work-requirements questions that carry no sensitive fact: past-month
+# applicability, student enrollment, the household income screen, activity
+# types, and hours.
 NONSENSITIVE_WORK_REQUIREMENTS_IDS = [
-    "wr_exempt_situations",
     "wr_applied_last_month",
     "wr_student_enrolled",
     "wr_income_580",

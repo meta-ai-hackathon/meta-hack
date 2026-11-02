@@ -580,7 +580,7 @@
         { "value": "already_snap_tanf_work_requirements", "label": "Already required to meet SNAP or TANF work requirements" },
         { "value": "none", "label": "None of these apply" }
       ],
-      "pii": false,
+      "pii": true,
       "required": true,
       "skip_conditions": [],
       "provenance": "user-supplied"
