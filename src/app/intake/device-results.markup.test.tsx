@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { AnswerStatus } from "../../lib/honesty";
 import { findBannedClaims } from "../../lib/honesty";
 import {
+  CLIENT_ANSWER_PROVENANCES,
   EMPTY_CLIENT_ANSWERS,
   saveClientAnswer,
   type ClientAnswerProvenance,
@@ -74,17 +75,34 @@ interface DrawnAnswer {
   readonly value: unknown;
 }
 
+/**
+ * A provenance paired with a status the way the store requires: a drafted
+ * answer is only ever "not verified", and a value from a tax return or the
+ * person's own correction of one is only ever "known".
+ */
+function pairedProvenance(
+  status: AnswerStatus,
+  provenance: ClientAnswerProvenance,
+): ClientAnswerProvenance {
+  if (provenance === "ai_drafted" && status !== "unverified") {
+    return "user_supplied";
+  }
+  if ((provenance === "tax_return" || provenance === "user") && status !== "known") {
+    return "user_supplied";
+  }
+  return provenance;
+}
+
 function answerFor(question: Question): fc.Arbitrary<DrawnAnswer> {
   return fc
     .tuple(
       fc.constantFrom<AnswerStatus>("known", "unknown", "unverified"),
-      fc.constantFrom<ClientAnswerProvenance>("user_supplied", "ai_drafted", "source_verified"),
+      fc.constantFrom(...CLIENT_ANSWER_PROVENANCES),
       valueFor(question),
     )
     .map(([status, provenance, value]) => ({
       status,
-      // The store pairs a drafted answer only with "not verified".
-      provenance: provenance === "ai_drafted" && status !== "unverified" ? "user_supplied" : provenance,
+      provenance: pairedProvenance(status, provenance),
       value: status === "unknown" ? null : value,
     }));
 }
@@ -243,6 +261,32 @@ describe("the device results, for any answers on the device", () => {
           const question = describedBy === "" ? null : root.querySelector(`[id="${describedBy}"]`);
           expect(question?.textContent).toBe(field?.question);
           expect(item?.contains(question ?? null)).toBe(true);
+        }
+      }),
+      { numRuns: 60 },
+    );
+  }, RENDER_TIMEOUT_MS);
+
+  it("draw prefilled answers from a tax return and corrected by hand (non-vacuous)", () => {
+    const states = fc.sample(deviceAnswersArb, { numRuns: 200, seed: 115 });
+    const shown = (provenance: ClientAnswerProvenance) =>
+      states.filter((state) =>
+        deviceFormReview(state).fields.some(
+          (field) => field.state === "prefilled" && field.provenance === provenance,
+        ),
+      ).length;
+    expect(shown("tax_return")).toBeGreaterThan(10);
+    expect(shown("user")).toBeGreaterThan(10);
+  });
+
+  it("say where every prefilled answer came from", () => {
+    fc.assert(
+      fc.property(deviceAnswersArb, (state) => {
+        const { root } = render(state);
+        for (const badge of root.querySelectorAll("[data-field-provenance]")) {
+          expect(badge.textContent, badge.getAttribute("data-field-provenance") ?? "").toMatch(
+            /^\([A-Z][^()]+\)$/,
+          );
         }
       }),
       { numRuns: 60 },

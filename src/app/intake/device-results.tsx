@@ -5,6 +5,7 @@ import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { StatusRegion } from "../../components/status-region";
 import { MAX_FORM_ANSWER_LENGTH, type ToResolveItem } from "../../lib/forms/fill-core";
 import type { FormFlowFieldView } from "../../lib/forms/flow";
+import type { AnswerProvenance } from "../../lib/honesty";
 import type { ClientAnswerState } from "../../lib/intake/client-store";
 import {
   DEVICE_FORM_ENTRY,
@@ -88,10 +89,15 @@ const REQUIREMENT_KIND_LABELS: Readonly<Record<MatchCard["requirements"][number]
   renewal: "Renewal",
 };
 
-const PROVENANCE_COPY: Readonly<Record<string, string>> = {
+// Every provenance an answer can carry has its label, so a badge is never
+// empty: the tax return confirm flow's two (VAL-INC-007) read as they do on
+// the conversation page.
+const PROVENANCE_COPY: Readonly<Record<AnswerProvenance, string>> = {
   user_supplied: "You told us",
   ai_drafted: "Drafted for you",
   source_verified: "From a source you verified",
+  tax_return: "From your tax return",
+  user: "You corrected this",
 };
 
 const STATE_COPY: Readonly<Record<FormFlowFieldView["state"], string>> = {
