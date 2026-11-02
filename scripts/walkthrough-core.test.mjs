@@ -846,7 +846,7 @@ const MINI_PLAN = [
   },
 ];
 
-describe("the conversation journey's quick-questions phase", () => {
+describe("the typed journeys' work-requirements capture phase", () => {
   /** Routes for a scripted QQ phase: two pending required ids (the
    * exemption screen and a sensitive one), answered locally; each answer
    * shrinks the pending list until it is empty. */
@@ -884,7 +884,7 @@ describe("the conversation journey's quick-questions phase", () => {
       {},
       0,
     );
-    const { skippedBy } = await walk.answerQuickQuestionsLocally();
+    const { skippedBy } = await walk.answerWorkRequirementsLocally();
     expect(transport.calls.map((call) => call.path)).toEqual([
       "/api/intake/answer",
       "/api/intake/answer",
@@ -933,7 +933,7 @@ describe("the conversation journey's quick-questions phase", () => {
         complete: false,
       },
     };
-    const { skippedBy } = await walk.answerQuickQuestionsLocally();
+    const { skippedBy } = await walk.answerWorkRequirementsLocally();
     expect(skippedBy.get("wr_work_activity_who")).toBe("wr_exempt_situations");
   });
 
@@ -951,7 +951,7 @@ describe("the conversation journey's quick-questions phase", () => {
         complete: false,
       },
     };
-    await expect(walk.answerQuickQuestionsLocally()).rejects.toThrow(
+    await expect(walk.answerWorkRequirementsLocally()).rejects.toThrow(
       /journey plan does not cover/,
     );
   });

@@ -847,34 +847,45 @@ export class Walkthrough {
   }
 
   /**
-   * The quick-questions phase of the conversation journey: the session's
-   * pending required-for-programs questions answered through the LOCAL
+   * The quick-questions phase of the typed journeys: the work-requirements
+   * questions (milestone work-requirements) answered through the LOCAL
    * select route (POST /api/intake/answer — the same save the quick-
-   * questions stage makes), before the typed talk turns begin. This
-   * mirrors the product's own default flow (entry → quick questions →
-   * talk) and keeps the work-requirements questions (milestone
-   * work-requirements) out of the LLM extraction path in the rehearsal:
-   * sensitive select answers are captured through the local UI route
-   * only, never sent to the model (claude-review P1).
+   * questions stage makes), before the typed talk turns begin. ONLY those
+   * sensitive questions are captured here — every other required question
+   * stays with the typed turns, so the journeys keep their full
+   * typed-turn coverage (claude-review P2). The phase mirrors the
+   * product's own default flow (entry → quick questions → talk), where
+   * sensitive select answers are captured through the local UI route and
+   * never sent to the model (claude-review P1).
    *
    * @returns {Promise<{skippedBy: Map<string, string>}>} the skip ledger
    *   this phase caused (the work-activity section hiding, for example)
    */
-  async answerQuickQuestionsLocally() {
+  async answerWorkRequirementsLocally() {
     let state = this.state;
     let answerNumber = 0;
     const skippedBy = new Map();
-    while (state?.quickQuestions && state.quickQuestions.remainingCount > 0) {
-      const pending = state.quickQuestions.remainingIds.filter((id) =>
-        PLAN_BY_ID.has(id),
+    // Progress guard: every pass must answer one pending id and shrink
+    // the remaining set — a route that saved nothing would otherwise
+    // spin forever (claude-review P3).
+    while (
+      state?.quickQuestions &&
+      state.quickQuestions.remainingCount > 0 &&
+      answerNumber <= state.quickQuestions.requiredIds.length
+    ) {
+      const pendingWr = state.quickQuestions.remainingIds.filter((id) =>
+        id.startsWith("wr_"),
       );
-      if (pending.length === 0) {
+      if (pendingWr.some((id) => !PLAN_BY_ID.has(id))) {
         throw new WalkthroughError(
-          `the quick-questions stage has pending ids the journey plan does not cover: ` +
-            state.quickQuestions.remainingIds.join(", "),
+          `the work-requirements questions include a pending id the journey plan does not cover: ` +
+            pendingWr.filter((id) => !PLAN_BY_ID.has(id)).join(", "),
         );
       }
-      const step = PLAN_BY_ID.get(pending[0]);
+      if (pendingWr.length === 0) {
+        break;
+      }
+      const step = PLAN_BY_ID.get(pendingWr[0]);
       const served = state.questions.find((item) => item.id === step.id);
       const isPii = served?.pii === true;
       const beforeIds = new Set(state.questions.map((item) => item.id));
@@ -924,10 +935,12 @@ export class Walkthrough {
       state = newState;
       this.state = newState;
     }
-    this.log(
-      `QQ-LOCAL  ${answerNumber} required question(s) answered through the ` +
-        "local select route — the model saw none of them",
-    );
+    if (answerNumber > 0) {
+      this.log(
+        `QQ-LOCAL  ${answerNumber} work-requirements question(s) answered ` +
+          "through the local select route — the model saw none of them",
+      );
+    }
     return { skippedBy };
   }
 
@@ -961,7 +974,7 @@ export class Walkthrough {
       "CONSENT   typed turns carry the AI consent receipt (voice off) — the "
         + "same grant the consent surface's typed path gives (HACK-81)",
     );
-    const { skippedBy: qqSkippedBy } = await this.answerQuickQuestionsLocally();
+    const { skippedBy: qqSkippedBy } = await this.answerWorkRequirementsLocally();
     if (this.violations.length > 0) {
       return this.reportViolations();
     }
@@ -1068,9 +1081,18 @@ export class Walkthrough {
       "CONSENT   typed turns carry the AI consent receipt (voice off) — the "
         + "same grant the consent surface's typed path gives (HACK-81)",
     );
+    const { skippedBy: qqSkippedBy } = await this.answerWorkRequirementsLocally();
+    if (this.violations.length > 0) {
+      return this.reportViolations();
+    }
     const { skippedBy } = await this.runTurnLoop(plan, "form-driven conversation");
     if (this.violations.length > 0) {
       return this.reportViolations();
+    }
+    for (const [id, asker] of qqSkippedBy) {
+      if (!skippedBy.has(id)) {
+        skippedBy.set(id, asker);
+      }
     }
     this.summarizeSkips(skippedBy);
 
