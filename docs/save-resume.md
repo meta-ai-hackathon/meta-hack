@@ -192,10 +192,13 @@ answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
   an answer (the name, the addresses, the Social Security number, next
   year's income, and the rest of the full DHB-5200 mapping) are typed into
   the review. As on the conversation page, a box or a yes/no pair among them
-  takes the word checked or unchecked. They are used for that one download
-  and live only in the page's memory, so they clear when the person leaves
-  the screen. The page never stores them, on the device or anywhere else,
-  though the downloaded file holds them like the rest of the filled form.
+  takes the word checked or unchecked. They are used for the download and
+  live only in the page's memory: the wizard holds them, so going from the
+  review to a question and back keeps them, and they clear when the page
+  closes or reloads or the answers are deleted (on this page, in another
+  tab, or found deleted by a save). The page never stores them, on the
+  device or anywhere else, though the downloaded file holds them like the
+  rest of the filled form.
   Their inputs turn off the browser's spellcheck, because a browser's cloud
   spellcheck sends what is typed to its vendor.
 - **The downloaded file:** the filled PDF is an ordinary file that isn't
@@ -232,6 +235,7 @@ answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
 | `/intake` reaches the match, the review, and the filled form with no answer in any request, and a reload resumes them | `src/app/intake/device-results.test.tsx` (the page driven through the DOM over a fake IndexedDB, with every request recorded) + `src/lib/intake/device-path-boundary.test.ts` (no server module, Node built-in, or request on the path besides the blank form's GET) |
 | The end of `/intake` shows no banned claim and no private answer, for any answers | `src/app/intake/device-results.markup.test.tsx` (properties over generated device answers: the rendered text, attributes, and markup, plus labelled and described inputs with spellcheck off and a heading outline that never skips a level) |
 | A delete after a download claims only what it did | `src/app/intake/device-results.test.tsx` (download, then delete: the store is empty and the confirmation says the downloaded file is still on the device) |
+| Answers typed into the review survive a trip to a question and go with every delete | `src/app/intake/device-results.test.tsx` (property: generated typed answers are all still there after answering a question from the review; a delete here, in another tab, or found by a save leaves the review empty when the questions are answered again) |
 | The device's fill and review match the server's for the same answers | `src/lib/intake/device-form.test.ts` (properties over generated answer sets saved through the server store and on the device: the same field values, provenance, to-resolve and not-applicable lists, conflict flags, and the review route's view and coverage report) |
 | Every field on the form is in the review or listed as left blank, once | `src/app/intake/device-results.markup.test.tsx` (property over generated device answers: the review's fields and the coverage rows together are the form's fields, each row with its reason and page) |
 | Boxes checked on both sides of a question print as given and are named | `src/app/intake/device-results.test.tsx` (two boxes of one check-one line typed checked: both print checked and the page lists the question) |
