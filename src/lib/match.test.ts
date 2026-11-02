@@ -1619,10 +1619,13 @@ describe("number answers in the pii gate (HACK-121)", () => {
     }
   });
 
-  // Hyphens, dashes and invisible characters that join like the ASCII
-  // hyphen: the hyphen, the non-breaking hyphen, the figure dash, the en
-  // dash, the minus sign, the small and fullwidth hyphen-minus, the soft
-  // hyphen, the zero-width space and the word joiner.
+  // Look-alikes that join like the ASCII separators: the hyphen, the
+  // non-breaking hyphen, the figure dash, the en dash, the minus sign, the
+  // small and fullwidth hyphen-minus, the fraction and division slashes,
+  // the fullwidth slash, the one-dot leader, the small and fullwidth full
+  // stops, the fullwidth low line, the small and fullwidth colons and
+  // commas, the soft hyphen, the zero-width space, the word joiner, and
+  // runs of them stacked ("24\u00ad-hour").
   const UNICODE_JOINERS: readonly string[] = [
     "\u2010",
     "\u2011",
@@ -1631,9 +1634,23 @@ describe("number answers in the pii gate (HACK-121)", () => {
     "\u2212",
     "\ufe63",
     "\uff0d",
+    "\u2044",
+    "\u2215",
+    "\uff0f",
+    "\u2024",
+    "\ufe52",
+    "\uff0e",
+    "\uff3f",
+    "\ufe55",
+    "\uff1a",
+    "\ufe50",
+    "\uff0c",
     "\u00ad",
     "\u200b",
     "\u2060",
+    "\u00ad-",
+    "-\u200b",
+    "\u200b\u2060",
   ];
 
   // Letters, a mark and digits from outside ASCII: an accented letter, the
@@ -1727,6 +1744,34 @@ describe("number answers in the pii gate (HACK-121)", () => {
       toResolve: response.toResolve.map((item) => ({ ...item, prompt })),
     };
   }
+
+  it("never fails the match on copy that joins the number with a look-alike (property)", () => {
+    // Droid review on PR #133: the excusal read Unicode joiners but the
+    // trigger did not, so copy printing "1\u20132 weeks" with an en dash
+    // read as carrying a 1 that the excusal would not excuse, and the match
+    // threw for a session that answered 1. Both now share one set of edges,
+    // so a range or id in public copy is one token to each of them.
+    fc.assert(
+      fc.property(
+        numberAnswerArb,
+        fc.constantFrom(...UNICODE_JOINERS),
+        fc.boolean(),
+        (value, joiner, valueFirst) => {
+          const shape = valueFirst ? `${value}${joiner}9` : `9${joiner}${value}`;
+          const response = withPrompt(
+            generatedResponse(["Medicaid", "work", "form"], 2, 5, "2026-10-30"),
+            `It takes ${shape} weeks.`,
+          );
+          expect(() =>
+            assertNoPiiValuesInMatch(response, {
+              wr_work_activity_hours: { status: "known", value },
+            }),
+          ).not.toThrow();
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
 
   it("never excuses a number the copy holds only inside a longer token (property)", async () => {
     // Security review on PR #132: the excusal used the trigger's edges, so a

@@ -742,11 +742,25 @@ const PLAIN_NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
  * still stands as its own number there. These are the trigger's edges, and
  * the excusal's are stricter (standaloneNumberPattern). An answer inside a
  * range, ratio, or id ("20-30 hours", "v30") is not caught yet (HACK-124).
+ *
+ * Both read every script, so the trigger and the excusal always agree on
+ * where a token ends. Any letter, mark, or number character is part of a
+ * token. Each separator also joins in its Unicode look-alikes, which copy
+ * pasted from an official page often prints: hyphens, the en dash and the
+ * minus sign; the fraction and division slashes; the one-dot leader; and
+ * the small and fullwidth forms. An invisible format character such as a
+ * soft hyphen or a zero-width space joins too, and a run of joiners counts
+ * as one. An em dash ends a clause rather than joining a word, so it does
+ * not join.
  */
-const TOKEN_CHAR = "[a-z0-9]";
-const TOKEN_JOINER = "[-./:,_]";
-const JOINER_AFTER_TOKEN_CHAR = "[-./_]";
-const JOINER_AFTER_DIGIT = "[:,]";
+const TOKEN_CHAR = "[\\p{L}\\p{M}\\p{N}]";
+const DIGIT = "\\p{N}";
+const HYPHEN_DOT_SLASH_UNDERSCORE =
+  "\\-./_\\u2010-\\u2013\\u2212\\ufe63\\uff0d\\u2024\\ufe52\\uff0e\\u2044\\u2215\\uff0f\\uff3f\\p{Cf}";
+const COLON_COMMA = ":,\\ufe55\\uff1a\\ufe50\\uff0c";
+const TOKEN_JOINER = `[${HYPHEN_DOT_SLASH_UNDERSCORE}${COLON_COMMA}]+`;
+const JOINER_AFTER_TOKEN_CHAR = `[${HYPHEN_DOT_SLASH_UNDERSCORE}]+`;
+const JOINER_AFTER_DIGIT = `[${COLON_COMMA}]+`;
 
 /**
  * A plain number answer's digits. Trailing zeros after a decimal point are
@@ -764,25 +778,11 @@ function numberValuePattern(raw: string): string {
  */
 function ownNumberPattern(raw: string): RegExp {
   return new RegExp(
-    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${JOINER_AFTER_TOKEN_CHAR})(?<!\\d${JOINER_AFTER_DIGIT})` +
-      `${numberValuePattern(raw)}(?!\\d)(?!${TOKEN_JOINER}\\d)`,
-    "i",
+    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${JOINER_AFTER_TOKEN_CHAR})(?<!${DIGIT}${JOINER_AFTER_DIGIT})` +
+      `${numberValuePattern(raw)}(?!${DIGIT})(?!${TOKEN_JOINER}${DIGIT})`,
+    "iu",
   );
 }
-
-/**
- * The excusal's token edges read every script. Any letter, mark, or number
- * character is part of a token, an accented letter, a superscript two and a
- * one half included, and a Unicode hyphen, an en dash, a minus sign, or an
- * invisible format character such as a soft hyphen or a zero-width space
- * joins like the ASCII separators do. Copy pasted from an official page
- * often prints those, so a "24-hour" printed with a non-breaking hyphen, or
- * a "1-2 weeks" printed with an en dash, holds the number no more than the
- * ASCII spelling does. An em dash ends a clause rather than joining a word,
- * so it does not join.
- */
-const STANDALONE_TOKEN_CHAR = "[\\p{L}\\p{M}\\p{N}]";
-const STANDALONE_TOKEN_JOINER = "[-./:,_\\u2010-\\u2013\\u2212\\ufe63\\uff0d\\p{Cf}]";
 
 /**
  * The excusal: a plain number answer as a token of its own, with no letter
@@ -795,9 +795,9 @@ const STANDALONE_TOKEN_JOINER = "[-./:,_\\u2010-\\u2013\\u2212\\ufe63\\uff0d\\p{
  */
 function standaloneNumberPattern(raw: string): RegExp {
   return new RegExp(
-    `(?<!${STANDALONE_TOKEN_CHAR})(?<!${STANDALONE_TOKEN_CHAR}${STANDALONE_TOKEN_JOINER})` +
+    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${TOKEN_JOINER})` +
       `${numberValuePattern(raw)}` +
-      `(?!${STANDALONE_TOKEN_CHAR})(?!${STANDALONE_TOKEN_JOINER}${STANDALONE_TOKEN_CHAR})`,
+      `(?!${TOKEN_CHAR})(?!${TOKEN_JOINER}${TOKEN_CHAR})`,
     "iu",
   );
 }
