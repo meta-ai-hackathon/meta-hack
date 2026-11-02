@@ -1306,7 +1306,7 @@ describe("number answers in the pii gate (HACK-121)", () => {
   // the token rule reads the answer there as part of a longer token.
   // Catching those needs a rule that knows the date and id shapes.
   it.todo(
-    "catches the hours answer inside a range, a ratio, a digit group or an id (HACK-121 follow up)",
+    "catches the hours answer inside a range, a ratio, a digit group or an id (HACK-124)",
   );
 
   // A number answer the way String() and the vault write it: whole hours

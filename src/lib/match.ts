@@ -740,7 +740,8 @@ const PLAIN_NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
  * of these separators (2026-10-30, 10/08/2026, 10:30, 1.5, 1,000). A letter
  * or a word after it is a unit (0hrs, 20-hour, 20/week), so the number
  * still stands as its own number there. These are the trigger's edges, and
- * the excusal's are stricter (standaloneNumberPattern).
+ * the excusal's are stricter (standaloneNumberPattern). An answer inside a
+ * range, ratio, or id ("20-30 hours", "v30") is not caught yet (HACK-124).
  */
 const TOKEN_CHAR = "[a-z0-9]";
 const TOKEN_JOINER = "[-./:,_]";
