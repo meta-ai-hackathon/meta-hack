@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { afterEach, describe, expect, it } from "vitest";
-import { findBannedClaims } from "./honesty";
+import { ANSWER_STATUS_LABELS, findBannedClaims } from "./honesty";
 import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
 import {
   KB_ENTRIES,
@@ -1557,39 +1557,64 @@ describe("number answers in the pii gate (HACK-121)", () => {
     }
   });
 
-  it("keeps the match for every number an NC match shows", async () => {
+  it("keeps the match for every number a shipped card or prompt shows", async () => {
     // The trigger still reads a number with a word glued on, but the
-    // excusal now needs the number on its own, so a number the copy shows
-    // only glued to a word would fail the match for that answer. Every
-    // number a clean NC match shows keeps the match, also with every other
-    // question open, so every to-resolve prompt shows too.
-    const everyOtherQuestionOpen: AnswerMap = Object.fromEntries(
-      Object.keys(QUESTION_BY_ID)
-        .filter((questionId) => questionId !== "wr_work_activity_hours")
-        .map((questionId) => [questionId, { status: "unknown" }]),
-    );
-    for (const session of [NC_SESSION, { ...everyOtherQuestionOpen, ...NC_SESSION }]) {
-      const clean = await ncMatch(session);
-      const shown = new Set(JSON.stringify(clean).match(/\d+(?:\.\d+)?/g));
-      expect(shown.size).toBeGreaterThan(0);
-      for (const hours of shown) {
-        for (const source of ["facts", "model"] as const) {
-          const answers: AnswerMap = {
-            ...session,
-            wr_work_activity_hours: { status: "known", value: hours },
-          };
-          const response = await buildMatchResponse(answers, {
-            explainer: explainWith(source),
+    // excusal needs the number on its own, so copy that showed a number
+    // only glued to a word, like "the 1st of the month" or "a 24-hour box",
+    // would fail the match for a session that answered that number
+    // (claude-review P2 on PR #132). So no shipped copy may show one. Every
+    // entry's card is built on its own for each answer its match signals
+    // take, and every to-resolve prompt in the spec stands alone, since
+    // copy shown together can only excuse more.
+    const responses: { readonly label: string; readonly response: MatchResponse }[] = [];
+    for (const entry of ALL_ENTRIES) {
+      for (const signal of entry.facts.match_signals?.items ?? []) {
+        // A signal with no values takes any answer, so every option shows
+        // its label. A question with no options echoes the answer itself,
+        // which is the person's own value, not shipped copy, so a word
+        // stands in for it.
+        const options = QUESTION_BY_ID[signal.questionId]?.options ?? [];
+        const values = signal.values?.length
+          ? signal.values
+          : options.length > 0
+            ? options.map((option) => option.value)
+            : ["any answer"];
+        for (const value of values) {
+          const response = await buildMatchResponse(known(signal.questionId, value), {
+            entries: [entry],
+            explainer: explainWith("facts"),
             explanationCache: new Map(),
           });
-          expect(response.matches.map((match) => match.entryId)).toEqual([
-            "nc_medicaid",
-          ]);
-          expect(
-            () => assertNoPiiValuesInMatch(response, answers),
-            `${source} build, hours ${hours}`,
-          ).not.toThrow();
+          expect(response.matches.map((match) => match.entryId)).toEqual([entry.id]);
+          responses.push({ label: `${entry.id} for ${signal.questionId} ${value}`, response });
         }
+      }
+    }
+    for (const question of Object.values(QUESTION_BY_ID)) {
+      responses.push({
+        label: `the ${question.id} prompt`,
+        response: {
+          matches: [],
+          toResolve: [
+            {
+              questionId: question.id,
+              prompt: question.prompt,
+              status: "unknown",
+              statusLabel: ANSWER_STATUS_LABELS.unknown,
+            },
+          ],
+        },
+      });
+    }
+    for (const { label, response } of responses) {
+      for (const hours of new Set(JSON.stringify(response).match(/\d+(?:\.\d+)?/g))) {
+        expect(
+          () =>
+            assertNoPiiValuesInMatch(response, {
+              wr_work_activity_hours: { status: "known", value: hours },
+            }),
+          `${label}, hours ${hours}`,
+        ).not.toThrow();
       }
     }
   });
