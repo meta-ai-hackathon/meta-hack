@@ -6,7 +6,7 @@ import {
   QUESTION_BY_ID,
   QUESTIONS,
 } from "./intake/spec";
-import type { KbEntry } from "./kb";
+import { KB_ENTRIES, type KbEntry } from "./kb";
 import {
   BANNED_CLAIM_FALLBACK_REPLY,
   CHOICE_UNMAPPED_FALLBACK_PREFIX,
@@ -269,6 +269,73 @@ describe("grounded prompt builders", () => {
     );
     expect(buildCombinedTurnPrompt(null, {}, QUESTIONS, [stale])).not.toContain(
       "only-the-stale-entry-has-this-phrase",
+    );
+  });
+
+  it("grounds the NC process questions the smoke test saw refused (HACK-125)", () => {
+    // The Nov 2 production smoke test asked what to bring, how to apply, how
+    // long a decision takes and where to apply online, and the model refused
+    // each one because the grounding held only the rules.
+    const grounding = activeKbGrounding();
+    const nc = KB_ENTRIES.find((entry) => entry.id === "nc_medicaid")!;
+    for (const fact of [
+      nc.facts.required_documents.items[0]!,
+      nc.facts.steps!.items[0]!,
+      nc.facts.deadlines.items[1]!.due,
+      nc.facts.submission_steps!.items[0]!.detail,
+      nc.facts.after_you_apply!.items[0]!.detail,
+      nc.facts.official_links.items[0]!.url,
+    ]) {
+      expect(grounding).toContain(fact);
+    }
+  });
+
+  it("grounds every fact group of an active entry and none of a stale one (property, HACK-125)", () => {
+    const markerArb = fc.stringMatching(/^[a-z]{10}$/);
+    fc.assert(
+      fc.property(
+        fc.array(markerArb, { minLength: 9, maxLength: 9 }),
+        fc.constantFrom("stale", "withdrawn") as fc.Arbitrary<KbEntry["status"]>,
+        (raw, inactiveStatus) => {
+          const m = raw.map((marker, index) => `marker${index}${marker}`);
+          const group = { sourceId: "synthetic_source", retrievedAt: "2026-10-29" };
+          const step = (id: string, label: string, detail: string) => ({
+            id,
+            label,
+            detail,
+            sourceId: "synthetic_source",
+          });
+          const base = makeEntry("active", m[0]!);
+          const entry: KbEntry = {
+            ...base,
+            facts: {
+              ...base.facts,
+              required_documents: { ...group, items: [m[1]!] },
+              steps: { ...group, items: [m[2]!] },
+              deadlines: { ...group, items: [{ label: "When", due: m[3]! }] },
+              official_links: {
+                ...group,
+                items: [{ label: m[4]!, url: `https://example.org/${m[5]}` }],
+              },
+              submission_steps: {
+                retrievedAt: "2026-10-29",
+                items: [step("send_it", "Send it", m[6]!)],
+              },
+              after_you_apply: {
+                retrievedAt: "2026-10-29",
+                items: [step("wait", m[7]!, m[8]!)],
+              },
+            },
+          };
+          const active = activeKbGrounding([entry]);
+          const inactive = activeKbGrounding([{ ...entry, status: inactiveStatus }]);
+          for (const marker of m) {
+            expect(active).toContain(marker);
+            expect(inactive).not.toContain(marker);
+          }
+        },
+      ),
+      { numRuns: 100 },
     );
   });
 
