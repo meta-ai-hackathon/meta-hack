@@ -480,6 +480,34 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.unmount();
   }, 60_000);
 
+  it("in a browser that can't save, says a downloaded form is still on the device after a clear", async () => {
+    // Nothing is kept in this browser, but the filled form downloaded from
+    // the end of /intake is still a file on the device, so the clear must
+    // not say there was nothing on the device.
+    vi.stubGlobal("indexedDB", undefined);
+    const page = await visit();
+    const { DEVICE_INTAKE_COPY } = await import("../../lib/intake/device-intake");
+    expect(page.text()).toContain(DEVICE_INTAKE_COPY.unsupportedOnLoad);
+    await page.answerEverything();
+    await page.type(page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!, TYPED_NAME);
+    const filled = await page.download();
+    expect(filled.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
+
+    await page.click(page.container.querySelector<HTMLButtonElement>("[data-delete-from-device]")!);
+    const confirm = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === DEVICE_INTAKE_COPY.deleteYes,
+    )!;
+    await page.click(confirm);
+    await page.waitFor(() => page.text().includes(DEVICE_INTAKE_COPY.clearedNothingStored), "the clear");
+    expect(page.container.querySelector("[data-device-results]")).toBeNull();
+    expect(page.text()).not.toContain(TYPED_NAME);
+    expect(downloads).toHaveLength(1);
+    expect(DEVICE_INTAKE_COPY.clearedNothingStored).toContain("downloaded the filled form");
+    expect(page.text()).not.toContain("nothing on the device");
+    expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
+    await page.unmount();
+  }, 60_000);
+
   it("says nothing was filled when the blank form can't be fetched, and sends nothing", async () => {
     const page = await visit();
     await page.answerEverything();

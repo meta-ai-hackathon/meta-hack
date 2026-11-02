@@ -126,9 +126,12 @@ export const DEVICE_INTAKE_COPY = {
     "Deleted. None of your answers are left in this browser. If you " +
     "downloaded the filled form, that file is still on this device until " +
     "you delete it.",
+  // In a browser that can't save, a filled form downloaded from the end of
+  // /intake is still a file on the device, so the clear can't say nothing is.
   clearedNothingStored:
-    "Cleared from this page. This browser can't save answers, so there was " +
-    "nothing on the device to delete.",
+    "Cleared from this page. This browser can't save answers, so none were " +
+    "kept in it. If you downloaded the filled form, that file is still on " +
+    "this device until you delete it.",
   deleteUnconfirmed:
     "We couldn't confirm your answers were deleted from this device. To be " +
     "sure, clear this site's data in your browser settings.",
