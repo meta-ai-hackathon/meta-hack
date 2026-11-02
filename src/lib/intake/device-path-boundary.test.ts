@@ -50,8 +50,27 @@ const SERVER_ONLY = [
 /** The one module on the path allowed a request: the blank form's GET. */
 const TEMPLATE_LOADER = "lib/intake/device-template.ts";
 
-/** Any reference to a browser API that can send data off the device. */
-const REQUEST_API = /\bfetch\b|XMLHttpRequest|sendBeacon|WebSocket|EventSource/;
+/**
+ * Any reference to a browser API that can send data off the device: the
+ * request APIs, an image or a new window pointed at a URL, a page
+ * navigation, a worker (whose own requests this check can't see), and
+ * import() of anything but a literal path, which could be any URL.
+ */
+const REQUEST_API = new RegExp(
+  [
+    String.raw`\bfetch(?:Later)?\b`,
+    "XMLHttpRequest",
+    "sendBeacon",
+    "WebSocket",
+    "EventSource",
+    "WebTransport",
+    "RTCPeerConnection",
+    String.raw`\bnew\s+(?:Image|Worker|SharedWorker)\b`,
+    String.raw`\bwindow\.open\b`,
+    String.raw`\blocation\.(?:assign|replace)\b`,
+    String.raw`\bimport\(\s*(?!["'])`,
+  ].join("|"),
+);
 
 /**
  * Every module a file loads at runtime: imports and re-exports, imports run
@@ -290,5 +309,39 @@ describe("the boundary check's reading of imports", () => {
     for (const specifier of ["react", "@cantoo/pdf-lib"]) {
       expect(isServerPackage(specifier)).toBe(false);
     }
+  });
+});
+
+describe("the boundary check's reading of requests", () => {
+  // Likewise for requests: any API a module could use to send an answer
+  // off the device must trip the request check, however the code around it
+  // reads.
+  it("flags every way a module can send data off the device, wherever it sits in the code", () => {
+    const sends = fc.constantFrom(
+      "fetch(url)",
+      "await fetchLater(url, { activateAfter: 0 })",
+      "new XMLHttpRequest()",
+      "navigator.sendBeacon(url, body)",
+      "new WebSocket(url)",
+      "new EventSource(url)",
+      "new WebTransport(url)",
+      "new RTCPeerConnection()",
+      "new Image().src = url",
+      "new Worker(url)",
+      "new SharedWorker(url)",
+      "window.open(url)",
+      "location.assign(url)",
+      "location.replace(url)",
+      "await import(url)",
+      "await import(`${base}/${answer}`)",
+    );
+    const code = fc.stringMatching(/^[a-z ;=(){}\n]{0,40}$/);
+    fc.assert(
+      fc.property(code, sends, code, (before, send, after) => {
+        expect(`${before}\n${send};\n${after}`).toMatch(REQUEST_API);
+      }),
+    );
+    // A literal path stays an ordinary import, as the page's lazy fill is.
+    expect('const fill = await import("../../lib/intake/device-fill");').not.toMatch(REQUEST_API);
   });
 });
