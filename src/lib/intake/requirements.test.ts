@@ -1,6 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import dhb5200Raw from "../../../kb/forms/dhb-5200.json";
+import dss8207Raw from "../../../kb/forms/dss-8207.json";
 import { PILOT_CONFIG } from "../pilot";
 import { visibleQuestions, type AnswerMap, type StoredAnswer } from "./flow";
 import { buildClientState } from "./client-state";
@@ -91,11 +92,15 @@ const extraAnswerIdsArb: fc.Arbitrary<readonly string[]> = fc.subarray(ALL_IDS, 
 
 /** The spec question ids a committed registry's fields link to (raw read). */
 function registryLinks(registryId: string): readonly string[] {
-  expect(registryId).toBe("dhb-5200");
-  const raw = dhb5200Raw as unknown as {
-    fields: readonly { spec_question_id: string | null }[];
+  const rawById: Record<string, unknown> = {
+    "dhb-5200": dhb5200Raw,
+    "dss-8207": dss8207Raw,
   };
-  return raw.fields.flatMap((field) =>
+  const raw = rawById[registryId] as
+    | { fields: readonly { spec_question_id: string | null }[] }
+    | undefined;
+  expect(raw, `committed registry ${registryId}`).toBeDefined();
+  return raw!.fields.flatMap((field) =>
     field.spec_question_id === null ? [] : [field.spec_question_id],
   );
 }
@@ -127,15 +132,14 @@ describe("requiredForPrograms", () => {
   it("is idempotent and deduplicates program ids (property)", () => {
     const programIds = PROGRAM_REQUIREMENTS.programs.map((program) => program.id);
     fc.assert(
-      fc.property(
-        fc.subarray(programIds, { minLength: 1 }),
-        fc.subarray(programIds, { minLength: 1 }),
-        (list, repeat) => {
-          const once = requiredForPrograms(list);
-          expect(requiredForPrograms(list)).toEqual(once);
-          expect(requiredForPrograms([...list, ...repeat])).toEqual(once);
-        },
-      ),
+      fc.property(fc.subarray(programIds, { minLength: 1 }), (list) => {
+        const once = requiredForPrograms(list);
+        expect(requiredForPrograms(list)).toEqual(once);
+        // Repeating ids already in the list adds nothing (dedup), and a
+        // repeated call is idempotent. (Different programs legitimately
+        // have different universes — the union is per program set.)
+        expect(requiredForPrograms([...list, ...list])).toEqual(once);
+      }),
     );
   });
 
@@ -320,16 +324,23 @@ describe("the grown universe with the work-requirements questions (VAL-WR-011)",
   });
 
   it("M equals the committed data's own count — derived, never hardcoded", () => {
-    // Re-derive M from the RAW committed requirements entry (required ids
-    // plus the pilot registry's spec links), independently of the engine's
-    // union/order logic, and assert the engine's M matches it.
-    const entry = PROGRAM_REQUIREMENTS.programs.find((candidate) =>
-      candidate.id === DEFAULT_PROGRAM_IDS[0],
-    )!;
-    const rawIds = new Set<string>([
-      ...entry.required_question_ids,
-      ...registryLinks("dhb-5200"),
-    ]);
+    // Re-derive M from the RAW committed requirements entries (each default
+    // program's required ids plus its registries' spec links), independently
+    // of the engine's union/order logic, and assert the engine's M matches.
+    const rawIds = new Set<string>();
+    for (const programId of DEFAULT_PROGRAM_IDS) {
+      const entry = PROGRAM_REQUIREMENTS.programs.find(
+        (candidate) => candidate.id === programId,
+      )!;
+      for (const id of entry.required_question_ids) {
+        rawIds.add(id);
+      }
+      for (const registryId of entry.form_registry_ids) {
+        for (const link of registryLinks(registryId)) {
+          rawIds.add(link);
+        }
+      }
+    }
     const universe = requiredForPrograms(DEFAULT_PROGRAM_IDS);
     expect(universe.length).toBe(rawIds.size);
     expect(remainingQuickQuestions({}).requiredCount).toBe(rawIds.size);
@@ -515,10 +526,20 @@ describe("the live completeness definition (client-state complete, pinned)", () 
     }
     const state = buildClientState(answers);
     expect(state.quickQuestions.complete).toBe(true);
-    // household_seniors, received_benefits_before, and student_status are
-    // spec questions outside the required universe (visible, unanswered):
-    // the full-spec walk is not done, so the journey gate stays open.
-    expect(state.complete).toBe(false);
+    // goal_detail is a spec question OUTSIDE the required universe (the
+    // requirements lists never name it) — visible here because main_goal
+    // is answered "other" (its skip condition) and unanswered: the
+    // full-spec walk is not done, so the journey gate stays open. (It was
+    // received_benefits_before/student_status until the snap-form milestone
+    // added the nc_snap program, whose DSS-8207 form asks them; goal_detail
+    // stays outside every program's list.)
+    answers.main_goal = { status: "known", value: "other" };
+    const withGoalVisible = buildClientState(answers);
+    expect(
+      withGoalVisible.quickQuestions.complete,
+      "main_goal's value change never shrinks the universe",
+    ).toBe(true);
+    expect(withGoalVisible.complete).toBe(false);
   });
 
   it("state.complete turns true exactly when every visible spec question is answered (skips included)", () => {
