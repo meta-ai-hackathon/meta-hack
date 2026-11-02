@@ -23,6 +23,7 @@ import {
   deviceFormReview,
   deviceHandoffLinks,
   deviceMatch,
+  reviewAnswersForForm,
 } from "../../lib/intake/device-form";
 import { loadDeviceTemplate } from "../../lib/intake/device-template";
 import type { MatchCard, MatchSourceCitation } from "../../lib/match-core";
@@ -85,6 +86,13 @@ export const DEVICE_RESULTS_COPY = {
     "One of the answers you typed for the form couldn't be used. Please " +
     "check it and try again.",
   failed: "Something went wrong preparing your form. Please try again.",
+  unreadableBoxes:
+    "Nothing was downloaded. Some box answers aren't checked or unchecked, " +
+    "so fix the ones listed and download again.",
+  unreadableBoxesHeading: "Box answers to fix first",
+  unreadableBoxesBody:
+    "Each of these is a box on the form, so its answer is the word checked " +
+    "or unchecked. Fix it or leave it empty, then download again.",
   leftBlankHeading: "Left blank on the form you downloaded",
   coverageHeading: "Every field, accounted for",
   coverageDetails: "Why each blank field stays blank",
@@ -321,6 +329,20 @@ export function DeviceResults(props: {
   const coverage = useMemo(() => deviceFormCoverage(), []);
   const blankFields = useMemo(() => coverage.fields.filter(isBlankCoverageField), [coverage]);
   const [busy, setBusy] = useState(false);
+  // The typed answers as the fill takes them. A box or yes/no answer that
+  // isn't checked or unchecked would print as an unchecked box with no word
+  // to the person, so those hold the download back and are listed, from
+  // the first download try on.
+  const forForm = useMemo(() => reviewAnswersForForm(typed), [typed]);
+  const [triedDownload, setTriedDownload] = useState(false);
+  const unreadableBoxes = useMemo(
+    () => new Set(triedDownload ? forForm.unreadable : []),
+    [triedDownload, forForm],
+  );
+  const questionByField = useMemo(
+    () => new Map(review.fields.map((field) => [field.fieldName, field.question])),
+    [review],
+  );
   const [leftBlank, setLeftBlank] = useState<readonly ToResolveItem[] | null>(null);
   const [conflicts, setConflicts] = useState<readonly FillConflict[]>([]);
   const [notice, setNotice] = useState("");
@@ -349,6 +371,11 @@ export function DeviceResults(props: {
     if (busy) {
       return;
     }
+    setTriedDownload(true);
+    if (forForm.unreadable.length > 0) {
+      announce(DEVICE_RESULTS_COPY.unreadableBoxes);
+      return;
+    }
     setBusy(true);
     try {
       const [template, { fillFormOnDevice }] = await Promise.all([
@@ -359,7 +386,7 @@ export function DeviceResults(props: {
         announce(DEVICE_RESULTS_COPY.templateUnavailable);
         return;
       }
-      const result = await fillFormOnDevice(template, answers, typed);
+      const result = await fillFormOnDevice(template, answers, forForm.values);
       if (result.kind === "invalid_answers") {
         announce(DEVICE_RESULTS_COPY.invalidTyped);
         return;
@@ -470,6 +497,7 @@ export function DeviceResults(props: {
                       autoComplete="off"
                       spellCheck={false}
                       aria-describedby={typedNoteId}
+                      aria-invalid={unreadableBoxes.has(field.fieldName) ? true : undefined}
                       maxLength={MAX_FORM_ANSWER_LENGTH}
                       value={typed[field.fieldName] ?? ""}
                       onChange={(event) => props.typedAnswers.onChange(field.fieldName, event.target.value)}
@@ -553,6 +581,19 @@ export function DeviceResults(props: {
             {busy ? DEVICE_RESULTS_COPY.downloading : DEVICE_RESULTS_COPY.downloadButton}
           </button>
         </div>
+        {unreadableBoxes.size > 0 ? (
+          <div data-unreadable-boxes className="flex flex-col gap-1">
+            <h3 className="font-medium">{DEVICE_RESULTS_COPY.unreadableBoxesHeading}</h3>
+            <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.unreadableBoxesBody}</p>
+            <ul className="list-disc pl-5">
+              {[...unreadableBoxes].map((name) => (
+                <li key={name} data-unreadable-box={name}>
+                  {questionByField.get(name) ?? name}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {leftBlank !== null && leftBlank.length > 0 ? (
           <div data-left-blank className="flex flex-col gap-1">
             <h3 className="font-medium">{DEVICE_RESULTS_COPY.leftBlankHeading}</h3>

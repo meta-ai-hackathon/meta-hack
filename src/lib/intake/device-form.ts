@@ -122,6 +122,49 @@ function answerRows(answers: ClientAnswerState): Record<string, FillAnswerRecord
   return rows;
 }
 
+/** The only words a box or a yes/no pair on the form takes in the review. */
+export const BOX_ANSWER_WORDS: readonly string[] = ["checked", "unchecked"];
+
+/**
+ * The typed review answers as the device fill takes them, after a check of
+ * the form's boxes and yes/no pairs. The fill reads a box as checked only
+ * for the word checked and leaves it unchecked for anything else while
+ * counting it filled, so "yes" typed for "Is Person 2 employed?" would
+ * print an unchecked box with no word to the person. Here a box answer
+ * counts only as checked or unchecked (any case, spaces trimmed). Any other
+ * text puts the field in `unreadable` instead of the values, and the page
+ * asks for it to be fixed before anything is filled. Blank answers are no
+ * answer, and every other field passes through as typed.
+ */
+export function reviewAnswersForForm(
+  typed: Readonly<Record<string, string>>,
+  entry: FormRegistryEntry = DEVICE_FORM_ENTRY,
+): { readonly values: Record<string, string>; readonly unreadable: readonly string[] } {
+  const boxes = new Set(
+    entry.fields
+      .filter((field) => field.type === "checkbox" || field.type === "radio")
+      .map((field) => field.name),
+  );
+  const values: Record<string, string> = {};
+  const unreadable: string[] = [];
+  for (const [name, value] of Object.entries(typed)) {
+    if (!boxes.has(name)) {
+      values[name] = value;
+      continue;
+    }
+    const word = value.trim().toLowerCase();
+    if (word === "") {
+      continue;
+    }
+    if (BOX_ANSWER_WORDS.includes(word)) {
+      values[name] = word;
+    } else {
+      unreadable.push(name);
+    }
+  }
+  return { values, unreadable };
+}
+
 /**
  * What the fill puts on the form for the device answers, plus the answers
  * the person typed into the review for fields the questions don't ask.

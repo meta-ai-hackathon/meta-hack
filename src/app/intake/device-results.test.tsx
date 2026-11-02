@@ -508,6 +508,39 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.unmount();
   }, 60_000);
 
+  it("holds the download back until every box answer reads checked or unchecked", async () => {
+    // A box answer the fill can't read would print as an unchecked box that
+    // counts as filled, so "yes" for "Is Person 2 employed?" is listed to
+    // fix, and nothing is filled or fetched until it is.
+    const page = await visit();
+    await page.answerEverything();
+    const input = (name: string) =>
+      page.container.querySelector<HTMLInputElement>(`[data-review-field="${name}"] input`)!;
+    await page.type(input(NAME_FIELD), TYPED_NAME);
+    await page.type(input("Employed_2"), "yes");
+    await page.type(input("SelfEmployed_2"), " Checked ");
+    await page.click(page.container.querySelector<HTMLButtonElement>('[data-action="download"]')!);
+    await page.waitFor(() => page.text().includes(page.copy.unreadableBoxes), "the box answers notice");
+    expect(downloads).toHaveLength(0);
+    expect(requests.map((request) => request.url)).toEqual(["/api/intake/state"]);
+    const listed = [...page.container.querySelectorAll("[data-unreadable-box]")].map((item) =>
+      item.getAttribute("data-unreadable-box"),
+    );
+    expect(listed).toEqual(["Employed_2"]);
+    expect(input("Employed_2").getAttribute("aria-invalid")).toBe("true");
+    expect(input("SelfEmployed_2").getAttribute("aria-invalid")).toBeNull();
+
+    // Fixed, the list goes away and the form fills as answered.
+    await page.type(input("Employed_2"), "unchecked");
+    expect(page.container.querySelector("[data-unreadable-boxes]")).toBeNull();
+    const filled = await page.download();
+    expect(filled.form.getCheckBox("Employed_2").isChecked()).toBe(false);
+    expect(filled.form.getCheckBox("SelfEmployed_2").isChecked()).toBe(true);
+    expect(filled.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
+    expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME]);
+    await page.unmount();
+  }, 60_000);
+
   it("keeps whatever was typed into the review through trips to a question and back", async () => {
     // The page holds what was typed in its memory, above the review, so
     // answering or rereading a question doesn't wipe the rest. One visit
