@@ -41,7 +41,10 @@ import type { AnswerMap } from "./flow";
 // 4. The match also reads income_sources, the session's own list of where
 //    money comes from. Sources the three amount questions never capture
 //    (self-employed, family/friends, child support) are UNREAD income:
-//    the match cannot see them, so they never feed a total.
+//    the match cannot see them, so they never feed a total. And a NAMED
+//    captured source whose amount never made it into the total (not
+//    captured, or stored as not-known) is just as invisible — the match
+//    treats it as unaccounted too.
 // 5. The proposal is what is CERTAIN from the captured numbers, in BOTH
 //    directions:
 //    - "yes" when the FLOOR total is ≥ $580: the counted sources alone
@@ -188,10 +191,16 @@ function monthlyFactors(
 
 /**
  * True when the session's own income_sources answer names a source the
- * three amount questions never capture (rule 4). Unknown or absent —
- * the match cannot rule unread money out.
+ * three amount questions never capture, OR names a captured source whose
+ * amount never made it into the total (never captured, or not known —
+ * "money comes from benefits" with no benefits amount counted is money
+ * the match cannot see). Unknown or absent — the match cannot rule
+ * unread money out (rule 4).
  */
-function namesUnreadSource(answers: AnswerMap): boolean {
+function namesUnaccountedSource(
+  answers: AnswerMap,
+  countedSourceIds: readonly string[],
+): boolean {
   const stored = answers.income_sources;
   if (!stored || stored.status !== "known") {
     return true;
@@ -202,7 +211,26 @@ function namesUnreadSource(answers: AnswerMap): boolean {
     : typeof value === "string"
       ? [value]
       : [];
-  return values.some((item) => !CAPTURED_SOURCE_VALUES.has(String(item)));
+  for (const item of values) {
+    const named = String(item);
+    if (!CAPTURED_SOURCE_VALUES.has(named)) {
+      return true;
+    }
+    // "none" names no source at all; every other captured option names
+    // one amount question that must have been counted.
+    if (named !== "none") {
+      const amountId =
+        named === "job"
+          ? "job_income_amount"
+          : named === "benefits"
+            ? "benefits_income_amount"
+            : "other_income_amount";
+      if (!countedSourceIds.includes(amountId)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -242,7 +270,7 @@ export function matchIncome580(answers: AnswerMap): Income580Match {
       uncountedSourceIds,
     };
   }
-  const unreadSource = namesUnreadSource(answers);
+  const unreadSource = namesUnaccountedSource(answers, countedSourceIds);
   if (
     countedSourceIds.length > 0 &&
     uncountedSourceIds.length === 0 &&
@@ -250,8 +278,9 @@ export function matchIncome580(answers: AnswerMap): Income580Match {
     ceilingTotal < INCOME_580_MONTHLY_THRESHOLD
   ) {
     // Certain: everything is accounted for (every captured amount
-    // converted, no unread source named), and even the average-month
-    // conversion stays under the threshold.
+    // converted, every named source's amount counted, no unread source
+    // named), and even the average-month conversion stays under the
+    // threshold.
     return {
       proposal: "no",
       monthlyTotal: ceilingTotal,

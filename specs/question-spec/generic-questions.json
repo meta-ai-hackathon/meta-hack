@@ -1,11 +1,7 @@
 {
   "title": "Generic benefits-application questions",
   "version": "0.2.0",
-  "answer_statuses": [
-    "known",
-    "unknown",
-    "unverified"
-  ],
+  "answer_statuses": ["known", "unknown", "unverified"],
   "questions": [
     {
       "id": "application_role",
@@ -13,18 +9,9 @@
       "type": "single_select",
       "help": "Pick the choice that fits you best. You can change it later.",
       "options": [
-        {
-          "value": "self",
-          "label": "Me"
-        },
-        {
-          "value": "family_member",
-          "label": "A family member"
-        },
-        {
-          "value": "someone_else",
-          "label": "Someone else I help"
-        }
+        { "value": "self", "label": "Me" },
+        { "value": "family_member", "label": "A family member" },
+        { "value": "someone_else", "label": "Someone else I help" }
       ],
       "pii": false,
       "required": true,
@@ -37,26 +24,11 @@
       "type": "single_select",
       "help": "Pick the one you need most. You can add more later.",
       "options": [
-        {
-          "value": "food",
-          "label": "Food"
-        },
-        {
-          "value": "housing",
-          "label": "Housing"
-        },
-        {
-          "value": "healthcare",
-          "label": "Health care"
-        },
-        {
-          "value": "cash_assistance",
-          "label": "Cash help"
-        },
-        {
-          "value": "other",
-          "label": "Something else"
-        }
+        { "value": "food", "label": "Food" },
+        { "value": "housing", "label": "Housing" },
+        { "value": "healthcare", "label": "Health care" },
+        { "value": "cash_assistance", "label": "Cash help" },
+        { "value": "other", "label": "Something else" }
       ],
       "pii": false,
       "required": true,
@@ -71,11 +43,7 @@
       "pii": true,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "main_goal",
-          "operator": "not_equals",
-          "value": "other"
-        }
+        { "question_id": "main_goal", "operator": "not_equals", "value": "other" }
       ],
       "provenance": "user-supplied"
     },
@@ -86,206 +54,56 @@
       "help": "Rules change by state. Pick the state where you sleep most nights.",
       "terms": [],
       "options": [
-        {
-          "value": "AL",
-          "label": "Alabama"
-        },
-        {
-          "value": "AK",
-          "label": "Alaska"
-        },
-        {
-          "value": "AZ",
-          "label": "Arizona"
-        },
-        {
-          "value": "AR",
-          "label": "Arkansas"
-        },
-        {
-          "value": "CA",
-          "label": "California"
-        },
-        {
-          "value": "CO",
-          "label": "Colorado"
-        },
-        {
-          "value": "CT",
-          "label": "Connecticut"
-        },
-        {
-          "value": "DE",
-          "label": "Delaware"
-        },
-        {
-          "value": "FL",
-          "label": "Florida"
-        },
-        {
-          "value": "GA",
-          "label": "Georgia"
-        },
-        {
-          "value": "HI",
-          "label": "Hawaii"
-        },
-        {
-          "value": "ID",
-          "label": "Idaho"
-        },
-        {
-          "value": "IL",
-          "label": "Illinois"
-        },
-        {
-          "value": "IN",
-          "label": "Indiana"
-        },
-        {
-          "value": "IA",
-          "label": "Iowa"
-        },
-        {
-          "value": "KS",
-          "label": "Kansas"
-        },
-        {
-          "value": "KY",
-          "label": "Kentucky"
-        },
-        {
-          "value": "LA",
-          "label": "Louisiana"
-        },
-        {
-          "value": "ME",
-          "label": "Maine"
-        },
-        {
-          "value": "MD",
-          "label": "Maryland"
-        },
-        {
-          "value": "MA",
-          "label": "Massachusetts"
-        },
-        {
-          "value": "MI",
-          "label": "Michigan"
-        },
-        {
-          "value": "MN",
-          "label": "Minnesota"
-        },
-        {
-          "value": "MS",
-          "label": "Mississippi"
-        },
-        {
-          "value": "MO",
-          "label": "Missouri"
-        },
-        {
-          "value": "MT",
-          "label": "Montana"
-        },
-        {
-          "value": "NE",
-          "label": "Nebraska"
-        },
-        {
-          "value": "NV",
-          "label": "Nevada"
-        },
-        {
-          "value": "NH",
-          "label": "New Hampshire"
-        },
-        {
-          "value": "NJ",
-          "label": "New Jersey"
-        },
-        {
-          "value": "NM",
-          "label": "New Mexico"
-        },
-        {
-          "value": "NY",
-          "label": "New York"
-        },
-        {
-          "value": "NC",
-          "label": "North Carolina"
-        },
-        {
-          "value": "ND",
-          "label": "North Dakota"
-        },
-        {
-          "value": "OH",
-          "label": "Ohio"
-        },
-        {
-          "value": "OK",
-          "label": "Oklahoma"
-        },
-        {
-          "value": "OR",
-          "label": "Oregon"
-        },
-        {
-          "value": "PA",
-          "label": "Pennsylvania"
-        },
-        {
-          "value": "RI",
-          "label": "Rhode Island"
-        },
-        {
-          "value": "SC",
-          "label": "South Carolina"
-        },
-        {
-          "value": "SD",
-          "label": "South Dakota"
-        },
-        {
-          "value": "TN",
-          "label": "Tennessee"
-        },
-        {
-          "value": "TX",
-          "label": "Texas"
-        },
-        {
-          "value": "UT",
-          "label": "Utah"
-        },
-        {
-          "value": "VT",
-          "label": "Vermont"
-        },
-        {
-          "value": "VA",
-          "label": "Virginia"
-        },
-        {
-          "value": "WA",
-          "label": "Washington"
-        },
-        {
-          "value": "WV",
-          "label": "West Virginia"
-        },
-        {
-          "value": "WI",
-          "label": "Wisconsin"
-        },
-        {
-          "value": "WY",
-          "label": "Wyoming"
-        }
+        { "value": "AL", "label": "Alabama" },
+        { "value": "AK", "label": "Alaska" },
+        { "value": "AZ", "label": "Arizona" },
+        { "value": "AR", "label": "Arkansas" },
+        { "value": "CA", "label": "California" },
+        { "value": "CO", "label": "Colorado" },
+        { "value": "CT", "label": "Connecticut" },
+        { "value": "DE", "label": "Delaware" },
+        { "value": "FL", "label": "Florida" },
+        { "value": "GA", "label": "Georgia" },
+        { "value": "HI", "label": "Hawaii" },
+        { "value": "ID", "label": "Idaho" },
+        { "value": "IL", "label": "Illinois" },
+        { "value": "IN", "label": "Indiana" },
+        { "value": "IA", "label": "Iowa" },
+        { "value": "KS", "label": "Kansas" },
+        { "value": "KY", "label": "Kentucky" },
+        { "value": "LA", "label": "Louisiana" },
+        { "value": "ME", "label": "Maine" },
+        { "value": "MD", "label": "Maryland" },
+        { "value": "MA", "label": "Massachusetts" },
+        { "value": "MI", "label": "Michigan" },
+        { "value": "MN", "label": "Minnesota" },
+        { "value": "MS", "label": "Mississippi" },
+        { "value": "MO", "label": "Missouri" },
+        { "value": "MT", "label": "Montana" },
+        { "value": "NE", "label": "Nebraska" },
+        { "value": "NV", "label": "Nevada" },
+        { "value": "NH", "label": "New Hampshire" },
+        { "value": "NJ", "label": "New Jersey" },
+        { "value": "NM", "label": "New Mexico" },
+        { "value": "NY", "label": "New York" },
+        { "value": "NC", "label": "North Carolina" },
+        { "value": "ND", "label": "North Dakota" },
+        { "value": "OH", "label": "Ohio" },
+        { "value": "OK", "label": "Oklahoma" },
+        { "value": "OR", "label": "Oregon" },
+        { "value": "PA", "label": "Pennsylvania" },
+        { "value": "RI", "label": "Rhode Island" },
+        { "value": "SC", "label": "South Carolina" },
+        { "value": "SD", "label": "South Dakota" },
+        { "value": "TN", "label": "Tennessee" },
+        { "value": "TX", "label": "Texas" },
+        { "value": "UT", "label": "Utah" },
+        { "value": "VT", "label": "Vermont" },
+        { "value": "VA", "label": "Virginia" },
+        { "value": "WA", "label": "Washington" },
+        { "value": "WV", "label": "West Virginia" },
+        { "value": "WI", "label": "Wisconsin" },
+        { "value": "WY", "label": "Wyoming" }
       ],
       "pii": false,
       "required": true,
@@ -339,34 +157,13 @@
       "help": "Pick every source that fits. Pick 'none' if there is no money coming in.",
       "terms": [],
       "options": [
-        {
-          "value": "job",
-          "label": "A job"
-        },
-        {
-          "value": "self_employed",
-          "label": "Self-employed or odd jobs"
-        },
-        {
-          "value": "benefits",
-          "label": "Benefits like disability or retirement checks"
-        },
-        {
-          "value": "family_friends",
-          "label": "Money from family or friends"
-        },
-        {
-          "value": "child_support",
-          "label": "Child support"
-        },
-        {
-          "value": "other",
-          "label": "Something else"
-        },
-        {
-          "value": "none",
-          "label": "No money coming in right now"
-        }
+        { "value": "job", "label": "A job" },
+        { "value": "self_employed", "label": "Self-employed or odd jobs" },
+        { "value": "benefits", "label": "Benefits like disability or retirement checks" },
+        { "value": "family_friends", "label": "Money from family or friends" },
+        { "value": "child_support", "label": "Child support" },
+        { "value": "other", "label": "Something else" },
+        { "value": "none", "label": "No money coming in right now" }
       ],
       "pii": false,
       "required": true,
@@ -379,31 +176,15 @@
       "type": "single_select",
       "help": "This decides which money questions come next. Pick the one that fits best. You can also say you are not sure — then we will ask the general questions.",
       "options": [
-        {
-          "value": "self_employment_current",
-          "label": "I work for myself right now, in my own business or LLC"
-        },
-        {
-          "value": "prior_employer_only",
-          "label": "I had a job before, but I do not work there anymore"
-        },
-        {
-          "value": "both",
-          "label": "Both — I work for myself now and had a job before"
-        },
-        {
-          "value": "neither",
-          "label": "Neither of these"
-        }
+        { "value": "self_employment_current", "label": "I work for myself right now, in my own business or LLC" },
+        { "value": "prior_employer_only", "label": "I had a job before, but I do not work there anymore" },
+        { "value": "both", "label": "Both — I work for myself now and had a job before" },
+        { "value": "neither", "label": "Neither of these" }
       ],
       "pii": false,
       "required": true,
       "skip_conditions": [
-        {
-          "question_id": "income_sources",
-          "operator": "in",
-          "value": "none"
-        }
+        { "question_id": "income_sources", "operator": "in", "value": "none" }
       ],
       "provenance": "user-supplied"
     },
@@ -413,27 +194,14 @@
       "type": "single_select",
       "help": "You can share statement files from your bank or payment service, or type the numbers yourself. Anything you share stays on this device, encrypted — nothing is sent anywhere from here. Saying not sure is fine; we will ask for the numbers in a way that works for you.",
       "options": [
-        {
-          "value": "will_share",
-          "label": "Yes, I can share statements"
-        },
-        {
-          "value": "will_type",
-          "label": "I will type the numbers myself"
-        },
-        {
-          "value": "not_sure_yet",
-          "label": "Not sure yet"
-        }
+        { "value": "will_share", "label": "Yes, I can share statements" },
+        { "value": "will_type", "label": "I will type the numbers myself" },
+        { "value": "not_sure_yet", "label": "Not sure yet" }
       ],
       "pii": false,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "income_kind",
-          "operator": "not_in",
-          "value": "self_employment_current,both"
-        }
+        { "question_id": "income_kind", "operator": "not_in", "value": "self_employment_current,both" }
       ],
       "provenance": "user-supplied"
     },
@@ -443,23 +211,13 @@
       "type": "single_select",
       "help": "Money from a job you no longer have may be treated differently from money you earn now — the office decides. This can help show that old pay is not current income.",
       "options": [
-        {
-          "value": "no_longer_there",
-          "label": "No, I do not work there anymore"
-        },
-        {
-          "value": "yes_still_there",
-          "label": "Yes, I still work there"
-        }
+        { "value": "no_longer_there", "label": "No, I do not work there anymore" },
+        { "value": "yes_still_there", "label": "Yes, I still work there" }
       ],
       "pii": false,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "income_kind",
-          "operator": "not_in",
-          "value": "prior_employer_only,both"
-        }
+        { "question_id": "income_kind", "operator": "not_in", "value": "prior_employer_only,both" }
       ],
       "provenance": "user-supplied"
     },
@@ -471,16 +229,8 @@
       "pii": true,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "income_kind",
-          "operator": "not_in",
-          "value": "prior_employer_only,both"
-        },
-        {
-          "question_id": "prior_employer_current",
-          "operator": "equals",
-          "value": "yes_still_there"
-        }
+        { "question_id": "income_kind", "operator": "not_in", "value": "prior_employer_only,both" },
+        { "question_id": "prior_employer_current", "operator": "equals", "value": "yes_still_there" }
       ],
       "provenance": "user-supplied"
     },
@@ -492,11 +242,7 @@
       "pii": false,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "income_sources",
-          "operator": "not_in",
-          "value": "job,self_employed"
-        }
+        { "question_id": "income_sources", "operator": "not_in", "value": "job,self_employed" }
       ],
       "provenance": "user-supplied"
     },
@@ -506,35 +252,16 @@
       "type": "single_select",
       "help": "Pick how often the paychecks arrive.",
       "options": [
-        {
-          "value": "weekly",
-          "label": "Every week"
-        },
-        {
-          "value": "biweekly",
-          "label": "Every two weeks"
-        },
-        {
-          "value": "twice_monthly",
-          "label": "Twice a month"
-        },
-        {
-          "value": "monthly",
-          "label": "Once a month"
-        },
-        {
-          "value": "varies",
-          "label": "It changes"
-        }
+        { "value": "weekly", "label": "Every week" },
+        { "value": "biweekly", "label": "Every two weeks" },
+        { "value": "twice_monthly", "label": "Twice a month" },
+        { "value": "monthly", "label": "Once a month" },
+        { "value": "varies", "label": "It changes" }
       ],
       "pii": false,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "income_sources",
-          "operator": "not_in",
-          "value": "job,self_employed"
-        }
+        { "question_id": "income_sources", "operator": "not_in", "value": "job,self_employed" }
       ],
       "provenance": "user-supplied"
     },
@@ -547,11 +274,7 @@
       "pii": false,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "income_sources",
-          "operator": "not_in",
-          "value": "benefits"
-        }
+        { "question_id": "income_sources", "operator": "not_in", "value": "benefits" }
       ],
       "provenance": "user-supplied"
     },
@@ -561,35 +284,16 @@
       "type": "single_select",
       "help": "Pick how often the checks arrive.",
       "options": [
-        {
-          "value": "weekly",
-          "label": "Every week"
-        },
-        {
-          "value": "biweekly",
-          "label": "Every two weeks"
-        },
-        {
-          "value": "twice_monthly",
-          "label": "Twice a month"
-        },
-        {
-          "value": "monthly",
-          "label": "Once a month"
-        },
-        {
-          "value": "varies",
-          "label": "It changes"
-        }
+        { "value": "weekly", "label": "Every week" },
+        { "value": "biweekly", "label": "Every two weeks" },
+        { "value": "twice_monthly", "label": "Twice a month" },
+        { "value": "monthly", "label": "Once a month" },
+        { "value": "varies", "label": "It changes" }
       ],
       "pii": false,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "income_sources",
-          "operator": "not_in",
-          "value": "benefits"
-        }
+        { "question_id": "income_sources", "operator": "not_in", "value": "benefits" }
       ],
       "provenance": "user-supplied"
     },
@@ -601,11 +305,7 @@
       "pii": false,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "income_sources",
-          "operator": "not_in",
-          "value": "family_friends,child_support,other"
-        }
+        { "question_id": "income_sources", "operator": "not_in", "value": "family_friends,child_support,other" }
       ],
       "provenance": "user-supplied"
     },
@@ -616,30 +316,12 @@
       "help": "Answer honestly. This helps us find the right help, and it does not count against you.",
       "terms": [],
       "options": [
-        {
-          "value": "shelter",
-          "label": "In a shelter"
-        },
-        {
-          "value": "car",
-          "label": "In a car or vehicle"
-        },
-        {
-          "value": "outdoors",
-          "label": "Outdoors or in a place not meant for sleeping"
-        },
-        {
-          "value": "nowhere",
-          "label": "I had nowhere to sleep"
-        },
-        {
-          "value": "staying_with_others",
-          "label": "Staying with family or friends"
-        },
-        {
-          "value": "rental_or_own",
-          "label": "In a place I rent or own"
-        }
+        { "value": "shelter", "label": "In a shelter" },
+        { "value": "car", "label": "In a car or vehicle" },
+        { "value": "outdoors", "label": "Outdoors or in a place not meant for sleeping" },
+        { "value": "nowhere", "label": "I had nowhere to sleep" },
+        { "value": "staying_with_others", "label": "Staying with family or friends" },
+        { "value": "rental_or_own", "label": "In a place I rent or own" }
       ],
       "pii": true,
       "required": true,
@@ -654,11 +336,7 @@
       "pii": false,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "housing_status",
-          "operator": "in",
-          "value": "shelter,car,outdoors,nowhere"
-        }
+        { "question_id": "housing_status", "operator": "in", "value": "shelter,car,outdoors,nowhere" }
       ],
       "provenance": "user-supplied"
     },
@@ -670,11 +348,7 @@
       "pii": false,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "housing_status",
-          "operator": "in",
-          "value": "shelter,car,outdoors,nowhere"
-        }
+        { "question_id": "housing_status", "operator": "in", "value": "shelter,car,outdoors,nowhere" }
       ],
       "provenance": "user-supplied"
     },
@@ -686,11 +360,7 @@
       "pii": false,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "household_children",
-          "operator": "equals",
-          "value": 0
-        }
+        { "question_id": "household_children", "operator": "equals", "value": 0 }
       ],
       "provenance": "user-supplied"
     },
@@ -711,22 +381,10 @@
       "help": "Any government photo ID counts. It is okay if you lost it or never had one. We can still help.",
       "terms": [],
       "options": [
-        {
-          "value": "have_id",
-          "label": "Yes, I have one"
-        },
-        {
-          "value": "need_id",
-          "label": "No, I need to get one"
-        },
-        {
-          "value": "id_in_progress",
-          "label": "I am working on replacing it"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "have_id", "label": "Yes, I have one" },
+        { "value": "need_id", "label": "No, I need to get one" },
+        { "value": "id_in_progress", "label": "I am working on replacing it" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": false,
       "required": true,
@@ -741,11 +399,7 @@
       "pii": true,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "id_status",
-          "operator": "equals",
-          "value": "have_id"
-        }
+        { "question_id": "id_status", "operator": "equals", "value": "have_id" }
       ],
       "provenance": "user-supplied"
     },
@@ -766,22 +420,10 @@
       "help": "This question is private and stays on our secure server. Many kinds of help do not depend on this answer, and some programs help family members with different statuses. Pick 'not sure' if you'd rather not say or don't know.",
       "terms": [],
       "options": [
-        {
-          "value": "us_citizen",
-          "label": "U.S. citizen"
-        },
-        {
-          "value": "permanent_resident",
-          "label": "Green card holder"
-        },
-        {
-          "value": "other_status",
-          "label": "Another status"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure / prefer not to say"
-        }
+        { "value": "us_citizen", "label": "U.S. citizen" },
+        { "value": "permanent_resident", "label": "Green card holder" },
+        { "value": "other_status", "label": "Another status" },
+        { "value": "not_sure", "label": "Not sure / prefer not to say" }
       ],
       "pii": true,
       "required": false,
@@ -794,18 +436,9 @@
       "type": "single_select",
       "help": "This can open extra kinds of help. Pick 'not sure' if you don't know.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -818,18 +451,9 @@
       "type": "single_select",
       "help": "College, job training, GED classes — any of these count.",
       "options": [
-        {
-          "value": "not_student",
-          "label": "No"
-        },
-        {
-          "value": "full_time_student",
-          "label": "Yes, full time"
-        },
-        {
-          "value": "part_time_student",
-          "label": "Yes, part time"
-        }
+        { "value": "not_student", "label": "No" },
+        { "value": "full_time_student", "label": "Yes, full time" },
+        { "value": "part_time_student", "label": "Yes, part time" }
       ],
       "pii": false,
       "required": true,
@@ -863,30 +487,12 @@
       "help": "Pick the safest option that works for you. Many people get mail without a home address.",
       "terms": [],
       "options": [
-        {
-          "value": "shelter",
-          "label": "A shelter or program where I stay"
-        },
-        {
-          "value": "family_or_friend",
-          "label": "A family or friend's address"
-        },
-        {
-          "value": "po_box",
-          "label": "A P.O. box"
-        },
-        {
-          "value": "general_delivery",
-          "label": "Post office general delivery"
-        },
-        {
-          "value": "day_center",
-          "label": "A drop-in or day center"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure yet"
-        }
+        { "value": "shelter", "label": "A shelter or program where I stay" },
+        { "value": "family_or_friend", "label": "A family or friend's address" },
+        { "value": "po_box", "label": "A P.O. box" },
+        { "value": "general_delivery", "label": "Post office general delivery" },
+        { "value": "day_center", "label": "A drop-in or day center" },
+        { "value": "not_sure", "label": "Not sure yet" }
       ],
       "pii": true,
       "required": true,
@@ -901,11 +507,7 @@
       "pii": true,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "mailing_situation",
-          "operator": "not_equals",
-          "value": "shelter"
-        }
+        { "question_id": "mailing_situation", "operator": "not_equals", "value": "shelter" }
       ],
       "provenance": "user-supplied"
     },
@@ -915,22 +517,10 @@
       "type": "single_select",
       "help": "Pick what works best for you. This does not have to be a phone.",
       "options": [
-        {
-          "value": "call",
-          "label": "Phone call"
-        },
-        {
-          "value": "text",
-          "label": "Text message"
-        },
-        {
-          "value": "email",
-          "label": "Email"
-        },
-        {
-          "value": "in_person",
-          "label": "In person"
-        }
+        { "value": "call", "label": "Phone call" },
+        { "value": "text", "label": "Text message" },
+        { "value": "email", "label": "Email" },
+        { "value": "in_person", "label": "In person" }
       ],
       "pii": false,
       "required": true,
@@ -945,11 +535,7 @@
       "pii": true,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "contact_preference",
-          "operator": "not_in",
-          "value": "call,text"
-        }
+        { "question_id": "contact_preference", "operator": "not_in", "value": "call,text" }
       ],
       "provenance": "user-supplied"
     },
@@ -961,11 +547,7 @@
       "pii": true,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "contact_preference",
-          "operator": "not_equals",
-          "value": "email"
-        }
+        { "question_id": "contact_preference", "operator": "not_equals", "value": "email" }
       ],
       "provenance": "user-supplied"
     },
@@ -975,27 +557,14 @@
       "type": "single_select",
       "help": "Pick the time you are most likely to be free.",
       "options": [
-        {
-          "value": "morning",
-          "label": "Morning"
-        },
-        {
-          "value": "afternoon",
-          "label": "Afternoon"
-        },
-        {
-          "value": "evening",
-          "label": "Evening"
-        }
+        { "value": "morning", "label": "Morning" },
+        { "value": "afternoon", "label": "Afternoon" },
+        { "value": "evening", "label": "Evening" }
       ],
       "pii": false,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "contact_preference",
-          "operator": "equals",
-          "value": "in_person"
-        }
+        { "question_id": "contact_preference", "operator": "equals", "value": "in_person" }
       ],
       "provenance": "user-supplied"
     },
@@ -1003,28 +572,13 @@
       "id": "wr_exempt_situations",
       "prompt": "Are you or anyone applying for Medicaid in one of these situations?",
       "type": "multi_select",
-      "help": "Check all that apply. If one applies, you may not need to report work activities for that person — the state decides what counts.",
+      "help": "Check all that apply. If one applies, you may not need to report work activities for that person — the state decides what counts. Someone applying who is not in one of these situations may still need to report their work activities, and the state decides that per person.",
       "options": [
-        {
-          "value": "parent_child_under_18",
-          "label": "A parent of a child under 18"
-        },
-        {
-          "value": "nonparent_caregiver_child_under_14",
-          "label": "A non-parent caregiver of a child under 14, such as a relative or anyone who provides at least 80 hours of care per month"
-        },
-        {
-          "value": "caregiver_daily_activities",
-          "label": "A caregiver of someone who needs help with daily activities, such as a disabled person or an older adult"
-        },
-        {
-          "value": "already_snap_tanf_work_requirements",
-          "label": "Already required to meet SNAP or TANF work requirements"
-        },
-        {
-          "value": "none",
-          "label": "None of these apply"
-        }
+        { "value": "parent_child_under_18", "label": "A parent of a child under 18" },
+        { "value": "nonparent_caregiver_child_under_14", "label": "A non-parent caregiver of a child under 14, such as a relative or anyone who provides at least 80 hours of care per month" },
+        { "value": "caregiver_daily_activities", "label": "A caregiver of someone who needs help with daily activities, such as a disabled person or an older adult" },
+        { "value": "already_snap_tanf_work_requirements", "label": "Already required to meet SNAP or TANF work requirements" },
+        { "value": "none", "label": "None of these apply" }
       ],
       "pii": true,
       "required": true,
@@ -1037,18 +591,9 @@
       "type": "single_select",
       "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -1061,18 +606,9 @@
       "type": "single_select",
       "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -1085,18 +621,9 @@
       "type": "single_select",
       "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -1109,18 +636,9 @@
       "type": "single_select",
       "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -1133,18 +651,9 @@
       "type": "single_select",
       "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -1157,18 +666,9 @@
       "type": "single_select",
       "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -1181,18 +681,9 @@
       "type": "single_select",
       "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -1205,18 +696,9 @@
       "type": "single_select",
       "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -1229,18 +711,9 @@
       "type": "single_select",
       "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -1253,14 +726,8 @@
       "type": "single_select",
       "help": "A situation that applied last month may still matter for what gets reported. The state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" }
       ],
       "pii": true,
       "required": false,
@@ -1273,75 +740,26 @@
       "type": "multi_select",
       "help": "Check every situation that applied last month but not this month.",
       "options": [
-        {
-          "value": "pregnant",
-          "label": "Pregnancy now or in the past 12 months"
-        },
-        {
-          "value": "parent_child_under_18",
-          "label": "A parent of a child under 18"
-        },
-        {
-          "value": "nonparent_caregiver_child_under_14",
-          "label": "A non-parent caregiver of a child under 14"
-        },
-        {
-          "value": "caregiver_daily_activities",
-          "label": "A caregiver of someone who needs help with daily activities"
-        },
-        {
-          "value": "already_snap_tanf_work_requirements",
-          "label": "Already meeting SNAP or TANF work requirements"
-        },
-        {
-          "value": "drug_alcohol_treatment",
-          "label": "In a treatment program for a drug or alcohol disorder"
-        },
-        {
-          "value": "drug_alcohol_disorder",
-          "label": "A drug or alcohol disorder making work hard"
-        },
-        {
-          "value": "disability_hard_work",
-          "label": "A physical, intellectual, or developmental disability"
-        },
-        {
-          "value": "mental_health_hard_work",
-          "label": "A mental health disorder"
-        },
-        {
-          "value": "serious_health_condition",
-          "label": "A serious health condition"
-        },
-        {
-          "value": "jail_prison_past_4_months",
-          "label": "Jail or prison in the past 4 months"
-        },
-        {
-          "value": "foster_care_under_26",
-          "label": "Foster care at age 18, under 26"
-        },
-        {
-          "value": "veteran_100_disabled",
-          "label": "A 100%-disabled veteran"
-        },
-        {
-          "value": "medical_travel_1hr",
-          "label": "Traveling an hour or more for medical care"
-        },
-        {
-          "value": "hospital_care_24hr",
-          "label": "Receiving 24-hour-level care"
-        }
+        { "value": "pregnant", "label": "Pregnancy now or in the past 12 months" },
+        { "value": "parent_child_under_18", "label": "A parent of a child under 18" },
+        { "value": "nonparent_caregiver_child_under_14", "label": "A non-parent caregiver of a child under 14" },
+        { "value": "caregiver_daily_activities", "label": "A caregiver of someone who needs help with daily activities" },
+        { "value": "already_snap_tanf_work_requirements", "label": "Already meeting SNAP or TANF work requirements" },
+        { "value": "drug_alcohol_treatment", "label": "In a treatment program for a drug or alcohol disorder" },
+        { "value": "drug_alcohol_disorder", "label": "A drug or alcohol disorder making work hard" },
+        { "value": "disability_hard_work", "label": "A physical, intellectual, or developmental disability" },
+        { "value": "mental_health_hard_work", "label": "A mental health disorder" },
+        { "value": "serious_health_condition", "label": "A serious health condition" },
+        { "value": "jail_prison_past_4_months", "label": "Jail or prison in the past 4 months" },
+        { "value": "foster_care_under_26", "label": "Foster care at age 18, under 26" },
+        { "value": "veteran_100_disabled", "label": "A 100%-disabled veteran" },
+        { "value": "medical_travel_1hr", "label": "Traveling an hour or more for medical care" },
+        { "value": "hospital_care_24hr", "label": "Receiving 24-hour-level care" }
       ],
       "pii": true,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "wr_applied_last_month",
-          "operator": "equals",
-          "value": "no"
-        }
+        { "question_id": "wr_applied_last_month", "operator": "equals", "value": "no" }
       ],
       "provenance": "user-supplied"
     },
@@ -1351,18 +769,9 @@
       "type": "single_select",
       "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -1375,18 +784,9 @@
       "type": "single_select",
       "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        },
-        {
-          "value": "not_sure",
-          "label": "Not sure"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
       ],
       "pii": true,
       "required": false,
@@ -1399,18 +799,9 @@
       "type": "single_select",
       "help": "Part-time students can report their hours under work activities instead.",
       "options": [
-        {
-          "value": "not_enrolled",
-          "label": "No"
-        },
-        {
-          "value": "full_time",
-          "label": "Yes, full time"
-        },
-        {
-          "value": "at_least_half_time",
-          "label": "Yes, at least half time"
-        }
+        { "value": "not_enrolled", "label": "No" },
+        { "value": "full_time", "label": "Yes, full time" },
+        { "value": "at_least_half_time", "label": "Yes, at least half time" }
       ],
       "pii": true,
       "required": true,
@@ -1423,14 +814,8 @@
       "type": "single_select",
       "help": "Income from seasonal work can be averaged across 6 months. The state looks at your household's monthly income when it decides.",
       "options": [
-        {
-          "value": "yes",
-          "label": "Yes"
-        },
-        {
-          "value": "no",
-          "label": "No"
-        }
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" }
       ],
       "pii": true,
       "required": true,
@@ -1445,81 +830,21 @@
       "pii": true,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "wr_exempt_situations",
-          "operator": "in",
-          "value": "parent_child_under_18,nonparent_caregiver_child_under_14,caregiver_daily_activities,already_snap_tanf_work_requirements"
-        },
-        {
-          "question_id": "wr_pregnant",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_drug_alcohol_treatment",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_drug_alcohol_disorder",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_disability_hard_work",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_mental_health_hard_work",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_serious_health_condition",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_jail_prison_past_4_months",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_foster_care_under_26",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_veteran_100_disabled",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_applied_last_month",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_medical_travel_1hr",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_hospital_care_24hr",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_income_580",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_student_enrolled",
-          "operator": "in",
-          "value": "full_time,at_least_half_time"
-        }
+        { "question_id": "wr_exempt_situations", "operator": "in", "value": "parent_child_under_18,nonparent_caregiver_child_under_14,caregiver_daily_activities,already_snap_tanf_work_requirements" },
+        { "question_id": "wr_pregnant", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_treatment", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_disorder", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_disability_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_mental_health_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_serious_health_condition", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_jail_prison_past_4_months", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_foster_care_under_26", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_veteran_100_disabled", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_applied_last_month", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_medical_travel_1hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_hospital_care_24hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_income_580", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_student_enrolled", "operator": "in", "value": "full_time,at_least_half_time" }
       ],
       "provenance": "user-supplied"
     },
@@ -1529,109 +854,31 @@
       "type": "multi_select",
       "help": "Check all that apply. Total hours can be a combination of the types of activities listed.",
       "options": [
-        {
-          "value": "job_internship",
-          "label": "A job or internship"
-        },
-        {
-          "value": "self_employment",
-          "label": "Self-employment"
-        },
-        {
-          "value": "work_program",
-          "label": "A work program"
-        },
-        {
-          "value": "community_service",
-          "label": "Community service or unpaid work, including volunteering with a non-profit, school, or other organization, or work in exchange for housing, meals, or other goods"
-        },
-        {
-          "value": "part_time_student_hours",
-          "label": "Part-time student hours, where class, lab, or training time counts"
-        },
-        {
-          "value": "caregiving",
-          "label": "Caregiving"
-        }
+        { "value": "job_internship", "label": "A job or internship" },
+        { "value": "self_employment", "label": "Self-employment" },
+        { "value": "work_program", "label": "A work program" },
+        { "value": "community_service", "label": "Community service or unpaid work, including volunteering with a non-profit, school, or other organization, or work in exchange for housing, meals, or other goods" },
+        { "value": "part_time_student_hours", "label": "Part-time student hours, where class, lab, or training time counts" },
+        { "value": "caregiving", "label": "Caregiving" }
       ],
       "pii": true,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "wr_exempt_situations",
-          "operator": "in",
-          "value": "parent_child_under_18,nonparent_caregiver_child_under_14,caregiver_daily_activities,already_snap_tanf_work_requirements"
-        },
-        {
-          "question_id": "wr_pregnant",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_drug_alcohol_treatment",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_drug_alcohol_disorder",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_disability_hard_work",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_mental_health_hard_work",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_serious_health_condition",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_jail_prison_past_4_months",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_foster_care_under_26",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_veteran_100_disabled",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_applied_last_month",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_medical_travel_1hr",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_hospital_care_24hr",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_income_580",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_student_enrolled",
-          "operator": "in",
-          "value": "full_time,at_least_half_time"
-        }
+        { "question_id": "wr_exempt_situations", "operator": "in", "value": "parent_child_under_18,nonparent_caregiver_child_under_14,caregiver_daily_activities,already_snap_tanf_work_requirements" },
+        { "question_id": "wr_pregnant", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_treatment", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_disorder", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_disability_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_mental_health_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_serious_health_condition", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_jail_prison_past_4_months", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_foster_care_under_26", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_veteran_100_disabled", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_applied_last_month", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_medical_travel_1hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_hospital_care_24hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_income_580", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_student_enrolled", "operator": "in", "value": "full_time,at_least_half_time" }
       ],
       "provenance": "user-supplied"
     },
@@ -1643,81 +890,21 @@
       "pii": true,
       "required": false,
       "skip_conditions": [
-        {
-          "question_id": "wr_exempt_situations",
-          "operator": "in",
-          "value": "parent_child_under_18,nonparent_caregiver_child_under_14,caregiver_daily_activities,already_snap_tanf_work_requirements"
-        },
-        {
-          "question_id": "wr_pregnant",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_drug_alcohol_treatment",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_drug_alcohol_disorder",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_disability_hard_work",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_mental_health_hard_work",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_serious_health_condition",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_jail_prison_past_4_months",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_foster_care_under_26",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_veteran_100_disabled",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_applied_last_month",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_medical_travel_1hr",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_hospital_care_24hr",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_income_580",
-          "operator": "equals",
-          "value": "yes"
-        },
-        {
-          "question_id": "wr_student_enrolled",
-          "operator": "in",
-          "value": "full_time,at_least_half_time"
-        }
+        { "question_id": "wr_exempt_situations", "operator": "in", "value": "parent_child_under_18,nonparent_caregiver_child_under_14,caregiver_daily_activities,already_snap_tanf_work_requirements" },
+        { "question_id": "wr_pregnant", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_treatment", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_disorder", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_disability_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_mental_health_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_serious_health_condition", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_jail_prison_past_4_months", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_foster_care_under_26", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_veteran_100_disabled", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_applied_last_month", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_medical_travel_1hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_hospital_care_24hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_income_580", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_student_enrolled", "operator": "in", "value": "full_time,at_least_half_time" }
       ],
       "provenance": "user-supplied"
     }

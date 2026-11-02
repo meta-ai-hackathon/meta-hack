@@ -124,6 +124,36 @@ describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
     expect(matchIncome580(accounted).proposal).toBe("no");
   });
 
+  it("withholds a 'no' when a named source's amount never made it into the total (claude-review P2)", () => {
+    // benefits is named, but no benefits amount was captured: $100/week
+    // alone stays under even the average conversion, yet the named
+    // source's money is invisible — asked directly, never a blind 'no'.
+    const namedButMissing = merge(
+      amount("job_income_amount", 100),
+      frequency("job_income_frequency", "weekly"),
+      sources("job", "benefits"),
+    );
+    expect(matchIncome580(namedButMissing).proposal).toBeNull();
+    // Same for an amount stored as not-known: uncounted, so unaccounted.
+    const notKnown = merge(
+      amount("job_income_amount", 100),
+      frequency("job_income_frequency", "weekly"),
+      { benefits_income_amount: { status: "unknown" as const, value: null } },
+      sources("job", "benefits"),
+    );
+    expect(matchIncome580(notKnown).proposal).toBeNull();
+    // With the benefits amount actually counted, the same session's
+    // 'no' becomes certain (the total is genuinely under).
+    const counted = merge(
+      amount("job_income_amount", 100),
+      frequency("job_income_frequency", "weekly"),
+      amount("benefits_income_amount", 0),
+      frequency("benefits_income_frequency", "monthly"),
+      sources("job", "benefits"),
+    );
+    expect(matchIncome580(counted).proposal).toBe("no");
+  });
+
   it("treats other_income_amount as monthly by definition (the question asks per month)", () => {
     expect(matchIncome580(amount("other_income_amount", 600)).proposal).toBe("yes");
     expect(matchIncome580(merge(amount("other_income_amount", 100), sources("other"))).proposal).toBe("no");
@@ -229,8 +259,8 @@ describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
           );
         } else if (match.proposal === "no") {
           // Certain upper bound: nothing was captured that could raise
-          // it, and no unread source is named (the stored answer
-          // accounts for every source of money).
+          // it, and every source the person named is counted (the stored
+          // answer accounts for every source of money).
           expect(match.monthlyTotal).toBeLessThan(INCOME_580_MONTHLY_THRESHOLD);
           expect(match.uncountedSourceIds).toEqual([]);
           const named = answers.income_sources;
@@ -238,6 +268,13 @@ describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
           const values = Array.isArray(named?.value) ? named.value : [named?.value];
           for (const item of values) {
             expect(["job", "benefits", "other", "none"]).toContain(item);
+            if (item === "job") {
+              expect(match.countedSourceIds).toContain("job_income_amount");
+            } else if (item === "benefits") {
+              expect(match.countedSourceIds).toContain("benefits_income_amount");
+            } else if (item === "other") {
+              expect(match.countedSourceIds).toContain("other_income_amount");
+            }
           }
         } else {
           // Asked directly: no captured income, or an unconvertible one
