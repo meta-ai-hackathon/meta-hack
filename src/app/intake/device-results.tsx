@@ -8,11 +8,18 @@ import {
   type FillConflict,
   type ToResolveItem,
 } from "../../lib/forms/fill-core";
+import {
+  pagePointer,
+  type DispositionReport,
+  type DispositionReportField,
+} from "../../lib/forms/disposition";
 import type { FormFlowFieldView } from "../../lib/forms/flow";
+import type { FormFieldDisposition } from "../../lib/forms/registry-core";
 import type { AnswerProvenance } from "../../lib/honesty";
 import type { ClientAnswerState } from "../../lib/intake/client-store";
 import {
   DEVICE_FORM_ENTRY,
+  deviceFormCoverage,
   deviceFormReview,
   deviceHandoffLinks,
   deviceMatch,
@@ -78,6 +85,9 @@ export const DEVICE_RESULTS_COPY = {
     "check it and try again.",
   failed: "Something went wrong preparing your form. Please try again.",
   leftBlankHeading: "Left blank on the form you downloaded",
+  coverageHeading: "Every field, accounted for",
+  coverageDetails: "Why each blank field stays blank",
+  coverageAllMapped: "Every box on this form takes an answer, so nothing was skipped.",
   conflictsHeading: "Check these on the form you downloaded",
   conflictsBody:
     "You checked more than one box where the form takes one answer. The " +
@@ -115,6 +125,37 @@ const STATE_COPY: Readonly<Record<FormFlowFieldView["state"], string>> = {
   asked: "Still needed",
   not_applicable: "Not needed for you",
 };
+
+// Why a field the pipeline never fills stays blank (VAL-FIX-007), in this
+// page's words. The registry's own reason for each one stays in the data.
+const DISPOSITION_COPY: Readonly<Record<Exclude<FormFieldDisposition, "mapped">, string>> = {
+  not_collected_by_interview: "These questions don't ask this",
+  optional_unanswered: "Optional, so it stays blank",
+  agency_use_only: "For the agency to fill in",
+  duplicate_structural: "A printed line, not an answer box",
+};
+
+/** A coverage row for a field the pipeline leaves blank. */
+type BlankCoverageField = DispositionReportField & {
+  readonly disposition: Exclude<FormFieldDisposition, "mapped">;
+};
+
+function isBlankCoverageField(field: DispositionReportField): field is BlankCoverageField {
+  return field.disposition !== "mapped";
+}
+
+/** How the form's fields split up, from the coverage report's counts. */
+function coverageSummary(counts: DispositionReport["counts"]): string {
+  return (
+    `The application has ${counts.total} boxes and lines to fill in. ` +
+    `${counts.mapped} of them take your answers. The rest stay blank on the ` +
+    `form you download: ${counts.not_collected_by_interview} that these ` +
+    "questions don't ask, so fill those in by hand if they apply to you, " +
+    `${counts.optional_unanswered} that are optional, ${counts.agency_use_only} ` +
+    `for the agency to fill in, and ${counts.duplicate_structural} printed ` +
+    "lines that aren't answer boxes."
+  );
+}
 
 // The fill never picks a side of a contradiction (VAL-FIX-007): it prints
 // every box the person checked and flags the group, and this says which.
@@ -262,6 +303,8 @@ export function DeviceResults(props: {
   const match = useMemo(() => deviceMatch(answers), [answers]);
   const review = useMemo(() => deviceFormReview(answers), [answers]);
   const handoffLinks = useMemo(() => deviceHandoffLinks(), []);
+  const coverage = useMemo(() => deviceFormCoverage(), []);
+  const blankFields = useMemo(() => coverage.fields.filter(isBlankCoverageField), [coverage]);
   const [typed, setTyped] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [leftBlank, setLeftBlank] = useState<readonly ToResolveItem[] | null>(null);
@@ -439,6 +482,37 @@ export function DeviceResults(props: {
             );
           })}
         </ul>
+        <div data-field-coverage className="flex flex-col gap-2">
+          <h3 className="font-display text-xl font-bold">{DEVICE_RESULTS_COPY.coverageHeading}</h3>
+          <p data-coverage-counts className="text-sm text-muted">
+            {coverageSummary(coverage.counts)}
+          </p>
+          {blankFields.length > 0 ? (
+            <details className="rounded-xl border border-surface-border bg-surface p-4 text-sm">
+              <summary className="cursor-pointer font-medium">
+                {DEVICE_RESULTS_COPY.coverageDetails}
+              </summary>
+              <ul className="mt-3 flex flex-col gap-2">
+                {blankFields.map((field) => (
+                  <li
+                    key={field.fieldName}
+                    data-coverage-field={field.fieldName}
+                    className="flex flex-col gap-0.5"
+                  >
+                    <span className="font-medium">{field.question}</span>
+                    <span className="text-muted">
+                      {DISPOSITION_COPY[field.disposition]}, {pagePointer(field.pages)}.
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+            <p data-coverage-all-mapped className="text-sm text-muted">
+              {DEVICE_RESULTS_COPY.coverageAllMapped}
+            </p>
+          )}
+        </div>
         {review.toResolve.length > 0 ? (
           <div
             data-form-to-resolve

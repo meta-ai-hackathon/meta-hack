@@ -2,6 +2,7 @@
 import fc from "fast-check";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { pagePointer } from "../../lib/forms/disposition";
 import type { AnswerStatus } from "../../lib/honesty";
 import { findBannedClaims } from "../../lib/honesty";
 import {
@@ -11,7 +12,12 @@ import {
   type ClientAnswerProvenance,
   type ClientAnswerState,
 } from "../../lib/intake/client-store";
-import { deviceFormReview, deviceMatch } from "../../lib/intake/device-form";
+import {
+  DEVICE_FORM_ENTRY,
+  deviceFormCoverage,
+  deviceFormReview,
+  deviceMatch,
+} from "../../lib/intake/device-form";
 import { QUESTIONS, type Question } from "../../lib/intake/spec";
 import { KB_ENTRIES } from "../../lib/kb";
 import { DEVICE_RESULTS_COPY, DeviceResults } from "./device-results";
@@ -278,6 +284,37 @@ describe("the device results, for any answers on the device", () => {
     expect(shown("tax_return")).toBeGreaterThan(10);
     expect(shown("user")).toBeGreaterThan(10);
   });
+
+  it("account for every field on the form exactly once, in the review or as left blank", () => {
+    // The full DHB-5200 mapping (VAL-FIX-007): a field either takes an
+    // answer, so the review lists it, or the coverage list says why it
+    // stays blank and on which page, whatever the answers.
+    const coverage = new Map(deviceFormCoverage().fields.map((field) => [field.fieldName, field]));
+    fc.assert(
+      fc.property(deviceAnswersArb, (state) => {
+        const { root } = render(state);
+        const reviewed = [...root.querySelectorAll("[data-review-field]")].map(
+          (item) => item.getAttribute("data-review-field") ?? "",
+        );
+        const blank = [...root.querySelectorAll("[data-coverage-field]")].map(
+          (item) => item.getAttribute("data-coverage-field") ?? "",
+        );
+        expect([...reviewed, ...blank].sort()).toEqual(
+          DEVICE_FORM_ENTRY.fields.map((field) => field.name).sort(),
+        );
+        for (const name of reviewed) {
+          expect(coverage.get(name)?.disposition, name).toBe("mapped");
+        }
+        for (const item of root.querySelectorAll("[data-coverage-field]")) {
+          const row = coverage.get(item.getAttribute("data-coverage-field") ?? "");
+          expect(row?.disposition).not.toBe("mapped");
+          expect(item.textContent).toContain(row?.question);
+          expect(item.textContent).toContain(`${pagePointer(row?.pages ?? [])}.`);
+        }
+      }),
+      { numRuns: 20 },
+    );
+  }, RENDER_TIMEOUT_MS);
 
   it("say where every prefilled answer came from", () => {
     fc.assert(

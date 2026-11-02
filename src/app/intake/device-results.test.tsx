@@ -351,6 +351,17 @@ describe("/intake to the review and the filled form, on the device", () => {
       expect(page.text()).not.toContain(value);
     }
 
+    // Every field the fill leaves blank by design is listed with why and
+    // where to find it on the printed form (VAL-FIX-007).
+    const coverage = page.container.querySelector("[data-field-coverage]");
+    expect(coverage?.querySelector("[data-coverage-counts]")?.textContent).toContain(
+      "The application has 571 boxes and lines to fill in. 355 of them take your answers.",
+    );
+    expect(
+      coverage?.querySelector('[data-coverage-field="Will you file jointly with a spouse"]')?.textContent,
+    ).toContain("These questions don't ask this, page 3 of the form.");
+    expect(coverage?.querySelector(`[data-coverage-field="${NAME_FIELD}"]`)).toBeNull();
+
     // The name isn't asked by the questions: it is typed into the review.
     const nameInput = field(NAME_FIELD)?.querySelector<HTMLInputElement>("input");
     expect(nameInput).toBeTruthy();

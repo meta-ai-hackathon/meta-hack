@@ -4,6 +4,7 @@ import {
   type FillAnswerRecord,
   type FillValue,
 } from "../forms/fill-core";
+import { buildDispositionReport, type DispositionReport } from "../forms/disposition";
 import { buildFormFlow, type FormFlowView } from "../forms/flow";
 import {
   parseCommittedRegistryEntries,
@@ -26,9 +27,10 @@ import { QUESTION_BY_ID, QUESTIONS } from "./spec";
 // device. Nothing here reads a server store or sends a request: the match
 // runs the same deterministic scoring as the server with every explanation
 // composed from the entry's own facts (no model call), the review is the
-// same form-driven field view the server's review route builds, and the
-// fill runs the same value assembly and PDF fill as the server's fill
-// route, over the device answers and the on-device vault view.
+// same form-driven field view and field coverage report the server's
+// review route builds, and the fill runs the same value assembly and PDF
+// fill as the server's fill route, over the device answers and the
+// on-device vault view.
 //
 // The device answers are laid out the way the server keeps the same
 // answers: the answer rows carry no private value (pii values live in the
@@ -90,6 +92,17 @@ export function deviceFormReview(
     }
   }
   return buildFormFlow(entry, toAnswerMap(answers), provenances);
+}
+
+/**
+ * Every field on the form, in the bucket its reviewed disposition puts it
+ * (VAL-FIX-007): the fields that take an answer, and for each one the
+ * pipeline leaves blank, why and on which page. It is the report the
+ * server's review route serves, built from the committed registry alone,
+ * so it carries no answer.
+ */
+export function deviceFormCoverage(entry: FormRegistryEntry = DEVICE_FORM_ENTRY): DispositionReport {
+  return buildDispositionReport(entry);
 }
 
 /** The device answers as answer rows: a private answer's value stays out of its row. */

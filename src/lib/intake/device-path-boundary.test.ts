@@ -111,6 +111,7 @@ describe("the on-device intake path", () => {
       "lib/forms/registry-core.ts",
       "lib/forms/flow.ts",
       "lib/forms/display.ts",
+      "lib/forms/disposition.ts",
     ]) {
       expect(files.has(expected), expected).toBe(true);
     }

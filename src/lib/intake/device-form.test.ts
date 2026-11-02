@@ -31,6 +31,7 @@ import { fillFormOnDevice } from "./device-fill";
 import {
   DEVICE_FORM_ENTRY,
   deviceFillValues,
+  deviceFormCoverage,
   deviceFormReview,
   deviceMatch,
 } from "./device-form";
@@ -329,6 +330,7 @@ describe("the device form against the server's, for the same answers", () => {
         expect(asJson(view.fields)).toEqual(review.fields);
         expect(asJson(view.toResolve)).toEqual(review.toResolve);
         expect(asJson(view.counts)).toEqual(review.counts);
+        expect(asJson(deviceFormCoverage(entry))).toEqual(review.coverage);
 
         // No consent receipt: the route explains from the entry's facts,
         // the only explanation the device ever shows.
