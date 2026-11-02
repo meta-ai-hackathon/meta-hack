@@ -78,6 +78,20 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "reported determination without that", text: "Your answers show you meet the requirements." },
   { label: "singular rule determination", text: "You meet the income limit for the program." },
   { label: "singular requirement determination", text: "She meets the residency requirement." },
+  // Work-requirements determinations (VAL-WR-009; the milestone's HARD
+  // LINE): the app helps people REPORT — it never states or implies anyone
+  // is exempt from, compliant with, or satisfies the work requirement. The
+  // state decides. Negated determinations ban alike.
+  { label: "work-requirement exemption determination", text: "Good news — you are exempt from the work requirement." },
+  { label: "contraction work-requirement exemption", text: "You're exempt from the work requirement." },
+  { label: "negated work-requirement exemption", text: "You are not exempt from the work requirement." },
+  { label: "future work-requirement exemption", text: "You will be exempt from reporting your work activities." },
+  { label: "work-requirement compliance determination", text: "You meet the work requirement." },
+  { label: "negated work-requirement compliance", text: "You don't meet the work requirement." },
+  { label: "third-person work-rules satisfaction", text: "They satisfy the work requirements for the program." },
+  { label: "no-report determination", text: "You don't need to report work activities." },
+  { label: "future no-report determination", text: "You won't need to report your work activities." },
+  { label: "emphatic no-report determination", text: "You do not need to report your work activities to us." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty
@@ -104,6 +118,12 @@ const HONEST_SENTENCES: string[] = [
   // Open conditionals describe what may happen, not the person's outcome.
   "You can keep your answers until you meet the caseworker.",
   "Unless you meet the limits, the office may review your file.",
+  // The work-requirements permitted framing (VAL-WR-009): hedged
+  // uncertainty plus the state-decides boundary stay allowed — the app
+  // helps people report, it never decides who is exempt.
+  "You may not need to report work activities — the state decides.",
+  "You may meet the work requirement rules; the state decides what counts.",
+  "The checklist shows whether you meet the work requirement.",
 ];
 
 // Parsed from the repo's spec and migration files at test time — the literals
@@ -151,6 +171,58 @@ describe("banned-claims detector", () => {
   it("throws BannedClaimError from assertNoBannedClaims", () => {
     expect(() => assertNoBannedClaims("You are eligible.")).toThrow(BannedClaimError);
     expect(() => assertNoBannedClaims(HONEST_SENTENCES.join(" "))).not.toThrow();
+  });
+
+  it("work-requirements phrasings bite across their whole grammar, and hedged forms pass (VAL-WR-009, property)", () => {
+    // The gate over the grammar the HARD LINE cares about: any subject ×
+    // modal × intensifier × verb form of an exemption, compliance, or
+    // no-report determination must bite, in every tail phrasing — and the
+    // hedged permitted framing must pass untouched.
+    const subjects = ["You", "you"];
+    // One intensifier slot per pattern (matching the existing spine
+    // patterns' shape) — "will always be exempt" is verb "will be" × the
+    // "always" intensifier, not a doubled stacking.
+    const exemptionVerbs = ["are", "'re", "will be", "shall be", "should be", "must be"];
+    const intensifiers = ["", "definitely ", "clearly ", "absolutely ", "undoubtedly ", "easily "];
+    const exemptionTails = ["", " from the work requirement", " from reporting work activities", " from the work and community engagement requirement."];
+    const complianceVerbs = ["meet", "have met", "satisfy", "have satisfied"];
+    const complianceTails = ["the work requirement.", "the work requirement", "all the work requirements", "the work rules for the program."];
+    const noReportForms = ["don't need to report", "do not need to report", "won't need to report", "will not need to report"];
+    const noReportTails = [" work activities.", " your work activities", " work activities to the state."];
+    const hedges = [
+      "You may not need to report work activities — the state decides.",
+      "You might not need to report your work activities.",
+      "You may be exempt from the work requirement; the state decides.",
+      "Some people may be exempt; the state decides per person.",
+      "You may meet the work requirement rules; the state decides what counts.",
+    ];
+    const misses: string[] = [];
+    for (const subject of subjects) {
+      for (const verb of exemptionVerbs) {
+        for (const intensifier of intensifiers) {
+          for (const tail of exemptionTails) {
+            const sentence = `${subject} ${verb} ${intensifier}exempt${tail}`;
+            if (findBannedClaims(sentence).length === 0) misses.push(sentence);
+          }
+        }
+      }
+      for (const verb of complianceVerbs) {
+        for (const tail of complianceTails) {
+          const sentence = `${subject} ${verb} ${tail}`;
+          if (findBannedClaims(sentence).length === 0) misses.push(sentence);
+        }
+      }
+      for (const form of noReportForms) {
+        for (const tail of noReportTails) {
+          const sentence = `${subject} ${form}${tail}`;
+          if (findBannedClaims(sentence).length === 0) misses.push(sentence);
+        }
+      }
+    }
+    expect(misses, "violation phrasings that slipped through").toEqual([]);
+    for (const hedge of hedges) {
+      expect(findBannedClaims(hedge), hedge).toEqual([]);
+    }
   });
 });
 

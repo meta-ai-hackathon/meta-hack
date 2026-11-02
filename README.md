@@ -149,6 +149,43 @@ entries are never presented. A plain-language explanation of the top match
 is generated from that entry's facts alone and passes the banned-claim and
 grounding checks before it renders.
 
+### Work-requirements questions (Civilla-adapted)
+
+The quick-questions stage carries North Carolina's Medicaid work-requirements
+questions, worded from Civilla's user-tested public templates — with visible
+credit on the stage's "About these questions" affordance ("Question wording
+adapted from Civilla's public work-requirements templates,
+[civilla.org/work/hr1](https://civilla.org/work/hr1/)"). The same affordance
+links the state's own resource, found by worker research (retrieved
+2026-11-01): the official
+[Work and Community Engagement Requirement](https://medicaid.ncdhhs.gov/beneficiaries/impact-hr-1-and-federal-changes-medicaid/work-and-community-engagement-requirement)
+page on the NC Medicaid (NCDHHS) site — no generic NC DHHS fallback needed.
+
+How the stage treats them:
+
+- The exemption screen and the other-situations screen (student status, the
+  $580/month household-income screen, medical travel, hospital care,
+  applied-last-month) ask once in plain language. The work-activity
+  reporting section (who / activity types / hours last month) appears only
+  when no exemption, income, or student path applies — the question spec's
+  skip conditions decide through the same deterministic flow engine as
+  every other question, never a fork.
+- The $580/month screen is pre-answered "Matched for you" from the income
+  answers already captured, by a documented deterministic comparison in the
+  intake engine — never an LLM, and the person confirms or corrects it
+  before anything saves.
+- The sensitive items (pregnancy, drug/alcohol treatment and disorder,
+  disability, mental health, serious health condition, incarceration,
+  foster care, 100%-disabled veteran rating) render last in the private
+  group, marked optional, each with a "why we ask" note and a skip
+  affordance; their answers ride the encrypted vault like every `pii: true`
+  answer.
+- HARD LINE: the app helps people report. It never states or implies that
+  anyone is exempt from, or satisfies, a work requirement — the strongest
+  framing it carries is "you may not need to report work activities — the
+  state decides", and the banned-claims gate is seeded with the violation
+  phrasings (the exemption and compliance claims) to prove the gate bites.
+
 ### Walkthrough CLI
 
 `pnpm walkthrough` drives full user journeys over HTTP against a running app —

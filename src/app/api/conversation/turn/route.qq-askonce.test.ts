@@ -433,3 +433,143 @@ describe("POST /api/conversation/turn — the talk stage after quick questions (
     }
   });
 });
+
+describe("POST /api/conversation/turn — ask-once holds for the work-requirements questions (VAL-WR-007)", () => {
+  // The talk stage never re-asks what the quick-questions stage captured
+  // for the work-requirements milestone's questions. Every wr_* question
+  // is pii:true in the spec (the milestone's sensitivity invariant), so
+  // the seeded answers ride the encrypted vault; the proof here covers two
+  // shapes the stage saves — a single_select sensitive item and the
+  // free-text work-activity "who" report (a real free-form value, so the
+  // value-absence scan is meaningful; select values are spec vocabulary
+  // that legitimately appears in option lists).
+  const WR_SEED = [
+    { questionId: "wr_pregnant", status: "known" as const, value: "no" },
+    { questionId: "wr_work_activity_who", status: "known" as const, value: "Casey" },
+  ] as const;
+
+  const WR_ANSWER_MAP: AnswerMap = Object.fromEntries(
+    WR_SEED.map((step) => [step.questionId, { status: "known", value: step.value }]),
+  );
+
+  async function seedWrQuestions(): Promise<string> {
+    let cookie: string | null = null;
+    for (const body of WR_SEED) {
+      const response = await postAnswer(
+        new Request("http://localhost:3100/api/intake/answer", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(cookie ? { cookie } : {}),
+          },
+          body: JSON.stringify(body),
+        }),
+      );
+      expect(response.status, body.questionId).toBe(200);
+      if (cookie === null) {
+        cookie = await cookieOf(response);
+      }
+    }
+    return cookie as string;
+  }
+
+  it("the opener proceeds to genuinely-unanswered questions only, marks the captured wr answers private in its grounding, and no wr value surfaces", async () => {
+    const cookie = await seedWrQuestions();
+    const scripted = "Thanks — what kind of help are you looking for right now?";
+    const calls = installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: scripted,
+        nextQuestionId: expectedNextQuestionId(WR_ANSWER_MAP) ?? "main_goal",
+      },
+    ]);
+
+    const response = await POST(turnRequest("I did the work-requirements questions.", cookie));
+    expect(response.status).toBe(200);
+    // Read the body ONCE (a Response body can't be read twice): keep the
+    // text for the value-absence scan and JSON.parse the parsed view.
+    const responseBody = await response.text();
+    const data = JSON.parse(responseBody) as TurnResponse;
+
+    // Ask-once: the opener's question is the engine's first UNANSWERED
+    // visible question — never a captured wr question. (wr_pregnant=no
+    // and the free-text who-report hide nothing: no exemption/income/
+    // student path applies, so the rest of the reporting section stays
+    // visible and un-asked — it must be ASKED, not re-asked.)
+    expect(data.nextQuestionId).toBe(expectedNextQuestionId(WR_ANSWER_MAP));
+    for (const step of WR_SEED) {
+      expect(data.nextQuestionId, step.questionId).not.toBe(step.questionId);
+    }
+    expect(data.nextQuestionId).not.toMatch(/^wr_/);
+    expect(data.assistantReply).toBe(scripted);
+
+    // The served state carries the captured pii answers as status-only
+    // rows (vault path — the value key is structurally absent).
+    for (const step of WR_SEED) {
+      const served = data.state.answers[step.questionId]!;
+      expect(served.status).toBe("known");
+      expect("value" in served).toBe(false);
+    }
+
+    // The opener's grounding marks the captured questions answered (the
+    // private mark for pii), and no captured wr value rides the prompt or
+    // any response body.
+    const prompt = calls[0]!.body.messages.find((message) => message.role === "system")!
+      .content;
+    for (const step of WR_SEED) {
+      const line = prompt
+        .split("\n")
+        .find((candidate) => candidate.startsWith(`- (id: ${step.questionId})`));
+      expect(line, step.questionId).toBeDefined();
+      expect(line!).toContain("already answered");
+      expect(line!).toContain("[the answer they shared — private, never repeat it]");
+    }
+    const history = await historyGet(
+      new Request("http://localhost:3100/api/conversation/history", {
+        headers: { cookie },
+      }),
+    );
+    expect(history.status).toBe(200);
+    const bodies = [responseBody, await history.text()];
+    for (const body of bodies) {
+      // The free-text report is a real private value: it appears in NO
+      // client-delivered body (select values are spec vocabulary and are
+      // covered by the structural no-value-key assertion above).
+      expect(body).not.toContain("Casey");
+    }
+  });
+
+  it("overrides a scripted reply that tries to re-ask a captured work-requirements question", async () => {
+    const cookie = await seedWrQuestions();
+    installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        // The model re-asks the captured sensitive item (the stage already
+        // saved wr_pregnant through the answer route).
+        reply: "Let me ask again — is anyone applying pregnant now or in the past 12 months?",
+        nextQuestionId: "wr_pregnant",
+      },
+    ]);
+
+    const response = await POST(turnRequest("Hello?", cookie));
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+
+    // The deterministic engine owns flow control: the re-ask is replaced
+    // with the server's genuinely-unanswered next question.
+    expect(data.nextQuestionId).toBe(expectedNextQuestionId(WR_ANSWER_MAP));
+    expect(data.nextQuestionId).not.toBe("wr_pregnant");
+    expect(data.assistantReply).toBe(
+      `${FLOW_MISMATCH_PREFIX} ${QUESTION_BY_ID[data.nextQuestionId as string]!.prompt}`,
+    );
+
+    // The re-ask never persisted: the stored assistant turn is the
+    // replaced reply.
+    const turns = await testDb`
+      SELECT redacted_transcript FROM conversation_turn
+      WHERE role = 'assistant' ORDER BY created_at ASC, id ASC
+    `;
+    expect(turns).toHaveLength(1);
+    expect(String(turns[0]!.redacted_transcript)).toBe(data.assistantReply);
+  });
+});

@@ -57,7 +57,20 @@ export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
   // "documents proving residency status" instead). Lexical backstops are
   // over/under-inclusive at the margins by nature; the grounding checker
   // carries the load for explanation prose.
-  /(?<!\b(?:if|whether|once|when|until|unless)\s+)\b(?:you|he|she|they)\s*(?:(?:will|'ll|'ve|have|shall|should|do|did|don't|doesn't|didn't|won't|haven't|hasn't|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?(?:meets?|met|satisfied|satisfies|satisfy)\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+|of\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|disability|citizenship|application)\w*\s+)*(?:rules?|requirements?|criteria|guidelines?|limits?|thresholds?|conditions?|standards?)\b/i,
+  /(?<!\b(?:if|whether|once|when|until|unless)\s+)\b(?:you|he|she|they)\s*(?:(?:will|'ll|'ve|have|shall|should|do|did|don't|doesn't|didn't|won't|haven't|hasn't|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?(?:meets?|met|satisfied|satisfies|satisfy)\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+|of\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|disability|citizenship|application|work)\w*\s+)*(?:rules?|requirements?|criteria|guidelines?|limits?|thresholds?|conditions?|standards?)\b/i,
+  // Work-requirements exemption determinations (VAL-WR-009; the milestone's
+  // HARD LINE): the app helps people REPORT — it never states or implies
+  // anyone IS exempt from a work requirement; the state decides. Assertive
+  // and negated determinations ban alike: a "not exempt" verdict decides
+  // as much as an affirmative one. Hedged forms ("may be exempt") stay
+  // allowed, like every determination above.
+  /\byou\s*(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|always)\s+)?(?:will|'ll|shall|must|should|are|'re)\s+(?:not\s+)?(?:going\s+to\s+)?(?:be\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|always)\s+)?(?:not\s+)?(?:be\s+)?exempt\b/i,
+  // "No need to report" determinations (VAL-WR-009): the app never tells a
+  // person they don't need to report work activities. The permitted framing
+  // is the HEDGED one — "you may not need to report work activities — the
+  // state decides" — so definite do-not / will-not forms bite and may/might
+  // hedges pass.
+  /\byou\s+(?:do\s+not|don't|don’t|will\s+not|won't|won’t)\s+(?:even\s+|have\s+to\s+)?need\s+to\s+report\b/i,
 ];
 
 export interface BannedClaimMatch {
