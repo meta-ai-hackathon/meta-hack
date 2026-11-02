@@ -191,6 +191,38 @@ describe("rampart-session-store", () => {
     expect(await loadRampartSession(d)).toEqual({ status: "ok", serialized: SERIALIZED });
   });
 
+  it("a purge inside a generated-key save is not undone (review P2 twin)", async () => {
+    for (const expectStored of [false, true]) {
+      // A session envelope is on the device under a garbage key: this
+      // save walks the generated-key path; the other tab purges on the
+      // SECOND guarded write - after the key claim has committed, in
+      // exactly the window the two-write design protects (review P3).
+      let armPurge = false;
+      let armedWrites = 0;
+      const { kv, store } = memoryKv({
+        beforeGuardedWrite: (s) => {
+          if (armPurge) {
+            armedWrites += 1;
+            if (armedWrites === 2) {
+              armPurge = false;
+              s.delete(DEVICE_SESSION_ENVELOPE_KEY);
+              s.delete(DEVICE_ANSWERS_ENVELOPE_KEY);
+              s.delete(DEVICE_ANSWERS_CRYPTO_KEY_KEY);
+            }
+          }
+        },
+      });
+      store.set(DEVICE_SESSION_ENVELOPE_KEY, "sealed1.deadbeef.x");
+      store.set(DEVICE_ANSWERS_CRYPTO_KEY_KEY, "not-a-key");
+      const d = deps(kv);
+      armPurge = true;
+      expect(await saveRampartSession(d, SERIALIZED, { expectStored })).toBe("purged");
+      // Nothing comes back: the map is raw PII (HACK-80). The claimed key
+      // may remain: it holds no data and becomes the next key to reuse.
+      expect(store.get(DEVICE_SESSION_ENVELOPE_KEY)).toBeUndefined();
+      expect(store.get(DEVICE_ANSWERS_ENVELOPE_KEY)).toBeUndefined();
+    }
+  });
   it("does not resurrect a purged session", async () => {
     let raced = false;
     let armed = false;

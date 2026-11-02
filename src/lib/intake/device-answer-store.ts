@@ -197,27 +197,54 @@ export async function recordDeviceAnswer(
     const key = reuseKey ? read.key : await generateSealingKey(deps.subtle);
     const sealed = await sealForStorage(serializeClientAnswers(next), key, deps.subtle);
     // The key is written with the envelope it sealed, so the pair on the
-    // device always matches. The one CAS anchor is the answers envelope:
-    // the write lands only while the envelope is still the one read. With
-    // a reused key that anchors a pair whose key is never rewritten; with
-    // a generated key the slot held nothing usable, so both entries are
-    // ours and pass the same check — and if a concurrent writer landed a
-    // usable key with its envelope meanwhile, this write replaces the
-    // envelope and the CAS fails, so the retry re-reads and reuses that
-    // key instead of clobbering it (no envelope is left sealed under a
-    // displaced key).
-    const written = await deps.kv.setMany(
-      reuseKey
-        ? [[DEVICE_ANSWERS_ENVELOPE_KEY, sealed]]
-        : [
-            [DEVICE_ANSWERS_CRYPTO_KEY_KEY, key],
-            [DEVICE_ANSWERS_ENVELOPE_KEY, sealed],
-          ],
-      {
+    // device always matches. The anchors differ by path:
+    // - A reused key is never rewritten, so the answers envelope is the
+    //   anchor: the write lands only while the answers are still the ones
+    //   read; a concurrent answers save replaced them, and the retry
+    //   merges on top of that save.
+    // - A generated key write is two anchored writes (review P2): first
+    //   the key slot is CLAIMED while it holds nothing usable, mirroring
+    //   saveRampartSession's fresh writes — the first of two overlapping
+    //   first saves of either table to claim it wins, and the loser
+    //   aborts and retries under the winner's key. The answers envelope
+    //   cannot be the anchor for the claim: a Rampart session save claims
+    //   the key with the SESSION envelope, which this save never touches,
+    //   so the answers envelope still looks unchanged and an
+    //   envelope-anchored claim would replace the session writer's key —
+    //   orphaning the session envelope sealed under it and restarting the
+    //   token ordinals against server history. Then the answers envelope
+    //   LANDS anchored on the envelope read: a purge between this save's
+    //   read and its write has deleted the envelope, its identity no
+    //   longer matches, and the write aborts — the retry finds nothing
+    //   and reports "purged" instead of putting answers back on a device
+    //   the person wiped (HACK-80). A concurrent save that replaced the
+    //   envelope aborts the same way and the retry merges on top. When
+    //   nothing at all was read (a fresh device) a purge removed nothing,
+    //   so landing is that save, not a resurrection. Garbage slots are
+    //   not usable, so they stay ours to claim, as above.
+    let written: boolean;
+    if (reuseKey) {
+      written = await deps.kv.setMany([[DEVICE_ANSWERS_ENVELOPE_KEY, sealed]], {
         key: DEVICE_ANSWERS_ENVELOPE_KEY,
         keep: (current) => envelopeIdentity(current) !== read.identity,
-      },
-    );
+      });
+    } else {
+      written = await deps.kv.setMany([[DEVICE_ANSWERS_CRYPTO_KEY_KEY, key]], {
+        key: DEVICE_ANSWERS_CRYPTO_KEY_KEY,
+        // Claim only an unusable slot (empty or garbage): a concurrent
+        // writer's usable key is kept, never replaced.
+        keep: (current) => isSealingKey(current),
+      });
+      if (written) {
+        // Land only on the answers that were read: the envelope is the
+        // anchor, so a purge or a newer save since the read aborts this
+        // write (see the comment above).
+        written = await deps.kv.setMany([[DEVICE_ANSWERS_ENVELOPE_KEY, sealed]], {
+          key: DEVICE_ANSWERS_ENVELOPE_KEY,
+          keep: (current) => envelopeIdentity(current) !== read.identity,
+        });
+      }
+    }
     if (written) {
       return { status: "saved", state: next };
     }

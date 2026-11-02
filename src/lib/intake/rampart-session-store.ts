@@ -90,35 +90,45 @@ export async function saveRampartSession(
     }
     // A usable stored key is reused and never rewritten: a concurrent first
     // save of the answers envelope must not be orphaned by this writer. A
-    // generated key is written together with the fresh session envelope
-    // whenever the slot holds nothing usable — empty, or garbage that seals
-    // nothing, which is replaced like an empty slot so a damaged slot cannot
-    // orphan this save behind a key that is never stored (review P3). The
-    // write checks in its own transaction that the slot still holds no
-    // usable key, so only one overlapping first save lands a key; the loser
-    // retries under the winner's key.
+    // generated key write is two anchored writes (review P2), mirroring
+    // recordDeviceAnswer: first the key slot is CLAIMED while it holds
+    // nothing usable — empty, or garbage that seals nothing, which is
+    // replaced like an empty slot so a damaged slot cannot orphan this save
+    // behind a key that is never stored (review P3) — so only one
+    // overlapping first save lands a key and the loser retries under the
+    // winner's key. Then the session envelope LANDS anchored on the
+    // envelope read: a purge between this save's read and its write has
+    // deleted the envelope, its identity no longer matches, and the write
+    // aborts — the retry reports "purged" (the map is raw PII; HACK-80) —
+    // and a concurrent save that replaced it aborts the same way, the
+    // retry merging on top. When nothing was read (a fresh device) a purge
+    // removed nothing, so landing is that save, not a resurrection.
     const freshKey = read.key === null;
     const key = read.key ?? (await generateSealingKey(deps.subtle));
     const sealed = await sealForStorage(serialized, key, deps.subtle);
-    const written = await deps.kv.setMany(
-      freshKey
-        ? [
-            [DEVICE_ANSWERS_CRYPTO_KEY_KEY, key],
-            [DEVICE_SESSION_ENVELOPE_KEY, sealed],
-          ]
-        : [[DEVICE_SESSION_ENVELOPE_KEY, sealed]],
-      freshKey
-        ? {
-            key: DEVICE_ANSWERS_CRYPTO_KEY_KEY,
-            // Keep only a usable key (a concurrent writer's): empty slots and
-          // garbage are ours to replace when we carry the key ourselves.
-          keep: (current) => isSealingKey(current),
-          }
-        : {
-            key: DEVICE_SESSION_ENVELOPE_KEY,
-            keep: (current) => envelopeIdentity(current) !== read.identity,
-          },
-    );
+    let written: boolean;
+    if (freshKey) {
+      written = await deps.kv.setMany([[DEVICE_ANSWERS_CRYPTO_KEY_KEY, key]], {
+        key: DEVICE_ANSWERS_CRYPTO_KEY_KEY,
+        // Claim only an unusable slot (empty or garbage): a concurrent
+        // writer's usable key is kept, never replaced.
+        keep: (current) => isSealingKey(current),
+      });
+      if (written) {
+        // Land only on the session that was read: the envelope is the
+        // anchor, so a purge or a newer save since the read aborts this
+        // write (see the comment above).
+        written = await deps.kv.setMany([[DEVICE_SESSION_ENVELOPE_KEY, sealed]], {
+          key: DEVICE_SESSION_ENVELOPE_KEY,
+          keep: (current) => envelopeIdentity(current) !== read.identity,
+        });
+      }
+    } else {
+      written = await deps.kv.setMany([[DEVICE_SESSION_ENVELOPE_KEY, sealed]], {
+        key: DEVICE_SESSION_ENVELOPE_KEY,
+        keep: (current) => envelopeIdentity(current) !== read.identity,
+      });
+    }
     if (written) return "saved";
     expectStored = expectStored || read.identity !== "none";
   }
