@@ -490,6 +490,15 @@ export function buildCombinedTurnPrompt(
       "'verbatim' to the exact words from the message that contained the " +
       "answer. Extract nothing beyond what the message supports.",
   );
+  // spoken_reply stays requested on every voice turn even though the
+  // client now normally speaks the STORED reply verbatim: the server
+  // gate swaps a token-bearing reply for the generic fallback before
+  // it is stored, so a reply the client must run through the
+  // paraphrase check is not a state the server can currently
+  // produce — the rendition is pure defense in depth (review P3).
+  // Should that gate ever regress, voice playback keeps a verified
+  // token-free text and never reads PII aloud; one short extra field
+  // per voice turn is the cost of that acoustic-safety fallback.
   if (voiceTurn) {
     lines.push(
       "Spoken rendition (voice turns only): also include a \"spoken_reply\" " +
@@ -500,17 +509,20 @@ export function buildCombinedTurnPrompt(
         "or detail only generically, for example \"the person you mentioned\".",
     );
   }
-  if (!voiceTurn) {
-    lines.push(
-      "Typed transcripts carry Rampart placeholders (for example " +
-        "[GIVEN_NAME_1]) instead of the private values the app held back. " +
-        "In the reply, never repeat, quote, or echo a bracketed placeholder, " +
-        "and never state or guess what a token may stand for — refer to " +
-        "people and details generically, for example “the person you " +
-        "mentioned” — and if a token stands where the person's words would " +
-        "go, ask the same question again naturally.",
-    );
-  }
+  // Every turn holds the placeholder contract (review P3): a voice
+  // turn's history carries the same token-bearing typed turns, so
+  // instructing typed turns only left voice replies likelier to echo a
+  // token and be swapped for the generic fallback reply.
+  lines.push(
+    "Transcripts carry Rampart placeholders (for example " +
+      "[GIVEN_NAME_1]) instead of the private values the app held back, " +
+      "including the typed turns inside a voice turn's history. In the " +
+      "reply, never repeat, quote, or echo a bracketed placeholder, " +
+      "and never state or guess what a token may stand for — refer to " +
+      "people and details generically, for example “the person you " +
+      "mentioned” — and if a token stands where the person's words would " +
+      "go, ask the same question again naturally.",
+  );
   lines.push(
     `Output ONLY a JSON object with exactly the keys "answers", "reply", and ` +
       `"next_question_id" (plus the optional "followup" exactly when you ` +
@@ -568,7 +580,11 @@ const COMBINED_SCHEMA = {
     // engine-gated before it is ever asked; absent on ordinary turns.
     followup: { type: "string" },
     // HACK-107: optional token-free spoken rendition for voice turns -
-    // engine-gated before use; absent on typed turns.
+    // engine-gated before use; absent on typed turns. Kept on every
+    // voice turn as pure defense in depth (review P3): the server gate
+    // cannot currently produce a token-bearing reply, so the client
+    // normally speaks the stored reply verbatim and this rendition is
+    // the acoustic-safety fallback should that gate ever regress.
     spoken_reply: { type: "string" },
   },
 } as const;
