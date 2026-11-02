@@ -10,7 +10,9 @@
  * numbers inside the NANP-reserved fictional 555 exchange. The fixture loop
  * below enforces those ranges so a future edit cannot quietly introduce a
  * real-shape value (HACK-107 review: valid-looking synthetic data in a public
- * repo is a real-data risk).
+ * repo is a real-data risk). It checks every nine-digit SSN-shaped value
+ * whatever its label — the w2 fixture's SSN-shaped gold is labeled TAX_ID —
+ * so the shape governs, not the label (review P3).
  *
  * Metric: span-level P/R/F1 between the guard's predictions and hand-labeled
  * gold spans, matched with the same label and a small character-tolerance
@@ -331,10 +333,18 @@ for (const fixture of FIXTURES) {
       fail(`${fixture.id}: private term ${term.text} does not appear in the input`);
     }
     const digits = term.text.replace(/\D/g, "");
-    if (term.label === "SSN") {
-      const area = digits.slice(0, 3);
-      if (!(area === "000" || area === "666" || Number(area) >= 900)) {
-        fail(`${fixture.id}: SSN gold ${term.text} is outside the never-issued ranges (000/666/900-999)`);
+    // Nine digits means SSN shape, whatever the label says (review P3):
+    // enforcing on the shape cannot miss a real value filed under another
+    // label, and an SSN-labeled value that is not nine digits is just as
+    // real-shape by being labeled SSN.
+    if (term.label === "SSN" || term.label === "TAX_ID") {
+      if (digits.length === 9) {
+        const area = digits.slice(0, 3);
+        if (!(area === "000" || area === "666" || Number(area) >= 900)) {
+          fail(`${fixture.id}: SSN-shaped gold ${term.text} (${term.label}) is outside the never-issued ranges (000/666/900-999)`);
+        }
+      } else if (term.label === "SSN") {
+        fail(`${fixture.id}: SSN gold ${term.text} is not nine digits, not an SSN`);
       }
     }
     if (term.label === "PHONE") {
