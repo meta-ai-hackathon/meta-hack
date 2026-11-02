@@ -1773,12 +1773,19 @@ JWTS = st.lists(st.lists(JWT_PIECES, max_size=4).map(lambda pieces: "".join(piec
 # What comes right before a JWT, how it reads once redacted, and how many
 # markers it adds: a separator, or a number the JWT is stuck to.
 JWT_LEADS = SEPARATORS.map(lambda sep: (sep, sep, 0)) | NUMBERS.map(lambda number: (number[1], review.redaction_marker(number[0]), 1))
+# Google API keys of every ending. None holds a capital J, so no eyJ sits
+# inside one.
+GOOGLE_KEYS = st.text(alphabet=string.ascii_letters.replace("J", "") + string.digits + "_-", min_size=35, max_size=35).map(
+    lambda body: "AIza" + body
+)
+# JWTs whose segments hold small letters only, which no other pattern finds.
+PLAIN_JWTS = st.from_regex(r"eyJ[a-z]{8,30}\.eyJ[a-z]{8,30}\.[a-z]{8,30}", fullmatch=True)
 
 
 class JwtProperties(unittest.TestCase):
     """A JWT goes whole in the first pass, whatever its segments hold and
-    whether or not a number comes right before it, and the scan for one
-    stays linear in long runs of base64url."""
+    whether a number or a Google API key comes right before it, and the
+    scan for one stays linear in long runs of base64url."""
 
     @PBT
     @given(SAFE_TEXT, JWT_LEADS, JWTS, SEPARATORS, SAFE_TEXT)
@@ -1799,17 +1806,36 @@ class JwtProperties(unittest.TestCase):
         self.assertEqual((out, count), (before + shown + review.redaction_marker("jwt") + sep + after, 1 + numbers))
         self.assertEqual(review.redact_sensitive(out), (out, 0))
 
+    @PBT
+    @given(SAFE_TEXT, SEPARATORS, GOOGLE_KEYS, PLAIN_JWTS, SEPARATORS, SAFE_TEXT)
+    @example("key", " ", "AIza" + "FAKE" * 8 + "FAK", "eyJfakefake.eyJfakefake.fakefake", "\n", "")  # the key ends in a letter
+    def test_a_jwt_stuck_to_a_google_api_key_goes_in_the_first_pass(
+        self, before: str, sep: str, key: str, jwt: str, sep_after: str, after: str
+    ) -> None:
+        # The key pattern takes the key at its fixed length, and the JWT
+        # starts right after the key's last character, which the first JWT
+        # pattern refuses when it is a letter or an underscore. Both go in
+        # the first pass, each as its own marker, nothing around them
+        # changes, and a second pass finds nothing more.
+        out, count = review.redact_sensitive(before + sep + key + jwt + sep_after + after)
+        expected = before + sep + review.redaction_marker("api key") + review.redaction_marker("jwt") + sep_after + after
+        self.assertEqual((out, count), (expected, 2))
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
     def test_long_base64url_runs_take_linear_time(self) -> None:
         # Runs with an eyJ after every dash or digit, which a scan that
         # tried a JWT from each of them would read again from each one (main
         # did that after each dash), a run past a dot with a second segment
-        # and no third one, and runs that each end in a dot.
+        # and no third one, runs that each end in a dot, and the same after
+        # every ], where the second JWT pattern starts.
         texts = [
             "-eyJ" * 50_000,
             "0eyJ" * 50_000,
             "eyJ" + "a0-_" * 50_000,
             "0eyJ" * 25_000 + ".eyJ" + "0eyJ" * 25_000,
             ("0eyJ" * 2_000 + ".") * 25,
+            "]eyJ" * 50_000,
+            ("]eyJ" + "a" * 20 + ".eyJ" + "a" * 7 + "!") * 5_000,
         ]
         for text in texts:
             started = time.monotonic()
