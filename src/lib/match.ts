@@ -741,7 +741,9 @@ const PLAIN_NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
  * or a word after it is a unit (0hrs, 20-hour, 20/week), so the number
  * still stands as its own number there. These are the trigger's edges, and
  * the excusal's are stricter (standaloneNumberPattern). An answer inside a
- * range, ratio, or id ("20-30 hours", "v30") is not caught yet (HACK-124).
+ * range, ratio, or id ("20-30 hours", "20–30 hours" with an en dash, "v30")
+ * is not caught yet, and public copy that glues the answer to a letter or
+ * number outside ASCII ("1½ hours") still fails the match (HACK-124).
  *
  * The trigger keeps ASCII letters and digits, so a leak glued to a letter
  * outside ASCII, behind a bidi mark, or before a superscript still shows

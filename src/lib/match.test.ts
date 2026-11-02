@@ -1301,7 +1301,8 @@ describe("number answers in the pii gate (HACK-121)", () => {
   });
 
   // Known gap: a range, a ratio, a digit group, or an id ("20-30 hours",
-  // "30/80", "1,030", "v30", "hours-30") has the same shape as the dates
+  // "30/80", "1,030", "v30", "hours-30", and the same with an en dash, a
+  // minus sign or an invisible joiner) has the same shape as the dates
   // and ids every response carries (2026-10-30, 10/08/2026, dhb-5200), so
   // the token rule reads the answer there as part of a longer token.
   // Catching those needs a rule that knows the date and id shapes.
