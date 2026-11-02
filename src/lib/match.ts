@@ -733,7 +733,10 @@ const PLAIN_NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
  * Token edges for number answers (HACK-121). A letter or digit continues a
  * token, and so does one of these separators when it sits between two of
  * them, so dates (2026-10-30, 10/08/2026), ids (dhb-5200, travel_1hr),
- * times, decimals, and grouped numbers each stay one token.
+ * times, decimals, and grouped numbers each stay one token. The one
+ * exception is a letter right after the number: that is a unit glued on
+ * ("0hrs"), so the number still stands as its own number there, unless
+ * what comes before it joins it to a longer token (travel_1hr).
  */
 const TOKEN_CHAR = "[a-z0-9]";
 const TOKEN_JOINER = "[-./:,_]";
@@ -767,7 +770,7 @@ function privateValueMatcher(questionId: string, raw: string): PrivateValueMatch
   if (QUESTION_BY_ID[questionId]?.type === "number" && PLAIN_NUMBER_PATTERN.test(raw)) {
     const ownNumber = new RegExp(
       `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${TOKEN_JOINER})${escapeRegExpValue(raw)}` +
-        `(?!${TOKEN_CHAR})(?!${TOKEN_JOINER}${TOKEN_CHAR})`,
+        `(?!\\d)(?!${TOKEN_JOINER}${TOKEN_CHAR})`,
       "i",
     );
     return {

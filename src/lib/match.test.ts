@@ -1257,6 +1257,13 @@ describe("number answers in the pii gate (HACK-121)", () => {
         answers,
       ),
     ).toThrow();
+    // A unit glued right after it still shows the answer.
+    expect(() =>
+      assertNoPiiValuesInMatch(
+        withReasonText(clean, "You reported 0hrs of work last month."),
+        answers,
+      ),
+    ).toThrow();
     // The same digit inside a date, an id, and longer numbers is not the
     // answer.
     expect(() =>
@@ -1310,7 +1317,6 @@ describe("number answers in the pii gate (HACK-121)", () => {
     (value) => `wr_income_${value}`,
     (value) => `travel_${value}hr`,
     (value) => `v${value}`,
-    (value) => `${value}hr`,
     (value, digit) => `${digit}${value}`,
     (value, digit) => `${value}${digit}`,
     (value, digit) => `${value}.${digit}`,
@@ -1331,6 +1337,10 @@ describe("number answers in the pii gate (HACK-121)", () => {
     (value) => `-${value}`,
     (value) => `${value}, then`,
     (value) => `first line\n${value}`,
+    // A unit glued on after the number.
+    (value) => `${value}h`,
+    (value) => `${value}hr`,
+    (value) => `${value}hrs`,
   ];
 
   // Generated copy: plain words and embedded digits, rendered per value.
