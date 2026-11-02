@@ -16,7 +16,15 @@ import {
   purgeDeviceAnswers,
   type DeviceAnswerStoreDeps,
 } from "./device-answer-store";
-import { RampartShield, type RampartShieldDeps } from "./rampart-guard";
+import type { PiiLabel, Span } from "@nationaldesignstudio/rampart";
+import { dropAllowListed } from "@nationaldesignstudio/rampart";
+import {
+  RampartShield,
+  BENEFITS_ALLOW_LIST,
+  RAMPART_PERSON_NAME_LABELS,
+  type RampartShieldDeps,
+} from "./rampart-guard";
+import { PILOT_CONFIG } from "../pilot";
 
 function memoryKv() {
   const store = new Map<string, unknown>();
@@ -203,6 +211,33 @@ describe("RampartShield", () => {
     await shield.start();
     expect(shield.reveal("no tokens here")).toBe("no tokens here");
   });
+
+  it("derives the pilot's own program name with the benefits allow-list", () => {
+    // The single program-specific surface (PR #116 review finding): the
+    // entry IS the PILOT_CONFIG value, not a second copy of it.
+    expect(BENEFITS_ALLOW_LIST[0]).toBe(PILOT_CONFIG.programName);
+  });
+
+  it("threads the benefits allow-list to Rampart on fresh and restored starts", async () => {
+    // Sealed, then reloaded: the restored branch must carry the option too.
+    // An envelope exists only once a protect() call has introduced tokens.
+    const { kv } = memoryKv();
+    const field: Record<string, GuardOptions | undefined> = {};
+    const first = new RampartShield(withCapture(field, kv));
+    await first.start();
+    await first.protectTyped("My name is Carlos.");
+    await new RampartShield(withCapture(field, kv)).start();
+
+    const seenStates = Object.values(field);
+    expect(seenStates.length).toBe(2);
+    for (const options of seenStates) {
+      expect(options?.allowList).toEqual(BENEFITS_ALLOW_LIST);
+      expect(options?.allowList).not.toBeUndefined();
+    }
+    // Exactly the restored branch carries the sealed session.
+    expect(typeof seenStates[0]?.session).toBe("undefined");
+    expect(typeof seenStates[1]?.session).toBe("string");
+  });
 });
 
 // Property-based round (repo rule): the invariants the suite pin with
@@ -311,5 +346,145 @@ describe("RampartShield properties", () => {
         }
       }),
     );
+  });
+});
+
+/**
+ * A deps bundle whose factory records the options each startup passed to
+ * Rampart, keyed in the order starts happen against the given device kv.
+ */
+function withCapture(seen: Record<string, GuardOptions | undefined>, kv: DeviceKv | null): RampartShieldDeps {
+  const key = `start${Object.keys(seen).length}`;
+  return {
+    createGuard: async (options) => {
+      seen[key] = options ?? undefined;
+      return scriptedGuard(options ?? {});
+    },
+    openStore: async () => (kv === null ? null : deps(kv)),
+  };
+}
+
+// Property-based round (repo rule): whatever sealed-store state a start
+// encounters — absent device storage, a fresh store, a tampered envelope,
+// or one sealed by a prior shield — the allow-list must reach Rampart
+// unchanged and the session must be present exactly when the load
+// recovered a readable envelope.
+describe("RampartShield properties (allow-list threading)", () => {
+  const stateArb = fc.constantFrom("none", "fresh", "tampered", "sealed");
+
+  it("the benefits allow-list reaches Rampart from every storage state", async () => {
+    await fc.assert(
+      fc.asyncProperty(stateArb, async (state) => {
+        const seen: GuardOptions[] = [];
+        const { kv, store } = memoryKv();
+        if (state !== "none") {
+          // The prior-shield state leaves a valid sealed envelope behind.
+          if (state === "sealed") {
+            const prior = new RampartShield(withCapture({}, kv));
+            await prior.start();
+            await prior.protectTyped("Carlos");
+          } else if (state === "tampered") {
+            store.set(DEVICE_SESSION_ENVELOPE_KEY, "sealed3.notreallybase64");
+          }
+        }
+        const snapshot = [...BENEFITS_ALLOW_LIST];
+        const shield = new RampartShield({
+          createGuard: async (options) => {
+            seen.push(options ?? {});
+            return scriptedGuard(options ?? {});
+          },
+          openStore: async () => (state === "none" ? null : deps(kv)),
+        });
+        await shield.start();
+
+        expect(seen).toHaveLength(1);
+        expect([...(seen[0].allowList ?? [])]).toEqual(BENEFITS_ALLOW_LIST);
+        // The person-name skip set threads on every startup path as well
+        // (PR #116 review P1): an entry that equals a person's name must
+        // never exempt a span the detector tags GIVEN_NAME or SURNAME.
+        expect([...(seen[0].allowListSkipLabels ?? [])]).toEqual(RAMPART_PERSON_NAME_LABELS);
+        expect(typeof seen[0].session).toBe(state === "sealed" ? "string" : "undefined");
+        // No startup path may mutate the shared vocabulary constant.
+        expect([...BENEFITS_ALLOW_LIST]).toEqual(snapshot);
+        expect(shield.status).toBe("ready");
+      }),
+    );
+  });
+});
+
+/**
+ * "my son Chip" under the app's allow-list (PR #116 review P1): the entry
+ * "CHIP" must keep program mentions exempt without ever letting a
+ * person-name span through, including against the real pinned policy code
+ * (not the scripted stand-in above).
+ */
+describe("person-name skip labels (pinned policy seam)", () => {
+  it("redacts a GIVEN_NAME span whose text equals the CHIP entry", () => {
+    const spans: Span[] = [
+      { label: "GIVEN_NAME", score: 0.9, source: "ner", start: 7, end: 11, text: "Chip" },
+    ];
+    const kept = dropAllowListed(spans, BENEFITS_ALLOW_LIST, new Set<PiiLabel>(RAMPART_PERSON_NAME_LABELS));
+    // The name is NOT exempted; the policy keeps it for redaction.
+    expect(kept).toEqual(spans);
+  });
+
+  it("still exempts a program-name span the detector does not tag as a person", () => {
+    const spans: Span[] = [
+      { label: "TAX_ID", score: 0.95, source: "ner", start: 18, end: 22, text: "CHIP" },
+    ];
+    const kept = dropAllowListed(spans, BENEFITS_ALLOW_LIST, new Set<PiiLabel>(RAMPART_PERSON_NAME_LABELS));
+    expect(kept).toEqual([]);
+  });
+});
+/**
+ * The pinned fork's whole label surface, classified in one place (PR #116
+ * review P2 - the "explicit set of non-person labels" route): the skip set
+ * holds the person-name labels the exemption never touches, and the
+ * exhaustive record below must name every remaining `PiiLabel` member as
+ * eligible for a program-vocabulary exemption. The pinned tarball makes
+ * the shipped union exact, so if a future pin introduces a label it will
+ * survive `Exclude` into `EligibilityElsewhere` and the record will fail
+ * `pnpm typecheck` naming it - a new upstream label reaches the exemption
+ * only after the maintainer classifies it here, and a label that can
+ * carry a person's name must go into RAMPART_PERSON_NAME_LABELS instead.
+ */
+type EligibilityElsewhere = Exclude<PiiLabel, (typeof RAMPART_PERSON_NAME_LABELS)[number]>;
+const ELIGIBILITY_ELSEWHERE: Record<EligibilityElsewhere, true> = {
+  SSN: true,
+  CREDIT_CARD: true,
+  IP_ADDRESS: true,
+  EMAIL: true,
+  PHONE: true,
+  URL: true,
+  TAX_ID: true,
+  BANK_ACCOUNT: true,
+  ROUTING_NUMBER: true,
+  GOVERNMENT_ID: true,
+  PASSPORT: true,
+  DRIVERS_LICENSE: true,
+  BUILDING_NUMBER: true,
+  STREET_NAME: true,
+  SECONDARY_ADDRESS: true,
+  CITY: true,
+  STATE: true,
+  ZIP_CODE: true,
+};
+
+// The pinned surface's label count, asserted by the fork's own suite
+// and re-stated here so the partition below fails loudly if the two
+// classes ever stop summing to it.
+const PII_LABEL_COUNT = 20;
+
+
+describe("person-name skip labels (pinned label surface)", () => {
+  it("classifies the pinned fork's whole label union as skipped or eligible", () => {
+    // Runtime guards on top of the compile-time exhaustive record: the
+    // skip set is non-empty and none of its labels also claim eligibility
+    // - the two classes partition the union with no overlap.
+    expect(RAMPART_PERSON_NAME_LABELS.length).toBeGreaterThan(0);
+    expect(Object.keys(ELIGIBILITY_ELSEWHERE)).toHaveLength(PII_LABEL_COUNT - RAMPART_PERSON_NAME_LABELS.length);
+    for (const label of RAMPART_PERSON_NAME_LABELS) {
+      expect(Object.hasOwn(ELIGIBILITY_ELSEWHERE, label)).toBe(false);
+    }
   });
 });
