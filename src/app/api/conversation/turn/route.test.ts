@@ -485,6 +485,26 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       // 2025") — that ships to the client as public help, so it can never
       // satisfy the whole-body check. "June 2024" appears nowhere in the spec.
       { questionId: "prior_employer_last_month", text: "I last got paid by that employer in June 2024", value: "June 2024", verbatim: "June 2024", vaultValue: "June 2024", wholeBodyCheck: true },
+      // The work-requirements questions (milestone work-requirements): the
+      // sensitive screens route through the vault exactly like the rest.
+      // The selects follow the disability_status fixture's idiom — value
+      // "yes" with verbatim "Yes", because each turn's own verbatim is
+      // redacted before storage and "yes" occurs in no other turn's
+      // remaining words; "no" would be hopeless ("now", "not", and the
+      // redaction placeholders themselves carry it as a substring).
+      { questionId: "wr_pregnant", text: "Yes, someone is expecting a baby", value: "yes", verbatim: "Yes", vaultValue: "yes", wholeBodyCheck: false },
+      { questionId: "wr_drug_alcohol_treatment", text: "Yes, someone is in a treatment program", value: "yes", verbatim: "Yes", vaultValue: "yes", wholeBodyCheck: false },
+      { questionId: "wr_drug_alcohol_disorder", text: "Yes, someone has a disorder like that", value: "yes", verbatim: "Yes", vaultValue: "yes", wholeBodyCheck: false },
+      { questionId: "wr_disability_hard_work", text: "Yes, someone has a disability that makes work hard", value: "yes", verbatim: "Yes", vaultValue: "yes", wholeBodyCheck: false },
+      { questionId: "wr_mental_health_hard_work", text: "Yes, someone has a mental health condition like that", value: "yes", verbatim: "Yes", vaultValue: "yes", wholeBodyCheck: false },
+      { questionId: "wr_serious_health_condition", text: "Yes, someone has a serious condition", value: "yes", verbatim: "Yes", vaultValue: "yes", wholeBodyCheck: false },
+      { questionId: "wr_jail_prison_past_4_months", text: "Yes, someone was in jail or prison recently", value: "yes", verbatim: "Yes", vaultValue: "yes", wholeBodyCheck: false },
+      { questionId: "wr_foster_care_under_26", text: "Yes, someone was in foster care", value: "yes", verbatim: "Yes", vaultValue: "yes", wholeBodyCheck: false },
+      { questionId: "wr_veteran_100_disabled", text: "Yes, someone is a veteran with that rating", value: "yes", verbatim: "Yes", vaultValue: "yes", wholeBodyCheck: false },
+      { questionId: "wr_applied_last_month_which", text: "Last month the traveling for care applied but not now", value: ["medical_travel_1hr"], verbatim: "the traveling for care", vaultValue: "medical_travel_1hr", wholeBodyCheck: false },
+      { questionId: "wr_medical_travel_1hr", text: "Yes, someone travels an hour for care", value: "yes", verbatim: "Yes", vaultValue: "yes", wholeBodyCheck: false },
+      { questionId: "wr_hospital_care_24hr", text: "Yes, someone is in the hospital right now", value: "yes", verbatim: "Yes", vaultValue: "yes", wholeBodyCheck: false },
+      { questionId: "wr_work_activity_who", text: "It was Alex who did the work activities", value: "Alex", verbatim: "Alex", vaultValue: "Alex", wholeBodyCheck: true },
     ];
 
     // The full population: exactly every pii:true question in the spec.
@@ -492,8 +512,19 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       [...PII_QUESTION_IDS_IN_SPEC].sort(),
     );
 
+    // The turn rate cap (12 user turns per 60 seconds, per session — the
+    // spend-bound that holds across voice and typing) is REAL behavior
+    // this many fixtures must live within: roll a fresh session every
+    // 11 turns. Every assertion below is per-fixture; the transcript
+    // helpers read the whole test database across sessions.
     let cookie: string | undefined;
+    let turnsThisSession = 0;
     for (const fixture of fixtures) {
+      if (turnsThisSession >= 11) {
+        cookie = undefined;
+        turnsThisSession = 0;
+      }
+      turnsThisSession += 1;
       const calls = installScript([
         {
           extraction: JSON.stringify({
@@ -519,10 +550,18 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       const data = (await response.json()) as TurnResponse;
       const bodyText = JSON.stringify(data);
 
-      // 1. The client state carries the status alone — structurally no value.
-      expect(data.state.answers[fixture.questionId]).toEqual({
-        status: "known",
-      });
+      // 1. The client state carries the status alone — structurally no
+      // value — unless an earlier fixture's "yes" legitimately skipped the
+      // question (the work-requirements two-section design): a skipped
+      // question's stored answer is omitted from the served state
+      // entirely, which is pii-safe in the strictest sense. The DB-row
+      // checks below run for every fixture either way.
+      const served = data.state.questions.some(
+        (entry) => entry.id === fixture.questionId,
+      );
+      expect(data.state.answers[fixture.questionId]).toEqual(
+        served ? { status: "known" } : undefined,
+      );
       expect(
         Object.hasOwn(data.state.answers[fixture.questionId] ?? {}, "value"),
       ).toBe(false);
