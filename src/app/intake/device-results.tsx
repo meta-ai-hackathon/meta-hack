@@ -35,7 +35,8 @@ import type { MatchCard, MatchSourceCitation } from "../../lib/match-core";
 // the blank public form, loads the PDF fill (lib/intake/device-fill.ts,
 // kept out of the page's first load), fills the form here, and hands the
 // file to the browser; no answer is sent anywhere, and answers typed here
-// for the form's other fields live only in this page. After a download the
+// for the form's other fields live only in this page's memory, held by the
+// wizard so going back to a question doesn't lose them. After a download the
 // page lists what the form left blank and any question the person checked
 // more than one box for, which the fill prints as given and flags.
 //
@@ -60,8 +61,8 @@ export const DEVICE_RESULTS_COPY = {
     "submits for you. Preparing it is not a benefits decision; only the " +
     "agency decides that.",
   typedNote:
-    "Used only for the form you download. This page doesn't keep it, so it " +
-    "clears when you leave this screen.",
+    "Used only for the form you download. This page keeps it only while " +
+    "it's open, and deleting your answers clears it.",
   answerAbove: "Answer this question",
   stillNeededHeading: "Still needed on the form",
   stillNeededBody: "These are left blank on the prepared form. Nothing is guessed.",
@@ -293,19 +294,32 @@ function saveToDevice(bytes: Uint8Array, fileName: string): void {
   setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
 }
 
+/**
+ * The answers typed into the review for the fields no question asks, by
+ * field name. Whatever shows this screen holds them, in the page's memory
+ * only, so a trip from the review to a question and back keeps them. They
+ * are never stored.
+ */
+export interface TypedReviewAnswers {
+  readonly values: Readonly<Record<string, string>>;
+  readonly onChange: (fieldName: string, value: string) => void;
+}
+
 export function DeviceResults(props: {
   /** Every answer on this device, private values included. Never rendered or sent. */
   readonly answers: ClientAnswerState;
+  /** What the person typed into the review so far, and how to change it. */
+  readonly typedAnswers: TypedReviewAnswers;
   /** Go back to a question, to answer what the form still needs. */
   readonly onAnswer?: (questionId: string) => void;
 }) {
   const { answers, onAnswer } = props;
+  const typed = props.typedAnswers.values;
   const match = useMemo(() => deviceMatch(answers), [answers]);
   const review = useMemo(() => deviceFormReview(answers), [answers]);
   const handoffLinks = useMemo(() => deviceHandoffLinks(), []);
   const coverage = useMemo(() => deviceFormCoverage(), []);
   const blankFields = useMemo(() => coverage.fields.filter(isBlankCoverageField), [coverage]);
-  const [typed, setTyped] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [leftBlank, setLeftBlank] = useState<readonly ToResolveItem[] | null>(null);
   const [conflicts, setConflicts] = useState<readonly FillConflict[]>([]);
@@ -458,9 +472,7 @@ export function DeviceResults(props: {
                       aria-describedby={typedNoteId}
                       maxLength={MAX_FORM_ANSWER_LENGTH}
                       value={typed[field.fieldName] ?? ""}
-                      onChange={(event) =>
-                        setTyped((previous) => ({ ...previous, [field.fieldName]: event.target.value }))
-                      }
+                      onChange={(event) => props.typedAnswers.onChange(field.fieldName, event.target.value)}
                       className="rounded-lg border border-surface-border bg-surface px-2 py-1"
                     />
                     <span id={typedNoteId} data-typed-note={field.fieldName} className="text-xs text-muted">

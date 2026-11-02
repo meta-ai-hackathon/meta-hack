@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { webcrypto } from "node:crypto";
 import { PDFDocument } from "@cantoo/pdf-lib";
+import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The step-by-step page to the end (HACK-115), driven through the DOM: a
@@ -259,14 +260,17 @@ async function visit() {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
   };
-  /** Answer whatever question is on screen, from the persona or with "I'm not sure". */
-  async function answerCurrent(): Promise<boolean> {
+  /**
+   * Answer whatever question is on screen, from the persona or with "I'm
+   * not sure", which is also the answer to every question in `notSure`.
+   */
+  async function answerCurrent(notSure: ReadonlySet<string>): Promise<boolean> {
     const question = container.querySelector<HTMLElement>("[data-intake-question]");
     if (!question) {
       return false;
     }
     const id = question.dataset.intakeQuestion!;
-    const answer = PERSONA[id];
+    const answer = notSure.has(id) ? undefined : PERSONA[id];
     if (answer === undefined) {
       await click(byId(`${id}-not-sure`));
       return true;
@@ -285,8 +289,8 @@ async function visit() {
     await click(byId(`${id}-continue`));
     return true;
   }
-  async function answerEverything() {
-    for (let step = 0; step < 60 && (await answerCurrent()); step += 1) {
+  async function answerEverything(notSure: ReadonlySet<string> = new Set()) {
+    for (let step = 0; step < 60 && (await answerCurrent(notSure)); step += 1) {
       // one question per screen
     }
   }
@@ -306,7 +310,14 @@ async function visit() {
     await act(async () => root.unmount());
     container.remove();
   };
-  return { container, text, byId, type, waitFor, answerEverything, download, unmount, copy: DEVICE_RESULTS_COPY };
+  return { container, text, byId, act, click, type, waitFor, answerEverything, download, unmount, copy: DEVICE_RESULTS_COPY };
+}
+
+/** A browser that has never been to /intake: an empty IndexedDB and no requests yet. */
+function freshDevice() {
+  device = fakeIndexedDb();
+  vi.stubGlobal("indexedDB", device.factory);
+  requests = [];
 }
 
 /** Every request so far: its URL and body carry none of these values. */
@@ -503,4 +514,90 @@ describe("/intake to the review and the filled form, on the device", () => {
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME]);
     await page.unmount();
   }, 60_000);
+
+  it("keeps whatever was typed into the review through a trip to a question and back", async () => {
+    // The page holds what was typed in its memory, above the review, so
+    // answering a question the form still needs doesn't wipe the rest.
+    const { DEVICE_FORM_ENTRY } = await import("../../lib/intake/device-form");
+    const typedFields = DEVICE_FORM_ENTRY.fields
+      .filter((field) => field.disposition === "mapped" && field.specQuestionId === null)
+      .map((field) => field.name);
+    const typedArb = fc.dictionary(
+      fc.constantFrom(...typedFields),
+      fc.oneof(fc.stringMatching(/^[A-Za-z0-9][A-Za-z0-9 .,#'-]{0,30}$/), fc.constantFrom("checked", "unchecked")),
+      { minKeys: 1, maxKeys: 6 },
+    );
+    await fc.assert(
+      fc.asyncProperty(typedArb, async (typed) => {
+        freshDevice();
+        const page = await visit();
+        // Not sure of the county, so the review asks for it.
+        await page.answerEverything(new Set(["county"]));
+        const input = (name: string) =>
+          page.container.querySelector<HTMLInputElement>(`[data-review-field="${name}"] input`)!;
+        for (const [name, value] of Object.entries(typed)) {
+          await page.type(input(name), value);
+        }
+        await page.click(
+          page.container.querySelector<HTMLButtonElement>('[data-review-field="7 County"] button')!,
+        );
+        expect(page.container.querySelector("[data-device-results]")).toBeNull();
+        await page.type(page.byId<HTMLInputElement>("intake-county"), "Quillfeather County");
+        await page.click(page.byId("county-continue"));
+        expect(page.text()).toContain("All questions answered for now");
+        expect(
+          page.container.querySelector('[data-review-field="7 County"] [data-field-state]')?.getAttribute("data-field-state"),
+        ).toBe("prefilled");
+        for (const [name, value] of Object.entries(typed)) {
+          expect(input(name).value, name).toBe(value);
+        }
+        expectNoAnswerInRequests(PRIVATE_VALUES);
+        await page.unmount();
+      }),
+      { numRuns: 3 },
+    );
+  }, 120_000);
+
+  it("drops what was typed into the review with a delete, here, in another tab, or found by a save", async () => {
+    for (const where of ["here", "in another tab", "found by a save"] as const) {
+      freshDevice();
+      const page = await visit();
+      const { DEVICE_INTAKE_COPY } = await import("../../lib/intake/device-intake");
+      await page.answerEverything();
+      const nameInput = () =>
+        page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`);
+      await page.type(nameInput()!, TYPED_NAME);
+      if (where === "here") {
+        await page.click(page.container.querySelector<HTMLButtonElement>("[data-delete-from-device]")!);
+        const confirm = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.textContent === DEVICE_INTAKE_COPY.deleteYes,
+        )!;
+        await page.click(confirm);
+        await page.waitFor(() => page.text().includes(DEVICE_INTAKE_COPY.deleted), "the delete");
+      } else if (where === "in another tab") {
+        device.stores.get("kv")?.clear();
+        await page.act(async () => {
+          window.dispatchEvent(new Event("focus"));
+        });
+        await page.waitFor(
+          () => page.text().includes(DEVICE_INTAKE_COPY.purgedElsewhere),
+          "the delete in another tab",
+        );
+      } else {
+        // Another tab deletes everything, and this page finds out when the
+        // person changes an answer and it saves.
+        device.stores.get("kv")?.clear();
+        const review = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.textContent === "Review this answer",
+        )!;
+        await page.click(review);
+      }
+      expect(page.container.querySelector("[data-device-results]"), where).toBeNull();
+      // Answering again starts the review empty: the typed name went with the answers.
+      await page.answerEverything();
+      expect(nameInput()?.value, where).toBe("");
+      expect(page.text(), where).not.toContain(TYPED_NAME);
+      await page.unmount();
+    }
+  }, 120_000);
 });

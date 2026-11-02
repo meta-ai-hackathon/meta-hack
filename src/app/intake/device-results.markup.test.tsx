@@ -20,7 +20,7 @@ import {
 } from "../../lib/intake/device-form";
 import { QUESTIONS, type Question } from "../../lib/intake/spec";
 import { KB_ENTRIES } from "../../lib/kb";
-import { DEVICE_RESULTS_COPY, DeviceResults } from "./device-results";
+import { DEVICE_RESULTS_COPY, DeviceResults, type TypedReviewAnswers } from "./device-results";
 
 // The end of /intake as it renders for any answers on the device (HACK-115).
 // The match cards, the form review, and the handoff all come from the
@@ -164,8 +164,13 @@ function firstBy(elements: Iterable<Element>, keyOf: (element: Element) => strin
   return index;
 }
 
+/** Nothing typed into the review yet, as the end of /intake first shows it. */
+const NOTHING_TYPED: TypedReviewAnswers = { values: {}, onChange: () => undefined };
+
 function render(state: ClientAnswerState): { html: string; root: HTMLElement } {
-  const html = renderToStaticMarkup(<DeviceResults answers={state} onAnswer={() => undefined} />);
+  const html = renderToStaticMarkup(
+    <DeviceResults answers={state} typedAnswers={NOTHING_TYPED} onAnswer={() => undefined} />,
+  );
   const root = document.createElement("div");
   root.innerHTML = html;
   return { html, root };
