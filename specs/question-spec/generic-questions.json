@@ -812,7 +812,7 @@
       "id": "wr_income_580",
       "prompt": "Does your household make at least $580 in monthly income? This includes all jobs, gig work, seasonal work, and unearned income such as unemployment.",
       "type": "single_select",
-      "help": "Income from seasonal work can be averaged across 6 months. We may match this for you from the income you already gave us — you can always correct it.",
+      "help": "Income from seasonal work can be averaged across 6 months. The state looks at your household's monthly income when it decides.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" }
