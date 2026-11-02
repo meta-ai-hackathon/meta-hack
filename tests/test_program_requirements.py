@@ -133,6 +133,19 @@ class TestProgramRequirementsSpec(unittest.TestCase):
                 f"the question spec: {sorted(unexpected)}",
             )
 
+    def test_work_requirements_rationale_records_the_household_level_simplification(self):
+        # The Civilla screens are household-level: one applying member's
+        # exemption hides the reporting section for the whole household,
+        # and the $580 screen reads the household's captured income. The
+        # app never derives a per-person exemption — the state decides how
+        # exemptions and reporting apply per person — and the rationale
+        # must say so explicitly (claude-review P2), because the spec's
+        # skip conditions are household-wide by design.
+        program = self.programs_by_id["nc_medicaid"]
+        self.assertIn("household-level", program["rationale"])
+        self.assertIn("never", program["rationale"])
+        self.assertIn("the state decides", program["rationale"])
+
 
 if __name__ == "__main__":
     unittest.main()

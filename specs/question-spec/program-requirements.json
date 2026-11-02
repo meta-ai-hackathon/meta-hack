@@ -1,12 +1,16 @@
 {
   "title": "Program question requirements",
-  "version": "1.0.0",
-  "default_programs": ["nc_medicaid"],
+  "version": "1.1.0",
+  "default_programs": [
+    "nc_medicaid"
+  ],
   "programs": [
     {
       "id": "nc_medicaid",
       "title": "NC Medicaid",
-      "form_registry_ids": ["dhb-5200"],
+      "form_registry_ids": [
+        "dhb-5200"
+      ],
       "required_question_ids": [
         "application_role",
         "main_goal",
@@ -41,9 +45,28 @@
         "contact_preference",
         "phone_contact",
         "email_contact",
-        "best_time_to_reach"
+        "best_time_to_reach",
+        "wr_exempt_situations",
+        "wr_pregnant",
+        "wr_drug_alcohol_treatment",
+        "wr_drug_alcohol_disorder",
+        "wr_disability_hard_work",
+        "wr_mental_health_hard_work",
+        "wr_serious_health_condition",
+        "wr_jail_prison_past_4_months",
+        "wr_foster_care_under_26",
+        "wr_veteran_100_disabled",
+        "wr_applied_last_month",
+        "wr_applied_last_month_which",
+        "wr_medical_travel_1hr",
+        "wr_hospital_care_24hr",
+        "wr_student_enrolled",
+        "wr_income_580",
+        "wr_work_activity_who",
+        "wr_work_activity_types",
+        "wr_work_activity_hours"
       ],
-      "rationale": "The questions the DHB-5200 health-coverage application itself asks, as reviewed in the full-form mapping round (kb/forms/dhb-5200.json): who is applying and for what coverage, household composition, income with its conditional branches, shelter and cost expenses, photo ID, date of birth, citizenship/immigration status, disability, veteran status, and how mail and messages reach the person. Deliberately left out: goal_detail (a free-text navigation note the application has no field for), student_status and received_benefits_before (the printed form does not ask them) — the talk stage still covers every spec question the quick-questions stage does not capture."
+      "rationale": "The questions the DHB-5200 health-coverage application itself asks, as reviewed in the full-form mapping round (kb/forms/dhb-5200.json): who is applying and for what coverage, household composition, income with its conditional branches, shelter and cost expenses, photo ID, date of birth, citizenship/immigration status, disability, veteran status, and how mail and messages reach the person. Deliberately left out: goal_detail (a free-text navigation note the application has no field for), student_status and received_benefits_before (the printed form does not ask them) — the talk stage still covers every spec question the quick-questions stage does not capture. Added November 2026 (milestone work-requirements): the Medicaid work-requirements questions, adopted as QUESTIONS ONLY from Civilla's user-tested plain-language application insert (https://civilla.org/work/hr1/), are required because of the CMS interim final rule published June 1, 2026 (H.R. 1), work requirements effective January 1, 2027. The DHB-5200 (rev 2020) carries no such fields, so they are collected here so the person answers once; they are NOT linked to DHB-5200 registry fields, and nothing in the app determines exemption or compliance — the state decides. wr_student_enrolled (enrollment full-time or at least half-time) carries the work-requirements student path; the pre-existing student_status stays excluded as before. The screens are household-level, matching Civilla's insert: one applying member's exemption hides the reporting section for the household, and the $580 screen reads the household's captured income — the state decides how exemptions and reporting apply per person, so the app records household-level answers only and never derives a per-person exemption. The screens are household-level, matching Civilla's insert: one applying member's exemption hides the reporting section for the household, and the $580 screen reads the household's captured income — the state decides how exemptions and reporting apply per person, so the app records household-level answers only and never derives a per-person exemption."
     }
   ]
 }

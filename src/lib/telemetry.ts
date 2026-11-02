@@ -68,6 +68,35 @@ export const PII_QUESTION_IDS = [
   "shelter_mail_consent",
   "phone_contact",
   "email_contact",
+  // The work-requirements questions (milestone work-requirements): every
+  // one of them is pii (claude-review P1) — the exemption screen
+  // discloses caregiving, foster, veteran, and SNAP/TANF facts, the
+  // health/disability/drug-alcohol/mental-health/pregnancy/incarceration/
+  // veteran/foster answers are sensitive, the which-situations follow-up
+  // reveals them, medical travel and hospital care reveal health
+  // conditions, the $580 screen discloses a household income bracket
+  // (the income questions themselves are pii), a past-month yes
+  // discloses that a sensitive situation applied, and the activity
+  // types/hours describe household members' work lives.
+  "wr_exempt_situations",
+  "wr_pregnant",
+  "wr_drug_alcohol_treatment",
+  "wr_drug_alcohol_disorder",
+  "wr_disability_hard_work",
+  "wr_mental_health_hard_work",
+  "wr_serious_health_condition",
+  "wr_jail_prison_past_4_months",
+  "wr_foster_care_under_26",
+  "wr_veteran_100_disabled",
+  "wr_applied_last_month",
+  "wr_applied_last_month_which",
+  "wr_medical_travel_1hr",
+  "wr_hospital_care_24hr",
+  "wr_student_enrolled",
+  "wr_income_580",
+  "wr_work_activity_who",
+  "wr_work_activity_types",
+  "wr_work_activity_hours",
 ] as const;
 
 /** Identity keys redacted in addition to the spec-derived question ids. */
@@ -106,6 +135,12 @@ const RESERVED_LINE_KEYS: readonly string[] = [
 function normalizeKey(key: string): string {
   return key
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2") // camelCase → snake_case
+    // A letter-digit boundary inside a camelCase spelling of a digit-
+    // bearing question id ("past4Months" for wr_jail_prison_past_4_months)
+    // splits too, so the mechanical camelCase of every pii id still
+    // redacts. Splitting only letter→digit keeps "24hr"-style segments
+    // glued exactly as the ids spell them; the redaction set only grows.
+    .replace(/([a-z])(\d)/g, "$1_$2")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
