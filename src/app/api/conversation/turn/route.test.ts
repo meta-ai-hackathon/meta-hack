@@ -501,6 +501,14 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       vaultValue: string;
     };
     const localSelectFixtures: LocalSelectFixture[] = [
+      {
+        // "None of these apply" — any other selection would hide the
+        // reporting section (the two-section design), and the who fixture
+        // below needs it visible.
+        questionId: "wr_exempt_situations",
+        value: ["none"],
+        vaultValue: "none",
+      },
       { questionId: "wr_pregnant", value: "no", vaultValue: "no" },
       { questionId: "wr_drug_alcohol_treatment", value: "no", vaultValue: "no" },
       { questionId: "wr_drug_alcohol_disorder", value: "no", vaultValue: "no" },
