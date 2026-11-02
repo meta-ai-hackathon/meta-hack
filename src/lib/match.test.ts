@@ -1361,6 +1361,16 @@ describe("number answers in the pii gate (HACK-121)", () => {
     (value) => `hours:${value}`,
     // The same number with a trailing zero after its decimal point.
     (value) => (value.includes(".") ? `${value}0` : `${value}.0`),
+    // Glued to a letter outside ASCII, behind a bidi mark or zero-width
+    // space, or before a superscript or a fraction. The trigger keeps its
+    // ASCII edges for these, so it never reads less than it did (claude-review
+    // P2 on PR #133).
+    (value) => `\u5de5\u4f5c${value}\u5c0f\u65f6`,
+    (value) => `word\u200b${value}`,
+    (value) => `hours\u200f${value}`,
+    (value) => `work\u200e${value}`,
+    (value) => `${value}\u00b2`,
+    (value) => `${value}\u00bd`,
   ];
 
   // Generated copy: plain words and embedded digits, rendered per value.

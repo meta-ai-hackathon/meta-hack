@@ -743,24 +743,26 @@ const PLAIN_NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
  * the excusal's are stricter (standaloneNumberPattern). An answer inside a
  * range, ratio, or id ("20-30 hours", "v30") is not caught yet (HACK-124).
  *
- * Both read every script, so the trigger and the excusal always agree on
- * where a token ends. Any letter, mark, or number character is part of a
- * token. Each separator also joins in its Unicode look-alikes, which copy
- * pasted from an official page often prints: hyphens, the en dash and the
- * minus sign; the fraction and division slashes; the one-dot leader; and
- * the small and fullwidth forms. An invisible format character such as a
- * soft hyphen or a zero-width space joins too, and a run of joiners counts
- * as one. An em dash ends a clause rather than joining a word, so it does
- * not join.
+ * The trigger keeps ASCII letters and digits, so a leak glued to a letter
+ * outside ASCII, behind a bidi mark, or before a superscript still shows
+ * the number. Between two digits it reads every joiner the excusal does,
+ * so a range or date printed with an en dash is one token to both, and
+ * public copy never trips the trigger where the excusal would refuse it.
+ *
+ * The excusal reads every script: any letter, mark, or number character is
+ * part of a token. Each separator also joins in its Unicode look-alikes,
+ * which copy pasted from an official page often prints: hyphens, the en
+ * dash and the minus sign; the fraction and division slashes; the one-dot
+ * leader; and the small and fullwidth forms. An invisible format character
+ * such as a soft hyphen or a zero-width space joins too, and a run of
+ * joiners counts as one. An em dash ends a clause rather than joining a
+ * word, so it does not join.
  */
-const TOKEN_CHAR = "[\\p{L}\\p{M}\\p{N}]";
-const DIGIT = "\\p{N}";
-const HYPHEN_DOT_SLASH_UNDERSCORE =
-  "\\-./_\\u2010-\\u2013\\u2212\\ufe63\\uff0d\\u2024\\ufe52\\uff0e\\u2044\\u2215\\uff0f\\uff3f\\p{Cf}";
-const COLON_COMMA = ":,\\ufe55\\uff1a\\ufe50\\uff0c";
-const TOKEN_JOINER = `[${HYPHEN_DOT_SLASH_UNDERSCORE}${COLON_COMMA}]+`;
-const JOINER_AFTER_TOKEN_CHAR = `[${HYPHEN_DOT_SLASH_UNDERSCORE}]+`;
-const JOINER_AFTER_DIGIT = `[${COLON_COMMA}]+`;
+const TOKEN_CHAR = "[a-zA-Z0-9]";
+const JOINER_AFTER_TOKEN_CHAR = "[-./_]";
+const UNICODE_TOKEN_CHAR = "[\\p{L}\\p{M}\\p{N}]";
+const UNICODE_TOKEN_JOINER =
+  "[\\-./_:,\\u2010-\\u2013\\u2212\\ufe63\\uff0d\\u2024\\ufe52\\uff0e\\u2044\\u2215\\uff0f\\uff3f\\ufe55\\uff1a\\ufe50\\uff0c\\p{Cf}]+";
 
 /**
  * A plain number answer's digits. Trailing zeros after a decimal point are
@@ -778,9 +780,9 @@ function numberValuePattern(raw: string): string {
  */
 function ownNumberPattern(raw: string): RegExp {
   return new RegExp(
-    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${JOINER_AFTER_TOKEN_CHAR})(?<!${DIGIT}${JOINER_AFTER_DIGIT})` +
-      `${numberValuePattern(raw)}(?!${DIGIT})(?!${TOKEN_JOINER}${DIGIT})`,
-    "iu",
+    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${JOINER_AFTER_TOKEN_CHAR})(?<!\\d${UNICODE_TOKEN_JOINER})` +
+      `${numberValuePattern(raw)}(?!\\d)(?!${UNICODE_TOKEN_JOINER}\\d)`,
+    "u",
   );
 }
 
@@ -795,9 +797,9 @@ function ownNumberPattern(raw: string): RegExp {
  */
 function standaloneNumberPattern(raw: string): RegExp {
   return new RegExp(
-    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${TOKEN_JOINER})` +
+    `(?<!${UNICODE_TOKEN_CHAR})(?<!${UNICODE_TOKEN_CHAR}${UNICODE_TOKEN_JOINER})` +
       `${numberValuePattern(raw)}` +
-      `(?!${TOKEN_CHAR})(?!${TOKEN_JOINER}${TOKEN_CHAR})`,
+      `(?!${UNICODE_TOKEN_CHAR})(?!${UNICODE_TOKEN_JOINER}${UNICODE_TOKEN_CHAR})`,
     "iu",
   );
 }
