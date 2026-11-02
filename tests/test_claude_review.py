@@ -2,8 +2,9 @@
 
 Property-based tests (Hypothesis) pin the pure helpers: mention and issue
 reference neutralizing (outside code only), redaction (a private key in
-any written form goes whole, never less than main's old pattern took, and
-code between a key's markers always stays), delimiter escaping,
+any written form goes whole, a PGP private key block too, never less than
+main's old pattern took, and code between a key's markers always stays),
+delimiter escaping,
 file selection under the token budget, comment size and contents, the
 sticky state line, the exit-code rule, and the output parser. More
 properties drive whole runs that cannot read the PR from every state the
@@ -1536,6 +1537,94 @@ class ShortKeyPieceProperties(unittest.TestCase):
         # Each of the 1,500 keys in the last text keeps its own footer.
         self.assertNotIn("-----END", out)
         self.assertNotIn("aB3x", out)
+
+
+# --- PGP private key blocks (HACK-120) ---------------------------------------------
+
+PGP_HEADER = "-----BEGIN PGP PRIVATE KEY BLOCK-----"
+# A PGP block's checksum line, = and four base64 characters, which some
+# writers leave out.
+PGP_CHECKSUMS = st.just("") | st.text(alphabet=string.ascii_letters + "+/", min_size=4, max_size=4).map(lambda crc: "=" + crc)
+# Armor headers the way OpenPGP.js, GPG Suite and Keybase write them.
+PGP_ARMOR = st.lists(
+    st.sampled_from(
+        [
+            "Version: OpenPGP.js v4.10.10",
+            "Comment: https://openpgpjs.org",
+            "Comment: GPGTools - https://gpgtools.org",
+            "Version: Keybase Go 1.0.10 (darwin)",
+        ]
+    ),
+    min_size=1,
+    max_size=2,
+)
+
+
+def pgp_block(lines: Sequence[str], checksum: str, armor: Sequence[str] = (), kind: str = "PRIVATE KEY BLOCK") -> list[str]:
+    """A PGP block's lines as GnuPG writes them: its header, any armor
+    headers, a blank line, the base64 lines, the checksum line, its footer."""
+    return [f"-----BEGIN PGP {kind}-----", *armor, "", *lines, *([checksum] if checksum else []), f"-----END PGP {kind}-----"]
+
+
+class PgpKeyBlockProperties(unittest.TestCase):
+    """A PGP private key block is a private key like the others: written
+    the way GnuPG writes one, it goes whole in every form a key can take,
+    and with armor headers it still loses its body and both markers."""
+
+    @PBT
+    @given(KEY_BODIES, PGP_CHECKSUMS, KEY_FORMS, SAFE_TEXT, SAFE_TEXT)
+    @example(["FAKEFAKE" * 8, "FAKEFA"], "=FAKE", KeyForm(("",), "", "\n"), "", "")  # a short last line, then the checksum
+    @example(["FAKEFAKE" * 8, "FAKEFA"], "=FAKE", KeyForm(("+",), "", "\n"), "", "")  # the same, added in a diff
+    def test_a_pgp_private_key_block_goes_whole_however_it_is_written(
+        self, lines: list[str], checksum: str, form: KeyForm, before: str, after: str
+    ) -> None:
+        # Its blank line, its base64 lines, a short last line and then the
+        # checksum line, in a file, a diff, a comment, a string or one line:
+        # header to footer becomes one marker and nothing around it changes.
+        # The same block as a public key, a message or a signature holds no
+        # private key, so it stays as it is.
+        out, count = review.redact_sensitive(before + form.starts[0] + form.write(pgp_block(lines, checksum)) + form.end + after)
+        self.assertEqual((out, count), (before + form.starts[0] + review.redaction_marker("private key") + form.end + after, 1))
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+        for kind in ("PUBLIC KEY BLOCK", "MESSAGE", "SIGNATURE"):
+            text = before + form.starts[0] + form.write(pgp_block(lines, checksum, kind=kind)) + form.end + after
+            self.assertEqual(review.redact_sensitive(text), (text, 0), kind)
+
+    @PBT
+    @given(PGP_ARMOR, KEY_BODIES, PGP_CHECKSUMS, KEY_FORMS, SAFE_TEXT, SAFE_TEXT)
+    def test_a_pgp_block_with_armor_headers_still_loses_its_body_and_markers(
+        self, armor: list[str], lines: list[str], checksum: str, form: KeyForm, before: str, after: str
+    ) -> None:
+        # Armor headers are text and not key material, so the line walk
+        # stops at the first one, and the block goes the way a key written
+        # as code does (review.is_key_piece): every line of a key line or
+        # more goes, both markers go, and a second pass changes nothing.
+        out, _count = review.redact_sensitive(before + form.starts[0] + form.write(pgp_block(lines, checksum, armor)) + form.end + after)
+        for line in lines:
+            if len(line) >= 16:
+                self.assertNotIn(line.replace("/", form.slash), out)
+        self.assertNotIn("-----BEGIN", out)
+        self.assertNotIn("-----END", out)
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    def test_pgp_markers_and_checksum_lines_take_linear_time(self) -> None:
+        # Long texts that are almost PGP markers, and PGP blocks made of
+        # short lines and checksum lines: each header is read once, and
+        # quickly.
+        texts = [
+            ("-----BEGIN " + "PRIVATE KEY " * 5_000, 0),
+            ("-----BEGIN " + "PGP PRIVATE KEY BLOCK " * 2_500, 0),
+            ("-----BEGIN PGP PRIVATE KEY BLOC" * 1_700, 0),
+            (PGP_HEADER + "\n=Ab3d" * 9_000, 1),
+            (PGP_HEADER + "\nab\n=Ab3d" * 6_000, 1),
+            ((PGP_HEADER + "\nab\n=Ab3d\nx(") * 1_100, 1_100),
+        ]
+        for text, headers in texts:
+            self.assertGreaterEqual(len(text), 50_000)
+            started = time.monotonic()
+            _out, count = review.redact_sensitive(text)
+            self.assertEqual(count, headers, text[:40])
+            self.assertLess(time.monotonic() - started, 2.0, text[:40])
 
 
 class DelimiterProperties(unittest.TestCase):
