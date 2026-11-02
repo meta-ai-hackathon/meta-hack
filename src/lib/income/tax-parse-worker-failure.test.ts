@@ -10,8 +10,9 @@ import { parse1040Pdf, PdfEnvironmentError } from "./tax-parse";
 // try/catch then swallowed into readable:false for good bytes. This file
 // simulates exactly that rejection and pins the repaired contract: a
 // worker-setup failure is ENGINE breakage (PdfEnvironmentError), never an
-// honest-unreadable verdict about the document. (The next.config.ts
-// serverExternalPackages entry is what makes the real worker resolve;
+// honest-unreadable verdict about the document. (The real recurrence is
+// now prevented by the engine loader importing the worker module itself —
+// pdf.js's globalThis.pdfjsWorker hook, see pdf-engine-load.test.ts;
 // this test pins the classifier so any recurrence is loud.)
 
 vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({

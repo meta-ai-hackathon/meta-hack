@@ -255,20 +255,28 @@ export function isPdfEnvironmentFailure(error: unknown): boolean {
 let pdfjsModulePromise: Promise<PdfJsModule> | null = null;
 
 /**
- * The engine module, loaded once. The specifier resolves because
- * next.config.ts keeps pdfjs-dist OUT of the server bundle
- * (serverExternalPackages): pdf.js's fake-worker setup imports its
- * sibling pdf.worker.mjs at runtime with a module-relative path, which
- * only resolves from the real node_modules layout — bundled into a
- * Turbopack server chunk it points at .next/dev/server/chunks/ and fails.
- * The load itself happens OUTSIDE every content-verdict try/catch
- * (parse1040Pdf wraps it in PdfEnvironmentError): a module-load failure
- * must surface as engine breakage, never be swallowed into "not a 1040".
+ * The engine module, loaded once. next.config.ts BUNDLES pdfjs-dist into
+ * the server chunk (no node_modules path or Turbopack external-copy tree
+ * needs to exist at runtime — the externalized layout failed exactly there
+ * in the deployed lambda), so this loader also imports the worker module
+ * itself, once, from a statically traceable literal specifier: the worker
+ * module installs `globalThis.pdfjsWorker` at its top level, and pdf.js
+ * (6.4.x) consults that hook FIRST in its fake-worker setup — its own
+ * module-relative `import("./pdf.worker.mjs")` (the original dev-chunk
+ * failure) never runs. The load happens OUTSIDE every content-verdict
+ * try/catch (parse1040Pdf wraps it in PdfEnvironmentError): a module-load
+ * failure must surface as engine breakage, never be swallowed into
+ * "not a 1040".
  */
 function pdfjsModule(): Promise<PdfJsModule> {
-  pdfjsModulePromise ??= import(
-    "pdfjs-dist/legacy/build/pdf.mjs"
-  ) as Promise<PdfJsModule>;
+  pdfjsModulePromise ??= Promise.all([
+    import("pdfjs-dist/legacy/build/pdf.mjs") as Promise<PdfJsModule>,
+    // The worker ships no type declarations (pdf.d.mts only); its single
+    // runtime contract is the WorkerMessageHandler global it installs.
+    import(
+      "pdfjs-dist/legacy/build/pdf.worker.mjs" as `${string}.mjs`
+    ) as Promise<unknown>,
+  ]).then(([module]) => module);
   return pdfjsModulePromise;
 }
 
