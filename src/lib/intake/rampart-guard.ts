@@ -3,9 +3,11 @@
 // One createGuard() per conversation (page lifetime + restored session);
 // protect() on typed user text before it is sent to any cloud API; reveal()
 // on replies before they are displayed. Rampart is used as-is — no custom
-// token format, no second redactor, and keepLabels stays at Rampart's
-// default {CITY, STATE, ZIP_CODE}, which already keeps benefits vocabulary
-// and place names intact (regression tests live in the fork).
+// token format, no second redactor: place names ride Rampart's default
+// keep-set (keepLabels {CITY, STATE, ZIP_CODE}; regression tests live in
+// the fork), and benefits program vocabulary, which keepLabels cannot
+// express, is exempted with Rampart's own whole-span, case-insensitive
+// allow-list option (BENEFITS_ALLOW_LIST below).
 //
 // Persistence: the session table (token -> raw PII) is the one raw-PII
 // artifact. It is sealed with the device answer store's AES-256-GCM key via
@@ -28,6 +30,29 @@ import {
 import type { DeviceAnswerStoreDeps } from "./device-answer-store";
 
 export type RampartShieldStatus = "loading" | "ready" | "failed";
+
+/**
+ * Benefits vocabulary the app asserts is never PII, passed to createGuard()
+ * on every startup path via Rampart's allow-list option: detected spans
+ * whose whole text equals an entry (case-insensitively) are left verbatim
+ * instead of being redacted. Whole-span matching only, so a longer
+ * finding containing one of these terms keeps its surroundings protected.
+ * With the list absent Rampart is silently stricter again — safe default.
+ */
+export const BENEFITS_ALLOW_LIST: readonly string[] = [
+  // The pilot's own program (PILOT_CONFIG.programName) and kin.
+  "NC Medicaid",
+  "Medicaid",
+  "Medicare",
+  // Other program names the intake conversation may naturally mention.
+  "SNAP",
+  "CalFresh",
+  "WIC",
+  "TANF",
+  "CHIP",
+  "LIHEAP",
+  "Section 8",
+];
 
 export type RampartProtectOutcome =
   | { kind: "tokenized"; text: string }
@@ -97,7 +122,9 @@ export class RampartShield {
     // must not claim cross-restart restoration in that case.
     const load = this.store === null ? null : await loadRampartSession(this.store);
     const options: GuardOptions =
-      load !== null && load.status === "ok" ? { session: load.serialized } : {};
+      load !== null && load.status === "ok"
+        ? { session: load.serialized, allowList: BENEFITS_ALLOW_LIST }
+        : { allowList: BENEFITS_ALLOW_LIST };
     // Whether a persisted copy existed as we opened (a restored envelope,
     // or an unreadable one we may re-seal). From now on a confirmed purge
     // wins over this shield's later saves, mirroring recordDeviceAnswer.

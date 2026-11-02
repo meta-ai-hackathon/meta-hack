@@ -16,7 +16,8 @@ import {
   purgeDeviceAnswers,
   type DeviceAnswerStoreDeps,
 } from "./device-answer-store";
-import { RampartShield, type RampartShieldDeps } from "./rampart-guard";
+import { RampartShield, BENEFITS_ALLOW_LIST, type RampartShieldDeps } from "./rampart-guard";
+import { PILOT_CONFIG } from "../pilot";
 
 function memoryKv() {
   const store = new Map<string, unknown>();
@@ -203,6 +204,31 @@ describe("RampartShield", () => {
     await shield.start();
     expect(shield.reveal("no tokens here")).toBe("no tokens here");
   });
+
+  it("covers the pilot's own program name with the benefits allow-list", () => {
+    expect(BENEFITS_ALLOW_LIST).toContain(PILOT_CONFIG.programName);
+  });
+
+  it("threads the benefits allow-list to Rampart on fresh and restored starts", async () => {
+    // Sealed, then reloaded: the restored branch must carry the option too.
+    // An envelope exists only once a protect() call has introduced tokens.
+    const { kv } = memoryKv();
+    const field: Record<string, GuardOptions | undefined> = {};
+    const first = new RampartShield(withCapture(field, kv));
+    await first.start();
+    await first.protectTyped("My name is Carlos.");
+    await new RampartShield(withCapture(field, kv)).start();
+
+    const seenStates = Object.values(field);
+    expect(seenStates.length).toBe(2);
+    for (const options of seenStates) {
+      expect(options?.allowList).toEqual(BENEFITS_ALLOW_LIST);
+      expect(options?.allowList).not.toBeUndefined();
+    }
+    // Exactly the restored branch carries the sealed session.
+    expect(typeof seenStates[0]?.session).toBe("undefined");
+    expect(typeof seenStates[1]?.session).toBe("string");
+  });
 });
 
 // Property-based round (repo rule): the invariants the suite pin with
@@ -309,6 +335,65 @@ describe("RampartShield properties", () => {
         for (const value of values) {
           expect(dump).not.toContain(value);
         }
+      }),
+    );
+  });
+});
+
+/**
+ * A deps bundle whose factory records the options each startup passed to
+ * Rampart, keyed in the order starts happen against the given device kv.
+ */
+function withCapture(seen: Record<string, GuardOptions | undefined>, kv: DeviceKv | null): RampartShieldDeps {
+  const key = `start${Object.keys(seen).length}`;
+  return {
+    createGuard: async (options) => {
+      seen[key] = options ?? undefined;
+      return scriptedGuard(options ?? {});
+    },
+    openStore: async () => (kv === null ? null : deps(kv)),
+  };
+}
+
+// Property-based round (repo rule): whatever sealed-store state a start
+// encounters — absent device storage, a fresh store, a tampered envelope,
+// or one sealed by a prior shield — the allow-list must reach Rampart
+// unchanged and the session must be present exactly when the load
+// recovered a readable envelope.
+describe("RampartShield properties (allow-list threading)", () => {
+  const stateArb = fc.constantFrom("none", "fresh", "tampered", "sealed");
+
+  it("the benefits allow-list reaches Rampart from every storage state", async () => {
+    await fc.assert(
+      fc.asyncProperty(stateArb, async (state) => {
+        const seen: GuardOptions[] = [];
+        const { kv, store } = memoryKv();
+        if (state !== "none") {
+          // The prior-shield state leaves a valid sealed envelope behind.
+          if (state === "sealed") {
+            const prior = new RampartShield(withCapture({}, kv));
+            await prior.start();
+            await prior.protectTyped("Carlos");
+          } else if (state === "tampered") {
+            store.set(DEVICE_SESSION_ENVELOPE_KEY, "sealed3.notreallybase64");
+          }
+        }
+        const snapshot = [...BENEFITS_ALLOW_LIST];
+        const shield = new RampartShield({
+          createGuard: async (options) => {
+            seen.push(options ?? {});
+            return scriptedGuard(options ?? {});
+          },
+          openStore: async () => (state === "none" ? null : deps(kv)),
+        });
+        await shield.start();
+
+        expect(seen).toHaveLength(1);
+        expect([...(seen[0].allowList ?? [])]).toEqual(BENEFITS_ALLOW_LIST);
+        expect(typeof seen[0].session).toBe(state === "sealed" ? "string" : "undefined");
+        // No startup path may mutate the shared vocabulary constant.
+        expect([...BENEFITS_ALLOW_LIST]).toEqual(snapshot);
+        expect(shield.status).toBe("ready");
       }),
     );
   });
