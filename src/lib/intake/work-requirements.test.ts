@@ -12,10 +12,11 @@ import {
 
 // The $580/month income screen's deterministic match (work-requirements
 // milestone, VAL-WR-008). When the session already captured income
-// answers, the screen is PRE-ANSWERED by a documented deterministic
-// comparison — shown as "Matched for you" and person-correctable on the
-// stage; when income was not captured (or the capture cannot be converted
-// to a monthly figure with certainty), the question is asked directly.
+// answers, the screen can be PRE-ANSWERED by a documented deterministic
+// comparison — engine-only in this milestone; part 2 wires the
+// "Matched for you" confirm-or-correct surface, and when income was not
+// captured (or the capture cannot be converted to a monthly figure with
+// certainty), the question is asked directly.
 // HACK-86 discipline: the engine computes from stored answers; no LLM can
 // be reached from this path (the import-boundary describe below proves
 // it), and the proposal is a form answer only — never a compliance

@@ -489,18 +489,18 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       { questionId: "prior_employer_last_month", text: "I last got paid by that employer in June 2024", value: "June 2024", verbatim: "June 2024", vaultValue: "June 2024", wholeBodyCheck: true },
     ];
 
-    // The work-requirements questions (milestone work-requirements) are
-    // captured through the LOCAL select route — the quick-questions
-    // stage's own endpoint, POST /api/intake/answer — and never through a
-    // typed turn to the model: sensitive select answers do not ride the
-    // LLM extraction path (claude-review P1). Their fixtures drive that
-    // local route and assert the same vault invariants.
-    type LocalSelectFixture = {
+    // The work-questions' capture path: the quick-questions stage's own
+    // endpoint, POST /api/intake/answer — a server endpoint with no model
+    // in the loop — never a typed turn to the model: sensitive select
+    // answers do not ride the LLM extraction path (claude-review P1).
+    // Their fixtures drive that answer route and assert the same vault
+    // invariants.
+    type AnswerRouteFixture = {
       questionId: string;
       value: unknown;
       vaultValue: string;
     };
-    const localSelectFixtures: LocalSelectFixture[] = [
+    const answerRouteFixtures: AnswerRouteFixture[] = [
       {
         // "None of these apply" — any other selection would hide the
         // reporting section (the two-section design), and the who fixture
@@ -529,11 +529,11 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
     ];
 
     // The full population: exactly every pii:true question in the spec —
-    // the talk path's fixtures plus the local select route's.
+    // the talk path's fixtures plus the answer route's.
     expect(
       [
         ...fixtures.map((fixture) => fixture.questionId),
-        ...localSelectFixtures.map((fixture) => fixture.questionId),
+        ...answerRouteFixtures.map((fixture) => fixture.questionId),
       ].sort(),
     ).toEqual([...PII_QUESTION_IDS_IN_SPEC].sort());
 
@@ -638,11 +638,11 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       }
     }
 
-    // The local select route's own vault routing for the work-requirements
-    // questions: same invariants, different (local) capture path — the
+    // The answer route's own vault routing for the work-requirements
+    // questions: same invariants, the capture path with no model — the
     // quick-questions stage's endpoint, never the model.
     let answerCookie: string | undefined = cookie;
-    for (const fixture of localSelectFixtures) {
+    for (const fixture of answerRouteFixtures) {
       const response = await postIntakeAnswer(
         new Request("http://localhost:3100/api/intake/answer", {
           method: "POST",

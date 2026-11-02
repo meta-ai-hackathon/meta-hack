@@ -876,7 +876,7 @@ describe("the typed journeys' work-requirements capture phase", () => {
     ];
   }
 
-  it("answers the pending required ids through the local select route, never the model", async () => {
+  it("answers the pending wr ids through the answer route, never the model", async () => {
     const transport = fakeTransport(qqPhaseRoutes());
     const walk = new Walkthrough("http://fake.test", 1000, transport);
     walk.state = clientState(
@@ -893,7 +893,7 @@ describe("the typed journeys' work-requirements capture phase", () => {
     // The transcript says the local route was used and the model saw
     // none of it; the pii answer's value is kept private in the log.
     const transcript = walk.lines.join("\n");
-    expect(transcript).toContain("(local select route, no model)");
+    expect(transcript).toContain("(answer route, no model)");
     expect(transcript).toContain("the model saw none of them");
     expect(transcript).toContain("(answer kept private)");
   });

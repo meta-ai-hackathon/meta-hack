@@ -313,7 +313,7 @@ describe("the frozen cases", PROPERTY_BUDGET, () => {
       };
     }
     // The quick-questions phase answers the work-requirements questions
-    // through the LOCAL select route before the scored turns run — the
+    // through the wizard's answer route before the scored turns run — the
     // same pass-through the runner and the rehearsal harness make.
     for (const passThrough of QQ_PHASE_ANSWERS) {
       answers[passThrough.questionId] = {
@@ -333,7 +333,7 @@ describe("the frozen cases", PROPERTY_BUDGET, () => {
 
   it("never send a work-requirements answer through the model extraction path", () => {
     // The work-requirements questions (milestone work-requirements) are
-    // captured through the local select route only — the quick-questions
+    // captured through the wizard's answer route only — the quick-questions
     // phase — so no scored case (a typed turn to the conversation
     // endpoint) may carry one, and every one of them is in the
     // pass-through list (claude-review P1).

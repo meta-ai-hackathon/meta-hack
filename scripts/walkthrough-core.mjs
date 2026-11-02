@@ -848,9 +848,9 @@ export class Walkthrough {
 
   /**
    * The quick-questions phase of the typed journeys: the work-requirements
-   * questions (milestone work-requirements) answered through the LOCAL
-   * select route (POST /api/intake/answer — the same save the quick-
-   * questions stage makes), before the typed talk turns begin. ONLY those
+   * questions (milestone work-requirements) answered through the wizard's answer route
+   * (POST /api/intake/answer — a server endpoint, the same save the
+   * quick-questions stage makes; NO MODEL in the loop), before the typed talk turns begin. ONLY those
    * sensitive questions are captured here — every other required question
    * stays with the typed turns, so the journeys keep their full
    * typed-turn coverage (claude-review P2). The phase mirrors the
@@ -914,7 +914,7 @@ export class Walkthrough {
       this.log(
         `QQ-ANSWER ${String(answerNumber).padStart(2, "0")}  ${step.id} = ` +
           `${Walkthrough.plannedDisplay(step, isPii)} — ` +
-          `${ANSWER_STATUS_LABELS[step.status]}  (local select route, no model)`,
+          `${ANSWER_STATUS_LABELS[step.status]}  (answer route, no model)`,
       );
       const afterIds = new Set(newState.questions.map((item) => item.id));
       const nowSkipped = [...beforeIds].filter((id) => !afterIds.has(id));
@@ -938,7 +938,7 @@ export class Walkthrough {
     if (answerNumber > 0) {
       this.log(
         `QQ-LOCAL  ${answerNumber} work-requirements question(s) answered ` +
-          "through the local select route — the model saw none of them",
+          "through the answer route — the model saw none of them",
       );
     }
     return { skippedBy };

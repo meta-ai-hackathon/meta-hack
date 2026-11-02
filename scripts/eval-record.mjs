@@ -299,9 +299,9 @@ class EvalRun {
     }
   }
 
-  /** The quick-questions phase's pass-through: the local select route's
-   * save (the quick-questions stage's own endpoint) for a question no
-   * typed turn covers — never the model. */
+  /** The quick-questions phase's pass-through: the answer route's save
+   * (the quick-questions stage's own endpoint) for a question no typed
+   * turn covers — never the model. */
   async answerLocally(session, passThrough) {
     try {
       const response = await this.transport(
@@ -361,9 +361,9 @@ class EvalRun {
   async runAnswerTurns(session, cases, plan, observations) {
     const caseByQuestion = new Map(cases.map((testCase) => [testCase.questionId, testCase]));
     const planById = new Map(plan.map((step) => [step.id, step]));
-    // The quick-questions phase's pass-through answers (the local select
-    // route — the work-requirements questions among them): never typed
-    // turns, never scored (see eval-cases.mjs).
+    // The quick-questions phase's pass-through answers (the wizard's
+    // answer route — the work-requirements questions among them): never
+    // typed turns, never scored (see eval-cases.mjs).
     const qqById = new Map(QQ_PHASE_ANSWERS.map((passThrough) => [passThrough.questionId, passThrough]));
     const privateValues = [];
     const asked = new Set();
@@ -390,7 +390,7 @@ class EvalRun {
       }
       asked.add(question.id);
       if (!step && qqAnswer) {
-        // The quick-questions phase: captured through the LOCAL select
+        // The quick-questions phase: captured through the wizard's answer
         // route (the same save the quick-questions stage makes), never a
         // typed turn to the model — sensitive select answers do not ride
         // the extraction path (claude-review P1).
@@ -401,7 +401,7 @@ class EvalRun {
         }
         state = response.state;
         this.say(
-          `QQ-ANSWER the flow reached ${question.id} — answered through the local select route (no model, not scored)`,
+          `QQ-ANSWER the flow reached ${question.id} — answered through the answer route (no model, not scored)`,
         );
         continue;
       }

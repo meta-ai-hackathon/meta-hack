@@ -11,11 +11,11 @@ import type { AnswerMap } from "./flow";
 // match: a pure, documented, deterministic comparison over stored answers
 // — never an LLM (HACK-86: the engine computes; a model never computes,
 // rounds, classifies, or estimates a form number), and never a compliance
-// statement. The proposal feeds a form answer only; the person confirms
-// or corrects it on the stage ("Matched for you", with the person's own
-// answer saved under their provenance when they change it). Nothing here
-// decides whether anyone is exempt from, or meets, a work requirement —
-// the state decides that; this screen answers a form field.
+// statement. ENGINE-ONLY in this milestone: no stage surfaces the
+// proposal yet; part 2 (wr-stage-ui) wires the "Matched for you"
+// confirm-or-correct surface. The proposal feeds a form answer only;
+// nothing here decides whether anyone is exempt from, or meets, a work
+// requirement — the state decides that; this screen answers a form field.
 //
 // The documented rule (exactly what the implementation below does):
 //

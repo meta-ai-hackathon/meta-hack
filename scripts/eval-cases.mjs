@@ -78,10 +78,10 @@ export const ANSWER_VALUE_LABELS = Object.freeze({
 
 /**
  * The work-requirements questions (milestone work-requirements), answered
- * through the conversation journey's quick-questions phase — the LOCAL
- * select route (POST /api/intake/answer), exactly the way the
- * conversation page's quick-questions stage captures them before the
- * typed talk turns begin. They are deliberately NOT scored cases and
+ * through the conversation journey's quick-questions phase — the
+ * wizard's answer route (POST /api/intake/answer, a server endpoint with
+ * no model in the loop), exactly the way the conversation page's
+ * quick-questions stage captures them before the typed talk turns begin. They are deliberately NOT scored cases and
  * carry no typed turns: sensitive select answers never ride the LLM
  * extraction path, so the model-driven case list stays free of them
  * (claude-review P1). The persona matches the plan's own (a parent of
