@@ -18,15 +18,20 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/forms/**": ["./src/lib/forms/fixtures/**"],
   },
-  // pdf.js's fake-worker setup (Node has no DOM worker) imports its
-  // sibling pdf.worker.mjs at runtime with a module-relative path.
-  // Bundled into a Turbopack server chunk, that import resolved against
-  // .next/dev/server/chunks/ and failed — every 1040 upload then surfaced
-  // as honestly "unreadable" instead of parsed (the income-capture
-  // round-1 live failure). Keep pdfjs-dist a real Node module (it is
-  // server-side only; the client never imports it) so the worker resolves
-  // from node_modules.
-  serverExternalPackages: ["pdfjs-dist"],
+  // pdfjs-dist (server-side only; the client never imports it) is BUNDLED
+  // into the server chunks rather than externalized, and the tax-parse
+  // loader imports the worker module itself (pdf.js's globalThis.pdfjsWorker
+  // hook) so no runtime import of the sibling pdf.worker.mjs ever runs:
+  //   - Bundled into a Turbopack chunk, that module-relative worker import
+  //     pointed at .next/dev/server/chunks/ and failed — every 1040 upload
+  //     surfaced as honestly "unreadable" instead of parsed (the
+  //     income-capture round-1 live failure).
+  //   - Externalized (the interim fix), the engine loaded from
+  //     node_modules locally but the deployed lambda's packaging dropped
+  //     Turbopack's external-copy tree — the engine module load itself
+  //     failed in production (the VAL-SPRINT-004 prod-parity 500).
+  // Bundled + worker hook removes both failure paths: no node_modules path
+  // and no copied external tree needs to exist at runtime.
 };
 
 export default nextConfig;
