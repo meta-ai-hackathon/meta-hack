@@ -73,17 +73,24 @@ const REQUEST_API = new RegExp(
 );
 
 /**
- * Every module a file loads at runtime: imports and re-exports, imports run
- * only for their side effects, and import() of a literal path, in either
- * quote style. Type-only imports are erased by the compiler, so they never
- * reach the bundle.
+ * The modules a file loads up front, with the page: imports and re-exports,
+ * and imports run only for their side effects, in either quote style.
+ * Type-only imports are erased by the compiler, so they never reach the
+ * bundle.
  */
-function runtimeSpecifiers(source: string): string[] {
+function upFrontSpecifiers(source: string): string[] {
   return [
     ...source.matchAll(/^\s*(?:import|export)\s(?!type\s)[^;]*?from\s+["']([^"']+)["']/gm),
     ...source.matchAll(/^\s*import\s*["']([^"']+)["']/gm),
-    ...source.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g),
   ].map((match) => match[1]);
+}
+
+/** Every module a file loads at runtime: the up front ones, plus import() of a literal path. */
+function runtimeSpecifiers(source: string): string[] {
+  return [
+    ...upFrontSpecifiers(source),
+    ...[...source.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)].map((match) => match[1]),
+  ];
 }
 
 /** A specifier for a file in this repo: a relative path, or one through tsconfig's "@/" alias for src. */
@@ -141,6 +148,23 @@ function packageImports(source: string): string[] {
  */
 function isServerPackage(specifier: string): boolean {
   return specifier === "postgres" || specifier.startsWith("node:") || builtinModules.includes(specifier);
+}
+
+/** The one module on the path allowed to load pdf-lib, and only on demand. */
+const FILL_MODULE = "lib/intake/device-fill.ts";
+
+/** Whether a file loads pdf-lib at all, up front or with import(). */
+function loadsPdfLib(source: string): boolean {
+  return packageImports(source).some(
+    (specifier) => specifier === "@cantoo/pdf-lib" || specifier.startsWith("@cantoo/pdf-lib/"),
+  );
+}
+
+/** Whether a file loads the PDF fill with the page instead of on demand. */
+function loadsFillUpFront(file: string, source: string): boolean {
+  return upFrontSpecifiers(source)
+    .filter(isLocal)
+    .some((specifier) => resolveLocal(file, specifier) === FILL_MODULE);
 }
 
 function reachable(entries: readonly string[]): Set<string> {
@@ -215,11 +239,8 @@ describe("the on-device intake path", () => {
     // only when the person downloads their filled form.
     for (const file of files) {
       const source = readFileSync(join(SRC, file), "utf8");
-      const loadsPdfLib = /^\s*import\s(?!type\s)[^;]*?from\s+"@cantoo\/pdf-lib"/m.test(source);
-      expect(loadsPdfLib, `${file} loads pdf-lib`).toBe(file === "lib/intake/device-fill.ts");
-      expect(source, `${file} loads the fill up front`).not.toMatch(
-        /^\s*(?:import|export)\s(?!type\s)[^;]*?from\s+"[^"]*\/device-fill"/m,
-      );
+      expect(loadsPdfLib(source), `${file} loads pdf-lib`).toBe(file === FILL_MODULE);
+      expect(loadsFillUpFront(file, source), `${file} loads the fill up front`).toBe(false);
     }
   });
 
@@ -253,19 +274,19 @@ describe("the boundary check's reading of imports", () => {
     return path.startsWith(".") ? path : `./${path}`;
   }
 
-  const STATEMENTS: readonly ((specifier: string) => string)[] = [
-    (specifier) => `import { loaded } from ${specifier};`,
-    (specifier) => `import * as loaded from ${specifier};`,
-    (specifier) => `import loaded, {\n  other,\n  type Shape,\n} from ${specifier};`,
-    (specifier) => `export { loaded } from ${specifier};`,
-    (specifier) => `export * from ${specifier};`,
-    (specifier) => `import ${specifier};`,
-    (specifier) => `const loaded = await import(${specifier});`,
+  /** Ways to write an import, and whether each loads its module with the page. */
+  const STATEMENTS: readonly { readonly write: (specifier: string) => string; readonly upFront: boolean }[] = [
+    { write: (specifier) => `import { loaded } from ${specifier};`, upFront: true },
+    { write: (specifier) => `import * as loaded from ${specifier};`, upFront: true },
+    { write: (specifier) => `import loaded, {\n  other,\n  type Shape,\n} from ${specifier};`, upFront: true },
+    { write: (specifier) => `export { loaded } from ${specifier};`, upFront: true },
+    { write: (specifier) => `export * from ${specifier};`, upFront: true },
+    { write: (specifier) => `import ${specifier};`, upFront: true },
+    { write: (specifier) => `const loaded = await import(${specifier});`, upFront: false },
   ];
 
-  const importOfServerModule = fc.record({
+  const spelling = fc.record({
     file: fc.constantFrom(...files),
-    target: fc.constantFrom(...SERVER_ONLY),
     alias: fc.boolean(),
     quote: fc.constantFrom('"', "'"),
     statement: fc.constantFrom(...STATEMENTS),
@@ -273,9 +294,20 @@ describe("the boundary check's reading of imports", () => {
 
   it("follows an import of a server module however it is written", () => {
     fc.assert(
-      fc.property(importOfServerModule, ({ file, target, alias, quote, statement }) => {
-        const source = statement(`${quote}${specifierFor(file, target, alias)}${quote}`);
+      fc.property(spelling, fc.constantFrom(...SERVER_ONLY), ({ file, alias, quote, statement }, target) => {
+        const source = statement.write(`${quote}${specifierFor(file, target, alias)}${quote}`);
         expect(localImports(file, source)).toContain(target);
+      }),
+    );
+  });
+
+  it("sees pdf-lib, and the fill loaded with the page, however they are written", () => {
+    fc.assert(
+      fc.property(spelling, ({ file, alias, quote, statement }) => {
+        expect(loadsPdfLib(statement.write(`${quote}@cantoo/pdf-lib${quote}`))).toBe(true);
+        const fill = statement.write(`${quote}${specifierFor(file, FILL_MODULE, alias)}${quote}`);
+        // Only import() leaves the fill out of the page's first load.
+        expect(loadsFillUpFront(file, fill)).toBe(statement.upFront);
       }),
     );
   });
