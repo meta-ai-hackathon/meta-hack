@@ -9,7 +9,7 @@ import {
   SAMPLE_KB_ENTRIES,
   type KbEntry,
 } from "./kb";
-import { PII_QUESTION_IDS_IN_SPEC, QUESTIONS } from "./intake/spec";
+import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID, QUESTIONS } from "./intake/spec";
 import type { AnswerMap } from "./intake/flow";
 import {
   EXPLANATION_FRAMING,
