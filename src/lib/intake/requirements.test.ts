@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import dhb5200Raw from "../../../kb/forms/dhb-5200.json";
 import { PILOT_CONFIG } from "../pilot";
 import { visibleQuestions, type AnswerMap, type StoredAnswer } from "./flow";
+import { buildClientState } from "./client-state";
 import {
   DEFAULT_PROGRAM_IDS,
   PROGRAM_REQUIREMENTS,
@@ -297,5 +298,171 @@ describe("the committed layer's consistency with the pilot", () => {
         expect(QUESTION_BY_ID[id], `${program.id}: ${id}`).toBeDefined();
       }
     }
+  });
+});
+
+describe("work-requirements skip chains (VAL-WR-004/005)", () => {
+  // The Civilla two-section design, encoded in the spec: work-activity
+  // reporting (who / types / hours last month) is visible ONLY when no
+  // exemption, income, or student path applies. The hiding lives in the
+  // new questions' skip_conditions — the flow engine's isQuestionVisible
+  // does the work; nothing forks flow.ts.
+
+  const WORK_ACTIVITY_IDS = [
+    "wr_work_activity_who",
+    "wr_work_activity_types",
+    "wr_work_activity_hours",
+  ];
+
+  const known = (id: string, value: unknown): AnswerMap => ({
+    [id]: { status: "known", value },
+  });
+
+  /** One fixture per hiding path: a known answer that must hide all three. */
+  const HIDING_CASES: readonly {
+    readonly path: string;
+    readonly answers: AnswerMap;
+  }[] = [
+    ...["parent_child_under_18", "nonparent_caregiver_child_under_14", "caregiver_daily_activities", "already_snap_tanf_work_requirements"].map(
+      (option) => ({
+        path: `exemption selection: ${option}`,
+        answers: known("wr_exempt_situations", [option]),
+      }),
+    ),
+    ...[
+      "wr_pregnant",
+      "wr_drug_alcohol_treatment",
+      "wr_drug_alcohol_disorder",
+      "wr_disability_hard_work",
+      "wr_mental_health_hard_work",
+      "wr_serious_health_condition",
+      "wr_jail_prison_past_4_months",
+      "wr_foster_care_under_26",
+      "wr_veteran_100_disabled",
+    ].map((id) => ({
+      path: `exemption yes: ${id}`,
+      answers: known(id, "yes"),
+    })),
+    { path: "past-month situation: wr_applied_last_month", answers: known("wr_applied_last_month", "yes") },
+    { path: "other situation: wr_medical_travel_1hr", answers: known("wr_medical_travel_1hr", "yes") },
+    { path: "other situation: wr_hospital_care_24hr", answers: known("wr_hospital_care_24hr", "yes") },
+    { path: "income path: wr_income_580", answers: known("wr_income_580", "yes") },
+    { path: "student path: full_time", answers: known("wr_student_enrolled", "full_time") },
+    { path: "student path: at_least_half_time", answers: known("wr_student_enrolled", "at_least_half_time") },
+  ];
+
+  it("hides the work-activity questions for each exemption/income/student path (directed, VAL-WR-004)", () => {
+    for (const { path, answers } of HIDING_CASES) {
+      // Both surfaces of the same engine: the visible-question filter and
+      // the quick-questions still-to-ask set (which reuses it).
+      const visible = new Set(
+        visibleQuestions(QUESTIONS, answers).map((question) => question.id),
+      );
+      const view = remainingQuickQuestions(answers);
+      for (const id of WORK_ACTIVITY_IDS) {
+        expect(visible.has(id), `${path}: ${id} visible`).toBe(false);
+        expect(view.remainingIds, `${path}: ${id} still asked`).not.toContain(
+          id,
+        );
+      }
+      // ...and the hiding path never over-hides: the exemption screen
+      // itself stays in the still-to-ask set (the skip targets ONLY the
+      // reporting section).
+      const answeredIds = Object.keys(answers);
+      for (const id of Object.keys(QUESTION_BY_ID).filter(
+        (candidate) =>
+          candidate.startsWith("wr_") &&
+          !WORK_ACTIVITY_IDS.includes(candidate) &&
+          !answeredIds.includes(candidate),
+      )) {
+        expect(view.remainingIds, `${path}: ${id} over-hidden`).toContain(id);
+      }
+    }
+  });
+
+  it("fail-open: unknown, unverified, or blank answers never trigger the skip", () => {
+    for (const status of ["unknown", "unverified"] as const) {
+      const answers: Record<string, StoredAnswer> = {};
+      for (const id of [
+        "wr_exempt_situations",
+        "wr_pregnant",
+        "wr_applied_last_month",
+        "wr_medical_travel_1hr",
+        "wr_hospital_care_24hr",
+        "wr_income_580",
+        "wr_student_enrolled",
+      ]) {
+        answers[id] = { status, value: null };
+      }
+      const view = remainingQuickQuestions(answers);
+      for (const id of WORK_ACTIVITY_IDS) {
+        expect(view.remainingIds, `${status}: ${id}`).toContain(id);
+      }
+    }
+    // Absent answers: a fresh session is asked everything, reporting too.
+    const fresh = remainingQuickQuestions({});
+    for (const id of WORK_ACTIVITY_IDS) {
+      expect(fresh.remainingIds, id).toContain(id);
+    }
+  });
+
+  it("keeps the work-activity questions visible when every path resolves negative (VAL-WR-005, engine direction)", () => {
+    const answers: AnswerMap = {
+      wr_exempt_situations: { status: "known", value: ["none"] },
+      wr_pregnant: { status: "known", value: "no" },
+      wr_drug_alcohol_treatment: { status: "known", value: "no" },
+      wr_drug_alcohol_disorder: { status: "known", value: "no" },
+      wr_disability_hard_work: { status: "known", value: "no" },
+      wr_mental_health_hard_work: { status: "known", value: "no" },
+      wr_serious_health_condition: { status: "known", value: "no" },
+      wr_jail_prison_past_4_months: { status: "known", value: "no" },
+      wr_foster_care_under_26: { status: "known", value: "no" },
+      wr_veteran_100_disabled: { status: "known", value: "no" },
+      wr_applied_last_month: { status: "known", value: "no" },
+      wr_medical_travel_1hr: { status: "known", value: "no" },
+      wr_hospital_care_24hr: { status: "known", value: "no" },
+      wr_income_580: { status: "known", value: "no" },
+      wr_student_enrolled: { status: "known", value: "not_enrolled" },
+    };
+    const view = remainingQuickQuestions(answers);
+    for (const id of WORK_ACTIVITY_IDS) {
+      expect(view.remainingIds, id).toContain(id);
+    }
+    // The which-situations follow-up is NOT asked when nothing applied
+    // last month (its own skip chain).
+    expect(view.remainingIds).not.toContain("wr_applied_last_month_which");
+  });
+});
+
+describe("the live completeness definition (client-state complete, pinned)", () => {
+  // The results auto-advance's "complete" is the FULL visible-spec walk
+  // the conversation has always done: every VISIBLE spec question
+  // answered — never required-for-programs only. The quick-questions
+  // block's complete narrows to the required universe (the honest
+  // counter's denominator); the journey gate does NOT. Pinned explicitly
+  // (orchestrator note, Nov 2): live behavior stays as validated across
+  // the walkthrough assertions; talk remains the catch-all.
+  it("state.complete stays false while a spec question outside the required universe is unanswered", () => {
+    const universe = requiredForPrograms(DEFAULT_PROGRAM_IDS);
+    const answers: Record<string, StoredAnswer> = {};
+    for (const id of universe) {
+      answers[id] = knownAnswer(id);
+    }
+    const state = buildClientState(answers);
+    expect(state.quickQuestions.complete).toBe(true);
+    // household_seniors, received_benefits_before, and student_status are
+    // spec questions outside the required universe (visible, unanswered):
+    // the full-spec walk is not done, so the journey gate stays open.
+    expect(state.complete).toBe(false);
+  });
+
+  it("state.complete turns true exactly when every visible spec question is answered (skips included)", () => {
+    const answers: Record<string, StoredAnswer> = {};
+    for (const question of QUESTIONS) {
+      answers[question.id] = knownAnswer(question.id);
+    }
+    // Every id has a stored answer, so whatever the skip logic hides is
+    // invisible and every visible question is answered.
+    expect(buildClientState(answers).complete).toBe(true);
   });
 });
