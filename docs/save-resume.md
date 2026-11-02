@@ -208,7 +208,8 @@ answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
   encrypted, outside the sealed store, so "Delete my answers from this
   device" can't reach it. The page says what the file holds next to the
   download, and the delete confirmation says a downloaded form is still on
-  the device until the person deletes it.
+  the device until the person deletes it, as does the clear in a browser
+  that can't save answers.
 - **The blank form:** the public DHB-5200 is a static file
   (`public/forms/dhb-5200.pdf`), byte for byte the registry's committed
   copy. The page asks for it only when the person downloads, with a GET that
@@ -237,7 +238,7 @@ answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
 | Only Save and finish later asks the browser to keep the store, after saying so | `src/lib/intake/device-intake.test.ts` (answering never asks; it asks only when the device holds answers) + `src/app/intake/intake-wizard.device.test.tsx` (the note describes the button, one request a visit) |
 | `/intake` reaches the match, the review, and the filled form with no answer in any request, and a reload resumes them | `src/app/intake/device-results.test.tsx` (the page driven through the DOM over a fake IndexedDB, with every request recorded) + `src/lib/intake/device-path-boundary.test.ts` (no server module, Node built-in, or request on the path besides the blank form's GET) |
 | The end of `/intake` shows no banned claim and no private answer, for any answers | `src/app/intake/device-results.markup.test.tsx` (properties over generated device answers: the rendered text, attributes, and markup, plus labelled and described inputs with spellcheck off and a heading outline that never skips a level) |
-| A delete after a download claims only what it did | `src/app/intake/device-results.test.tsx` (download, then delete: the store is empty and the confirmation says the downloaded file is still on the device) |
+| A delete after a download claims only what it did | `src/app/intake/device-results.test.tsx` (download, then delete: the store is empty and the confirmation says the downloaded file is still on the device; the same in a browser that can't save, where the clear says it too) |
 | A box answer that isn't checked or unchecked holds the download back instead of printing an unchecked box | `src/lib/intake/device-review-answers.test.ts` (property over typed answers: box answers reach the fill only as checked or unchecked, any other text is listed) + `src/app/intake/device-results.test.tsx` (yes typed into a box: nothing fetched or filled, the box listed, then filled as fixed) |
 | Answers typed into the review survive a trip to a question and go with every delete | `src/app/intake/device-results.test.tsx` (property: generated typed answers are all still there after answering a question from the review; a delete here, in another tab, or found by a save leaves the review empty when the questions are answered again) |
 | The device's fill and review match the server's for the same answers | `src/lib/intake/device-form.test.ts` (properties over generated answer sets saved through the server store and on the device: the same field values, provenance, to-resolve and not-applicable lists, conflict flags, and the review route's view and coverage report) |
