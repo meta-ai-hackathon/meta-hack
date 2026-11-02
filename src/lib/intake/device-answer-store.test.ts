@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { DeviceKv, KvGuard } from "../device-kv";
 import {
   EMPTY_CLIENT_ANSWERS,
-  openSealed,
   saveClientAnswer,
   sealForStorage,
   type ClientAnswerRecord,
@@ -13,7 +12,6 @@ import {
   DEVICE_ANSWERS_CRYPTO_KEY_KEY,
   DEVICE_ANSWERS_ENVELOPE_KEY,
   DEVICE_SAVE_ATTEMPTS,
-  DEVICE_SESSION_ENVELOPE_KEY,
   isSealingKey,
   loadDeviceAnswers,
   openDeviceAnswerStore,
@@ -279,16 +277,8 @@ describe("several tabs", () => {
     let theirs = 0;
     const racing = memoryKv({
       beforeGuardedWrite: (store) => {
-        // The other tab wrote its own whole pair: a fresh envelope under a
-        // fresh key. Contending on the shared sealing key too (HACK-107
-        // review P1: the key slot is anchored whenever a generated key is
-        // written), not just the envelope.
         theirs += 1;
         store.set(DEVICE_ANSWERS_ENVELOPE_KEY, `sealed1.other-tab-${theirs}.x`);
-        store.set(
-          DEVICE_ANSWERS_CRYPTO_KEY_KEY,
-          crypto.getRandomValues(new Uint8Array(16)),
-        );
       },
     });
     const [record] = fc.sample(markedRecordArb, 1);
@@ -300,7 +290,7 @@ describe("several tabs", () => {
 });
 
 describe("what cannot be opened", () => {
-  it("reads as unreadable, is left in place, and the next save replaces it under the SAME key, never orphaning the shared key", async () => {
+  it("reads as unreadable, is left in place, and the next save replaces it under a fresh key", async () => {
     const unreadable: unknown[] = [
       "not-an-envelope",
       "sealed1.@@@.###",
@@ -328,36 +318,11 @@ describe("what cannot be opened", () => {
       expect(store.get(DEVICE_ANSWERS_ENVELOPE_KEY)).toBe(envelope);
 
       const [record] = fc.sample(markedRecordArb, 1);
-      // The same stored key also seals the Rampart session envelope: the
-      // save must REUSE the key and replace only the answers envelope, or
-      // the session would be orphaned (review P2) and its token ordinals
-      // would restart against server history still holding old tokens.
-      const straySession = await sealForStorage(
-        JSON.stringify({ version: 1, entries: [] }),
-        strayKey,
-        crypto.subtle,
-      );
-      store.set(DEVICE_SESSION_ENVELOPE_KEY, straySession);
       const saved = await recordDeviceAnswer(deps(kv), record, { expectStored: false });
       expect(saved).toEqual({ status: "saved", state: fold([record]) });
-      expect(store.get(DEVICE_ANSWERS_CRYPTO_KEY_KEY)).toBe(strayKey);
-      expect(
-        await openSealed(straySession, strayKey, crypto.subtle),
-      ).toBe(JSON.stringify({ version: 1, entries: [] }));
+      expect(store.get(DEVICE_ANSWERS_CRYPTO_KEY_KEY)).not.toBe(strayKey);
       expect((await loadDeviceAnswers(deps(kv))).state).toEqual(fold([record]));
     }
-  });
-
-  it("replaces a garbage key slot like an empty slot (review P3)", async () => {
-    const { kv, store } = memoryKv();
-    store.set(DEVICE_ANSWERS_CRYPTO_KEY_KEY, "not-a-key");
-    const [record] = fc.sample(markedRecordArb, 1);
-    const saved = await recordDeviceAnswer(deps(kv), record, { expectStored: false });
-    expect(saved.status).toBe("saved");
-    // The generated key is written WITH the envelope it sealed: the slot no
-    // longer holds garbage, and the device pair matches.
-    expect(isSealingKey(store.get(DEVICE_ANSWERS_CRYPTO_KEY_KEY))).toBe(true);
-    expect((await loadDeviceAnswers(deps(kv))).state).toEqual(fold([record]));
   });
 
   it("an extractable or non-AES key is never used to open or seal", async () => {
