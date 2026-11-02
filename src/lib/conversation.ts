@@ -500,6 +500,17 @@ export function buildCombinedTurnPrompt(
         "or detail only generically, for example \"the person you mentioned\".",
     );
   }
+  if (!voiceTurn) {
+    lines.push(
+      "Typed transcripts carry Rampart placeholders (for example " +
+        "[GIVEN_NAME_1]) instead of the private values the app held back. " +
+        "In the reply, never repeat, quote, or echo a bracketed placeholder, " +
+        "and never state or guess what a token may stand for — refer to " +
+        "people and details generically, for example “the person you " +
+        "mentioned” — and if a token stands where the person's words would " +
+        "go, ask the same question again naturally.",
+    );
+  }
   lines.push(
     `Output ONLY a JSON object with exactly the keys "answers", "reply", and ` +
       `"next_question_id" (plus the optional "followup" exactly when you ` +
@@ -1392,6 +1403,23 @@ export async function processUserTurn(
     for (const item of envelope?.answers ?? []) {
       let planned = answerToSave(item);
       if (!planned) {
+        continue;
+      }
+      // A token must never reach a saved answer (HACK-107 review): the
+      // transcript carries Rampart placeholders, so a model "extracted
+      // value" that is itself a bracketed token is not the person's data —
+      // stored, it would flow into the review, the print path, and the
+      // fax. Skipped like any malformed extraction, so the same honest
+      // loss disclosure applies.
+      if (
+        (typeof planned.value === "string" && containsPlaceholder(planned.value)) ||
+        (Array.isArray(planned.value) &&
+          planned.value.some(
+            (part) => typeof part === "string" && containsPlaceholder(part),
+          ))
+      ) {
+        logWarn("conversation_extraction_token_value_skipped");
+        skippedAnswerCount += 1;
         continue;
       }
       try {

@@ -432,6 +432,39 @@ describe("POST /api/conversation/turn — extraction persistence (VAL-CONV-003)"
     expect(rows[0].provenance).toBe("user_supplied");
   });
 
+  it("skips a token-shaped extracted value without saving it (HACK-107 review)", async () => {
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            {
+              question_id: "goal_detail",
+              status: "known",
+              value: "[GIVEN_NAME_1]",
+              verbatim: "[GIVEN_NAME_1]",
+            },
+            { question_id: "household_size", status: "known", value: 3 },
+          ],
+        }),
+        reply: "Got it.",
+      },
+    ]);
+    const response = await POST(turnRequest("There are three of us."));
+    expect(response.status).toBe(200);
+    // The token never lands as an answer value: the person's real answer to
+    // goal_detail stays unsaved (the reply discloses the loss honestly), and
+    // the sibling answer saves normally.
+    const goalRows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'goal_detail'
+    `;
+    expect(goalRows).toHaveLength(0);
+    const sizeRows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'household_size'
+    `;
+    expect(sizeRows).toHaveLength(1);
+    expect(sizeRows[0].value).toBe(3);
+  });
+
   it("skips a malformed extracted answer without failing the turn", async () => {
     installScript([
       {
