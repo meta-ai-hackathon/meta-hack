@@ -523,9 +523,36 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
         value: ["caregiver_daily_activities"],
         vaultValue: "caregiver_daily_activities",
       },
+      {
+        // Answered AFTER the which follow-up: a "no" here hides that
+        // question (the which-situations skip), and its fixture above is
+        // already saved.
+        questionId: "wr_applied_last_month",
+        value: "no",
+        vaultValue: "no",
+      },
       { questionId: "wr_medical_travel_1hr", value: "no", vaultValue: "no" },
       { questionId: "wr_hospital_care_24hr", value: "no", vaultValue: "no" },
       { questionId: "wr_work_activity_who", value: "Alex", vaultValue: "Alex" },
+      {
+        questionId: "wr_work_activity_types",
+        value: ["community_service"],
+        vaultValue: "community_service",
+      },
+      { questionId: "wr_work_activity_hours", value: 20, vaultValue: "20" },
+      {
+        questionId: "wr_student_enrolled",
+        value: "not_enrolled",
+        vaultValue: "not_enrolled",
+      },
+      {
+        // Last: a "yes" here hides the reporting section for the rest of
+        // the session (the income path), and the activity fixtures above
+        // are already saved.
+        questionId: "wr_income_580",
+        value: "yes",
+        vaultValue: "yes",
+      },
     ];
 
     // The full population: exactly every pii:true question in the spec —

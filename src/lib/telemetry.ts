@@ -68,13 +68,16 @@ export const PII_QUESTION_IDS = [
   "shelter_mail_consent",
   "phone_contact",
   "email_contact",
-  // The work-requirements questions (milestone work-requirements): the
-  // exemption screen discloses caregiving, foster, veteran, and SNAP/TANF
-  // facts, the health/disability/drug-alcohol/mental-health/pregnancy/
-  // incarceration/veteran/foster answers are sensitive, the
-  // which-situations follow-up reveals them, medical travel and hospital
-  // care reveal health conditions, and the who field is a text question
-  // (text is always pii).
+  // The work-requirements questions (milestone work-requirements): every
+  // one of them is pii (claude-review P1) — the exemption screen
+  // discloses caregiving, foster, veteran, and SNAP/TANF facts, the
+  // health/disability/drug-alcohol/mental-health/pregnancy/incarceration/
+  // veteran/foster answers are sensitive, the which-situations follow-up
+  // reveals them, medical travel and hospital care reveal health
+  // conditions, the $580 screen discloses a household income bracket
+  // (the income questions themselves are pii), a past-month yes
+  // discloses that a sensitive situation applied, and the activity
+  // types/hours describe household members' work lives.
   "wr_exempt_situations",
   "wr_pregnant",
   "wr_drug_alcohol_treatment",
@@ -85,10 +88,15 @@ export const PII_QUESTION_IDS = [
   "wr_jail_prison_past_4_months",
   "wr_foster_care_under_26",
   "wr_veteran_100_disabled",
+  "wr_applied_last_month",
   "wr_applied_last_month_which",
   "wr_medical_travel_1hr",
   "wr_hospital_care_24hr",
+  "wr_student_enrolled",
+  "wr_income_580",
   "wr_work_activity_who",
+  "wr_work_activity_types",
+  "wr_work_activity_hours",
 ] as const;
 
 /** Identity keys redacted in addition to the spec-derived question ids. */

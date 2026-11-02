@@ -55,13 +55,15 @@ WORK_ACTIVITY_IDS = [
 
 # Health/disability/drug-alcohol/mental-health/pregnancy/incarceration/
 # veteran/foster answers are sensitive: the questions carrying them are
-# pii:true (encrypted vault path only). The which-situations follow-up
-# reveals the same facts, and the medical-travel and hospital-care rows
-# reveal health conditions — all pii:true. The who field is a text
-# question (text is always pii per the schema). The exemption screen is
-# pii too: checking its boxes discloses caregiving, foster, veteran, and
-# SNAP/TANF facts — the same categories its follow-ups carry
-# (claude-review P2).
+# pii:true (encrypted vault path only). ALL of them are pii
+# (claude-review P1): the exemption screen discloses caregiving, foster,
+# veteran, and SNAP/TANF facts; the which-situations follow-up reveals
+# the same facts; the medical-travel and hospital-care rows reveal
+# health conditions; the who field is a text question (text is always
+# pii per the schema); the $580 screen discloses a household income
+# bracket (the income questions themselves are pii); a past-month yes
+# discloses that a sensitive situation applied; and the activity
+# types/hours describe household members' work lives.
 SENSITIVE_WORK_REQUIREMENTS_IDS = [
     "wr_exempt_situations",
     "wr_pregnant",
@@ -73,22 +75,21 @@ SENSITIVE_WORK_REQUIREMENTS_IDS = [
     "wr_jail_prison_past_4_months",
     "wr_foster_care_under_26",
     "wr_veteran_100_disabled",
+    "wr_applied_last_month",
     "wr_applied_last_month_which",
     "wr_medical_travel_1hr",
     "wr_hospital_care_24hr",
-    "wr_work_activity_who",
-]
-
-# The work-requirements questions that carry no sensitive fact: past-month
-# applicability, student enrollment, the household income screen, activity
-# types, and hours.
-NONSENSITIVE_WORK_REQUIREMENTS_IDS = [
-    "wr_applied_last_month",
     "wr_student_enrolled",
     "wr_income_580",
+    "wr_work_activity_who",
     "wr_work_activity_types",
     "wr_work_activity_hours",
 ]
+
+# No work-requirements question carries a non-sensitive answer. This list
+# stays as the guard for any future addition: an id placed here must keep
+# pii: false.
+NONSENSITIVE_WORK_REQUIREMENTS_IDS: list[str] = []
 
 
 def load_spec():
