@@ -5,6 +5,13 @@
  * members, IDs, income amounts, addresses, and the benefits vocabulary that
  * must survive tokenization.
  *
+ * Every private value lives in a range never issued to a person: SSNs in the
+ * SSA-invalid area blocks (000, 666, 900-999; the fixtures use 666) and phone
+ * numbers inside the NANP-reserved fictional 555 exchange. The fixture loop
+ * below enforces those ranges so a future edit cannot quietly introduce a
+ * real-shape value (HACK-107 review: valid-looking synthetic data in a public
+ * repo is a real-data risk).
+ *
  * Metric: span-level P/R/F1 between the guard's predictions and hand-labeled
  * gold spans, matched with the same label and a small character-tolerance
  * (token-classification boundaries wobble by a char or two). Predictions come
@@ -322,6 +329,18 @@ for (const fixture of FIXTURES) {
     }
     if (occurrences(fixture.input, term.text).length === 0) {
       fail(`${fixture.id}: private term ${term.text} does not appear in the input`);
+    }
+    const digits = term.text.replace(/\D/g, "");
+    if (term.label === "SSN") {
+      const area = digits.slice(0, 3);
+      if (!(area === "000" || area === "666" || Number(area) >= 900)) {
+        fail(`${fixture.id}: SSN gold ${term.text} is outside the never-issued ranges (000/666/900-999)`);
+      }
+    }
+    if (term.label === "PHONE") {
+      if (!/^\d{3}555\d{4}$/.test(digits.slice(-10))) {
+        fail(`${fixture.id}: PHONE gold ${term.text} is outside the reserved 555 exchange`);
+      }
     }
   }
   if (process.exitCode === 1) process.exit(1);
