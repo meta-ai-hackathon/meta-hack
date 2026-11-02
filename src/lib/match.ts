@@ -653,12 +653,12 @@ export async function buildMatchResponse(
   const ranked = rankEntries(answers, entries);
   const matches: MatchCard[] = [];
   const signalMatched = ranked.filter((rankedEntry) => rankedEntry.score > 0);
-  // THIS session's specific pii values (lowercased), used to degrade (never
-  // pin) an explanation that collides with them. The substring trigger and
-  // word-boundary excusal MIRROR the response gate exactly, so any
-  // explanation the gate would reject is degraded here first — a cached
-  // explanation can never pin a session's match list to a 500.
-  const piiValues: { lowered: string; inStatic: RegExp }[] = [];
+  // THIS session's specific pii values, used to degrade (never pin) an
+  // explanation that collides with them. The trigger and excusal come from
+  // the response gate's own privateValueMatcher, so they MIRROR the gate
+  // exactly: any explanation the gate would reject is degraded here first —
+  // a cached explanation can never pin a session's match list to a 500.
+  const piiValues: PrivateValueMatcher[] = [];
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     const stored = answers[questionId];
     if (!stored || stored.value === null || stored.value === undefined) {
@@ -667,10 +667,7 @@ export async function buildMatchResponse(
     for (const element of Array.isArray(stored.value) ? stored.value : [stored.value]) {
       const raw = String(element).trim();
       if (raw !== "" && isSpecificValue(raw)) {
-        piiValues.push({
-          lowered: raw.toLowerCase(),
-          inStatic: new RegExp(`\\b${escapeRegExpValue(raw)}\\b`, "i"),
-        });
+        piiValues.push(privateValueMatcher(questionId, raw));
       }
     }
   }
@@ -699,7 +696,7 @@ export async function buildMatchResponse(
       piiValues.length > 0 &&
       piiValues.some(
         (value) =>
-          card.explanation.text.toLowerCase().includes(value.lowered) &&
+          value.carriedBy(card.explanation.text) &&
           !value.inStatic.test(cardStaticCopy(rankedEntry.entry, card)),
       )
     ) {
@@ -727,6 +724,89 @@ export async function buildMatchResponse(
 
 function escapeRegExpValue(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** A number answer as String() and the vault write it: digits, maybe a decimal part. */
+const PLAIN_NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
+
+/**
+ * Token edges for number answers (HACK-121). A letter or digit continues a
+ * token, and so does one of these separators when it sits between two of
+ * them, so dates (2026-10-30, 10/08/2026), ids (dhb-5200, travel_1hr),
+ * times, decimals, and grouped numbers each stay one token.
+ */
+const TOKEN_CHAR = "[a-z0-9]";
+const TOKEN_JOINER = "[-./:,_]";
+
+/**
+ * The numbers a match response computes itself: the entry version (on each
+ * card and citation) and the card score. They are metadata, not copy, so a
+ * number answer equal to one of them is not a disclosure.
+ */
+const COMPUTED_NUMBER_KEYS: ReadonlySet<string> = new Set(["entryVersion", "score"]);
+
+/**
+ * The gate's two tests for one private value: does a text carry it (the
+ * trigger), and is it part of a public copy (the excusal). Every value
+ * keeps the substring trigger and the word-boundary excusal, except a
+ * number question's answer written as a plain number (HACK-121). Its digits
+ * turn up inside the dates, ids, and longer numbers every response carries
+ * ("0" inside 2026-10-30), so it counts only where it stands as its own
+ * number, in the trigger and the excusal alike.
+ */
+interface PrivateValueMatcher {
+  /** True when the value is matched as a whole number token. */
+  readonly wholeNumber: boolean;
+  /** The trigger: does this text carry the value? */
+  readonly carriedBy: (text: string) => boolean;
+  /** The excusal: matches a public copy the value is part of. */
+  readonly inStatic: RegExp;
+}
+
+function privateValueMatcher(questionId: string, raw: string): PrivateValueMatcher {
+  if (QUESTION_BY_ID[questionId]?.type === "number" && PLAIN_NUMBER_PATTERN.test(raw)) {
+    const ownNumber = new RegExp(
+      `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${TOKEN_JOINER})${escapeRegExpValue(raw)}` +
+        `(?!${TOKEN_CHAR})(?!${TOKEN_JOINER}${TOKEN_CHAR})`,
+      "i",
+    );
+    return {
+      wholeNumber: true,
+      carriedBy: (text) => ownNumber.test(text),
+      inStatic: ownNumber,
+    };
+  }
+  const lowered = raw.toLowerCase();
+  return {
+    wholeNumber: false,
+    carriedBy: (text) => text.toLowerCase().includes(lowered),
+    inStatic: new RegExp(`\\b${escapeRegExpValue(raw)}\\b`, "i"),
+  };
+}
+
+/**
+ * Every key, string, and number the response carries, unescaped, minus the
+ * computed numbers above: the text a number answer is matched against.
+ * (The JSON escapes a newline to "\n", which would glue an "n" onto the
+ * number that follows it.)
+ */
+function responseNumberScan(value: unknown, key = ""): string[] {
+  if (typeof value === "string") {
+    return [value];
+  }
+  if (typeof value === "number") {
+    return COMPUTED_NUMBER_KEYS.has(key) ? [] : [String(value)];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => responseNumberScan(item));
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.entries(value).flatMap(([childKey, child]) => [
+      childKey,
+      ...responseNumberScan(child, childKey),
+    ]);
+  }
+  return [];
 }
 
 /**
@@ -855,12 +935,18 @@ function responseStaticCopy(response: MatchResponse): string {
  *
  * Multi-select values are checked element by element (the old whole-array
  * JSON check could never substring-match).
+ *
+ * A number question's answer written as a plain number is matched only as
+ * its own number, never inside a date, an id, or a longer number, and
+ * never against the entry version or card score (HACK-121; see
+ * privateValueMatcher).
  */
 export function assertNoPiiValuesInMatch(
   response: MatchResponse,
   answers: AnswerMap,
 ): void {
   const serialized = JSON.stringify(response).toLowerCase();
+  const numberScan = responseNumberScan(response).join("\n");
   const staticCopy = responseStaticCopy(response);
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     const stored = answers[questionId];
@@ -876,14 +962,11 @@ export function assertNoPiiValuesInMatch(
       if (raw === "" || !isSpecificValue(raw)) {
         continue;
       }
-      if (!serialized.includes(raw.toLowerCase())) {
+      const matcher = privateValueMatcher(questionId, raw);
+      if (!matcher.carriedBy(matcher.wholeNumber ? numberScan : serialized)) {
         continue;
       }
-      const inStaticCopy = new RegExp(
-        `\\b${escapeRegExpValue(raw)}\\b`,
-        "i",
-      ).test(staticCopy);
-      if (!inStaticCopy) {
+      if (!matcher.inStatic.test(staticCopy)) {
         throw new AppError(
           "internal",
           "A match response attempted to include a private answer value.",
