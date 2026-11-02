@@ -179,6 +179,7 @@ export function ReviewSection({
   stagger = false,
   formId = PILOT_CONFIG.formRegistryId,
   idPrefix = "",
+  ownsSessionLifecycle = true,
 }: {
   refreshKey: number;
   stagger?: boolean;
@@ -189,6 +190,12 @@ export function ReviewSection({
   formId?: string;
   /** DOM-id prefix — the sibling review sections pass their form ids. */
   idPrefix?: string;
+  /**
+   * Whether this review renders the session's lifecycle controls (the
+   * BN-25 status is one per session, not per form). Additional
+   * applications pass false — their reviews are preparation surfaces.
+   */
+  ownsSessionLifecycle?: boolean;
 }) {
   const [data, setData] = useState<ReviewDataView | null>(null);
   const [failed, setFailed] = useState(false);
@@ -224,7 +231,12 @@ export function ReviewSection({
   return (
     <>
       {data ? (
-        <ReviewSectionContent data={data} stagger={stagger} idPrefix={idPrefix} />
+        <ReviewSectionContent
+          data={data}
+          stagger={stagger}
+          idPrefix={idPrefix}
+          ownsSessionLifecycle={ownsSessionLifecycle}
+        />
       ) : null}
       <StatusRegion
         message={failed ? REVIEW_UNAVAILABLE_NOTICE : ""}
@@ -245,6 +257,7 @@ export function ReviewSectionContent({
   data,
   stagger = false,
   idPrefix = "",
+  ownsSessionLifecycle = true,
 }: {
   data: ReviewDataView;
   stagger?: boolean;
@@ -254,6 +267,15 @@ export function ReviewSectionContent({
    * ids must stay unique per form for the label wiring and axe.
    */
   idPrefix?: string;
+  /**
+   * Whether THIS review owns the session's lifecycle controls (the BN-25
+   * status is one per session, not per form — claude-review P2 on PR
+   * #121). The additional applications' reviews are preparation surfaces:
+   * they leave the status line and the lifecycle transitions to the
+   * pilot's primary review, so a package step marked on one form can
+   * never misstate where the other form stands.
+   */
+  ownsSessionLifecycle?: boolean;
 }) {
   const idFor = (suffix: string): string =>
     idPrefix === "" ? suffix : `${idPrefix}-${suffix}`;
@@ -624,9 +646,11 @@ export function ReviewSectionContent({
           Getting it done
           <span className="sr-only"> — {data.form.title}</span>
         </h2>
-        <p className="text-sm text-muted">
-          Where you are: <span data-session-status={sessionStatus}>{SESSION_STATUS_COPY[sessionStatus] ?? sessionStatus}</span>
-        </p>
+        {ownsSessionLifecycle ? (
+          <p className="text-sm text-muted">
+            Where you are: <span data-session-status={sessionStatus}>{SESSION_STATUS_COPY[sessionStatus] ?? sessionStatus}</span>
+          </p>
+        ) : null}
         {/* The destination line (adjudicated spec Step 4, ADOPT): where the
         person submits the form themselves — the publicly published
         destination, carried by the pilot seam per form (the ask-once
@@ -649,16 +673,18 @@ export function ReviewSectionContent({
             </li>
           ))}
         </ol>
+        {!ownsSessionLifecycle ? (
+          // The additional applications' reviews are preparation surfaces:
+          // the one session lifecycle (BN-25) is marked on the pilot's
+          // primary review, so a step marked for one form can never
+          // misstate where the other form stands.
+          <p className="text-sm text-muted" data-lifecycle-owner-note>
+            One journey, two prepared applications: the package steps —
+            prepared, handed off, submitted — are marked on the{" "}
+            {PILOT_CONFIG.programName} application&apos;s review.
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={busy || sessionStatus !== "draft"}
-            onClick={() => void advance({ status: "prepared" })}
-            data-action="prepare"
-            className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
-          >
-            Mark my package prepared
-          </button>
           <button
             type="button"
             disabled={busy}
@@ -668,26 +694,41 @@ export function ReviewSectionContent({
           >
             Download the filled PDF
           </button>
-          <button
-            type="button"
-            disabled={busy || !downloaded || sessionStatus !== "prepared"}
-            onClick={() => void advance({ status: "handed_off" })}
-            data-action="hand-off"
-            className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
-          >
-            I picked up my application — mark handed off
-          </button>
-          <button
-            type="button"
-            disabled={busy || sessionStatus !== "handed_off"}
-            onClick={() =>
-              void advance({ userReportedStatus: "user_reported_submitted" })
-            }
-            data-action="report-submitted"
-            className="rounded-full border border-surface-border bg-surface px-4 py-2 text-sm font-semibold hover:bg-teal-soft disabled:opacity-50"
-          >
-            I submitted it myself
-          </button>
+          {ownsSessionLifecycle ? (
+            <>
+              <button
+                type="button"
+                disabled={busy || sessionStatus !== "draft"}
+                onClick={() => void advance({ status: "prepared" })}
+                data-action="prepare"
+                className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
+              >
+                Mark my package prepared
+              </button>
+              <button
+                type="button"
+                disabled={busy || !downloaded || sessionStatus !== "prepared"}
+                onClick={() => void advance({ status: "handed_off" })}
+                data-action="hand-off"
+                className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
+              >
+                I picked up my application — mark handed off
+              </button>
+              <button
+                type="button"
+                disabled={busy || sessionStatus !== "handed_off"}
+                onClick={() =>
+                  void advance({
+                    userReportedStatus: "user_reported_submitted",
+                  })
+                }
+                data-action="report-submitted"
+                className="rounded-full border border-surface-border bg-surface px-4 py-2 text-sm font-semibold hover:bg-teal-soft disabled:opacity-50"
+              >
+                I submitted it myself
+              </button>
+            </>
+          ) : null}
         </div>
         <HandoffSection
           formId={data.form.id}

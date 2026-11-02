@@ -242,4 +242,66 @@ describe("AlsoPrepareSection — revealing the SNAP review", () => {
     expect(sum).toBe(counts.total);
     expect(counts.total).toBe(DSS_ENTRY.fields.length);
   });
+
+  it("the revealed additional review leaves the session lifecycle to the primary review (claude-review P2, PR #121)", async () => {
+    previousActEnvironment = actGlobal.IS_REACT_ACT_ENVIRONMENT;
+    actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+
+    const fetchSpy = vi.fn(() =>
+      Promise.resolve(Response.json(dssReviewPayload(carriedAnswers))),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const { container, root } = renderSection();
+    try {
+      await act(async () => {
+        root.render(<AlsoPrepareSection refreshKey={0} />);
+      });
+      await act(async () => {
+        await flush();
+      });
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            "[data-also-prepare-button='dss-8207']",
+          )
+          ?.click();
+        await flush();
+      });
+
+      const review = container.querySelector("[data-review-form='dss-8207']");
+      expect(review).not.toBeNull();
+      // No session-lifecycle controls: the BN-25 status is one per
+      // session, and the additional review is a preparation surface —
+      // marking the package prepared here would misstate the primary.
+      expect(review?.querySelector("[data-session-status]")).toBeNull();
+      expect(review?.querySelector("[data-action='prepare']")).toBeNull();
+      expect(review?.querySelector("[data-action='hand-off']")).toBeNull();
+      expect(
+        review?.querySelector("[data-action='report-submitted']"),
+      ).toBeNull();
+      // The download stays (per-form, real), and the note says where the
+      // package steps live.
+      expect(review?.querySelector("[data-action='download']")).not.toBeNull();
+      const note = review?.querySelector("[data-lifecycle-owner-note]");
+      expect(note?.textContent).toContain("marked on the");
+      expect(note?.textContent).toContain(PILOT_CONFIG.programName);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
+  it("the default review (no ownsSessionLifecycle prop) still renders the lifecycle controls", () => {
+    const payload = dssReviewPayload(carriedAnswers);
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={payload} />),
+    );
+    expect(html).toContain("data-session-status");
+    expect(html).toContain('data-action="prepare"');
+    expect(html).toContain('data-action="report-submitted"');
+    expect(html).not.toContain("data-lifecycle-owner-note");
+  });
 });

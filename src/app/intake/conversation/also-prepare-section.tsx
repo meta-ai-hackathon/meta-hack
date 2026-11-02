@@ -30,7 +30,10 @@ export function AlsoPrepareSection({
   const applications = PILOT_CONFIG.additionalApplications;
   const [revealedIds, setRevealedIds] = useState<readonly string[]>([]);
   const [notice, setNotice] = useState("");
-  const focusTarget = useRef<HTMLDivElement | null>(null);
+  // One focus target PER application (claude-review P3 on PR #121): a
+  // single shared ref would move focus to whichever revealed wrapper
+  // rendered last, not the one just chosen.
+  const focusTargets = useRef(new Map<string, HTMLDivElement>());
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -69,7 +72,7 @@ export function AlsoPrepareSection({
     // Focus moves to the revealed review region (requestAnimationFrame:
     // the region mounts with this render).
     requestAnimationFrame(() => {
-      focusTarget.current?.focus();
+      focusTargets.current.get(formRegistryId)?.focus();
     });
   }
 
@@ -114,7 +117,13 @@ export function AlsoPrepareSection({
             ) : (
               <div
                 id={`also-prepare-review-${application.formRegistryId}`}
-                ref={focusTarget}
+                ref={(node) => {
+                  if (node) {
+                    focusTargets.current.set(application.formRegistryId, node);
+                  } else {
+                    focusTargets.current.delete(application.formRegistryId);
+                  }
+                }}
                 tabIndex={-1}
                 className="flex flex-col gap-4 focus:outline-none"
               >
@@ -123,6 +132,7 @@ export function AlsoPrepareSection({
                   refreshKey={refreshKey}
                   stagger={stagger}
                   idPrefix={application.formRegistryId}
+                  ownsSessionLifecycle={false}
                 />
               </div>
             )}

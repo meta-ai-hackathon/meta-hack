@@ -35,8 +35,8 @@ const ENTRY = getFormRegistryEntry("dss-8207");
 // The person's answers as the journey stored them: the pii trio routes to
 // the vault, the rest are plain rows. contact_preference = "call" makes
 // phone_contact visible (and email_contact skipped — a one-preference
-// contact choice); housing_status = "rent" keeps the shelter-cost screens
-// visible.
+// contact choice); housing_status = "rental_or_own" keeps the shelter-cost
+// screens visible.
 const FIXTURE_ANSWERS: readonly {
   id: string;
   status: "known";
