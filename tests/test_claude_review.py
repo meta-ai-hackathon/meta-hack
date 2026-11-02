@@ -2145,9 +2145,34 @@ class PromptTests(unittest.TestCase):
 
     def test_rules_and_agents_reach_the_system_prompt(self) -> None:
         request = self.build(make_pr(), FILES)
-        self.assertIn("No PII reaches any cloud LLM", request.system)
         self.assertIn("P1, must fix before merge", request.system)
         self.assertIn("Quality gates (non-negotiable)", request.system)
+
+    def test_real_data_rules_state_the_clarified_pii_policy(self) -> None:
+        """The clarified policy (owner decision, Oct 29) must be what the
+        reviewer actually reads: consented, no-retention voice and fax are
+        the only PII-to-API exceptions; voice consent covers transmitting
+        the user's PII audio and its transcript, but never vendor-side
+        retention; there is no LLM-specific PII ban; and the app's own
+        route handlers must not receive PII."""
+        request = self.build(make_pr(), FILES)
+        system = request.system
+        # The only two exceptions, and their twin conditions.
+        self.assertIn("No PII hits any API except a voice model and a fax API", system)
+        self.assertIn("must not retain any data", system)
+        self.assertIn("only with explicit user knowledge and consent", system)
+        self.assertIn("only exceptions to sending PII to APIs", system)
+        # Voice consent: transmission of PII audio + transcript, never retention.
+        self.assertIn("transmit the user's PII audio and its transcript", system)
+        self.assertIn("consent never covers vendor-side retention", system)
+        # No LLM-category ban: it is about destination, not model kind.
+        self.assertIn("no LLM-specific ban", system)
+        # The app's own endpoints never receive PII.
+        self.assertIn("route handlers must not receive PII", system)
+        self.assertIn("the server never becomes a relay for PII", system)
+        # The old blanket rule is superseded and must not come back.
+        self.assertNotIn("No PII reaches any cloud LLM", system)
+        self.assertNotIn("PII never reaches any cloud LLM", system)
 
     def test_missing_rules_file_falls_back_and_warns(self) -> None:
         warnings: list[str] = []
