@@ -67,6 +67,8 @@ database wiring exists.
 | --- | --- | --- |
 | `MODEL_API_KEY` | Vercel project env (Production, Preview, Development) | Meta Model API rail. Value from local `.env` only; documented in `.env.example`; never committed or logged. |
 | `DATABASE_URL` | Vercel project env (Production, Preview), set by the connected Vercel Postgres store | Wired 2026-10-29: the managed store is provisioned and connected, auto-setting `DATABASE_URL` and its companion Postgres vars. Env changes apply to new deployments only. The DSN is never committed or logged; apply migrations from a machine that has it (see the README's Production section). |
+| `VAULT_ENC_KEY` | Vercel project env (Production, Preview) | Required. The vault encrypts private answers with it: 64 hex characters, made with `openssl rand -hex 32`, documented in `.env.example`. Without it every page that reads a session fails, and changing it leaves any session that already holds a private answer unreadable (see `docs/runbooks.md`). Never committed or logged. Not confirmed set as of 2026-10-31. |
+| `ELEVENLABS_API_KEY` | Vercel project env (Production, Preview) | Optional. Spoken replies go through ElevenLabs with it; without it the browser's built-in voice reads replies, with a visible notice. Documented in `.env.example`. Not confirmed set as of 2026-10-31. |
 
 ## Per-PR preview deployments
 

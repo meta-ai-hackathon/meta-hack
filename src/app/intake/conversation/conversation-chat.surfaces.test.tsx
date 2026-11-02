@@ -113,6 +113,21 @@ const EMPTY_STATE: IntakeClientState = {
   progress: { answered: 0, remaining: 1, total: 1 },
   currentIndex: 0,
   complete: false,
+  quickQuestions: {
+    programs: ["nc_medicaid"],
+    requiredIds: ["application_role"],
+    requiredCount: 1,
+    remainingIds: ["application_role"],
+    remainingCount: 1,
+    complete: false,
+  },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
+  },
 };
 
 let turnCalls: { headers: Headers; body: string }[] = [];
@@ -228,6 +243,16 @@ async function beginMode(
       new MouseEvent("click", { bubbles: true }),
     );
   });
+  // The inserted QUICK QUESTIONS stage (VAL-QQ-002): traverse it with the
+  // calm CTA whenever the engine's questions are pending — a zero-pending
+  // session passes straight through to the talk stage.
+  if (q(container, "quick-questions-stage")) {
+    await act(async () => {
+      q(container, "qq-to-talk")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+  }
 }
 
 describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {

@@ -140,6 +140,44 @@ export function isAnswerStatus(value: unknown): value is AnswerStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Answer provenance vocabulary
+// ---------------------------------------------------------------------------
+
+/**
+ * Where an answer's value came from — mirrors the answer table's CHECK
+ * constraint exactly (migrations/0001_core.sql as extended by
+ * migrations/0004_tax_return_provenance.sql). Lives on the honesty spine so
+ * both server modules (the store) and browser-safe modules (the flow
+ * engine, the client-state builder) can share one vocabulary:
+ *
+ * - `user_supplied` — the person typed or spoke it (wizard, quick
+ *   questions, conversation).
+ * - `ai_drafted` — a genuine AI inference, always status `unverified`.
+ * - `source_verified` — checked against an official source.
+ * - `tax_return` — a parser proposal the person confirmed on the income
+ *   stage ("From your tax return"). Pairs only with status `known`.
+ * - `user` — a person-corrected/entered value through the income stage's
+ *   paths (the manual card, or correcting a proposal). Pairs only with
+ *   status `known`.
+ */
+export const ANSWER_PROVENANCES = [
+  "user_supplied",
+  "ai_drafted",
+  "source_verified",
+  "tax_return",
+  "user",
+] as const;
+
+export type AnswerProvenance = (typeof ANSWER_PROVENANCES)[number];
+
+export function isAnswerProvenance(value: unknown): value is AnswerProvenance {
+  return (
+    typeof value === "string" &&
+    (ANSWER_PROVENANCES as readonly string[]).includes(value)
+  );
+}
+
+// ---------------------------------------------------------------------------
 // BN-25 session-state vocabulary
 // ---------------------------------------------------------------------------
 

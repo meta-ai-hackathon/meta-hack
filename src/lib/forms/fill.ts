@@ -44,12 +44,14 @@ import type { FormRegistryEntry } from "./registry";
 // server-only half: the session and vault reads, the template load gate,
 // and the log lines.
 export {
+  detectCheckConflicts,
   FLAT_TEXT_SIZE,
   MAX_FORM_ANSWER_LENGTH,
   MAX_FORM_VALUES,
   skippedFieldNames,
 } from "./fill-core";
 export type {
+  FillConflict,
   FillOutcome,
   FillValue,
   FilledField,
@@ -141,7 +143,8 @@ function decodeVaultValue(questionId: string, raw: string): unknown {
 /**
  * Fill the template per the registry entry and return the outcome: the PDF
  * bytes (in memory only), the per-field provenance of everything filled,
- * and the explicit to-resolve list. Unknown fields are visibly blank.
+ * the explicit to-resolve list, and the conflict flags from the fill-time
+ * consistency check. Unknown fields are visibly blank.
  * Skipped (not-applicable) fields are handled by fillForSession, which owns
  * the answer map.
  */
@@ -152,7 +155,7 @@ export async function fillFormPdf(
   answerMap: AnswerMap = {},
 ): Promise<FillOutcome> {
   const pdf = await assertLoadablePdf(templateBytes);
-  const { filled, toResolve } = await fillLoadedPdf(pdf, entry, values, answerMap, {
+  const { filled, toResolve, conflicts } = await fillLoadedPdf(pdf, entry, values, answerMap, {
     onFieldDegraded: (error) =>
       logInfo("form_field_fill_degraded", {
         reason: error instanceof AppError ? error.code : "field_error",
@@ -162,8 +165,9 @@ export async function fillFormPdf(
   logInfo("form_fill_completed", {
     filledCount: filled.length,
     toResolveCount: toResolve.length,
+    conflictCount: conflicts.length,
   });
-  return { bytes: await pdf.save(), filled, toResolve };
+  return { bytes: await pdf.save(), filled, toResolve, conflicts };
 }
 
 /**

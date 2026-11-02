@@ -121,6 +121,25 @@ function privateValuesIn(state: ClientAnswerState): string[] {
   return values;
 }
 
+/**
+ * Each rendering property draws the whole end of /intake, and with the full
+ * DHB-5200 mapping that is hundreds of review fields per run, which takes
+ * well over the default 5 seconds on a busy CI runner.
+ */
+const RENDER_TIMEOUT_MS = 60_000;
+
+/** Index elements by a key, keeping the first element in document order for each key. */
+function firstBy(elements: Iterable<Element>, keyOf: (element: Element) => string | null): Map<string, Element> {
+  const index = new Map<string, Element>();
+  for (const element of elements) {
+    const key = keyOf(element);
+    if (key !== null && !index.has(key)) {
+      index.set(key, element);
+    }
+  }
+  return index;
+}
+
 function render(state: ClientAnswerState): { html: string; root: HTMLElement } {
   const html = renderToStaticMarkup(<DeviceResults answers={state} onAnswer={() => undefined} />);
   const root = document.createElement("div");
@@ -144,7 +163,7 @@ describe("the device results, for any answers on the device", () => {
       }),
       { numRuns: 60 },
     );
-  });
+  }, RENDER_TIMEOUT_MS);
 
   it("never put a private answer on the screen, in the text or in an attribute", () => {
     fc.assert(
@@ -161,7 +180,7 @@ describe("the device results, for any answers on the device", () => {
       }),
       { numRuns: 60 },
     );
-  });
+  }, RENDER_TIMEOUT_MS);
 
   it("label every typed answer and describe it with the note on how it's kept", () => {
     fc.assert(
@@ -169,19 +188,24 @@ describe("the device results, for any answers on the device", () => {
         const { root } = render(state);
         const inputs = [...root.querySelectorAll<HTMLInputElement>("[data-review-fields] input")];
         expect(inputs.length).toBeGreaterThan(0);
+        // The full DHB-5200 mapping puts hundreds of typed fields on this
+        // screen, so look labels and ids up once per render: the first
+        // element in document order wins, as querySelector would pick it.
+        const labels = firstBy(root.querySelectorAll("label[for]"), (label) => label.getAttribute("for"));
+        const byId = firstBy(root.querySelectorAll("[id]"), (element) => element.id);
         for (const input of inputs) {
-          const label = root.querySelector(`label[for="${input.id}"]`);
+          const label = labels.get(input.id);
           const item = input.closest("[data-review-field]");
           expect(label?.textContent, input.id).toBe(item?.querySelector("label")?.textContent);
           const describedBy = input.getAttribute("aria-describedby") ?? "";
-          const note = describedBy === "" ? null : root.querySelector(`[id="${describedBy}"]`);
+          const note = describedBy === "" ? null : (byId.get(describedBy) ?? null);
           expect(note?.textContent, input.id).toBe(DEVICE_RESULTS_COPY.typedNote);
-          expect(item?.contains(note ?? null), input.id).toBe(true);
+          expect(item?.contains(note), input.id).toBe(true);
         }
       }),
       { numRuns: 60 },
     );
-  });
+  }, RENDER_TIMEOUT_MS);
 
   it("keep typed answers out of the browser's spellcheck and saved form entries", () => {
     // Enhanced spellcheck in Chrome and Edge sends the text of a field to
@@ -197,7 +221,7 @@ describe("the device results, for any answers on the device", () => {
       }),
       { numRuns: 30 },
     );
-  });
+  }, RENDER_TIMEOUT_MS);
 
   it("describe each answer-this-question button with its own field's question", () => {
     fc.assert(
@@ -223,7 +247,7 @@ describe("the device results, for any answers on the device", () => {
       }),
       { numRuns: 60 },
     );
-  });
+  }, RENDER_TIMEOUT_MS);
 
   it("keep a heading outline that never skips a level", () => {
     fc.assert(
@@ -239,5 +263,5 @@ describe("the device results, for any answers on the device", () => {
       }),
       { numRuns: 60 },
     );
-  });
+  }, RENDER_TIMEOUT_MS);
 });

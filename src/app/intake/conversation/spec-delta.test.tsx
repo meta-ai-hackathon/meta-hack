@@ -8,6 +8,7 @@ import {
   type ConsentReceipt,
 } from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
+import { INCOME_STAGE_QUESTION_IDS } from "../../../lib/intake/income";
 import { ConversationChat } from "./conversation-chat";
 import { deriveThemeProgress } from "./coming-together";
 import { WAVEFORM_HEIGHTS, VoiceWaveform } from "./voice-deck";
@@ -126,6 +127,15 @@ function stateWith(
   answered: Record<string, { status: "known" | "unknown" | "unverified"; value?: unknown }>,
   questions: IntakeClientState["questions"] = THEME_QUESTIONS,
 ): IntakeClientState {
+  // The income gate's block, derived over this fixture's questions with
+  // the same engine semantics (no income-stage provenances here, so the
+  // gate is closed unless no income question is visible at all).
+  const incomeVisible = questions.filter((question) =>
+    (INCOME_STAGE_QUESTION_IDS as readonly string[]).includes(question.id),
+  );
+  const incomeAnswered = incomeVisible.filter(
+    (question) => answered[question.id] !== undefined,
+  );
   return {
     questions,
     answers: answered,
@@ -136,6 +146,23 @@ function stateWith(
     },
     currentIndex: null,
     complete: false,
+    quickQuestions: {
+      programs: ["nc_medicaid"],
+      requiredIds: questions.map((question) => question.id),
+      requiredCount: questions.length,
+      remainingIds: questions
+        .filter((question) => answered[question.id] === undefined)
+        .map((question) => question.id),
+      remainingCount: questions.length - Object.keys(answered).length,
+      complete: questions.length - Object.keys(answered).length === 0,
+    },
+    income: {
+      questionIds: incomeVisible.map((question) => question.id),
+      answeredCount: incomeAnswered.length,
+      confirmedCount: 0,
+      totalCount: incomeVisible.length,
+      handled: incomeVisible.length === 0,
+    },
   };
 }
 
@@ -187,6 +214,26 @@ const COMPLETE_STATE: IntakeClientState = {
   progress: { answered: 4, remaining: 0, total: 4 },
   currentIndex: null,
   complete: true,
+  quickQuestions: {
+    programs: ["nc_medicaid"],
+    requiredIds: THEME_QUESTIONS.map((question) => question.id),
+    requiredCount: THEME_QUESTIONS.length,
+    remainingIds: [],
+    remainingCount: 0,
+    complete: true,
+  },
+  income: {
+    questionIds: ["income_sources"],
+    answeredCount: 1,
+    // UPDATED for the income-capture redefinition (VAL-QQ-011): results
+    // = intake complete AND income handled. This fixture drives the
+    // results-stage rendering tests, so its income block must be
+    // HANDLED (confirmed) — under the old gate `handled: false` was
+    // inert; now it reroutes the journey to the income stage.
+    confirmedCount: 1,
+    totalCount: 1,
+    handled: true,
+  },
 };
 
 function historyResponse(state: IntakeClientState): Response {
@@ -390,6 +437,16 @@ async function beginTalkStage(
       new MouseEvent("click", { bubbles: true }),
     );
   });
+  // The inserted QUICK QUESTIONS stage (VAL-QQ-002): traverse it with the
+  // calm CTA whenever the engine's questions are pending — a zero-pending
+  // session passes straight through to the talk stage.
+  if (q(container, "quick-questions-stage")) {
+    await act(async () => {
+      q(container, "qq-to-talk")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+  }
 }
 
 describe("the Coming Together sidebar (VAL-VJS2-001)", () => {

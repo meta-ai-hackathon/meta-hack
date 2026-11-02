@@ -16,10 +16,14 @@ import { parseCommittedRegistryEntries, type FormRegistryEntry } from "./registr
 // the server-only half: the taxonomy errors and the template read.
 export type {
   AnswerBox,
+  ConflictGroup,
+  ConflictGroupKind,
+  FormFieldDisposition,
   FormFieldKind,
   FormRegistryEntry,
   FormRegistryField,
   FormRegistrySource,
+  RadioExportValues,
 } from "./registry-core";
 
 function registryError(detail: string): AppError {

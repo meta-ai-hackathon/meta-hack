@@ -30,15 +30,19 @@ import {
   type ConsentReceipt,
 } from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
+import { takeStoredEntryMode } from "../../../lib/entry-mode";
 import { IntakeWizard } from "../intake-wizard";
 import { ComingTogether, themesForQuestionIds, themeLabelFor } from "./coming-together";
 import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
+import { IncomeStage } from "./income-stage";
 import { MatchSection } from "./match-section";
 import { ModeChoice, type ConversationEntryMode } from "./mode-choice";
 import { PurgeSection } from "./purge-section";
 import { PresenceOrb } from "./presence-orb";
+import { QuickQuestionsStage } from "./quick-questions";
 import { ReviewSection } from "./review-section";
-import { VoiceDeck } from "./voice-deck";
+import { STAGE_GRID_CLASS } from "./stage-grid";
+import { PauseIcon, PlayIcon, VoiceDeck } from "./voice-deck";
 
 // The conversational intake chat (Mission v2 M1 text, M2 voice, M5 consent,
 // and the HACK-106 natural-conversation rebuild). Two voice entry modes
@@ -72,6 +76,28 @@ const WIZARD_FALLBACK_URL = "/intake";
  * dropped with an honest notice, never silently.
  */
 export const MAX_PENDING_VOICE_TURNS = 3;
+
+/**
+ * The transcript pane's stick threshold (VAL-FIX-002): how close to the
+ * pane's bottom, in px, still counts as "parked at the latest turn". Small
+ * enough that an intentional scroll up is always honored (no yanking),
+ * large enough to absorb a few px of reflow.
+ */
+export const TRANSCRIPT_STICK_THRESHOLD_PX = 32;
+
+/**
+ * Whether the transcript pane is parked at its latest turn (VAL-FIX-002).
+ * Pure and exported for tests: auto-scroll is only ever applied while
+ * this holds, so a person who scrolled up to read is never yanked back.
+ */
+export function isPinnedToLatest(
+  scrollTop: number,
+  scrollHeight: number,
+  clientHeight: number,
+  threshold: number = TRANSCRIPT_STICK_THRESHOLD_PX,
+): boolean {
+  return scrollHeight - scrollTop - clientHeight <= threshold;
+}
 
 export type VoiceInterimPhase =
   | "listening"
@@ -231,6 +257,14 @@ export function ConversationChat() {
   const [sessionOn, setSessionOn] = useState(false);
   const [paused, setPausedState] = useState(false);
   const [typingMode, setTypingMode] = useState(false);
+  // The quick-questions stage's move-on (VAL-QQ-002): sticky once the
+  // person leaves the stage for the talk stage — via the calm CTA or
+  // the last card's save. Never reset while this visit continues (a
+  // mid-session reveal of a previously-skipped question, or a purge,
+  // must not yank the person off the live conversation onto the cards
+  // mid-mic); a reload starts a fresh visit and the stage returns
+  // honestly for whatever is still unanswered.
+  const [quickQuestionsDismissed, setQuickQuestionsDismissed] = useState(false);
   // Consent state (VAL-CONSENT-*): the receipt is an EXTERNAL store —
   // this device's localStorage, subscribed via useSyncExternalStore (SSR
   // renders the server snapshot: no receipt, surface open, sends off —
@@ -256,6 +290,28 @@ export function ConversationChat() {
   const [notice, setNotice] = useState("");
   const [loaded, setLoaded] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  // The fixed-height transcript pane (VAL-FIX-002): the scrollable
+  // container on the talk stage, plus whether it is parked at the latest
+  // turn (auto-scroll only applies while it is — scrolled up is honored).
+  const transcriptPaneRef = useRef<HTMLDivElement | null>(null);
+  const transcriptPinnedRef = useRef(true);
+  // Stable attach callback: a freshly attached pane (the talk stage
+  // entered or re-entered — after a purge, a consent re-grant, or the
+  // typing switch and back) starts PARKED at the latest turn. The
+  // person's scroll position does not survive the pane leaving the
+  // stage, so a new pane must never inherit a stale "scrolled up" pin
+  // — that would silently kill auto-scroll for the whole stage (the
+  // droid-review P1 on PR #90).
+  const attachPaneRef = useCallback((el: HTMLDivElement | null): void => {
+    transcriptPaneRef.current = el;
+    if (el !== null) {
+      transcriptPinnedRef.current = true;
+    }
+  }, []);
+  // The entry mode chosen on the home shell (VAL-FIX-003), carried as a
+  // preselection for the engine-gated entry stage. Read once on mount.
+  const [suggestedMode, setSuggestedMode] =
+    useState<ConversationEntryMode | null>(null);
   // The continuous voice session (HACK-106): all mic/recorder/endpointing
   // wiring lives behind ONE stable ref — the component only maps session
   // events to UI state and submits the utterances.
@@ -348,9 +404,19 @@ export function ConversationChat() {
     };
   }, []);
 
+  // The home shell's carried mode choice (VAL-FIX-003): consumed ONCE on
+  // mount and applied as the entry stage's preselection — the session
+  // still begins only from the person's explicit "Let's begin" behind the
+  // consent gate. Deferred a microtask past hydration (the same idiom as
+  // the capability probe) — no synchronous setState in the effect.
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ block: "nearest" });
-  }, [turns]);
+    void Promise.resolve().then(() => {
+      const carried = takeStoredEntryMode();
+      if (carried) {
+        setSuggestedMode(carried);
+      }
+    });
+  }, []);
 
   // Zero-send mode has no conversation turns to bump the match/review
   // refresh key: the deterministic wizard's saves re-read the stored state
@@ -399,31 +465,94 @@ export function ConversationChat() {
   const sharingDeclined = receipt !== null && !receipt.ai;
   const zeroSend = sharingDeclined && !panelOpen;
 
-  // The three-stage voice journey (VAL-VJS-001..004), derived — no extra
-  // state machine to desync. A voice-consented visitor (AI + voice on,
-  // panel closed, not the zero-send path) moves ENTRY (the mode choice,
-  // VAL-VJS-001) → TALK (the clean transcript stage, VAL-VJS-002) →
-  // RESULTS the moment the deterministic engine reports no unanswered
-  // question left (state.complete — the auto-advance, VAL-VJS-003).
-  // Every non-voice path (consent panel open, zero-send, ai-only typed)
-  // keeps today's single-scroll layout untouched.
+  // The voice journey (VAL-VJS-001..004 + VAL-QQ-002 + VAL-INC-001) —
+  // the full five-stage flow: ENTRY (the mode choice, VAL-VJS-001) →
+  // QUICK QUESTIONS (the requirements engine's computed cards — only
+  // while any are pending and not yet moved past) → TALK (the clean
+  // transcript stage, VAL-VJS-002) → INCOME (the income-capture stage —
+  // exactly two real source cards, manual + tax-return upload) → RESULTS
+  // (VAL-VJS-003). The auto-advance's "complete" is REDEFINED DELIBERATELY
+  // (VAL-QQ-011, milestone income-capture): results = intake complete
+  // (state.complete — the engine's every-visible-question-answered) AND
+  // income handled (state.income.handled — the income stage's own paths
+  // captured or confirmed income at least once). So a session whose talk
+  // stage completes lands on the INCOME stage first; results becomes
+  // reachable only after the person confirms or types their income there;
+  // no session reaches results with income unresolved, and no session is
+  // dead-ended (the manual card is always available — a rough idea is
+  // okay). A zero-pending quick-questions visitor passes straight through
+  // to the talk stage — that stage is never shown empty. Every non-voice
+  // path (consent panel open, zero-send, ai-only typed) keeps the
+  // single-scroll layout untouched — with consent declined the
+  // deterministic wizard covers the quick questions AND the income
+  // questions among its questions and reaches every section (VAL-QQ-010:
+  // refusal never blocks; the wizard makes zero model sends).
   const voiceConsented =
     !panelOpen && !zeroSend && aiSharingOn && voiceSharingOn;
   const journeyComplete = state?.complete ?? false;
-  const resultsStage = voiceConsented && journeyComplete;
-  const entryStage = voiceConsented && entryMode === null && !journeyComplete;
-  const talkStage = voiceConsented && entryMode !== null && !journeyComplete;
+  const incomeHandled = state?.income.handled ?? false;
+  const quickQuestionsPending =
+    (state?.quickQuestions.remainingCount ?? 0) > 0;
+  const resultsStage = voiceConsented && journeyComplete && incomeHandled;
+  const entryStage = voiceConsented && entryMode === null && !resultsStage;
+  const quickQuestionsStage =
+    voiceConsented &&
+    entryMode !== null &&
+    !journeyComplete &&
+    quickQuestionsPending &&
+    !quickQuestionsDismissed;
+  const incomeStage =
+    voiceConsented && entryMode !== null && journeyComplete && !incomeHandled;
+  const talkStage =
+    voiceConsented &&
+    entryMode !== null &&
+    !journeyComplete &&
+    !quickQuestionsStage;
 
   // Surface conditions (the two-mode rule, VAL-NCF-002): mode A shows no
   // typing at all; mode B offers the switch at any point; the typed form
-  // carries the ai-only, switched, and mic-fallback cases.
+  // carries the ai-only, switched, and mic-fallback cases. The income
+  // stage renders neither (the conversation is complete there; its own
+  // cards are the surface).
   const voiceSessionSurface = talkStage && sessionOn && !typingMode;
   const typedSurface =
     !panelOpen &&
     !zeroSend &&
     aiSharingOn &&
     !resultsStage &&
+    !incomeStage &&
     (!voiceSharingOn || typingMode || micBlocked);
+
+  // Auto-scroll (VAL-FIX-002): the talk-stage transcript is a
+  // fixed-height pane — keep the latest turns in view WITHOUT ever
+  // growing the page. New turns AND streaming partials (the live-caret
+  // bubble rides the voice phase) scroll the PANE to the bottom, only
+  // while the person is parked there; scrolled up, it is never yanked.
+  // The single-scroll paths (typed/zero-send) keep the page-level
+  // scrollIntoView behavior.
+  useEffect(() => {
+    if (!talkStage) {
+      transcriptEndRef.current?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    const pane = transcriptPaneRef.current;
+    if (pane === null || !transcriptPinnedRef.current) {
+      return;
+    }
+    pane.scrollTop = pane.scrollHeight;
+  }, [turns, voicePhase, talkStage]);
+
+  function handlePaneScroll(): void {
+    const pane = transcriptPaneRef.current;
+    if (pane === null) {
+      return;
+    }
+    transcriptPinnedRef.current = isPinnedToLatest(
+      pane.scrollTop,
+      pane.scrollHeight,
+      pane.clientHeight,
+    );
+  }
 
   // Revoking voice consent mid-session stops the microphone immediately
   // and lands the person in the typed conversation (never a dead end).
@@ -508,6 +637,53 @@ export function ConversationChat() {
     setDraftAi(receipt?.ai ?? false);
     setDraftVoice(receipt?.voice ?? false);
     setReopened(true);
+  }
+
+  // Whether this fresh state leaves income handled — the results gate's
+  // second conjunct (VAL-QQ-011). Module-level truth, no closure capture.
+  function incomeHandledNow(state: IntakeClientState): boolean {
+    return state.income.handled;
+  }
+
+  // The results stage's spoken wrap-up (VAL-VJS-003), moved here from the
+  // completion turn by the income-capture redefinition: results arrives
+  // when the INCOME stage completes (the completion turn now hands off to
+  // the income stage), so the wrap-up speaks at the actual hand-off. Local
+  // speech only (UI copy, not an assistant turn — the speak route is not
+  // involved), bounded exactly as before: speechSynthesis quirks must
+  // never leave the interaction unsettled.
+  async function speakResultsWrapUp(): Promise<void> {
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        const spoke = queueSpeech(RESULTS_WRAP_UP, undefined, resolve);
+        if (!spoke) {
+          resolve();
+        }
+      }),
+      new Promise<void>((resolve) =>
+        setTimeout(
+          resolve,
+          Math.max(5_000, 2_000 + RESULTS_WRAP_UP.length * 80),
+        ),
+      ),
+    ]);
+  }
+
+  // The income stage's fresh-state application (its saves and confirms
+  // flow through here): when the income gate turns handled, the journey
+  // hands off to results — with the spoken wrap-up when voice is on.
+  async function applyIncomeState(fresh: IntakeClientState): Promise<void> {
+    const wasHandled = state?.income.handled ?? false;
+    setState(fresh);
+    if (!wasHandled && fresh.income.handled) {
+      setNotice("Your income step is complete. Your results are ready.");
+      if (voiceSharingOn) {
+        sessionRef.current?.hold();
+        playbackHoldRef.current = true;
+        setVoicePhase("speaking");
+        await speakResultsWrapUp();
+      }
+    }
   }
 
   async function speakReply(turnId: string, subtitle: string): Promise<void> {
@@ -633,7 +809,9 @@ export function ConversationChat() {
     setNotice(
       data.nextQuestionId
         ? "The assistant asked the next question."
-        : "Your conversation is complete. Your results are ready.",
+        : incomeHandledNow(data.state)
+          ? "Your conversation is complete. Your results are ready."
+          : "Your conversation is complete. One more step: your income details.",
     );
     if (spoken && voiceSharingOn) {
       // The reply is about to speak: suspend capture FIRST, so the
@@ -652,34 +830,21 @@ export function ConversationChat() {
       setVoicePhase("speaking");
       await speakReply(data.assistantTurnId, data.assistantReply);
     }
-    // The auto-advance (VAL-VJS-003): when the deterministic engine has no
-    // unanswered question left, speak the short wrap-up and hand off to
-    // the results stage — no additional form clicks (the results render
-    // from state.complete itself). The wrap-up speaks locally (no send):
-    // it is UI copy, not an assistant turn, so the speak route — which
-    // speaks stored turns by id — is not involved. Gated on the VOICE
-    // journey: an ai-only typed completion never hears audio (and its
-    // layout is the single-scroll one, not the results stage).
+    // The auto-advance (VAL-VJS-003 + the income-capture redefinition,
+    // VAL-QQ-011): the completed turn hands the journey to the INCOME
+    // stage (results = intake complete AND income handled), so the spoken
+    // wrap-up waits for the income stage's completion — the income stage's
+    // save handler speaks it when the fresh state turns results-reachable
+    // (speakResultsWrapUp). The conversation-engine's provenances can
+    // never satisfy the income gate (user_supplied/ai_drafted only), so a
+    // completion turn never lands on results directly.
     if (data.state.complete && !wasComplete && voiceSharingOn && entryMode !== null) {
-      // Same echo-proof for the spoken wrap-up, and it is AWAITED: the
-      // turn settles only after the wrap-up finishes playing, so the
-      // settled cleanup's resume really starts after the audio (the
-      // journey-complete effect then ends the session). The wait is
-      // bounded — speechSynthesis quirks must never leave the turn
-      // unsettled (claude-review round).
+      // The echo-proof holds while the reply and the next stage's arrival
+      // settle: the turn is held open (the settled cleanup resumes
+      // listening only when the turn settles — and the journey-complete
+      // effect ends the session once intake is complete).
       sessionRef.current?.hold();
       playbackHoldRef.current = true;
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          const spoke = queueSpeech(RESULTS_WRAP_UP, undefined, resolve);
-          if (!spoke) {
-            resolve();
-          }
-        }),
-        new Promise<void>((resolve) =>
-          setTimeout(resolve, Math.max(5_000, 2_000 + RESULTS_WRAP_UP.length * 80)),
-        ),
-      ]);
     }
   }
 
@@ -874,12 +1039,25 @@ export function ConversationChat() {
     submitVoiceTurnRef.current = submitVoiceTurn;
   });
 
-  async function beginVoiceSession(
-    mode: ConversationEntryMode,
-  ): Promise<void> {
+  // The voice session's single begin path (VAL-QQ-002): the entry stage
+  // RECORDS the mode; the talk-stage bootstrap effect below begins the
+  // session when the talk stage renders (after the quick-questions stage
+  // — the microphone is never open over the question cards); the mode-B
+  // "use your voice instead" switch re-begins it by gesture. The ref
+  // guard keeps every arrival (bootstrap effect, gesture, the await
+  // window before the session ref is set) on ONE session — never two
+  // recorder cycles racing.
+  const sessionBeginningRef = useRef(false);
+
+  async function beginVoiceSession(): Promise<void> {
+    if (sessionBeginningRef.current || sessionRef.current !== null) {
+      return;
+    }
+    sessionBeginningRef.current = true;
     // The consent gate for voice (VAL-CONSENT-003): with voice sharing
     // off, the microphone is NEVER started and no audio is transmitted.
     if (!consentPathEnabled("voice", receipt)) {
+      sessionBeginningRef.current = false;
       setReopened(true);
       setNotice(
         "Voice sharing is off, so recording is off. Turn on voice sharing, or type your answer below — it works exactly the same way.",
@@ -887,8 +1065,8 @@ export function ConversationChat() {
       return;
     }
     if (!voiceCaptureSupported()) {
+      sessionBeginningRef.current = false;
       setMicBlocked(true);
-      setEntryMode(mode);
       setNotice(
         "Voice input isn't available in this browser. You can type your answers below — they work exactly the same way.",
       );
@@ -924,7 +1102,6 @@ export function ConversationChat() {
     try {
       await session.begin();
       sessionRef.current = session;
-      setEntryMode(mode);
       setSessionOn(true);
       setPaused(false);
       setTypingMode(false);
@@ -932,12 +1109,52 @@ export function ConversationChat() {
       // Permission denied or device unavailable: the typed path is the
       // answer — visible guidance, never a dead end (VAL-VOICE-005).
       setMicBlocked(true);
-      setEntryMode(mode);
       setNotice(
         "Your microphone isn't available. You can type your answers below — they work exactly the same way.",
       );
+    } finally {
+      sessionBeginningRef.current = false;
     }
   }
+
+  // The entry stage's begin (VAL-QQ-002): the choice is recorded, and the
+  // quick-questions stage — when the requirements engine still has
+  // questions to ask — comes BEFORE the talk stage's session. The
+  // bootstrap effect begins the session the moment the talk stage
+  // renders, whichever way it is reached.
+  function handleEntryBegin(mode: ConversationEntryMode): void {
+    setEntryMode(mode);
+  }
+
+  // The talk stage begins the voice session (VAL-QQ-002 stage order).
+  // Reached three ways: the entry choice with nothing pending (straight
+  // through), the quick-questions stage's calm CTA, and the last card's
+  // save (the engine's remaining set empties — the talk stage renders).
+  // Guards: one session (the beginning ref), never over typing (the
+  // mode-B switch stopped the session on purpose), never over a blocked
+  // mic (the typed surface is the answer, not a retry loop). Marks the
+  // quick-questions stage moved-past so a mid-conversation answer that
+  // REVEALS a skipped question (the engine's correction semantics) can
+  // never yank the person off the live talk stage onto the cards.
+  // beginVoiceSession rides the latest-ref (the same seam idiom as
+  // submitVoiceTurnRef) so the effect always begins with THIS render's
+  // closure — the consent receipt included.
+  const beginVoiceSessionRef = useRef(beginVoiceSession);
+  useEffect(() => {
+    beginVoiceSessionRef.current = beginVoiceSession;
+  });
+  useEffect(() => {
+    if (!talkStage || typingMode || micBlocked || entryMode === null) {
+      return;
+    }
+    if (sessionRef.current !== null || sessionBeginningRef.current) {
+      return;
+    }
+    setQuickQuestionsDismissed(true);
+    void Promise.resolve().then(() => {
+      void beginVoiceSessionRef.current();
+    });
+  }, [talkStage, typingMode, micBlocked, entryMode]);
 
   function holdSession(): void {
     // Pause: stop listening and DISCARD any in-flight utterance (a person
@@ -976,7 +1193,7 @@ export function ConversationChat() {
 
   function switchBackToVoice(): void {
     setTypingMode(false);
-    void beginVoiceSession(entryMode ?? "voice-plus-typing");
+    void beginVoiceSession();
   }
 
   // The purge's client half (HACK-80): the server rows are gone (the purge
@@ -1061,9 +1278,25 @@ export function ConversationChat() {
       data-conversation-chat
       data-entry-mode={entryMode ?? undefined}
       data-journey-stage={
-        resultsStage ? "results" : talkStage ? "talk" : entryStage ? "entry" : undefined
+        resultsStage
+          ? "results"
+          : talkStage
+            ? "talk"
+            : quickQuestionsStage
+              ? "quick-questions"
+              : incomeStage
+                ? "income"
+                : entryStage
+                  ? "entry"
+                  : undefined
       }
-      className="flex flex-col gap-6"
+      // The frame's inner flow (VAL-FIX-006): the frame spans edge-to-edge
+      // and this root carries the frame's side inset (32px on wide
+      // viewports, 20px at the 760px rule). The talk-stage grid and the
+      // bottom session deck break OUT of this inset with matched negative
+      // margins and carry the prototype's own paddings, so both span the
+      // full frame width exactly.
+      className="flex w-full flex-1 flex-col gap-6 px-5 pt-6 pb-8 min-[761px]:px-8 min-[761px]:pb-10"
     >
       <p className="text-sm text-muted">
         Prefer step-by-step questions?{" "}
@@ -1112,15 +1345,27 @@ export function ConversationChat() {
       <StatusRegion message={notice} />
 
       {/* The transcript lives on the TALK stage (VAL-VJS-002). The entry
-      stage is the clean mode-choice screen and the results stage replaces
-      the conversation with the handoff — per the approved frames. The talk
+      stage is the clean mode-choice screen, the quick-questions stage the
+      engine's question cards (VAL-QQ-002), the income stage its two source
+      cards (VAL-INC-001/002), and the results stage replaces the
+      conversation with the handoff — per the approved frames. The talk
       stage splits the stream with the "Coming Together" sidebar
       (VAL-VJS2-001); the typed paths keep today's single column. */}
-      {!entryStage && !resultsStage ? (
+      {!entryStage && !resultsStage && !quickQuestionsStage && !incomeStage ? (
         <div
           className={
             talkStage
-              ? "flex flex-col gap-6 md:grid md:grid-cols-[minmax(0,1fr)_20rem] md:items-start"
+              ? // The prototype's stage grid, copied literally
+              // (VAL-FIX-006): `grid-template-columns: minmax(0,1fr) 195px`,
+              // `padding: 35px 32px 20px`, `gap: 30px` — the conversation
+              // column takes all remaining frame width, the sidebar is a
+              // fixed 195px right rail. The matched negative margins break
+              // the grid out of the frame's side inset so the grid ELEMENT
+              // spans the full frame width and carries those paddings
+              // itself. Breakpoints per the prototype: one column at
+              // 1100px (the rail hides), block with 28px 20px paddings at
+              // 760px. Shared verbatim with the quick-questions stage.
+              STAGE_GRID_CLASS
               : undefined
           }
         >
@@ -1146,7 +1391,34 @@ export function ConversationChat() {
                 Say hello, or answer the first question whenever you are ready.
               </p>
             ) : null}
-            <ul className="flex flex-col gap-3" data-conversation-transcript>
+            {/* The fixed-height scrollable pane (VAL-FIX-002), on the talk
+            stage only: the conversation can grow without ever growing the
+            page. Focusable with a label so keyboard and assistive tech can
+            operate the scrollbar (a11y baseline); the section's heading
+            association and the list's data attribute are untouched. The
+            single-scroll paths render the same list without the pane.
+            `relative` makes the pane the containing block for the turns'
+            absolutely-positioned sr-only labels — without it their
+            containing block is the document root, they escape the
+            overflow clip, and every turn grows the page itself.
+            The cap is the prototype's `.voice-scroll` (VAL-FIX-006):
+            max-height 620px, overflow-y auto — bounded by 60vh on phones
+            (below 761px) so the session deck's controls stay on screen
+            once the transcript fills (claude-review P3). */}
+            <div
+              ref={talkStage ? attachPaneRef : undefined}
+              data-transcript-pane={talkStage ? "true" : undefined}
+              role={talkStage ? "region" : undefined}
+              tabIndex={talkStage ? 0 : undefined}
+              aria-label={talkStage ? "Conversation transcript" : undefined}
+              onScroll={talkStage ? handlePaneScroll : undefined}
+              className={
+                talkStage
+                  ? "relative max-h-[min(60vh,620px)] overflow-y-auto overscroll-contain min-[761px]:max-h-[620px]"
+                  : undefined
+              }
+            >
+              <ul className="flex flex-col gap-3" data-conversation-transcript>
               {turns.map((turn) =>
                 turn.role === "user" ? (
                   <li
@@ -1201,8 +1473,9 @@ export function ConversationChat() {
                   />
                 </li>
               ) : null}
-            </ul>
-            <div ref={transcriptEndRef} />
+              </ul>
+              <div ref={transcriptEndRef} />
+            </div>
           </section>
           {talkStage ? <ComingTogether state={state} /> : null}
         </div>
@@ -1233,70 +1506,155 @@ export function ConversationChat() {
       ) : null}
 
       {entryStage ? (
-        <ModeChoice onBegin={(mode) => void beginVoiceSession(mode)} />
+        <ModeChoice onBegin={handleEntryBegin} suggestedMode={suggestedMode ?? undefined} />
+      ) : null}
+
+      {/* The QUICK QUESTIONS stage (VAL-QQ-002): the requirements engine's
+      computed set as grouped question cards — the honest live counter, the
+      None-of-these exclusion, sensitive questions last with why-we-ask
+      notes and a skip affordance that never blocks. Answers submit through
+      the EXISTING tri-state path (POST /api/intake/answer →
+      validateAnswerInput → saveAnswer; pii:true to the encrypted vault);
+      the route's fresh client state flows back through onStateChange, so
+      the counter re-renders from the engine and a completed set hands the
+      journey to the talk stage (whose bootstrap effect starts the voice
+      session — the mic is never open over these cards). The stage shares
+      the talk stage's literal Lovable grid and Coming Together rail. */}
+      {quickQuestionsStage && state ? (
+        <div className={STAGE_GRID_CLASS}>
+          <QuickQuestionsStage
+            state={state}
+            onStateChange={(fresh) => {
+              // The answer route's response IS the freshest client state
+              // (it recomputed the engine view server-side) — apply it
+              // directly. No answersRefresh bump: the match/review
+              // sections are not mounted on this stage, and a history
+              // refetch would only race the route's own fresher state.
+              setState(fresh);
+            }}
+            onNotice={setNotice}
+            onToTalk={() => setQuickQuestionsDismissed(true)}
+          />
+          <ComingTogether state={state} stage="quick-questions" />
+        </div>
+      ) : null}
+
+      {/* The INCOME stage (VAL-INC-001/002): the journey's fourth stage,
+      after the talk stage's completion and before results — exactly two
+      real source cards (type it in yourself, or upload your tax return)
+      and no dead ends. Its saves apply the routes' fresh state through
+      applyIncomeState, which hands the journey to the results stage when
+      the income gate turns handled (VAL-QQ-011's deliberate redefinition).
+      The stage shares the literal Lovable grid and the Coming Together
+      rail. */}
+      {incomeStage && state ? (
+        <div className={STAGE_GRID_CLASS}>
+          <IncomeStage
+            state={state}
+            onStateChange={(fresh) => {
+              void applyIncomeState(fresh);
+            }}
+            onNotice={setNotice}
+          />
+          <ComingTogether state={state} stage="income" />
+        </div>
       ) : null}
 
       {voiceSessionSurface ? (
-        <VoiceDeck
-          phase={voicePhase}
-          sessionState={paused ? "paused" : "active"}
-          caption={
-            <>
-              <VoiceInterimState phase={voicePhase} />
-              {builtInVoiceFallback ? (
-                <p
-                  data-voice-fallback-badge
-                  className="rounded-full border border-amber-ink px-3 py-1 text-sm font-medium text-amber-ink"
-                >
-                  Hearing the built-in voice — the assistant&apos;s usual voice
-                  is unavailable right now.
-                </p>
-              ) : null}
-            </>
-          }
+        <div
+          data-voice-bottom
+          // The bottom session deck spans the FULL frame width
+          // (VAL-FIX-006): the matched negative margins break out of the
+          // frame's side inset and the wrapper carries the prototype's
+          // `padding: 15px 32px 0` (10px 16px at the 760px rule).
+          className="-mx-5 px-4 pt-[10px] min-[761px]:-mx-8 min-[761px]:px-8 min-[761px]:pt-[15px]"
         >
-          {paused ? (
-            <button
-              type="button"
-              data-voice-resume
-              onClick={resumeSession}
-              // A resume while a turn is in flight would start a second
-              // recorder cycle alongside the turn's own (claude-review
-              // P2): resume waits for the turn to settle.
-              disabled={busy}
-              className="min-h-12 flex shrink-0 items-center gap-2 rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Resume listening
-            </button>
-          ) : (
-            <button
-              type="button"
-              data-voice-pause
-              onClick={holdSession}
-              disabled={busy}
-              className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft disabled:opacity-50"
-            >
-              Pause
-            </button>
-          )}
-          {entryMode === "voice-plus-typing" ? (
-            <button
-              type="button"
-              data-switch-to-typing
-              onClick={switchToTyping}
-              className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal bg-surface px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft"
-            >
-              Switch to typing
-            </button>
-          ) : null}
-          <span className="text-sm text-muted">
-            {paused
-              ? "Paused."
-              : entryMode === "voice-only"
-                ? "Speak freely — the assistant hears when you finish a thought."
-                : "Speak freely; switch to typing whenever you like."}
-          </span>
-        </VoiceDeck>
+          <VoiceDeck
+            phase={voicePhase}
+            sessionState={paused ? "paused" : "active"}
+            caption={
+              <>
+                <VoiceInterimState phase={voicePhase} />
+                {builtInVoiceFallback ? (
+                  <p
+                    data-voice-fallback-badge
+                    className="rounded-full border border-amber-ink px-3 py-1 text-sm font-medium text-amber-ink"
+                  >
+                    Hearing the built-in voice — the assistant&apos;s usual voice
+                    is unavailable right now.
+                  </p>
+                ) : null}
+              </>
+            }
+            controls={
+              paused ? (
+                <button
+                  type="button"
+                  data-voice-resume
+                  onClick={resumeSession}
+                  // A resume while a turn is in flight would start a second
+                  // recorder cycle alongside the turn's own (claude-review
+                  // P2): resume waits for the turn to settle.
+                  disabled={busy}
+                  aria-label="Resume listening"
+                  title="Resume listening"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-teal-deep text-teal-contrast hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <PlayIcon />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-voice-pause
+                  onClick={holdSession}
+                  disabled={busy}
+                  aria-label="Pause"
+                  title="Pause"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-teal text-teal hover:bg-teal-soft disabled:opacity-50"
+                >
+                  <PauseIcon />
+                </button>
+              )
+            }
+            tools={
+              <>
+                <span className="text-sm text-muted">
+                  {paused
+                    ? "Paused."
+                    : entryMode === "voice-only"
+                      ? "Speak freely — the assistant hears when you finish a thought."
+                      : "Speak freely; switch to typing whenever you like."}
+                </span>
+                {entryMode === "voice-plus-typing" ? (
+                  <button
+                    type="button"
+                    data-switch-to-typing
+                    onClick={switchToTyping}
+                    className="min-h-12 flex shrink-0 items-center gap-2 rounded-full border border-teal bg-surface px-6 py-2.5 text-base font-semibold text-teal hover:bg-teal-soft"
+                  >
+                    Switch to typing
+                  </button>
+                ) : null}
+              </>
+            }
+          />
+          {/* The honesty strip (VAL-FIX-006): the prototype frame's bottom
+          honesty strip, bleeding to the frame edges (`margin: 0 -32px`;
+          -16px at the 760px rule). The words are prod's own honesty
+          sentence — the layout is copied, the copy is not. Text size is
+          rem-based (never a fixed px) so the huge-text zoom scales it,
+          muted per the de-emphasized strip look. */}
+          <div
+            data-honesty-strip
+            className="-mx-4 flex items-center justify-center gap-2 border-t border-dashed border-surface-border px-5 py-4 text-sm text-muted min-[761px]:-mx-8"
+          >
+            <span
+              aria-hidden="true"
+              className="h-[7px] w-[7px] shrink-0 border border-foreground"
+            />
+            <span>Nothing is submitted — you decide what happens next.</span>
+          </div>
+        </div>
       ) : null}
 
       {typedSurface ? (
@@ -1371,7 +1729,7 @@ export function ConversationChat() {
           &ldquo;Your privacy choices&rdquo;, or just type above.
         </p>
       ) : null}
-      {micBlocked && !panelOpen && aiSharingOn && !resultsStage ? (
+      {micBlocked && !panelOpen && aiSharingOn && !resultsStage && !incomeStage ? (
         <p
           data-mic-blocked-guidance
           className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"

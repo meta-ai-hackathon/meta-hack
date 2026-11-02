@@ -100,6 +100,7 @@ beforeAll(async () => {
     "0001_core.sql",
     "0002_vault_entry.sql",
     "0003_conversation_turn.sql",
+    "0004_tax_return_provenance.sql",
   ]);
 });
 

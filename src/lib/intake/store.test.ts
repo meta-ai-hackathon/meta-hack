@@ -315,33 +315,34 @@ describe("loadAnswers round-trip", () => {
     await saveAnswer(sessionId, "county", "known", "Franklin");
 
     const answers = await loadAnswers(sessionId);
-    expect(answers.application_role).toEqual({ status: "known", value: "self" });
-    expect(answers.household_size).toEqual({ status: "known", value: 4 });
-    expect(answers.veteran_status).toEqual({ status: "known", value: true });
+    expect(answers.application_role).toEqual({ status: "known", value: "self", provenance: "user_supplied" });
+    expect(answers.household_size).toEqual({ status: "known", value: 4, provenance: "user_supplied" });
+    expect(answers.veteran_status).toEqual({ status: "known", value: true, provenance: "user_supplied" });
     expect(answers.income_sources).toEqual({
       status: "known",
       value: ["job", "benefits"],
+      provenance: "user_supplied",
     });
-    expect(answers.main_goal).toEqual({ status: "unknown", value: null });
-    expect(answers.housing_cost).toEqual({ status: "unverified", value: 800 });
+    expect(answers.main_goal).toEqual({ status: "unknown", value: null, provenance: "user_supplied" });
+    expect(answers.housing_cost).toEqual({ status: "unverified", value: 800, provenance: "user_supplied" });
     // pii value never sat in the answer table, but loadAnswers merges it
     // back from the vault so the server-side flow engine can evaluate skip
     // conditions on pii answers (never serialized to the client).
-    expect(answers.county).toEqual({ status: "known", value: "Franklin" });
+    expect(answers.county).toEqual({ status: "known", value: "Franklin", provenance: "user_supplied" });
   });
 
   it("keeps unknown pii answers value-less after the vault merge", async () => {
     const { sessionId } = await ensureSession(null);
     await saveAnswer(sessionId, "housing_status", "unknown", null);
     const answers = await loadAnswers(sessionId);
-    expect(answers.housing_status).toEqual({ status: "unknown", value: null });
+    expect(answers.housing_status).toEqual({ status: "unknown", value: null, provenance: "user_supplied" });
   });
 
   it("feeds the fail-open chain: a known pii shelter answer skips housing costs", async () => {
     const { sessionId } = await ensureSession(null);
     await saveAnswer(sessionId, "housing_status", "known", "shelter");
     const answers = await loadAnswers(sessionId);
-    expect(answers.housing_status).toEqual({ status: "known", value: "shelter" });
+    expect(answers.housing_status).toEqual({ status: "known", value: "shelter", provenance: "user_supplied" });
   });
 
   it("returns an empty map for a session with no answers", async () => {
@@ -364,7 +365,7 @@ describe("loadAnswers round-trip", () => {
         VALUES (${sessionId}, 'application_role', NULL, 'known', 'forged')
       `;
       const answers = await loadAnswers(sessionId);
-      expect(answers.household_size).toEqual({ status: "known", value: 3 });
+      expect(answers.household_size).toEqual({ status: "known", value: 3, provenance: "user_supplied" });
       expect(Object.hasOwn(answers, "application_role")).toBe(false);
     } finally {
       await testDb`
@@ -540,13 +541,13 @@ describe("saveAnswer validation", () => {
   it("accepts lenient numeric strings and stores a number", async () => {
     await saveAnswer(sessionId, "household_size", "known", "3");
     const answers = await loadAnswers(sessionId);
-    expect(answers.household_size).toEqual({ status: "known", value: 3 });
+    expect(answers.household_size).toEqual({ status: "known", value: 3, provenance: "user_supplied" });
   });
 
   it("ignores any value sent with an unknown status", async () => {
     await saveAnswer(sessionId, "application_role", "unknown", "junk");
     const answers = await loadAnswers(sessionId);
-    expect(answers.application_role).toEqual({ status: "unknown", value: null });
+    expect(answers.application_role).toEqual({ status: "unknown", value: null, provenance: "user_supplied" });
   });
 });
 

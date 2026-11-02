@@ -918,18 +918,19 @@ class RedactionProperties(unittest.TestCase):
     ) -> None:
         # Code between a key's header and footer is no key, so the code
         # itself is never redacted; the base64 lines between the header and
-        # the code still are, and so is any key material of a line or more
-        # between the code and the footer -- only the skeleton reaches the
-        # model when a footer follows.
+        # the code still are, and so is every piece of the key between the
+        # code and the footer: a line or more, or a shorter piece that does
+        # not read as code (review.is_key_piece). Only the skeleton reaches
+        # the model when a footer follows.
         lines = [f"-----BEGIN {kind}PRIVATE KEY-----", *above, code, *below, f"-----END {kind}PRIVATE KEY-----"]
         text = "\n".join(marker + line for line in lines)
         out, count = review.redact_sensitive(text)
         marker_text = review.redaction_marker("private key")
         # A '+' diff marker is a base64 character too, so it joins the run
-        # after it and is redacted with a run that reaches the bound only
-        # with it; any other marker stays outside the run.
+        # after it and is redacted with it; any other marker stays outside
+        # the run.
         def render(line: str) -> str:
-            if len(line) + (1 if marker == "+" else 0) >= 16:
+            if review.is_key_piece(("+" if marker == "+" else "") + line, quoted=False):
                 return marker_text if marker == "+" else marker + marker_text
             return marker + line
 
@@ -1068,17 +1069,25 @@ class RedactionProperties(unittest.TestCase):
         # Any mix of key pieces and code: each redaction is a key walk from
         # a header, a footer, or a base64 run between them, comes after the
         # one before it, and holds none of the punctuation code is written
-        # with, so no code is ever hidden from the model.
+        # with, so no code is ever hidden from the model. A run shorter than
+        # a key line is redacted only when it is a piece of a key where it
+        # stands (review.key_piece_at), and never, by a check that does not
+        # go through that rule, when it is a word in lower case, camelCase,
+        # capitalized or all caps, maybe with digits at its end, or a number:
+        # the shapes that stay visible both bare and as a whole string.
         previous = 0
         for start, end in review.private_key_spans(text):
             self.assertGreaterEqual(start, previous)
             value = text[start:end]
-            is_run = bool(re.fullmatch(r"(?:[A-Za-z0-9+/=]|\\++/)+", value)) and len(value) - value.count("\\") >= 16
+            is_run = bool(re.fullmatch(r"(?:[A-Za-z0-9+/=]|\\++/)+", value))
             self.assertTrue(
                 text.startswith("-----BEGIN ", start) or text.startswith("-----END ", start) or is_run,
                 (start, value),
             )
             self.assertIsNone(CODE_PUNCTUATION.search(text, start, end), text[start:end])
+            if is_run and len(value) - value.count("\\") < 16:
+                self.assertTrue(review.key_piece_at(text, start, end), value)
+                self.assertIsNone(re.fullmatch(r"(?:[a-z]+(?:[A-Z][a-z]+)*|[A-Z][a-z]+|[A-Z]+)[0-9]*|[0-9]+", value), value)
             previous = end
         out, _count = review.redact_sensitive(text)
         self.assertEqual(review.redact_sensitive(out), (out, 0))
@@ -1118,6 +1127,415 @@ class RedactionProperties(unittest.TestCase):
             _out, count = review.redact_sensitive(text)
             self.assertEqual(count, headers, text[:40])
             self.assertLess(time.monotonic() - started, 2.0, text[:40])
+
+
+# --- a key written as code in short pieces (HACK-114) --------------------------------
+
+KEY_ALPHABET = string.ascii_letters + string.digits + "+/"
+
+
+def cut(body: str, size: int) -> list[str]:
+    """body in pieces of size characters, the last one maybe shorter."""
+    return [body[start : start + size] for start in range(0, len(body), size)]
+
+
+# A key's base64, maybe padded, cut into pieces of any one length shorter
+# than a key line, as code that writes a key piece by piece holds it.
+SHORT_KEY_PIECES = st.builds(
+    lambda body, pad, size: cut(body + pad, size),
+    st.text(alphabet=KEY_ALPHABET, min_size=2, max_size=120),
+    st.sampled_from(["", "=", "=="]),
+    st.integers(min_value=2, max_value=15),
+)
+PLAIN_TEXT = st.text(alphabet=string.ascii_lowercase + " \n", max_size=40)
+
+
+@dataclass(frozen=True)
+class PieceForm:
+    """Code that writes a key piece by piece: the header's line or string,
+    each piece's, and the footer's, what joins them, whether each piece is
+    a whole string, how a piece shows in the text, and the code around the
+    pieces that has to reach the model. keeps_names is false for a form
+    whose line walk can take a lone short piece as the key's last line and
+    redact it with the footer."""
+
+    header: str  # holds {kind}
+    piece: str  # holds {piece}
+    footer: str  # holds {kind}
+    between: str
+    quoted: bool
+    shown: str  # holds {piece}
+    code: tuple[str, ...]
+    keeps_names: bool = True
+
+    def write(self, kind: str, pieces: Sequence[str]) -> str:
+        return self.between.join(
+            [self.header.format(kind=kind), *(self.piece.format(piece=piece) for piece in pieces), self.footer.format(kind=kind)]
+        )
+
+
+# A statement per piece: echo, quoted or bare, one call per piece, and one
+# fs.appendFileSync per line with an escaped line break in the string.
+APPEND_FORM = PieceForm(
+    "fs.writeFileSync('k.pem', '-----BEGIN {kind}PRIVATE KEY-----\\n');",
+    "fs.appendFileSync('k.pem', '{piece}\\n');",
+    "fs.appendFileSync('k.pem', '-----END {kind}PRIVATE KEY-----\\n');",
+    "\n",
+    True,
+    "'{piece}\\n'",
+    ("fs.appendFileSync('k.pem', '", "\\n');"),
+)
+ECHO_FORMS = [
+    PieceForm(
+        "echo '-----BEGIN {kind}PRIVATE KEY-----' > key.pem",
+        "echo '{piece}' >> key.pem",
+        "echo '-----END {kind}PRIVATE KEY-----' >> key.pem",
+        "\n",
+        True,
+        "'{piece}'",
+        ("echo '", "' >> key.pem"),
+    ),
+    PieceForm(
+        "echo -----BEGIN {kind}PRIVATE KEY----- > key.pem",
+        "echo {piece} >> key.pem",
+        "echo -----END {kind}PRIVATE KEY----- >> key.pem",
+        "\n",
+        False,
+        "echo {piece} >>",
+        ("echo ", " >> key.pem"),
+    ),
+    PieceForm(
+        'out.write("-----BEGIN {kind}PRIVATE KEY-----\\n");',
+        'out.write("{piece}");',
+        'out.write("-----END {kind}PRIVATE KEY-----\\n");',
+        "\n",
+        True,
+        '("{piece}")',
+        ('out.write("', '");'),
+    ),
+    APPEND_FORM,
+]
+# String pieces joined: with PHP's dot, with + across lines, and as a Python list.
+JOINED_FORMS = [
+    PieceForm(
+        '$key = "-----BEGIN {kind}PRIVATE KEY-----\\n"',
+        '"{piece}"',
+        '"-----END {kind}PRIVATE KEY-----\\n";',
+        " . ",
+        True,
+        '"{piece}"',
+        ('$key = "', '" . "'),
+    ),
+    PieceForm(
+        'const key = "-----BEGIN {kind}PRIVATE KEY-----\\n"',
+        '  "{piece}"',
+        '  "-----END {kind}PRIVATE KEY-----\\n";',
+        " +\n",
+        True,
+        '"{piece}"',
+        ("const key = ",),
+        keeps_names=False,
+    ),
+    PieceForm(
+        'KEY = ["-----BEGIN {kind}PRIVATE KEY-----"',
+        '"{piece}"',
+        '"-----END {kind}PRIVATE KEY-----"]',
+        ", ",
+        True,
+        '"{piece}"',
+        ("KEY = [",),
+        keeps_names=False,
+    ),
+]
+
+
+def around(core: st.SearchStrategy[str], least: int) -> st.SearchStrategy[str]:
+    """Pieces shorter than a key line with core somewhere in them, and at least least characters around it."""
+    return st.builds(
+        lambda before, middle, after: before + middle + after,
+        st.text(alphabet=KEY_ALPHABET, min_size=least, max_size=6),
+        core,
+        st.text(alphabet=KEY_ALPHABET, max_size=6),
+    )
+
+
+UPPER = st.sampled_from(string.ascii_uppercase)
+LOWER = st.sampled_from(string.ascii_lowercase)
+DIGIT = st.sampled_from(string.digits)
+# Shapes the rule never reads as a name or a number: a digit right before a
+# letter, where a name it keeps has its digits only at its end, and a
+# lower-case letter before two capitals, which no word in one case,
+# capitalized, camelCase or all-caps name holds. Some names in code have
+# them all the same, such as Uint8Array, b64decode, toJSON and innerHTML,
+# and between key markers those go like a key piece.
+DIGIT_THEN_LETTER = st.builds(lambda digit, letter: digit + letter, DIGIT, UPPER | LOWER)
+LOWER_THEN_CAPITALS = st.builds(lambda lower, a, b: lower + a + b, LOWER, UPPER, UPPER)
+
+# Names and numbers code is written with, shorter than a key line: a word
+# in lower case, camelCase, capitalized or all caps, maybe with a digit at
+# its end, a number, and two of them with an operator or a slash between.
+LOWER_WORD = st.text(alphabet=string.ascii_lowercase, min_size=1, max_size=3)
+HUMP = st.builds(lambda upper, lower: upper + lower, UPPER, LOWER)
+CODE_WORD = st.builds(
+    lambda word, digit: word + digit,
+    st.one_of(
+        st.builds(lambda first, humps: first + "".join(humps), LOWER_WORD, st.lists(HUMP, max_size=1)),
+        st.lists(HUMP, min_size=1, max_size=2).map("".join),
+        st.text(alphabet=string.ascii_uppercase, min_size=1, max_size=4),
+    ),
+    st.sampled_from(["", "2", "8"]),
+) | st.text(alphabet=string.digits, min_size=1, max_size=4)
+CODE_RUNS = st.builds(
+    lambda lead, first, rest: lead + first + rest,
+    st.sampled_from(["", "+"]),
+    CODE_WORD,
+    st.sampled_from(["", "=", "+", "/", "//", "==", "+=", "++"]).flatmap(
+        lambda join: st.just("") if not join else CODE_WORD.map(lambda word: join + word) | st.just(join)
+    ),
+)
+# What a whole string holds in code or in copy a person reads: a word in one
+# case, capitalized or camelCase, maybe with a digit at its end, or a
+# number, alone or as a path of two.
+STRING_WORD = st.builds(
+    lambda word, digit: word + digit,
+    st.one_of(
+        st.text(alphabet=string.ascii_lowercase, min_size=1, max_size=5),
+        st.text(alphabet=string.ascii_uppercase, min_size=1, max_size=5),
+        st.builds(lambda first, rest: first + rest, UPPER, st.text(alphabet=string.ascii_lowercase, min_size=1, max_size=4)),
+        st.builds(lambda first, hump: first + hump, LOWER_WORD, HUMP),
+    ),
+    st.sampled_from(["", "8"]),
+) | st.text(alphabet=string.digits, min_size=1, max_size=4)
+STRING_RUNS = st.builds(
+    lambda lead, first, rest: lead + first + rest, st.sampled_from(["", "/"]), STRING_WORD, st.just("") | STRING_WORD.map("/".__add__)
+)
+# camelCase names of a key line or more, maybe with digits at their end,
+# like socialSecurityNumber or householdIncomeMonthly: a lower-case word of
+# 4 or more and 3 or more humps of 4 or more.
+LONG_NAMES = st.builds(
+    lambda first, humps, digits: first + "".join(humps) + digits,
+    st.text(alphabet=string.ascii_lowercase, min_size=4, max_size=8),
+    st.lists(st.builds(lambda upper, rest: upper + rest, UPPER, st.text(alphabet=string.ascii_lowercase, min_size=3, max_size=6)), min_size=3, max_size=5),
+    st.sampled_from(["", "2", "64"]),
+)
+
+
+class ShortKeyPieceProperties(unittest.TestCase):
+    """A key written as code in pieces shorter than a key line, between its
+    header and its footer: every piece that does not read as code goes,
+    and the code around the pieces reaches the model."""
+
+    @PBT
+    @given(st.lists(st.tuples(st.sampled_from(ECHO_FORMS), KEY_KINDS, SHORT_KEY_PIECES), min_size=1, max_size=3), PLAIN_TEXT)
+    @example([(ECHO_FORMS[1], "", cut("MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7aBcDeFgHiJkL", 12))], "")
+    def test_a_key_in_short_echo_pieces_keeps_none_that_does_not_read_as_code(
+        self, keys: list[tuple[PieceForm, str, list[str]]], between: str
+    ) -> None:
+        self.assert_only_code_reaches_the_model(keys, between)
+
+    @PBT
+    @given(st.lists(st.tuples(st.sampled_from(JOINED_FORMS), KEY_KINDS, SHORT_KEY_PIECES), min_size=1, max_size=3), PLAIN_TEXT)
+    @example([(JOINED_FORMS[0], "", cut("MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7aBcDeFgHiJkL", 15))], "")
+    def test_a_key_in_short_joined_string_pieces_keeps_none_that_does_not_read_as_code(
+        self, keys: list[tuple[PieceForm, str, list[str]]], between: str
+    ) -> None:
+        self.assert_only_code_reaches_the_model(keys, between)
+
+    def assert_only_code_reaches_the_model(self, keys: list[tuple[PieceForm, str, list[str]]], between: str) -> None:
+        # One to three keys, each in its own form, with text around them:
+        # a piece reaches the model only when it reads as code, and a
+        # lower-case name always does where the walk stops before the
+        # pieces. The code around the pieces stays, every marker goes, and
+        # a second pass changes nothing.
+        out, _count = review.redact_sensitive(between.join(["", *(form.write(kind, pieces) for form, kind, pieces in keys), ""]))
+        for form, _kind, pieces in keys:
+            for piece in pieces:
+                if form.shown.format(piece=piece) in out:
+                    self.assertFalse(review.is_key_piece(piece, form.quoted), piece)
+                elif form.keeps_names:
+                    self.assertIsNone(re.fullmatch(r"[a-z]+", piece), piece)
+            for code in form.code:
+                self.assertIn(code, out)
+        self.assertNotIn("-----BEGIN", out)
+        self.assertNotIn("-----END", out)
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    @PBT
+    @given(st.one_of(around(LOWER_THEN_CAPITALS, 0), around(DIGIT_THEN_LETTER, 0)), st.one_of(around(DIGIT_THEN_LETTER, 2), around(LOWER_THEN_CAPITALS, 1)))
+    def test_a_piece_no_name_is_shaped_like_is_always_a_key_piece(self, string_piece: str, bare_piece: str) -> None:
+        self.assertTrue(review.is_key_piece(string_piece, quoted=True), string_piece)
+        self.assertTrue(review.is_key_piece(bare_piece, quoted=False), bare_piece)
+        self.assertTrue(review.is_key_piece(bare_piece, quoted=True), bare_piece)
+
+    @PBT
+    @given(CODE_RUNS, STRING_RUNS, KEY_KINDS)
+    @example("Approved", "Approved", "")  # copy a person reads, which fake markers must not hide
+    @example("ssnLast4", "ssnLast4", "")  # a field name the reviewer has to judge
+    @example("SSN", "SSN", "")  # an all-caps one, which an escaped line break's n must not turn into a key piece
+    def test_names_and_numbers_between_key_markers_reach_the_model(self, bare: str, whole_string: str, kind: str) -> None:
+        # Bare, as a whole string, and right after an escaped line break or
+        # tab, whose letter belongs to the escape and not to the name.
+        self.assertFalse(review.is_key_piece(bare, quoted=False), bare)
+        self.assertFalse(review.is_key_piece(whole_string, quoted=True), whole_string)
+        lines = [
+            "set -e",
+            f"echo {bare} >> build.log",
+            f"echo '{whole_string}' >> build.log",
+            f"printf '\\n{bare}\\t{bare}\\r\\n' >> build.log",
+        ]
+        text = "\n".join(
+            [f"echo '-----BEGIN {kind}PRIVATE KEY-----' > key.pem", *lines, f"echo '-----END {kind}PRIVATE KEY-----' >> key.pem"]
+        )
+        out, count = review.redact_sensitive(text)
+        self.assertIn("\n".join(lines), out)
+        self.assertEqual(count, 2)
+
+    def test_known_names_stay_and_known_key_pieces_go(self) -> None:
+        # A fixed table that does not go through the rule: names that code
+        # and copy are written with stay visible between real key markers,
+        # as bare words, as whole strings, and right after an escaped line
+        # break or tab, and pieces only a key holds go.
+        def redact_between_markers(lines: list[str]) -> str:
+            text = "\n".join(
+                ["echo '-----BEGIN PRIVATE KEY-----' > key.pem", "set -e", *lines, "echo '-----END PRIVATE KEY-----' >> key.pem"]
+            )
+            return review.redact_sensitive(text)[0]
+
+        names = ["echo", "appendFileSync", "JSON", "utf8", "Approved", "ssnLast4", "vaultEntry", "2026"]
+        bare_only = ["frozen=True", "//collector"]
+        strings_only = ["POST", "text/plain"]
+        out = redact_between_markers(
+            [f"echo {name} >> build.log" for name in [*names, *bare_only]]
+            + [f"echo '{name}' >> build.log" for name in [*names, *strings_only]]
+            + [f"printf '\\n{name}\\t{name}' >> build.log" for name in [*names, *bare_only]]
+        )
+        for name in [*names, *bare_only]:
+            self.assertIn(f"echo {name} >> build.log", out)
+            self.assertIn(f"printf '\\n{name}\\t{name}' >> build.log", out)
+        for name in [*names, *strings_only]:
+            self.assertIn(f"echo '{name}' >> build.log", out)
+        pieces = ["Ab3d==", "aB3x", "MIIEvQ", "qhkiG9w0B", "iJkL"]
+        out = redact_between_markers([f"echo {piece} >> key.pem" for piece in pieces] + [f"echo '{piece}' >> key.pem" for piece in [*pieces, "yX"]])
+        for piece in pieces:
+            self.assertNotIn(f"echo {piece} >>", out)
+        for piece in [*pieces, "yX"]:
+            self.assertNotIn(f"'{piece}'", out)
+        self.assertEqual(out.count("echo [REDACTED private key] >> key.pem"), len(pieces))
+        self.assertEqual(out.count("echo '[REDACTED private key]' >> key.pem"), len(pieces) + 2)
+
+    @staticmethod
+    def mixed_pieces(count: int) -> list[str]:
+        """count key pieces of 4 characters, each a lower-case letter, a capital, a digit and one more."""
+        return [
+            string.ascii_lowercase[n % 26] + string.ascii_uppercase[n * 7 % 26] + string.digits[n % 10] + KEY_ALPHABET[n * 13 % 64]
+            for n in range(count)
+        ]
+
+    def test_short_pieces_go_however_much_code_stands_around_them(self) -> None:
+        # 400 pieces of 4 characters, one fs.appendFileSync line each: the
+        # code around them puts the footer about 15,000 characters past the
+        # header, far beyond the 8,040 main counted, and still every piece
+        # goes, because the bound counts only the key's own characters.
+        pieces = self.mixed_pieces(400)
+        text = APPEND_FORM.write("", pieces)
+        self.assertGreater(len(text), 14_000)
+        out, count = review.redact_sensitive(text)
+        for piece in pieces:
+            self.assertNotIn(APPEND_FORM.shown.format(piece=piece), out)
+        self.assertEqual(out.count("fs.appendFileSync('k.pem', '[REDACTED private key]\\n');"), 401)
+        self.assertEqual(count, 1 + 400 + 1)
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    def test_the_footer_bound_counts_one_keys_material(self) -> None:
+        # 8,040 characters of pieces joined with PHP's dot, main's bound,
+        # still end at their footer. One piece more and the footer is no
+        # longer this key's, so, as on main, nothing after the header goes.
+        php = JOINED_FORMS[0]
+        for count, footer_is_the_keys in ((2_010, True), (2_011, False)):
+            pieces = self.mixed_pieces(count)
+            out, _count = review.redact_sensitive(php.write("", pieces))
+            self.assertNotIn("-----BEGIN", out)
+            self.assertEqual("-----END" not in out, footer_is_the_keys, count)
+            shown = [piece for piece in pieces if php.shown.format(piece=piece) in out]
+            self.assertEqual(shown, [] if footer_is_the_keys else pieces, count)
+
+    def test_a_pair_of_markers_reaches_no_further_than_its_bound(self) -> None:
+        # A footer more than 64,320 characters past its header is never that
+        # key's, however little key material lies between them, so a pair
+        # of fake markers can hide nothing beyond that. Just inside the
+        # reach, the pieces still go. The code between stays either way.
+        echo = ECHO_FORMS[0]
+        pieces = self.mixed_pieces(10)
+        for filler, footer_is_the_keys in ((2_500, True), (3_000, False)):
+            lines = [
+                echo.header.format(kind=""),
+                *(echo.piece.format(piece=piece) for piece in pieces),
+                *["echo done >> build.log"] * filler,
+                echo.footer.format(kind=""),
+            ]
+            out, _count = review.redact_sensitive("\n".join(lines))
+            self.assertNotIn("-----BEGIN", out)
+            self.assertEqual("-----END" not in out, footer_is_the_keys, filler)
+            shown = [piece for piece in pieces if echo.shown.format(piece=piece) in out]
+            self.assertEqual(shown, [] if footer_is_the_keys else pieces, filler)
+            self.assertEqual(out.count("echo done >> build.log"), filler)
+
+    @PBT
+    @given(LONG_NAMES, KEY_KINDS)
+    @example("socialSecurityNumber", "")  # a field name the reviewer has to judge
+    def test_long_names_past_mains_bound_reach_the_model(self, name: str, kind: str) -> None:
+        # Past main's 8,040 characters after the header, where main redacted
+        # nothing between a pair of markers, a run of a key line or more goes
+        # only when it does not read as code. So a long name there stays, as
+        # a bare word and as a whole string, and a key line there still goes.
+        key_line = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"
+        lines = [
+            f"echo '-----BEGIN {kind}PRIVATE KEY-----' > key.pem",
+            *["echo done >> build.log"] * 400,
+            f"echo {name} >> build.log",
+            f"echo '{name}' >> build.log",
+            f"echo {key_line} >> key.pem",
+            f"echo '{key_line}' >> key.pem",
+            f"echo '-----END {kind}PRIVATE KEY-----' >> key.pem",
+        ]
+        text = "\n".join(lines)
+        self.assertGreater(text.index("-----END") - text.index("KEY-----") - len("KEY-----"), 8_040)
+        out, count = review.redact_sensitive(text)
+        self.assertIn(f"echo {name} >> build.log\necho '{name}' >> build.log", out)
+        self.assertNotIn(key_line, out)
+        self.assertEqual(count, 4)
+
+    def test_short_key_pieces_take_linear_time(self) -> None:
+        # Long texts between a header and a footer, after a line of code,
+        # made of the pieces the redactor reads one by one: whole strings,
+        # strings left open, escaped line breaks after a quote, names, runs
+        # of + and a backslash escape, many headers before one footer, and
+        # 20 keys that each hold a row of 60,000 backslashes with no / after
+        # it, which a scan that read the row again from each backslash in it
+        # would take seconds over.
+        header, footer = "-----BEGIN PRIVATE KEY-----(", "-----END PRIVATE KEY-----"
+        texts = [
+            header + "'aB3x' " * 9_000 + footer,
+            header + "'aB3x' " * 1_000 + "name " * 10_000 + footer,
+            header + "'" + "\\n" * 30_000 + footer,
+            header + "'a" + "\\n" * 30_000 + "'" + footer,
+            header + "'n\\n" * 15_000 + footer,
+            header + "'aB\\" + "\\" * 60_000 + "'" + footer,
+            header + ("a" * 15 + "+") * 3_500 + footer,
+            header * 2_000 + "'aB3x' " * 2_000 + footer,
+            (header + "\\" * 60_000 + "x" + footer + "\n") * 20,
+            (header + "'aB3x' " * 5 + footer) * 1_500,
+        ]
+        for text in texts:
+            self.assertGreaterEqual(len(text), 50_000)
+            started = time.monotonic()
+            out, _count = review.redact_sensitive(text)
+            self.assertLess(time.monotonic() - started, 2.0, text[:40])
+            self.assertNotIn("-----BEGIN", out)
+            self.assertEqual(review.redact_sensitive(out), (out, 0))
+        # Each of the 1,500 keys in the last text keeps its own footer.
+        self.assertNotIn("-----END", out)
+        self.assertNotIn("aB3x", out)
 
 
 class DelimiterProperties(unittest.TestCase):
@@ -1727,9 +2145,34 @@ class PromptTests(unittest.TestCase):
 
     def test_rules_and_agents_reach_the_system_prompt(self) -> None:
         request = self.build(make_pr(), FILES)
-        self.assertIn("No PII reaches any cloud LLM", request.system)
         self.assertIn("P1, must fix before merge", request.system)
         self.assertIn("Quality gates (non-negotiable)", request.system)
+
+    def test_real_data_rules_state_the_clarified_pii_policy(self) -> None:
+        """The clarified policy (owner decision, Oct 29) must be what the
+        reviewer actually reads: consented, no-retention voice and fax are
+        the only PII-to-API exceptions; voice consent covers transmitting
+        the user's PII audio and its transcript, but never vendor-side
+        retention; there is no LLM-specific PII ban; and the app's own
+        route handlers must not receive PII."""
+        request = self.build(make_pr(), FILES)
+        system = request.system
+        # The only two exceptions, and their twin conditions.
+        self.assertIn("No PII hits any API except a voice model and a fax API", system)
+        self.assertIn("must not retain any data", system)
+        self.assertIn("only with explicit user knowledge and consent", system)
+        self.assertIn("only exceptions to sending PII to APIs", system)
+        # Voice consent: transmission of PII audio + transcript, never retention.
+        self.assertIn("transmit the user's PII audio and its transcript", system)
+        self.assertIn("consent never covers vendor-side retention", system)
+        # No LLM-category ban: it is about destination, not model kind.
+        self.assertIn("no LLM-specific ban", system)
+        # The app's own endpoints never receive PII.
+        self.assertIn("route handlers must not receive PII", system)
+        self.assertIn("the server never becomes a relay for PII", system)
+        # The old blanket rule is superseded and must not come back.
+        self.assertNotIn("No PII reaches any cloud LLM", system)
+        self.assertNotIn("PII never reaches any cloud LLM", system)
 
     def test_missing_rules_file_falls_back_and_warns(self) -> None:
         warnings: list[str] = []

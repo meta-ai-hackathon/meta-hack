@@ -204,6 +204,8 @@ async function readFields(bytes: Uint8Array, entry: FormRegistryEntry): Promise<
       switch (field.type) {
         case "checkbox":
           return [field.name, form.getCheckBox(field.name).isChecked()];
+        case "radio":
+          return [field.name, form.getRadioGroup(field.name).getSelected() ?? null];
         case "dropdown":
           return [field.name, form.getDropdown(field.name).getSelected()];
         default:

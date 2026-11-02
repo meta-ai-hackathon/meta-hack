@@ -27,6 +27,17 @@ Guide one person through the North Carolina initial MAGI Medicaid application: p
 - The user previews, signs, and submits under their own name; the app is never the applicant's authorized representative. No eligibility or outcome language anywhere; the banned-claims gate is never weakened
 - Every stage runs locally against fixtures before demo recording; a stage that only works live is a broken stage. Rehearsal and synthetic traffic goes to test destinations only
 
+## Income capture (milestone income-capture)
+
+Income is the intake's fourth stage, inserted between the conversation's completion and results: **Choose mode → Quick questions → Talk → Income → Results**. Results gating is deliberate: a session reaches results only when the deterministic engine has no unanswered question left **and** income is handled (every visible income question answered and at least one captured or confirmed through the income stage's own paths, tracked in the serialized `income` block). No session reaches results with income unresolved, and no session dead-ends — the manual path is always available.
+
+The stage offers exactly two real source cards and nothing else:
+
+- **Type it in yourself** — the existing income spec questions (`income_sources`, `income_kind`, `job_income_amount`, `job_income_frequency`, `benefits_income_amount`, `benefits_income_frequency`, `other_income_amount`) through the standard tri-state answer path, provenance `user_supplied` at the store (surfaced as `user` after a confirm-route correction). A rough idea is okay; only the state decides anything downstream.
+- **Upload your tax return** — `POST /api/intake/tax-return` parses an IRS 1040 PDF deterministically in memory (no storage, no LLM, no outbound calls; wire size capped pre-parse and decompressed size bounded per FlateDecode stream before the parser loads anything). It returns typed findings plus `monthlyDerived` — a PRIOR-YEAR AGI ÷ 12 proposal (null for negative or non-finite AGI, never a confident 0) — which the UI always presents for confirm-or-correct, never as computed current monthly income. Findings carry "From your tax return" origin badges; nothing saves until the person confirms or corrects through `POST /api/intake/tax-return/confirm`, which vouches entries into the standard answer store (action `confirm` only for question ids the stage UI actually proposed; provenance `tax_return`, or `user` on correction). A re-upload replaces the prior findings. The parser keeps two failure layers apart: a genuine content verdict (scanned / non-1040 / garbage bytes) gets the honest-unreadable fallback, while a failure to LOAD the PDF engine itself (module or worker chunk — bundler/runtime breakage) surfaces as the distinct internal taxonomy error, never as "we couldn't read it"; `pdfjs-dist` is a server-external package precisely so its worker chunk resolves from node_modules.
+
+There are no bank or payment-pull cards and no promises of future integrations; the consent-gated pull line in the pipeline table above stays a separate, unbuilt track (HACK-92).
+
 ## Environments
 
 - Every required key is listed in `.env.example`. Real secrets live only in `.env` (gitignored) or host environment settings

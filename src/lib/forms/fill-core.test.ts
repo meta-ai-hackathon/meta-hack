@@ -172,25 +172,40 @@ describe("fillLoadedPdf", () => {
     expect(FILL_FONT).toBe(StandardFonts.Helvetica);
   });
 
-  it("accounts for every field exactly once: filled, to resolve, or not applicable", async () => {
-    const cases = fc.record({
-      entry: fc.constantFrom(...ACROFORM_ENTRIES),
-      records: recordsArb,
-      vault: everyVaultValueArb,
-      keep: fc.boolean(),
-    });
+  it("accounts for every mapped field exactly once and never fills a dispositioned one", async () => {
+    // Every mapped field is filled, left for the person to resolve, or not
+    // applicable, exactly once. A field with a reviewed non-mapped
+    // disposition (VAL-FIX-007) stays blank by documentation: it is never
+    // filled and never listed to resolve, even when a value is sent for it.
+    const cases = fc.constantFrom(...ACROFORM_ENTRIES).chain((entry) =>
+      fc.record({
+        entry: fc.constant(entry),
+        records: recordsArb,
+        vault: everyVaultValueArb,
+        keep: fc.boolean(),
+        sent: fc.dictionary(
+          fc.constantFrom(
+            ...entry.fields.filter((field) => field.specQuestionId === null).map((field) => field.name),
+          ),
+          fc.constantFrom("checked", "unchecked", "Jordan 12"),
+        ),
+      }),
+    );
     await fc.assert(
-      fc.asyncProperty(cases, async ({ entry, records, vault, keep }) => {
-        const { values, answerMap } = assembleFillValues(entry, records, keep ? vault : {});
+      fc.asyncProperty(cases, async ({ entry, records, vault, keep, sent }) => {
+        const { values, answerMap } = assembleFillValues(entry, records, keep ? vault : {}, sent);
         const pdf = await PDFDocument.load(templateFor(entry));
         const { filled, toResolve } = await fillLoadedPdf(pdf, entry, values, answerMap);
-        const skipped = skippedFieldNames(entry, answerMap);
+        const mapped = new Set(
+          entry.fields.filter((field) => field.disposition === "mapped").map((field) => field.name),
+        );
+        const skipped = [...skippedFieldNames(entry, answerMap)].filter((name) => mapped.has(name));
         const seen = [
           ...filled.map((field) => field.fieldName),
           ...toResolve.map((item) => item.fieldName),
           ...skipped,
         ];
-        expect([...seen].sort()).toEqual(entry.fields.map((field) => field.name).sort());
+        expect([...seen].sort()).toEqual([...mapped].sort());
         for (const field of filled) {
           expect(field.provenance).toBe(values[field.fieldName]?.provenance);
         }

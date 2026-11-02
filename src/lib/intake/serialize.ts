@@ -19,6 +19,8 @@ export {
   type ClientQuestion,
   type IntakeClientState,
   type IntakeProgress,
+  type IncomeClientState,
+  type QuickQuestionsClientState,
 } from "./client-state";
 
 /**

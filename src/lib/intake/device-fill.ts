@@ -43,11 +43,14 @@ export async function fillFormOnDevice(
   } catch {
     return { kind: "unreadable_form" };
   }
-  const { filled, toResolve } = await fillLoadedPdf(
+  const { filled, toResolve, conflicts } = await fillLoadedPdf(
     pdf,
     entry,
     assembled.values,
     assembled.answerMap,
   );
-  return { kind: "filled", outcome: { bytes: await pdf.save(), filled, toResolve } };
+  return {
+    kind: "filled",
+    outcome: { bytes: await pdf.save(), filled, toResolve, conflicts },
+  };
 }

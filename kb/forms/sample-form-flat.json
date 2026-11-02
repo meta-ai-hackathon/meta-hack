@@ -37,7 +37,8 @@
         "x": 224,
         "y": 645,
         "max_width": 292
-      }
+      },
+      "disposition": "mapped"
     },
     {
       "name": "applicant_date_of_birth",
@@ -55,7 +56,8 @@
         "x": 224,
         "y": 605,
         "max_width": 142
-      }
+      },
+      "disposition": "mapped"
     },
     {
       "name": "household_size_count",
@@ -73,7 +75,8 @@
         "x": 344,
         "y": 565,
         "max_width": 72
-      }
+      },
+      "disposition": "mapped"
     },
     {
       "name": "housing_situation",
@@ -91,7 +94,8 @@
         "x": 224,
         "y": 525,
         "max_width": 252
-      }
+      },
+      "disposition": "mapped"
     },
     {
       "name": "monthly_rent_amount",
@@ -109,7 +113,8 @@
         "x": 224,
         "y": 485,
         "max_width": 112
-      }
+      },
+      "disposition": "mapped"
     },
     {
       "name": "contact_phone",
@@ -127,7 +132,8 @@
         "x": 224,
         "y": 445,
         "max_width": 172
-      }
+      },
+      "disposition": "mapped"
     },
     {
       "name": "contact_email",
@@ -145,7 +151,8 @@
         "x": 224,
         "y": 405,
         "max_width": 252
-      }
+      },
+      "disposition": "mapped"
     },
     {
       "name": "mail_consent",
@@ -163,7 +170,8 @@
         "x": 440,
         "y": 372,
         "max_width": 60
-      }
+      },
+      "disposition": "mapped"
     },
     {
       "name": "id_problem_explanation",
@@ -181,7 +189,8 @@
         "x": 224,
         "y": 295,
         "max_width": 312
-      }
+      },
+      "disposition": "mapped"
     },
     {
       "name": "case_number",
@@ -199,7 +208,8 @@
         "x": 224,
         "y": 255,
         "max_width": 192
-      }
+      },
+      "disposition": "mapped"
     }
   ]
 }
