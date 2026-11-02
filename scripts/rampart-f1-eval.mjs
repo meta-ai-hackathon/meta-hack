@@ -10,7 +10,11 @@
  * numbers inside the NANP-reserved fictional 555 exchange. The fixture loop
  * below enforces those ranges so a future edit cannot quietly introduce a
  * real-shape value (HACK-107 review: valid-looking synthetic data in a public
- * repo is a real-data risk).
+ * repo is a real-data risk). Within the SSN and TAX_ID labels, nine-digit
+ * golds must sit in the never-issued SSA areas; other nine-digit
+ * identifiers (an ABA routing number, for example) are legitimately not
+ * SSNs, so the label gates the check and nothing else is checked this way
+ * (review P3).
  *
  * Metric: span-level P/R/F1 between the guard's predictions and hand-labeled
  * gold spans, matched with the same label and a small character-tolerance
@@ -147,11 +151,11 @@ const FIXTURES = [
   {
     id: "landlord-application",
     input:
-      "Please contact my landlord Yolanda Marsh at 7045558821 if my Medicaid renewal paperwork needs anything more.",
+      "Please contact my landlord Yolanda Marsh at 7045550163 if my Medicaid renewal paperwork needs anything more.",
     private: [
       { text: "Yolanda", label: "GIVEN_NAME" },
       { text: "Marsh", label: "SURNAME" },
-      { text: "7045558821", label: "PHONE" },
+      { text: "7045550163", label: "PHONE" },
     ],
     publicTerms: ["Medicaid renewal paperwork"],
   },
@@ -331,15 +335,25 @@ for (const fixture of FIXTURES) {
       fail(`${fixture.id}: private term ${term.text} does not appear in the input`);
     }
     const digits = term.text.replace(/\D/g, "");
-    if (term.label === "SSN") {
-      const area = digits.slice(0, 3);
-      if (!(area === "000" || area === "666" || Number(area) >= 900)) {
-        fail(`${fixture.id}: SSN gold ${term.text} is outside the never-issued ranges (000/666/900-999)`);
+    // The label decides what is checked (review P3): SSN and TAX_ID
+    // golds are shape-checked here and nothing else is, because other
+    // nine-digit identifiers are legitimately not SSNs — an ABA routing
+    // number is nine digits and its first digits sit inside the ranges an
+    // SSN may never use. A TAX_ID that is not nine digits is fine to
+    // carry; an SSN-labeled gold that is not nine digits is not an SSN.
+    if (term.label === "SSN" || term.label === "TAX_ID") {
+      if (digits.length === 9) {
+        const area = digits.slice(0, 3);
+        if (!(area === "000" || area === "666" || Number(area) >= 900)) {
+          fail(`${fixture.id}: SSN-shaped gold ${term.text} (${term.label}) is outside the never-issued ranges (000/666/900-999)`);
+        }
+      } else if (term.label === "SSN") {
+        fail(`${fixture.id}: SSN gold ${term.text} is not nine digits, not an SSN`);
       }
     }
     if (term.label === "PHONE") {
-      if (!/^\d{3}555\d{4}$/.test(digits.slice(-10))) {
-        fail(`${fixture.id}: PHONE gold ${term.text} is outside the reserved 555 exchange`);
+      if (!/^\d{3}55501\d{2}$/.test(digits.slice(-10))) {
+        fail(`${fixture.id}: PHONE gold ${term.text} is outside the fictional 555-01XX block`);
       }
     }
   }
