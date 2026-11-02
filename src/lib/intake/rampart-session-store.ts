@@ -88,13 +88,16 @@ export async function saveRampartSession(
     if (expectStored && read.identity === "none") {
       return "purged";
     }
-    // A stored key is reused and never rewritten: a concurrent first save of
-    // the answers envelope must not be orphaned by this writer. A generated
-    // key is written only together with the fresh session envelope, and the
-    // write checks in its own transaction that the key slot is still empty,
-    // so only one overlapping first save lands a key; the loser retries
-    // under the winner's key.
-    const freshKey = read.key === null && read.keySlotEmpty;
+    // A usable stored key is reused and never rewritten: a concurrent first
+    // save of the answers envelope must not be orphaned by this writer. A
+    // generated key is written together with the fresh session envelope
+    // whenever the slot holds nothing usable — empty, or garbage that seals
+    // nothing, which is replaced like an empty slot so a damaged slot cannot
+    // orphan this save behind a key that is never stored (review P3). The
+    // write checks in its own transaction that the slot still holds no
+    // usable key, so only one overlapping first save lands a key; the loser
+    // retries under the winner's key.
+    const freshKey = read.key === null;
     const key = read.key ?? (await generateSealingKey(deps.subtle));
     const sealed = await sealForStorage(serialized, key, deps.subtle);
     const written = await deps.kv.setMany(
@@ -107,7 +110,9 @@ export async function saveRampartSession(
       freshKey
         ? {
             key: DEVICE_ANSWERS_CRYPTO_KEY_KEY,
-            keep: (current) => current !== undefined && current !== null,
+            // Keep only a usable key (a concurrent writer's): empty slots and
+          // garbage are ours to replace when we carry the key ourselves.
+          keep: (current) => isSealingKey(current),
           }
         : {
             key: DEVICE_SESSION_ENVELOPE_KEY,

@@ -134,6 +134,51 @@ describe("rampart-session-store", () => {
     expect(await loadRampartSession(d)).toEqual({ status: "none" });
   });
 
+  it("replaces a garbage key slot like an empty slot (review P3)", async () => {
+    const { kv, store } = memoryKv();
+    store.set(DEVICE_ANSWERS_CRYPTO_KEY_KEY, "not-a-key");
+    const d = deps(kv);
+    expect(await saveRampartSession(d, SERIALIZED)).toBe("saved");
+    // Previously this sealed under a generated key that was never stored:
+    // the save reported saved while the session could never be opened.
+    expect(await loadRampartSession(d)).toEqual({ status: "ok", serialized: SERIALIZED });
+    const key = store.get(DEVICE_ANSWERS_CRYPTO_KEY_KEY);
+    expect(key !== undefined && key !== null && typeof key === "object").toBe(true);
+    const sessionEnvelope = store.get(DEVICE_SESSION_ENVELOPE_KEY) as string;
+    const { openSealed } = await import("./client-store");
+    expect(await openSealed(sessionEnvelope, key as CryptoKey, crypto.subtle)).toBe(SERIALIZED);
+  });
+
+  it("retries under a usable key a concurrent writer lands first (review P2 twin)", async () => {
+    const theirKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
+      "encrypt",
+      "decrypt",
+    ]);
+    const theirAnswers = await sealForStorage(
+      JSON.stringify({ records: {} }),
+      theirKey,
+      crypto.subtle,
+    );
+    let injected = false;
+    const { kv, store } = memoryKv({
+      beforeGuardedWrite: (s) => {
+        if (!injected) {
+          injected = true;
+          s.set(DEVICE_ANSWERS_CRYPTO_KEY_KEY, theirKey);
+          s.set(DEVICE_ANSWERS_ENVELOPE_KEY, theirAnswers);
+        }
+      },
+    });
+    const d = deps(kv);
+    expect(await saveRampartSession(d, SERIALIZED)).toBe("saved");
+    // The session save aborted its generated-key attempt, re-read, and
+    // reused the concurrent writer's key: nothing is clobbered or orphaned.
+    expect(store.get(DEVICE_ANSWERS_CRYPTO_KEY_KEY)).toBe(theirKey);
+    const sessionEnvelope = store.get(DEVICE_SESSION_ENVELOPE_KEY) as string;
+    const { openSealed } = await import("./client-store");
+    expect(await openSealed(sessionEnvelope, theirKey, crypto.subtle)).toBe(SERIALIZED);
+  });
+
   it("retries and saves when a concurrent write races it", async () => {
     let raced = false;
     const { kv } = memoryKv({

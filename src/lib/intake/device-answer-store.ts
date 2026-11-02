@@ -182,38 +182,41 @@ export async function recordDeviceAnswer(
     // Unreadable answers cannot be merged into; this answer replaces them,
     // under a fresh key, as the load already told the person.
     const next = saveClientAnswer(read.readable ? read.state : EMPTY_CLIENT_ANSWERS, record);
-    // A usable stored key is reused and never rewritten: a concurrent first
-    // save (the same device open in two tabs, or a wizard answer save racing
-    // a conversation send) must not be able to orphan its envelope by
-    // rewriting the shared sealing key. Only a generated key is written, and
-    // the write checks in its own transaction that the key slot is still
-    // empty, so only one of the overlapping first saves wins; the loser
-    // retries under the winner's key.
-    const reuseKey = read.key !== null && read.readable;
+    // A usable stored key is reused and never rewritten — and the reuse must
+    // not depend on the answers envelope being readable: the same device key
+    // also seals the Rampart session envelope, so replacing the key here
+    // would orphan that session, restart its token ordinals, and let server
+    // history that still holds old tokens collide (review P2). An unreadable
+    // answers envelope is replaced under the SAME key instead (its
+    // ciphertext is worthless either way). A generated key is written only
+    // when the slot holds nothing usable — empty, or garbage that seals
+    // nothing, which is replaced like an empty slot — so only one of two
+    // overlapping first saves wins and the loser retries under the
+    // winner's key.
+    const reuseKey = read.key !== null;
     const key = reuseKey ? read.key : await generateSealingKey(deps.subtle);
     const sealed = await sealForStorage(serializeClientAnswers(next), key, deps.subtle);
     // The key is written with the envelope it sealed, so the pair on the
-    // device always matches. The write checks, in its own transaction, that
-    // what was read has not changed: either the key slot is still empty
-    // (a generated key, so no overlapping save has landed one) or the
-    // envelope is still the one read (a reused key).
-    const requiresEmptyKeySlot = !reuseKey && read.keySlotEmpty;
+    // device always matches. The one CAS anchor is the answers envelope:
+    // the write lands only while the envelope is still the one read. With
+    // a reused key that anchors a pair whose key is never rewritten; with
+    // a generated key the slot held nothing usable, so both entries are
+    // ours and pass the same check — and if a concurrent writer landed a
+    // usable key with its envelope meanwhile, this write replaces the
+    // envelope and the CAS fails, so the retry re-reads and reuses that
+    // key instead of clobbering it (no envelope is left sealed under a
+    // displaced key).
     const written = await deps.kv.setMany(
-      requiresEmptyKeySlot || !reuseKey
-        ? [
+      reuseKey
+        ? [[DEVICE_ANSWERS_ENVELOPE_KEY, sealed]]
+        : [
             [DEVICE_ANSWERS_CRYPTO_KEY_KEY, key],
             [DEVICE_ANSWERS_ENVELOPE_KEY, sealed],
-          ]
-        : [[DEVICE_ANSWERS_ENVELOPE_KEY, sealed]],
-      requiresEmptyKeySlot
-        ? {
-            key: DEVICE_ANSWERS_CRYPTO_KEY_KEY,
-            keep: (current) => current !== undefined && current !== null,
-          }
-        : {
-            key: DEVICE_ANSWERS_ENVELOPE_KEY,
-            keep: (current) => envelopeIdentity(current) !== read.identity,
-          },
+          ],
+      {
+        key: DEVICE_ANSWERS_ENVELOPE_KEY,
+        keep: (current) => envelopeIdentity(current) !== read.identity,
+      },
     );
     if (written) {
       return { status: "saved", state: next };
