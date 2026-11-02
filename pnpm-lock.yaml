@@ -15,7 +15,7 @@ importers:
         specifier: 3.7.6
         version: 3.7.6
       '@nationaldesignstudio/rampart':
-        specifier: github:meta-ai-hackathon/rampart#349345f
+        specifier: github:meta-ai-hackathon/rampart#349345fd9d2b07445bf95932364148d49474bcbb
         version: https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/349345fd9d2b07445bf95932364148d49474bcbb(@huggingface/transformers@3.7.6)
       next:
         specifier: 16.4.3
@@ -836,7 +836,7 @@ packages:
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2
 
   '@nationaldesignstudio/rampart@https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/349345fd9d2b07445bf95932364148d49474bcbb':
-    resolution: {gitHosted: true, integrity: sha512-b1bbtBY8hueI+6XTIBENeeHjNMSVTAO6J/aVpeL9gqQNBmX4fZS2rjZxFaP0EWk0AfQJ1mI3RzjhPo96gLP6DQ==, tarball: https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/349345fd9d2b07445bf95932364148d49474bcbb}
+    resolution: {gitHosted: true, tarball: https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/349345fd9d2b07445bf95932364148d49474bcbb}
     version: 0.1.3
     peerDependencies:
       '@huggingface/transformers': '>=3'
