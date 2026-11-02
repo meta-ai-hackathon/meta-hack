@@ -208,10 +208,68 @@ interface PdfJsModule {
   readonly getDocument: (params: { data: Uint8Array }) => PdfJsLoadingTask;
 }
 
-async function pdfjsModule(): Promise<PdfJsModule> {
-  return (await import(
+/**
+ * pdf.js's version-pinned signature of a broken worker environment: its
+ * fake-worker loader (Node has no DOM worker) rejects the loading task
+ * with `Setting up fake worker failed: "<reason>".` when the worker chunk
+ * cannot be imported — under the Turbopack route bundle the runtime
+ * module-relative import pointed at .next/dev/server/chunks/ and no
+ * pdf.worker.mjs exists there (the VAL-INC-007/010/012 live failure).
+ */
+export const PDFJS_FAKE_WORKER_FAILURE_PREFIX = "Setting up fake worker failed";
+
+/**
+ * A PDF-ENGINE failure: the pdfjs module or its worker chunk failed to
+ * LOAD. That is bundler/runtime breakage — never a verdict on the uploaded
+ * document — so it must never surface as the honest-unreadable result
+ * (readable:false), which is reserved for genuine content findings.
+ * parse1040Pdf throws this and the route maps it to the internal taxonomy
+ * error, keeping engine breakage visible instead of masquerading as "not
+ * a 1040". Defined here rather than as a telemetry AppError because the
+ * parse module's import boundary admits nothing outside src/lib/income.
+ */
+export class PdfEnvironmentError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "PdfEnvironmentError";
+  }
+}
+
+/**
+ * The total, exact engine-failure classifier: TRUE only for a
+ * PdfEnvironmentError (already classified) or an Error carrying pdf.js's
+ * version-pinned fake-worker failure prefix; FALSE for everything else,
+ * which stays a genuine content verdict at the call site. Exported for the
+ * classification property test.
+ */
+export function isPdfEnvironmentFailure(error: unknown): boolean {
+  if (error instanceof PdfEnvironmentError) {
+    return true;
+  }
+  return (
+    error instanceof Error &&
+    error.message.startsWith(PDFJS_FAKE_WORKER_FAILURE_PREFIX)
+  );
+}
+
+let pdfjsModulePromise: Promise<PdfJsModule> | null = null;
+
+/**
+ * The engine module, loaded once. The specifier resolves because
+ * next.config.ts keeps pdfjs-dist OUT of the server bundle
+ * (serverExternalPackages): pdf.js's fake-worker setup imports its
+ * sibling pdf.worker.mjs at runtime with a module-relative path, which
+ * only resolves from the real node_modules layout — bundled into a
+ * Turbopack server chunk it points at .next/dev/server/chunks/ and fails.
+ * The load itself happens OUTSIDE every content-verdict try/catch
+ * (parse1040Pdf wraps it in PdfEnvironmentError): a module-load failure
+ * must surface as engine breakage, never be swallowed into "not a 1040".
+ */
+function pdfjsModule(): Promise<PdfJsModule> {
+  pdfjsModulePromise ??= import(
     "pdfjs-dist/legacy/build/pdf.mjs"
-  )) as unknown as PdfJsModule;
+  ) as Promise<PdfJsModule>;
+  return pdfjsModulePromise;
 }
 
 /**
@@ -232,6 +290,19 @@ async function pageItems(
     const page = await doc.getPage(pageNumber);
     const content = await page.getTextContent();
     return content.items;
+  } catch (error) {
+    // Engine failure first: a broken worker environment rejects the
+    // loading task exactly like bad bytes would, but it must escape the
+    // honest-unreadable content verdicts below — bundler breakage is
+    // visible, never "not a 1040".
+    if (isPdfEnvironmentFailure(error)) {
+      throw error instanceof PdfEnvironmentError
+        ? error
+        : new PdfEnvironmentError("the PDF engine worker failed to load", {
+          cause: error,
+        });
+    }
+    throw error;
   } finally {
     await task.destroy?.();
   }
@@ -592,12 +663,28 @@ const FINDING_ORDER: readonly TaxFindingField[] = [
  * {readable: false, findings: [], monthlyDerived: null} for anything that
  * is not a readable Form 1040 (scanned, flat non-1040, encrypted, or
  * garbage bytes) — an honest verdict with nothing invented. Throws only on
- * programmer error, never on input.
+ * programmer or environment error, never on input: a PDF-engine load
+ * failure (module or worker chunk) throws PdfEnvironmentError, which the
+ * route surfaces as the distinct internal taxonomy error — bundler
+ * breakage is visible, never masquerading as "not a 1040".
  */
 export async function parse1040Pdf(input: Uint8Array): Promise<TaxParseResult> {
   // Defensive copy: the caller's buffer is never mutated (pdfjs may claim
   // the buffer it is handed).
   const bytes = new Uint8Array(input);
+  // ENGINE LAYER — loaded before and outside every content-verdict
+  // try/catch: a failure to LOAD the engine (the module or its worker
+  // chunk) is bundler/runtime breakage and surfaces as
+  // PdfEnvironmentError. It must never be swallowed into the honest-
+  // unreadable verdict below, which is reserved for genuine content
+  // findings about the bytes.
+  try {
+    await pdfjsModule();
+  } catch (error) {
+    throw new PdfEnvironmentError("the PDF engine failed to load", {
+      cause: error,
+    });
+  }
   // An encrypted document is never honestly readable (the content streams
   // may be garbage under the encryption wrapper): verdict it unreadable up
   // front rather than parsing whatever decrypts by accident.
@@ -615,7 +702,12 @@ export async function parse1040Pdf(input: Uint8Array): Promise<TaxParseResult> {
   let identity: Identity | null;
   try {
     identity = await identify1040(bytes);
-  } catch {
+  } catch (error) {
+    // Engine failures escape (never a verdict); genuine content failures
+    // (corrupt or garbage bytes) stay an honest unreadable.
+    if (error instanceof PdfEnvironmentError) {
+      throw error;
+    }
     return UNREADABLE;
   }
   if (!identity) {
@@ -634,7 +726,12 @@ export async function parse1040Pdf(input: Uint8Array): Promise<TaxParseResult> {
   let fromText: TaxFinding[];
   try {
     fromText = await textLayerFindings(bytes, missing, identity);
-  } catch {
+  } catch (error) {
+    // Same split as the identity pass: engine failures escape; content
+    // failures mean the text layer simply offers nothing.
+    if (error instanceof PdfEnvironmentError) {
+      throw error;
+    }
     fromText = [];
   }
 

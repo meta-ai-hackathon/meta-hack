@@ -3,7 +3,10 @@ import {
   MAX_DECOMPRESSED_PDF_BYTES,
   decompressedPdfSize,
 } from "../../../../lib/income/pdf-size-bound";
-import { parse1040Pdf } from "../../../../lib/income/tax-parse";
+import {
+  parse1040Pdf,
+  PdfEnvironmentError,
+} from "../../../../lib/income/tax-parse";
 import { errorResponse } from "../../../../lib/intake/api";
 import {
   loadSession,
@@ -101,6 +104,18 @@ export async function POST(request: Request): Promise<Response> {
         message: parsed.readable ? null : UNREADABLE_MESSAGE,
       });
     } catch (error) {
+      if (error instanceof PdfEnvironmentError) {
+        // The PDF engine itself failed to load (module or worker chunk):
+        // bundler/runtime breakage, never a statement about the upload.
+        // Surface the distinct internal taxonomy error — the honest-
+        // unreadable fallback above is reserved for genuine content
+        // verdicts and must never cover engine breakage.
+        return errorResponse(
+          new AppError("internal", userMessageFor("internal"), {
+            cause: error,
+          }),
+        );
+      }
       return errorResponse(error);
     }
   });

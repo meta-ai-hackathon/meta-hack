@@ -18,6 +18,15 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/forms/**": ["./src/lib/forms/fixtures/**"],
   },
+  // pdf.js's fake-worker setup (Node has no DOM worker) imports its
+  // sibling pdf.worker.mjs at runtime with a module-relative path.
+  // Bundled into a Turbopack server chunk, that import resolved against
+  // .next/dev/server/chunks/ and failed — every 1040 upload then surfaced
+  // as honestly "unreadable" instead of parsed (the income-capture
+  // round-1 live failure). Keep pdfjs-dist a real Node module (it is
+  // server-side only; the client never imports it) so the worker resolves
+  // from node_modules.
+  serverExternalPackages: ["pdfjs-dist"],
 };
 
 export default nextConfig;
