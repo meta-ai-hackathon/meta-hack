@@ -6,7 +6,7 @@ import {
   QUESTION_BY_ID,
   QUESTIONS,
 } from "./intake/spec";
-import type { KbEntry } from "./kb";
+import { KB_ENTRIES, type KbEntry } from "./kb";
 import {
   BANNED_CLAIM_FALLBACK_REPLY,
   CHOICE_UNMAPPED_FALLBACK_PREFIX,
@@ -196,6 +196,29 @@ describe("grounded prompt builders", () => {
       }
     }
     expect(misses).toEqual([]);
+  });
+
+  it("holds the placeholder contract on typed and voice turns alike", () => {
+    // The contract is the same in both modes (PR #116 review): a voice
+    // turn's history carries the same token-bearing typed turns, so a
+    // voice reply needs the same never-echo instruction. The pinning
+    // keeps the honest-loss behavior from quietly regressing to
+    // typed-only while the spoken-rendition instruction stays scoped to
+    // the voice path.
+    const question = QUESTION_BY_ID["application_role"];
+    const typed = buildCombinedTurnPrompt(question);
+    const voice = buildCombinedTurnPrompt(question, {}, QUESTIONS, KB_ENTRIES, true);
+    for (const prompt of [typed, voice]) {
+      expect(prompt).toContain(
+        "Transcripts carry Rampart placeholders (for example [GIVEN_NAME_1])",
+      );
+      expect(prompt).toContain(
+        "instead of the private values the app held back",
+      );
+      expect(prompt).toContain("never repeat, quote, or echo a bracketed placeholder");
+    }
+    expect(typed).not.toContain("Spoken rendition");
+    expect(voice).toContain('spoken_reply');
   });
 
   it("grounds the combined prompt on the refusal phrase, the injection guardrail, and the pilot program", () => {
