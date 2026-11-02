@@ -15,8 +15,8 @@ importers:
         specifier: 3.7.6
         version: 3.7.6
       '@nationaldesignstudio/rampart':
-        specifier: github:meta-ai-hackathon/rampart#349345f
-        version: https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/349345fd9d2b07445bf95932364148d49474bcbb(@huggingface/transformers@3.7.6)
+        specifier: github:meta-ai-hackathon/rampart#9f629f0
+        version: https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/9f629f0ee6efba05f1019e96c2eafaa615b4894b(@huggingface/transformers@3.7.6)
       next:
         specifier: 16.4.3
         version: 16.4.3(@babel/core@7.29.7)(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -835,8 +835,8 @@ packages:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2
 
-  '@nationaldesignstudio/rampart@https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/349345fd9d2b07445bf95932364148d49474bcbb':
-    resolution: {gitHosted: true, integrity: sha512-b1bbtBY8hueI+6XTIBENeeHjNMSVTAO6J/aVpeL9gqQNBmX4fZS2rjZxFaP0EWk0AfQJ1mI3RzjhPo96gLP6DQ==, tarball: https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/349345fd9d2b07445bf95932364148d49474bcbb}
+  '@nationaldesignstudio/rampart@https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/9f629f0ee6efba05f1019e96c2eafaa615b4894b':
+    resolution: {gitHosted: true, integrity: sha512-mEaafBZB5eC44+/+GfRBjvNbR7EPDYdcE5+VZFSgpbgcxcvG+ghTez7QrxEoSWaXtv1YqMk1Ulq9gUPiqIyodQ==, tarball: https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/9f629f0ee6efba05f1019e96c2eafaa615b4894b}
     version: 0.1.3
     peerDependencies:
       '@huggingface/transformers': '>=3'
@@ -3681,7 +3681,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.4
     optional: true
 
-  '@nationaldesignstudio/rampart@https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/349345fd9d2b07445bf95932364148d49474bcbb(@huggingface/transformers@3.7.6)':
+  '@nationaldesignstudio/rampart@https://codeload.github.com/meta-ai-hackathon/rampart/tar.gz/9f629f0ee6efba05f1019e96c2eafaa615b4894b(@huggingface/transformers@3.7.6)':
     optionalDependencies:
       '@huggingface/transformers': 3.7.6
 

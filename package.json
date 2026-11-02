@@ -19,7 +19,7 @@
   "dependencies": {
     "@cantoo/pdf-lib": "2.11.1",
     "@huggingface/transformers": "3.7.6",
-    "@nationaldesignstudio/rampart": "github:meta-ai-hackathon/rampart#349345f",
+    "@nationaldesignstudio/rampart": "github:meta-ai-hackathon/rampart#9f629f0",
     "next": "16.4.3",
     "pdfjs-dist": "6.4.299",
     "postgres": "3.4.9",
