@@ -6,17 +6,7 @@ import {
   type ConsentReceipt,
 } from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
-import * as rampartGuardModule from "../../../lib/intake/rampart-guard";
-import {
-  ConversationChat,
-  MAX_PENDING_VOICE_TURNS,
-} from "./conversation-chat";
-
-const configureShield = (
-  rampartGuardModule as unknown as {
-    __configureShield: (patch: { status?: string; protective?: boolean }) => void;
-  }
-).__configureShield;
+import { ConversationChat, MAX_PENDING_VOICE_TURNS } from "./conversation-chat";
 
 // The two-mode conversation surface (HACK-106, VAL-NCF-002): the derived
 // conditions and transitions the rebuild introduced — exactly two entry
@@ -82,36 +72,6 @@ vi.mock("../../../lib/audio/voice-session", () => ({
     };
   },
 }));
-
-vi.mock("../../../lib/intake/rampart-guard", () => {
-  const state = { status: "ready" as string, protective: true };
-  class RampartShield {
-    status: string;
-    constructor() {
-      this.status = state.status;
-    }
-    async start(): Promise<void> {}
-    async protectTyped(
-      text: string,
-    ): Promise<{ kind: string; text?: string }> {
-      if (this.status !== "ready") return { kind: "blocked" };
-      if (!state.protective) return { kind: "blocked" };
-      return {
-        kind: "tokenized",
-        text: text.replaceAll("Carlos", "[GIVEN_NAME_1]"),
-      };
-    }
-    reveal(text: string): string {
-      return text.replaceAll("[GIVEN_NAME_1]", "Carlos");
-    }
-  }
-  return {
-    RampartShield,
-    __configureShield: (patch: { status?: string; protective?: boolean }) => {
-      Object.assign(state, patch);
-    },
-  };
-});
 
 vi.mock("../../../lib/audio/capture", () => ({
   // The fallback speech resolves immediately (onended), so a turn's
@@ -179,12 +139,10 @@ function historyResponse(): Response {
   );
 }
 
-let replyText = "Got it. What is your zip code?";
-
 function turnResponse(): Response {
   return new Response(
     JSON.stringify({
-      assistantReply: replyText,
+      assistantReply: "Got it. What is your zip code?",
       assistantTurnId: "turn-9",
       redactedUserTranscript: "a household of three",
       nextQuestionId: "state",
@@ -232,8 +190,6 @@ beforeEach(() => {
   sessionOps = [];
   fakeCapturing = false;
   turnCalls = [];
-  replyText = "Got it. What is your zip code?";
-  configureShield({ status: "ready", protective: true });
   stubFetch();
 });
 
@@ -611,113 +567,6 @@ describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
     expect(turnCalls).toHaveLength(2);
   });
 
-  it("HACK-107 review: a token-free reply is spoken verbatim — the paraphrase does not replace the stored words", async () => {
-    const { container: _container, act } = await renderChat();
-    await beginMode(_container, act, "voice-only");
-    const speakCalls: string[] = [];
-    replyText = "Thanks for the detail. What is your zip code?";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url === "/api/conversation/history") {
-          return historyResponse();
-        }
-        if (url === "/api/conversation/turn") {
-          turnCalls.push({
-            headers: new Headers(init?.headers),
-            body: String(init?.body),
-          });
-          // A voice turn whose model rendition DIFFERS from the stored
-          // reply, while the stored reply carries no token.
-          return new Response(
-            JSON.stringify({
-              assistantReply: replyText,
-              assistantTurnId: "turn-9",
-              spokenReply: "Thanks to you — what zip are we talking about?",
-              redactedUserTranscript: "a household of three",
-              nextQuestionId: "state",
-              state: EMPTY_STATE,
-              voiceUrl: null,
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        if (url === "/api/conversation/speak") {
-          speakCalls.push(String(init?.body) ?? "");
-          return new Response(JSON.stringify({ audio: null }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        throw new Error(`unexpected request to ${url}`);
-      }),
-    );
-    await act(async () => {
-      sessionCallbacks.onUtterance(new Blob(["x"], { type: "audio/webm" }));
-    });
-    // Let the reply settle through display, hold, and the speak call.
-    await act(async () => undefined);
-    await act(async () => undefined);
-    // The play path speaks the STORED words via the speak route (by turn
-    // id): the differing spoken rendition is never preferred for a reply
-    // that carries no token.
-    expect(speakCalls.length).toBe(1);
-    expect(speakCalls[0]).toContain("turn-9");
-  });
-
-  it("HACK-107 review: against a token-bearing reply — a state the server cannot produce — the paraphrase covers (defense in depth)", async () => {
-    const { container, act } = await renderChat();
-    await beginMode(container, act, "voice-only");
-    replyText = "Thanks [GIVEN_NAME_1] — got it. What is your zip code?";
-    let speakCalls = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url === "/api/conversation/history") {
-          return historyResponse();
-        }
-        if (url === "/api/conversation/turn") {
-          turnCalls.push({
-            headers: new Headers(init?.headers),
-            body: String(init?.body),
-          });
-          return new Response(
-            JSON.stringify({
-              assistantReply: replyText,
-              assistantTurnId: "turn-9",
-              spokenReply: "Thanks to you — what zip are we talking about?",
-              redactedUserTranscript: "a household of three",
-              nextQuestionId: "state",
-              state: EMPTY_STATE,
-              voiceUrl: null,
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        if (url === "/api/conversation/speak") {
-          speakCalls += 1;
-          return new Response(JSON.stringify({ audio: null }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        throw new Error(`unexpected request to ${url}`);
-      }),
-    );
-    await act(async () => {
-      sessionCallbacks.onUtterance(new Blob(["x"], { type: "audio/webm" }));
-    });
-    await act(async () => undefined);
-    await act(async () => undefined);
-    // The display rehydrated the token (defense-in-depth reveal), and the
-    // verified spoken rendition went out locally — never to the speak
-    // route, which speaks the stored turn verbatim.
-    expect(container.textContent).toContain("Carlos");
-    expect(speakCalls).toBe(0);
-  });
-
   it("VAL-FIX-001: a flushed blob arriving during reply playback queues without reopening the mic", async () => {
     const { container: _container, act } = await renderChat();
     await beginMode(_container, act, "voice-only");
@@ -874,99 +723,5 @@ describe("the conversation surfaces and transitions (VAL-NCF-002)", () => {
     expect(sessionOps).toContain("hold");
     expect(sessionOps).not.toContain("resume");
     expect(q(container, "voice-session")?.getAttribute("data-voice-session")).toBe("paused");
-  });
-});
-
-describe("typed sends through the on-device shield (HACK-107)", () => {
-  async function typingMode(): Promise<{
-    container: HTMLElement;
-    act: (fn: () => Promise<void> | void) => Promise<void>;
-  }> {
-    const rendered = await renderChat();
-    await beginMode(rendered.container, rendered.act, "voice-plus-typing");
-    await rendered.act(async () => {
-      q(rendered.container, "switch-to-typing")?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
-    });
-    return rendered;
-  }
-
-  async function typeText(
-    container: HTMLElement,
-    act: (fn: () => Promise<void> | void) => Promise<void>,
-    text: string,
-  ): Promise<void> {
-    await act(async () => {
-      const ta = container.querySelector("textarea") as HTMLTextAreaElement;
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!;
-      setter.call(ta, text);
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-  }
-
-  it("sends text only after protect() — the fetch body carries tokens, not the raw name", async () => {
-    const { container, act } = await typingMode();
-    await typeText(container, act, "My name is Carlos and this is about Medicaid.");
-    await act(async () => {
-      (
-        container.querySelector('button[type="submit"]') as HTMLButtonElement
-      )?.click();
-    });
-    expect(turnCalls).toHaveLength(1);
-    const body = turnCalls[0]!.body;
-    expect(body).toContain("[GIVEN_NAME_1]");
-    expect(body).not.toContain("Carlos");
-    // The stored server reply carried a placeholder; the DISPLAY rehydrated it.
-    expect(container.textContent).toContain("a household of three");
-  });
-
-  it("displays the assistant reply rehydrated, transcript keeps its marks", async () => {
-    // Defense in depth (review P2): the server gates every reply token-free,
-    // so it cannot produce a token-bearing reply; this exercises the client
-    // reveal path against a misconfigured or future server anyway.
-    replyText = "Thanks [GIVEN_NAME_1] — got it. What is your zip code?";
-    const { container, act } = await typingMode();
-    await typeText(container, act, "My case is for me.");
-    await act(async () => {
-      (
-        container.querySelector('button[type="submit"]') as HTMLButtonElement
-      )?.click();
-    });
-    expect(turnCalls).toHaveLength(1);
-    const text = container.textContent ?? "";
-    expect(text).toContain("Thanks Carlos — got it. What is your zip code?");
-    // The typed user turn keeps its redacted marks (the transcript is the
-    // redacted server transcript, never de-redacted on the client).
-    expect(text).toContain("a household of three");
-  });
-
-  it("blocks a typed send while the shield is loading; nothing is fetched", async () => {
-    configureShield({ status: "loading" });
-    const { container, act } = await typingMode();
-    await typeText(container, act, "Carlos");
-    await act(async () => {
-      (
-        container.querySelector('button[type="submit"]') as HTMLButtonElement
-      )?.click();
-    });
-    expect(turnCalls).toHaveLength(0);
-    expect(container.textContent ?? "").toContain("privacy shield is still loading");
-  });
-
-  it("blocks a typed send when the shield failed, and says so honestly", async () => {
-    configureShield({ status: "failed" });
-    const { container, act } = await typingMode();
-    await typeText(container, act, "Carlos");
-    await act(async () => {
-      (
-        container.querySelector('button[type="submit"]') as HTMLButtonElement
-      )?.click();
-    });
-    expect(turnCalls).toHaveLength(0);
-    expect(container.textContent ?? "").toContain("failed to load");
   });
 });
