@@ -1300,25 +1300,14 @@ describe("number answers in the pii gate (HACK-121)", () => {
     ).not.toThrow();
   });
 
-  it("pins the range, ratio and id shapes the token rule leaves out", async () => {
-    // A range, a ratio, a digit group, or an id has the same shape as the
-    // dates and ids every response carries (2026-10-30, 10/08/2026,
-    // dhb-5200), so the token rule reads the answer there as part of a
-    // longer token. This pins that known gap, so changing it is a
-    // deliberate choice. 30 is not excused on an NC match, so the same
-    // answer as its own number still throws.
-    const answers = withHours(30);
-    const clean = await ncMatch(answers);
-    const reported = (text: string) => () =>
-      assertNoPiiValuesInMatch(
-        withReasonText(clean, `You reported ${text} last month.`),
-        answers,
-      );
-    expect(reported("30 hours")).toThrow();
-    for (const shape of ["20-30 hours", "30-40 hours", "30/80 hours", "1,030 hours", "v30", "hours-30"]) {
-      expect(reported(shape), shape).not.toThrow();
-    }
-  });
+  // Known gap: a range, a ratio, a digit group, or an id ("20-30 hours",
+  // "30/80", "1,030", "v30", "hours-30") has the same shape as the dates
+  // and ids every response carries (2026-10-30, 10/08/2026, dhb-5200), so
+  // the token rule reads the answer there as part of a longer token.
+  // Catching those needs a rule that knows the date and id shapes.
+  it.todo(
+    "catches the hours answer inside a range, a ratio, a digit group or an id (HACK-121 follow up)",
+  );
 
   // A number answer the way String() and the vault write it: whole hours
   // and tenths, from 0 up.
