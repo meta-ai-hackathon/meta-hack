@@ -98,7 +98,7 @@ export const DEVICE_INTAKE_COPY = {
     "This browser is taking too long to save, so this answer might not be " +
     "kept. Answers from now on last only until you close this page.",
   purgedElsewhere:
-    "Your answers were deleted from this device in another tab or window, " +
+    "Your answers were deleted from this browser in another tab or window, " +
     "so the questions start fresh.",
   updatedElsewhere: "Updated with changes made in another tab or window.",
   busy:
@@ -120,7 +120,12 @@ export const DEVICE_INTAKE_COPY = {
     "can't be undone.",
   deleteYes: "Yes, delete them",
   deleteNo: "Keep them",
-  deleted: "Deleted. None of your answers are left on this device.",
+  // The filled form the end of /intake downloads (HACK-115) is an ordinary
+  // file outside this browser's storage, so the delete can't reach it.
+  deleted:
+    "Deleted. None of your answers are left in this browser. If you " +
+    "downloaded the filled form, that file is still on this device until " +
+    "you delete it.",
   clearedNothingStored:
     "Cleared from this page. This browser can't save answers, so there was " +
     "nothing on the device to delete.",

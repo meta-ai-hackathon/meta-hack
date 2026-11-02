@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
 import { StatusRegion } from "../../../components/status-region";
+import { pagePointer } from "../../../lib/forms/disposition";
 import { PILOT_CONFIG } from "../../../lib/pilot";
 import { HandoffSection } from "./handoff-section";
 
@@ -125,28 +126,10 @@ function blankCoverageFields(
   return coverage.fields.filter((field) => field.disposition !== "mapped");
 }
 
-/**
- * Where to find a blank field on the printed form: "page 16 of the form",
- * or "pages 16 and 17 of the form" for a multi-page field. Deduped and
- * sorted first (a two-widget field lists its page once, in order); an
- * empty list — impossible from the committed registry (schema minItems:
- * 1) but never applicant-hostile — renders neutral copy. The rows'
- * developer-facing disposition_reason stays in the payload (the
- * retrievable record) — the applicant-facing list points at the page
- * instead.
- */
-export function pagePointer(pages: readonly number[]): string {
-  const ordered = [...new Set(pages)].sort((a, b) => a - b);
-  if (ordered.length === 0) {
-    return "the form";
-  }
-  if (ordered.length === 1) {
-    return `page ${ordered[0]} of the form`;
-  }
-  const head = ordered.slice(0, -1).join(", ");
-  const tail = ordered[ordered.length - 1];
-  return `pages ${head} and ${tail} of the form`;
-}
+// The page pointer lives in lib/forms/disposition.ts, with the report it
+// reads, so the step-by-step page (HACK-115) points at the same pages.
+// Re-exported here unchanged.
+export { pagePointer };
 
 // An unverified answer must never read as confirmed (honesty spine): its
 // state line says what actually happened and asks for the check, and the
