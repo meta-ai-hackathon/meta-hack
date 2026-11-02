@@ -589,7 +589,7 @@
       "id": "wr_pregnant",
       "prompt": "Is anyone applying pregnant now, or have they been in the past 12 months?",
       "type": "single_select",
-      "help": "This stays private and encrypted on our secure server. Skip it if you'd rather not answer — the state decides what counts.",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -604,7 +604,7 @@
       "id": "wr_drug_alcohol_treatment",
       "prompt": "Is anyone applying in a treatment program for a drug or alcohol disorder?",
       "type": "single_select",
-      "help": "This stays private and encrypted on our secure server. Skip it if you'd rather not answer — the state decides what counts.",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -619,7 +619,7 @@
       "id": "wr_drug_alcohol_disorder",
       "prompt": "Does anyone applying have a drug or alcohol disorder that makes it hard to work? This includes people who have been in recovery for less than 5 years.",
       "type": "single_select",
-      "help": "This stays private and encrypted on our secure server. Skip it if you'd rather not answer — the state decides what counts.",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -634,7 +634,7 @@
       "id": "wr_disability_hard_work",
       "prompt": "Does anyone applying have a physical, intellectual, or developmental disability that makes it hard to work and do daily activities (such as eating, walking, or getting out of a bed or chair)?",
       "type": "single_select",
-      "help": "This stays private and encrypted on our secure server. Skip it if you'd rather not answer — the state decides what counts.",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -649,7 +649,7 @@
       "id": "wr_mental_health_hard_work",
       "prompt": "Does anyone applying have a mental health disorder that makes it hard to work (such as schizophrenia, major depression, bipolar disorder, or panic disorder)?",
       "type": "single_select",
-      "help": "This stays private and encrypted on our secure server. Skip it if you'd rather not answer — the state decides what counts.",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -664,7 +664,7 @@
       "id": "wr_serious_health_condition",
       "prompt": "Does anyone applying have a serious health condition that makes it hard to work (such as cancer, multiple sclerosis, HIV/AIDS, or viral hepatitis)?",
       "type": "single_select",
-      "help": "This stays private and encrypted on our secure server. Skip it if you'd rather not answer — the state decides what counts.",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -679,7 +679,7 @@
       "id": "wr_jail_prison_past_4_months",
       "prompt": "Is anyone applying in jail or prison now, or were they in the past 4 months?",
       "type": "single_select",
-      "help": "This stays private and encrypted on our secure server. Skip it if you'd rather not answer — the state decides what counts.",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -694,7 +694,7 @@
       "id": "wr_foster_care_under_26",
       "prompt": "Was anyone applying in foster care at age 18, and are they now younger than 26?",
       "type": "single_select",
-      "help": "This stays private and encrypted on our secure server. Skip it if you'd rather not answer — the state decides what counts.",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -709,7 +709,7 @@
       "id": "wr_veteran_100_disabled",
       "prompt": "Is anyone applying a disabled veteran with a 100% disability rating?",
       "type": "single_select",
-      "help": "This stays private and encrypted on our secure server. Skip it if you'd rather not answer — the state decides what counts.",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -738,7 +738,7 @@
       "id": "wr_applied_last_month_which",
       "prompt": "Which situations applied last month, but not this month?",
       "type": "multi_select",
-      "help": "Check every situation that applied last month but not this month. This stays private and encrypted.",
+      "help": "Check every situation that applied last month but not this month.",
       "options": [
         { "value": "pregnant", "label": "Pregnancy now or in the past 12 months" },
         { "value": "parent_child_under_18", "label": "A parent of a child under 18" },
@@ -767,7 +767,7 @@
       "id": "wr_medical_travel_1hr",
       "prompt": "Does anyone applying travel an hour or more to get medical care for themselves or a dependent with a serious health condition (including travel coordination that makes it hard to work)?",
       "type": "single_select",
-      "help": "This stays private and encrypted on our secure server. Skip it if you'd rather not answer — the state decides what counts.",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -782,7 +782,7 @@
       "id": "wr_hospital_care_24hr",
       "prompt": "Is anyone applying receiving care in a hospital for more than 24 hours, or a similar level of care at another location (such as a nursing facility, psychiatric hospital, clinic, the VA, or at home)?",
       "type": "single_select",
-      "help": "This stays private and encrypted on our secure server. Skip it if you'd rather not answer — the state decides what counts.",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -826,7 +826,7 @@
       "id": "wr_work_activity_who",
       "prompt": "Who completed work activities last month?",
       "type": "text",
-      "help": "Report work activities for household members who completed at least 80 hours last month. First names or nicknames are fine. This stays private and encrypted.",
+      "help": "Report work activities for household members who completed at least 80 hours last month. First names or nicknames are fine.",
       "pii": true,
       "required": false,
       "skip_conditions": [
