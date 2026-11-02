@@ -397,6 +397,40 @@ describe("/intake to the review and the filled form, on the device", () => {
     await again.unmount();
   }, 60_000);
 
+  it("prints both boxes of a check-one line as typed and says to fix them", async () => {
+    // The full DHB-5200 mapping (VAL-FIX-007): the fill never picks a side
+    // when two boxes of one check-one group are checked. The form shows
+    // both, and the page names the question after the download.
+    const { DEVICE_FORM_ENTRY } = await import("../../lib/intake/device-form");
+    const [employed, selfEmployed] = ["Employed_2", "SelfEmployed_2"].map(
+      (name) => DEVICE_FORM_ENTRY.fields.find((field) => field.name === name)!,
+    );
+    expect(employed.conflictGroup).toEqual({ id: "p2-work-status", kind: "single_choice" });
+    expect(selfEmployed.conflictGroup).toEqual(employed.conflictGroup);
+
+    const page = await visit();
+    await page.answerEverything();
+    for (const field of [employed, selfEmployed]) {
+      await page.type(
+        page.container.querySelector<HTMLInputElement>(`[data-review-field="${field.name}"] input`)!,
+        "checked",
+      );
+    }
+    expect(page.container.querySelector("[data-check-conflicts]")).toBeNull();
+    const filled = await page.download();
+    expect(filled.form.getCheckBox(employed.name).isChecked()).toBe(true);
+    expect(filled.form.getCheckBox(selfEmployed.name).isChecked()).toBe(true);
+    const flagged = page.container.querySelectorAll("[data-check-conflicts] li");
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0].getAttribute("data-check-conflict")).toBe("single_choice");
+    expect(flagged[0].textContent).toContain(employed.question);
+    expect(page.container.querySelector("[data-check-conflicts]")?.textContent).toContain(
+      page.copy.conflictsHeading,
+    );
+    expectNoAnswerInRequests([...PRIVATE_VALUES, "1200", "Quillfeather"]);
+    await page.unmount();
+  }, 60_000);
+
   it("after a download, deletes the answers without claiming the downloaded file is gone", async () => {
     const page = await visit();
     await page.answerEverything();

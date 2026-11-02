@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { StatusRegion } from "../../components/status-region";
-import { MAX_FORM_ANSWER_LENGTH, type ToResolveItem } from "../../lib/forms/fill-core";
+import {
+  MAX_FORM_ANSWER_LENGTH,
+  type FillConflict,
+  type ToResolveItem,
+} from "../../lib/forms/fill-core";
 import type { FormFlowFieldView } from "../../lib/forms/flow";
 import type { AnswerProvenance } from "../../lib/honesty";
 import type { ClientAnswerState } from "../../lib/intake/client-store";
@@ -24,7 +28,9 @@ import type { MatchCard, MatchSourceCitation } from "../../lib/match-core";
 // the blank public form, loads the PDF fill (lib/intake/device-fill.ts,
 // kept out of the page's first load), fills the form here, and hands the
 // file to the browser; no answer is sent anywhere, and answers typed here
-// for the form's other fields live only in this page.
+// for the form's other fields live only in this page. After a download the
+// page lists what the form left blank and any question the person checked
+// more than one box for, which the fill prints as given and flags.
 //
 // Private answers never appear on this screen: the review shows their
 // status and provenance, and the match never carries them.
@@ -72,6 +78,10 @@ export const DEVICE_RESULTS_COPY = {
     "check it and try again.",
   failed: "Something went wrong preparing your form. Please try again.",
   leftBlankHeading: "Left blank on the form you downloaded",
+  conflictsHeading: "Check these on the form you downloaded",
+  conflictsBody:
+    "You checked more than one box where the form takes one answer. The " +
+    "form shows every box you checked, so fix these by hand before you sign it.",
   handoffHeading: "Submit it yourself",
   handoffBody:
     "You sign the form and submit it yourself. The official links below " +
@@ -104,6 +114,13 @@ const STATE_COPY: Readonly<Record<FormFlowFieldView["state"], string>> = {
   prefilled: "We already know this from what you told us",
   asked: "Still needed",
   not_applicable: "Not needed for you",
+};
+
+// The fill never picks a side of a contradiction (VAL-FIX-007): it prints
+// every box the person checked and flags the group, and this says which.
+const CONFLICT_COPY: Readonly<Record<FillConflict["kind"], string>> = {
+  yes_no: "Both Yes and No are checked.",
+  single_choice: "More than one box is checked where the form takes one.",
 };
 
 const LEFT_BLANK_COPY: Readonly<Record<ToResolveItem["reason"], string>> = {
@@ -248,6 +265,7 @@ export function DeviceResults(props: {
   const [typed, setTyped] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [leftBlank, setLeftBlank] = useState<readonly ToResolveItem[] | null>(null);
+  const [conflicts, setConflicts] = useState<readonly FillConflict[]>([]);
   const [notice, setNotice] = useState("");
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -295,6 +313,7 @@ export function DeviceResults(props: {
       }
       saveToDevice(result.outcome.bytes, `${DEVICE_FORM_ENTRY.id}.pdf`);
       setLeftBlank(result.outcome.toResolve);
+      setConflicts(result.outcome.conflicts);
       announce(DEVICE_RESULTS_COPY.downloaded);
     } catch {
       announce(DEVICE_RESULTS_COPY.failed);
@@ -455,6 +474,19 @@ export function DeviceResults(props: {
               {leftBlank.map((item) => (
                 <li key={item.fieldName}>
                   {item.question} {LEFT_BLANK_COPY[item.reason]}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {conflicts.length > 0 ? (
+          <div data-check-conflicts className="flex flex-col gap-1">
+            <h3 className="font-medium">{DEVICE_RESULTS_COPY.conflictsHeading}</h3>
+            <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.conflictsBody}</p>
+            <ul className="list-disc pl-5">
+              {conflicts.map((conflict) => (
+                <li key={conflict.fields.join("\n")} data-check-conflict={conflict.kind}>
+                  {conflict.question} {CONFLICT_COPY[conflict.kind]}
                 </li>
               ))}
             </ul>

@@ -72,7 +72,8 @@ export interface FillOutcome {
    * a side — what the person asked checked is what the form prints — and
    * the flag reaches the person the way every still-needed item does: the
    * packet cover's missing rows (provenanceFromFill) and the fill logs
-   * (counts only, no values).
+   * (counts only, no values). On the device, the end of /intake lists them
+   * after the download.
    */
   readonly conflicts: readonly FillConflict[];
 }
