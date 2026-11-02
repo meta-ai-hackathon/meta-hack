@@ -301,6 +301,71 @@ describe("the committed layer's consistency with the pilot", () => {
   });
 });
 
+describe("the grown universe with the work-requirements questions (VAL-WR-011)", () => {
+  // The wr_* ids landed in the spec + program-requirements (part 1); the
+  // counter's M must grow with them — COMPUTED from the committed data,
+  // never hardcoded. These pins complement the skip-chain suite below
+  // (VAL-WR-004/005) and the stage tests that render the live counter.
+
+  const WORK_REQUIREMENTS_IDS = QUESTIONS.filter((question) =>
+    question.id.startsWith("wr_"),
+  ).map((question) => question.id);
+
+  it("every work-requirements question is in the required universe (M grew with the spec)", () => {
+    expect(WORK_REQUIREMENTS_IDS.length).toBeGreaterThan(0);
+    const universe = requiredForPrograms(DEFAULT_PROGRAM_IDS);
+    for (const id of WORK_REQUIREMENTS_IDS) {
+      expect(universe, id).toContain(id);
+    }
+  });
+
+  it("M equals the committed data's own count — derived, never hardcoded", () => {
+    // Re-derive M from the RAW committed requirements entry (required ids
+    // plus the pilot registry's spec links), independently of the engine's
+    // union/order logic, and assert the engine's M matches it.
+    const entry = PROGRAM_REQUIREMENTS.programs.find((candidate) =>
+      candidate.id === DEFAULT_PROGRAM_IDS[0],
+    )!;
+    const rawIds = new Set<string>([
+      ...entry.required_question_ids,
+      ...registryLinks("dhb-5200"),
+    ]);
+    const universe = requiredForPrograms(DEFAULT_PROGRAM_IDS);
+    expect(universe.length).toBe(rawIds.size);
+    expect(remainingQuickQuestions({}).requiredCount).toBe(rawIds.size);
+  });
+
+  it("N decrements by one as a work-requirements question is answered, M fixed", () => {
+    const before = remainingQuickQuestions({});
+    expect(before.remainingCount).toBe(before.requiredCount);
+    // A "no" answer hides nothing (the skip conditions key on "yes"), so
+    // exactly one card leaves the stage.
+    const after = remainingQuickQuestions({
+      wr_pregnant: { status: "known", value: "no" },
+    });
+    expect(after.requiredCount).toBe(before.requiredCount);
+    expect(after.remainingCount).toBe(before.remainingCount - 1);
+    expect(after.remainingIds).not.toContain("wr_pregnant");
+    expect(after.remainingIds.length).toBe(after.remainingCount);
+    // The exemption screen is the bigger honest recompute: answering it
+    // with a selection ALSO hides the work-activity reporting section
+    // (the spec's skip conditions — VAL-WR-004), so N drops by four, the
+    // counter recomputing over the grown universe in one save.
+    const exempted = remainingQuickQuestions({
+      wr_exempt_situations: { status: "known", value: ["parent_child_under_18"] },
+    });
+    expect(exempted.requiredCount).toBe(before.requiredCount);
+    expect(exempted.remainingCount).toBe(before.remainingCount - 4);
+    for (const id of [
+      "wr_work_activity_who",
+      "wr_work_activity_types",
+      "wr_work_activity_hours",
+    ]) {
+      expect(exempted.remainingIds).not.toContain(id);
+    }
+  });
+});
+
 describe("work-requirements skip chains (VAL-WR-004/005)", () => {
   // The Civilla two-section design, encoded in the spec: work-activity
   // reporting (who / types / hours last month) is visible ONLY when no
