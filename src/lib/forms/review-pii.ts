@@ -47,6 +47,15 @@ export function assertNoPiiValuesInFormReview(
   fields: readonly FormFlowFieldView[],
   answers: AnswerMap,
   entry: FormRegistryEntry,
+  /**
+   * Everything ELSE about to serialize with the fields (claude-review P3
+   * on PR #121: toResolve questions, handoff steps). They join the needle
+   * haystack; the structural half stays scoped to the field views. Today
+   * these parts carry committed registry text only — the widened scan
+   * keeps it that way even if a future change routes user content into
+   * them.
+   */
+  alsoSerialize: readonly unknown[] = [],
 ): void {
   for (const field of fields) {
     if (field.piiLikely && "value" in field) {
@@ -104,7 +113,8 @@ export function assertNoPiiValuesInFormReview(
     }
   }
 
-  const serialized = JSON.stringify(fields).toLowerCase();
+  const serialized = JSON.stringify([fields, ...alsoSerialize])
+    .toLowerCase();
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     const stored = answers[questionId];
     if (!stored || stored.value === null || stored.value === undefined) {

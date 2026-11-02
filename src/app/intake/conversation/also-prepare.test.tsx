@@ -87,11 +87,13 @@ describe("AlsoPrepareSection — the entry point", () => {
     expect(html).toContain(SNAP.entryPoint.headline);
     expect(html).toContain(SNAP.entryPoint.detail);
     // The control: a native button (keyboard-operable) with an accessible
-    // name, wired as a disclosure of the SNAP review region.
+    // name. A plain action, not a disclosure: the entry section is
+    // replaced by the revealed review, so there is no persistent expanded
+    // state to report (claude-review P3 on PR #121).
     expect(html).toMatch(/<button /);
     expect(html).toContain(SNAP.entryPoint.action);
-    expect(html).toContain('aria-expanded="false"');
-    expect(html).toMatch(/aria-controls="also-prepare-review-[^"]+"/);
+    expect(html).not.toContain("aria-expanded");
+    expect(html).not.toContain("aria-controls");
     // The review section is NOT mounted until the person asks for it.
     expect(html).not.toContain('data-review-form="dss-8207"');
   });
@@ -167,7 +169,6 @@ describe("AlsoPrepareSection — revealing the SNAP review", () => {
         "[data-also-prepare-button='dss-8207']",
       );
       expect(button).not.toBeNull();
-      expect(button?.getAttribute("aria-expanded")).toBe("false");
 
       await act(async () => {
         button?.click();
@@ -188,9 +189,11 @@ describe("AlsoPrepareSection — revealing the SNAP review", () => {
         (element) => element.id,
       );
       expect(new Set(ids).size).toBe(ids.length);
-      // Focus moved to the revealed region (the "navigation" for keyboard
-      // and screen-reader users).
-      expect(document.activeElement?.hasAttribute("tabindex")).toBe(true);
+      // Focus moved to the revealed region — THIS region, not just any
+      // tabbable element (the per-form ref map is what picks it).
+      expect(document.activeElement?.id).toBe(
+        "also-prepare-review-dss-8207",
+      );
       // The change is announced through the live region (this section's
       // own StatusRegion, not the review's).
       const region = container.querySelector(

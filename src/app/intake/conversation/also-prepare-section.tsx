@@ -12,9 +12,12 @@ import { ReviewSection } from "./review-section";
 // the program is decided solely by the agency; the app prepares, the
 // person reviews, signs, and submits themselves. Choosing the control
 // reveals the additional application's review below (the same
-// form-agnostic review surface), moves focus to it — the disclosure is the
-// navigation for keyboard and screen-reader users — and announces the
-// change through the StatusRegion convention.
+// form-agnostic review surface) and moves focus to it — the focus move is
+// the navigation for keyboard and screen-reader users — and announces the
+// change through the StatusRegion convention. The control is a plain
+// action button, not a disclosure: the entry section is replaced by the
+// revealed review, so there is no persistent expanded state to report
+// (claude-review P3 on PR #121).
 
 /**
  * The additional applications' entry points + their review surfaces.
@@ -104,8 +107,6 @@ export function AlsoPrepareSection({
                 <button
                   type="button"
                   data-also-prepare-button={application.formRegistryId}
-                  aria-expanded="false"
-                  aria-controls={`also-prepare-review-${application.formRegistryId}`}
                   onClick={() =>
                     reveal(application.formRegistryId, application.programName)
                   }

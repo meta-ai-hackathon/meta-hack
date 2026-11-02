@@ -56,7 +56,12 @@ export async function GET(
       // Defense in depth before anything leaves for the client: a pii
       // value never reaches the review payload (the flow view omits it
       // structurally; this check throws loudly if that ever changes).
-      assertNoPiiValuesInFormReview(view.fields, answers, entry);
+      // The still-needed questions and the handoff steps serialize
+      // alongside the fields — they join the needle haystack too.
+      assertNoPiiValuesInFormReview(view.fields, answers, entry, [
+        view.toResolve,
+        HANDOFF_STEPS,
+      ]);
       const sessionState = await loadSessionState(sessionId);
       logInfo("form_review_loaded");
 

@@ -339,4 +339,30 @@ describe("assertNoPiiValuesInFormReview — directed cases", () => {
       assertNoPiiValuesInFormReview(cleanFields, answers, DSS_ENTRY),
     ).not.toThrow();
   });
+
+  it("scans the extra serialized parts (toResolve, steps) too, not just the fields", () => {
+    const answers: AnswerMap = {
+      phone_contact: { status: "known", value: "704-555-0134" },
+    };
+    // The route serializes the still-needed questions and the handoff
+    // steps alongside the fields; a future change routing user content
+    // into either must bite the same way a field echo does.
+    expect(() =>
+      assertNoPiiValuesInFormReview(cleanFields, answers, DSS_ENTRY, [
+        [{ fieldId: "CallBack", question: "Call 704-555-0134?" }],
+      ]),
+    ).toThrow("private answer value");
+    // And the real payload shape (registry text only) passes.
+    expect(() =>
+      assertNoPiiValuesInFormReview(cleanFields, answers, DSS_ENTRY, [
+        [
+          {
+            fieldId: "Message Number",
+            question: "What is your phone number?",
+          },
+        ],
+        [{ title: "Send it yourself", detail: "You submit the form." }],
+      ]),
+    ).not.toThrow();
+  });
 });
