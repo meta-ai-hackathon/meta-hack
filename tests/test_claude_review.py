@@ -3,7 +3,8 @@
 Property-based tests (Hypothesis) pin the pure helpers: mention and issue
 reference neutralizing (outside code only), redaction (a private key in
 any written form goes whole, a PGP private key block too, never less than
-main's old pattern took, and code between a key's markers always stays),
+main's old pattern took, and code between a key's markers always stays; a
+token stuck to an SSN or a card number goes with it in one pass),
 delimiter escaping,
 file selection under the token budget, comment size and contents, the
 sticky state line, the exit-code rule, and the output parser. More
@@ -1624,6 +1625,77 @@ class PgpKeyBlockProperties(unittest.TestCase):
             started = time.monotonic()
             _out, count = review.redact_sensitive(text)
             self.assertEqual(count, headers, text[:40])
+            self.assertLess(time.monotonic() - started, 2.0, text[:40])
+
+
+# --- tokens stuck to a number (HACK-120) ------------------------------------------
+
+# Tokens the token patterns find, each with the kind its marker names. A
+# JWT's segments hold no digits, so no SSN or card number can sit inside one.
+TOKENS = st.one_of(
+    st.from_regex(r"sk-ant-api03-[A-Za-z0-9_-]{40}", fullmatch=True).map(lambda token: ("api key", token)),
+    st.from_regex(r"sk-proj-[A-Za-z0-9_-]{48}", fullmatch=True).map(lambda token: ("api key", token)),
+    st.from_regex(r"(sk|rk)_live_[A-Za-z0-9]{24}", fullmatch=True).map(lambda token: ("api key", token)),
+    st.from_regex(r"AIza[0-9A-Za-z_-]{35}", fullmatch=True).map(lambda token: ("api key", token)),
+    st.from_regex(r"gh[pousr]_[A-Za-z0-9]{36}", fullmatch=True).map(lambda token: ("access token", token)),
+    st.from_regex(r"github_pat_[A-Za-z0-9_]{60}", fullmatch=True).map(lambda token: ("access token", token)),
+    st.from_regex(r"xox[abposr]-[A-Za-z0-9-]{20}", fullmatch=True).map(lambda token: ("access token", token)),
+    st.from_regex(r"(AKIA|ASIA)[0-9A-Z]{16}", fullmatch=True).map(lambda token: ("access token", token)),
+    st.from_regex(r"eyJ[A-Za-z_-]{8,30}\.eyJ[A-Za-z_-]{8,30}\.[A-Za-z_-]{8,30}", fullmatch=True).map(lambda token: ("jwt", token)),
+)
+# Values a pattern after the token patterns redacts and that end in a
+# digit: SSN shapes, and the networks' test card numbers, bare or in groups
+# of four.
+NUMBERS = st.one_of(
+    st.from_regex(r"\d{3}-\d{2}-\d{4}", fullmatch=True).map(lambda number: ("ssn", number)),
+    st.sampled_from(TEST_CARDS).map(lambda number: ("card number", number)),
+    st.sampled_from(TEST_CARDS).map(lambda number: ("card number", " ".join(number[i : i + 4] for i in range(0, len(number), 4)))),
+)
+
+
+class StuckTokenProperties(unittest.TestCase):
+    """A token right after an SSN or a card number, with nothing between
+    them, goes in the same pass as the number. A letter or an underscore
+    right before a token still keeps it out, as on main."""
+
+    @PBT
+    @given(SAFE_TEXT, NUMBERS, TOKENS, SEPARATORS, SAFE_TEXT)
+    @example("ssn ", ("ssn", "000-12-3456"), ("access token", "ghp_" + "FAKE" * 9), " ", "")  # the shape the PR 81 review found
+    @example("card ", ("card number", "4242424242424242"), ("jwt", "eyJFAKEFAKEFAKE.eyJFAKEFAKEFAKE.FAKEFAKEFAKE"), "\n", "")
+    def test_a_token_right_after_a_number_goes_in_the_first_pass(
+        self, before: str, number: tuple[str, str], token: tuple[str, str], sep: str, after: str
+    ) -> None:
+        # Each goes as its own marker, nothing around them changes, and a
+        # second pass finds nothing more.
+        (number_kind, number_text), (token_kind, token_text) = number, token
+        out, count = review.redact_sensitive(before + number_text + token_text + sep + after)
+        expected = before + review.redaction_marker(number_kind) + review.redaction_marker(token_kind) + sep + after
+        self.assertEqual((out, count), (expected, 2))
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    @PBT
+    @given(st.text(alphabet=string.ascii_letters + "_", min_size=1, max_size=12), TOKENS, SEPARATORS)
+    def test_a_token_right_after_a_letter_or_an_underscore_is_left_alone(self, word: str, token: tuple[str, str], sep: str) -> None:
+        # The tail of a longer name that happens to be shaped like a token.
+        text = word + token[1] + sep
+        self.assertEqual(review.redact_sensitive(text), (text, 0))
+
+    def test_token_prefixes_after_a_digit_take_linear_time(self) -> None:
+        # Rows of token prefixes, each right after a digit and each stopping
+        # one character short of a token: each start is read once, and
+        # quickly.
+        texts = [
+            ("0ghp_" + "a" * 29 + "!") * 1_500,
+            ("0sk-" + "a" * 31 + "!") * 1_500,
+            ("0AIza" + "a" * 34 + "!") * 1_300,
+            ("0xoxb-" + "a" * 9 + "!") * 3_500,
+            ("0github_pat_" + "a" * 39 + "!") * 1_000,
+            "0AKIA" * 12_000,
+        ]
+        for text in texts:
+            self.assertGreaterEqual(len(text), 50_000)
+            started = time.monotonic()
+            self.assertEqual(review.redact_sensitive(text), (text, 0), text[:40])
             self.assertLess(time.monotonic() - started, 2.0, text[:40])
 
 
