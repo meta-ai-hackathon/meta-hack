@@ -7,7 +7,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GET as matchRoute } from "../../app/api/match/route";
 import { GET as reviewRoute } from "../../app/api/forms/[formId]/review/route";
 import { closeDb } from "../db";
-import { collectFillValues, fillForSession, parseFormValues, skippedFieldNames } from "../forms/fill";
+import {
+  collectFillValues,
+  detectCheckConflicts,
+  fillForSession,
+  parseFormValues,
+  skippedFieldNames,
+} from "../forms/fill";
 import { formRegistryEntries } from "../forms/registry";
 import type { FormRegistryEntry } from "../forms/registry-core";
 import type { AnswerStatus } from "../honesty";
@@ -15,6 +21,7 @@ import { runMigrations } from "../migrate";
 import { setLogSink } from "../telemetry";
 import type { CanonicalAnswerValue } from "./answer-input";
 import {
+  CLIENT_ANSWER_PROVENANCES,
   EMPTY_CLIENT_ANSWERS,
   saveClientAnswer,
   type ClientAnswerProvenance,
@@ -36,7 +43,8 @@ import { saveAnswer } from "./store";
 // conversation page keeps them) and into a device answer state (as the
 // step-by-step page keeps them). The real fill, review, and match code on
 // each side must then agree: the same field values and provenance, the same
-// to-resolve and not-applicable lists, the same review view, and the same
+// to-resolve and not-applicable lists, the same conflict flags for boxes
+// checked on both sides of a question, the same review view, and the same
 // facts-only match the consent-declined route returns.
 
 const LOCAL_DATABASE_URL =
@@ -135,17 +143,34 @@ interface GeneratedAnswer {
   readonly value: CanonicalAnswerValue | null;
 }
 
+/**
+ * A provenance paired with a status the way both stores require: a drafted
+ * answer is only ever "not verified", and a value from a tax return or the
+ * person's own correction of one is only ever "known".
+ */
+function pairedProvenance(
+  status: AnswerStatus,
+  provenance: ClientAnswerProvenance,
+): ClientAnswerProvenance {
+  if (provenance === "ai_drafted" && status !== "unverified") {
+    return "user_supplied";
+  }
+  if ((provenance === "tax_return" || provenance === "user") && status !== "known") {
+    return "user_supplied";
+  }
+  return provenance;
+}
+
 function answerFor(question: Question): fc.Arbitrary<GeneratedAnswer> {
   return fc
     .tuple(
       fc.constantFrom<AnswerStatus>("known", "unknown", "unverified"),
-      fc.constantFrom<ClientAnswerProvenance>("user_supplied", "ai_drafted", "source_verified"),
+      fc.constantFrom(...CLIENT_ANSWER_PROVENANCES),
       valueFor(question),
     )
     .map(([status, provenance, value]) => ({
       status,
-      // Both stores pair a drafted answer only with "not verified".
-      provenance: provenance === "ai_drafted" && status !== "unverified" ? "user_supplied" : provenance,
+      provenance: pairedProvenance(status, provenance),
       value: status === "unknown" ? null : value,
     }));
 }
@@ -155,16 +180,37 @@ const answersArb = fc.record(
   { requiredKeys: [] },
 ) as fc.Arbitrary<Readonly<Record<string, GeneratedAnswer>>>;
 
-/** What the person types into the review for the form's unmapped fields. */
+/**
+ * What the person types into the review for the form's unmapped fields.
+ * "checked" and "unchecked" are what the fill reads a box or a yes/no pair
+ * from, and often every box of one check-one group or yes/no pair is
+ * checked at once, so the fill-time conflict check has something to flag.
+ */
 function typedFor(entry: FormRegistryEntry): fc.Arbitrary<Record<string, string>> {
   const unmapped = entry.fields.filter((field) => field.specQuestionId === null);
-  return fc.dictionary(
+  const free = fc.dictionary(
     fc.constantFrom(...unmapped.map((field) => field.name)),
     fc.oneof(
       fc.stringMatching(/^ ?[A-Za-z0-9][A-Za-z0-9 ,.#-]{0,40} ?$/),
-      fc.constantFrom("   ", "", "Nguyễn Văn An"),
+      fc.constantFrom("   ", "", "Nguyễn Văn An", "checked", "unchecked"),
     ),
   );
+  const groups = new Map<string, string[]>();
+  for (const field of unmapped) {
+    if (field.conflictGroup) {
+      groups.set(field.conflictGroup.id, [...(groups.get(field.conflictGroup.id) ?? []), field.name]);
+    }
+  }
+  if (groups.size === 0) {
+    return free;
+  }
+  const allChecked = fc
+    .constantFrom(...groups.values())
+    .chain((members) => fc.subarray(members, { minLength: 2 }))
+    .map((members) => Object.fromEntries(members.map((name) => [name, "checked"])));
+  return fc
+    .tuple(free, fc.option(allChecked, { freq: 2 }))
+    .map(([typed, checked]) => ({ ...typed, ...(checked ?? {}) }));
 }
 
 const caseArb = fc
@@ -218,6 +264,19 @@ async function readFields(bytes: Uint8Array, entry: FormRegistryEntry): Promise<
 const asJson = (value: unknown) => JSON.parse(JSON.stringify(value)) as unknown;
 
 describe("the device form against the server's, for the same answers", () => {
+  it("draws contradictory checks for the fill to flag often (non-vacuous)", () => {
+    const cases = fc.sample(caseArb, { numRuns: 100, seed: 115 });
+    const flagged = cases.filter(({ entry, answers, typed }) => {
+      const assembled = deviceFillValues(deviceState(answers), typed, entry);
+      return (
+        assembled !== null &&
+        detectCheckConflicts(entry, assembled.values, skippedFieldNames(entry, assembled.answerMap))
+          .length > 0
+      );
+    });
+    expect(flagged.length).toBeGreaterThan(10);
+  });
+
   it("fills the same fields with the same values and lists the same fields to resolve", async () => {
     await fc.assert(
       fc.asyncProperty(caseArb, async ({ entry, answers, typed }) => {
@@ -242,6 +301,7 @@ describe("the device form against the server's, for the same answers", () => {
         }
         expect(deviceFill.outcome.filled).toEqual(serverFill.filled);
         expect(deviceFill.outcome.toResolve).toEqual(serverFill.toResolve);
+        expect(deviceFill.outcome.conflicts).toEqual(serverFill.conflicts);
         if (entry.kind === "acroform") {
           expect(await readFields(deviceFill.outcome.bytes, entry)).toEqual(
             await readFields(serverFill.bytes, entry),
