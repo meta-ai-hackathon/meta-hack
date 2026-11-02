@@ -28,12 +28,15 @@ import { CONVERSATION_PLAN } from "./walkthrough-plans.mjs";
  * main_goal is health care, so goal_detail is skipped; income_sources has
  * no family, child support or other income, so other_income_amount is
  * skipped; id_status is have_id, so id_issue_detail is skipped;
- * mailing_situation is a P.O. box, so shelter_mail_consent is skipped; and
- * contact_preference is email, so phone_contact is skipped. The harness
- * still answers one with its plan turn if the flow asks it (the extraction
- * heard an earlier answer differently), but it is not a scored case. The
- * drift test in eval-record-core.test.mjs proves this list against the real
- * flow engine.
+ * mailing_situation is a P.O. box, so shelter_mail_consent is skipped;
+ * contact_preference is email, so phone_contact is skipped; and the
+ * persona's work-requirements answers (a parent of a child under 18 whose
+ * household makes at least $580 a month) hide the which-situations
+ * follow-up and the whole work-activity reporting section — the Civilla
+ * two-section design working as intended. The harness still answers one
+ * with its plan turn if the flow asks it (the extraction heard an earlier
+ * answer differently), but it is not a scored case. The drift test in
+ * eval-record-core.test.mjs proves this list against the real flow engine.
  */
 export const BRANCH_ONLY_QUESTION_IDS = Object.freeze([
   "goal_detail",
@@ -41,6 +44,10 @@ export const BRANCH_ONLY_QUESTION_IDS = Object.freeze([
   "id_issue_detail",
   "shelter_mail_consent",
   "phone_contact",
+  "wr_applied_last_month_which",
+  "wr_work_activity_who",
+  "wr_work_activity_types",
+  "wr_work_activity_hours",
 ]);
 
 /**
@@ -74,6 +81,10 @@ export const ANSWER_VALUE_LABELS = Object.freeze({
   received_benefits_before: false,
   contact_preference: "email",
   best_time_to_reach: "afternoon",
+  wr_exempt_situations: Object.freeze(["parent_child_under_18"]),
+  wr_applied_last_month: "no",
+  wr_student_enrolled: "not_enrolled",
+  wr_income_580: "yes",
 });
 
 /**

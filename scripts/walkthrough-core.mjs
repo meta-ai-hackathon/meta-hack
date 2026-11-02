@@ -114,6 +114,27 @@ export const JOURNEY_PLAN = [
   { id: "contact_preference", status: "known", value: "email" },
   { id: "email_contact", status: "known", value: "jamie.watts@example.com" },
   { id: "best_time_to_reach", status: "known", value: "afternoon" },
+  // The work-requirements questions (milestone work-requirements), in spec
+  // order. The persona is a parent of a child under 18 whose household
+  // makes at least $580 a month — so the Civilla two-section design's
+  // reporting section (wr_work_activity_who/types/hours) is never asked
+  // (the exemption and income paths hide it), and neither is the
+  // which-situations follow-up (wr_applied_last_month = no).
+  { id: "wr_exempt_situations", status: "known", value: ["parent_child_under_18"] },
+  { id: "wr_pregnant", status: "known", value: "no" },
+  { id: "wr_drug_alcohol_treatment", status: "known", value: "no" },
+  { id: "wr_drug_alcohol_disorder", status: "known", value: "no" },
+  { id: "wr_disability_hard_work", status: "known", value: "no" },
+  { id: "wr_mental_health_hard_work", status: "known", value: "no" },
+  { id: "wr_serious_health_condition", status: "known", value: "no" },
+  { id: "wr_jail_prison_past_4_months", status: "known", value: "no" },
+  { id: "wr_foster_care_under_26", status: "known", value: "no" },
+  { id: "wr_veteran_100_disabled", status: "known", value: "no" },
+  { id: "wr_applied_last_month", status: "known", value: "no" },
+  { id: "wr_medical_travel_1hr", status: "known", value: "no" },
+  { id: "wr_hospital_care_24hr", status: "known", value: "no" },
+  { id: "wr_student_enrolled", status: "known", value: "not_enrolled" },
+  { id: "wr_income_580", status: "known", value: "yes" },
 ];
 
 const PLAN_BY_ID = new Map(JOURNEY_PLAN.map((step) => [step.id, step]));

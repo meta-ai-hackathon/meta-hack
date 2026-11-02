@@ -75,8 +75,10 @@ export const TURN_PACE_LIMIT = 11;
 /** The statuses worth a patient retry, the same set the walkthrough's
  * fetch helper and turn loop retry on. */
 export const TRANSIENT_STATUSES = Object.freeze([429, 502, 503, 504]);
-/** A runaway guard for the answer-turn loop (the spec has 37 questions). */
-const MAX_FLOW_STEPS = 120;
+/** A runaway guard for the answer-turn loop (the spec has 56 questions
+ * since the work-requirements addition; the guard stays ~2 steps per
+ * question plus headroom). */
+const MAX_FLOW_STEPS = 200;
 
 function defaultSleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
