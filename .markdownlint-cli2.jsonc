@@ -1,6 +1,7 @@
 {
   "ignores": [
     ".factory/skills/pstack-*/**",
-    "node_modules/**"
+    "node_modules/**",
+    ".next/**"
   ]
 }

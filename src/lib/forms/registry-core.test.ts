@@ -4,6 +4,7 @@ import { PII_QUESTION_IDS_IN_SPEC, QUESTIONS } from "../intake/spec";
 import acroformEntryJson from "../../../kb/forms/sample-form-acroform.json";
 import flatEntryJson from "../../../kb/forms/sample-form-flat.json";
 import dhb5200EntryJson from "../../../kb/forms/dhb-5200.json";
+import dss8207EntryJson from "../../../kb/forms/dss-8207.json";
 import { formRegistryEntries } from "./registry";
 import {
   assertRegistryEntryConsistent,
@@ -34,7 +35,12 @@ describe("the committed registry entries", () => {
 // The committed entries as written, before validation (snake_case, as in kb/forms/).
 type RawField = Record<string, unknown>;
 type RawEntry = Record<string, unknown> & { readonly fields: readonly RawField[] };
-const RAW_ENTRIES = [acroformEntryJson, flatEntryJson, dhb5200EntryJson] as unknown as readonly RawEntry[];
+const RAW_ENTRIES = [
+  acroformEntryJson,
+  flatEntryJson,
+  dhb5200EntryJson,
+  dss8207EntryJson,
+] as unknown as readonly RawEntry[];
 
 const DISPOSITIONS = [
   "mapped",

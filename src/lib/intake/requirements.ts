@@ -1,5 +1,6 @@
 import programRequirementsJson from "../../../specs/question-spec/program-requirements.json";
 import dhb5200RegistryJson from "../../../kb/forms/dhb-5200.json";
+import dss8207RegistryJson from "../../../kb/forms/dss-8207.json";
 import { isQuestionVisible, type AnswerMap } from "./flow";
 import { QUESTION_BY_ID, QUESTIONS } from "./spec";
 
@@ -50,6 +51,7 @@ export const PROGRAM_REQUIREMENTS =
  */
 const REGISTRY_JSON_BY_ID: Readonly<Record<string, unknown>> = {
   "dhb-5200": dhb5200RegistryJson,
+  "dss-8207": dss8207RegistryJson,
 };
 
 interface RawFormRegistry {

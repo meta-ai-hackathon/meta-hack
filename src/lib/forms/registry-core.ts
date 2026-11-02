@@ -2,6 +2,7 @@ import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID } from "../intake/spec";
 import acroformEntryJson from "../../../kb/forms/sample-form-acroform.json";
 import flatEntryJson from "../../../kb/forms/sample-form-flat.json";
 import dhb5200EntryJson from "../../../kb/forms/dhb-5200.json";
+import dss8207EntryJson from "../../../kb/forms/dss-8207.json";
 
 // The browser-safe half of the form registry (HACK-115): the entry shapes,
 // their runtime validation, and the committed entries' data. Nothing here
@@ -366,6 +367,12 @@ const COMMITTED_ENTRY_DATA: readonly unknown[] = [
   // registry subset is re-verified field-by-field against the committed
   // bytes by the dhb5200-registry test suite.
   dhb5200EntryJson,
+  // The second real form (the DSS-8207 milestone): the official DSS-8207 FNS
+  // application entry, same BN-27 discipline — the review/fill/packet
+  // machinery is form-agnostic and serves it unchanged. Its registry
+  // subset is re-verified against the committed bytes by the dss8207
+  // test suite.
+  dss8207EntryJson,
 ];
 
 /**
