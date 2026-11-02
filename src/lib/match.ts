@@ -739,7 +739,8 @@ const PLAIN_NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
  * After the number, only a digit joins it, right next to it or across one
  * of these separators (2026-10-30, 10/08/2026, 10:30, 1.5, 1,000). A letter
  * or a word after it is a unit (0hrs, 20-hour, 20/week), so the number
- * still stands as its own number there.
+ * still stands as its own number there. These are the trigger's edges, and
+ * the excusal's are stricter (standaloneNumberPattern).
  */
 const TOKEN_CHAR = "[a-z0-9]";
 const TOKEN_JOINER = "[-./:,_]";
@@ -747,16 +748,39 @@ const JOINER_AFTER_TOKEN_CHAR = "[-./_]";
 const JOINER_AFTER_DIGIT = "[:,]";
 
 /**
- * A plain number answer as its own number. Trailing zeros after a decimal
- * point are the same number, so 20 also matches 20.0 and 7.5 matches 7.50.
+ * A plain number answer's digits. Trailing zeros after a decimal point are
+ * the same number, so 20 also matches 20.0 and 7.5 matches 7.50.
  */
-function ownNumberPattern(raw: string): RegExp {
-  const value = raw.includes(".")
+function numberValuePattern(raw: string): string {
+  return raw.includes(".")
     ? `${escapeRegExpValue(raw)}0*`
     : `${escapeRegExpValue(raw)}(?:\\.0+)?`;
+}
+
+/**
+ * The trigger: a plain number answer as its own number, a unit or label
+ * glued on included.
+ */
+function ownNumberPattern(raw: string): RegExp {
   return new RegExp(
     `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${JOINER_AFTER_TOKEN_CHAR})(?<!\\d${JOINER_AFTER_DIGIT})` +
-      `${value}(?!\\d)(?!${TOKEN_JOINER}\\d)`,
+      `${numberValuePattern(raw)}(?!\\d)(?!${TOKEN_JOINER}\\d)`,
+    "i",
+  );
+}
+
+/**
+ * The excusal: a plain number answer as a token of its own, with no letter
+ * or digit right before or after it and no separator joining it to one on
+ * either side. A unit or label glued on still shows the answer in a leak,
+ * but in the public copy that shape is a longer token, so a "1st", "20h",
+ * "24-hour" or "hours:3" there never excuses a leaked 1, 20, 24 or 3
+ * (security review on PR #132). "page 1" still excuses 1.
+ */
+function standaloneNumberPattern(raw: string): RegExp {
+  return new RegExp(
+    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${TOKEN_JOINER})` +
+      `${numberValuePattern(raw)}(?!${TOKEN_CHAR})(?!${TOKEN_JOINER}${TOKEN_CHAR})`,
     "i",
   );
 }
@@ -783,8 +807,9 @@ const OWN_NUMBER_QUESTION_IDS: ReadonlySet<string> = new Set(["wr_work_activity_
  * keeps the substring trigger and the word-boundary excusal, except a
  * plain-number answer to a question in OWN_NUMBER_QUESTION_IDS (HACK-121).
  * Its digits turn up inside the dates, ids, and longer numbers every
- * response carries ("0" inside 2026-10-30), so it counts only where it
- * stands as its own number, in the trigger and the excusal alike.
+ * response carries ("0" inside 2026-10-30), so the trigger counts it only
+ * where it stands as its own number, a unit or label glued on included, and
+ * the excusal only where the public copy holds it as a token of its own.
  */
 interface PrivateValueMatcher {
   /** True when the value is matched as a whole number token. */
@@ -805,7 +830,7 @@ function privateValueMatcher(questionId: string, raw: string): PrivateValueMatch
     return {
       wholeNumber: true,
       carriedBy: (text) => ownNumber.test(text),
-      inStatic: ownNumber,
+      inStatic: standaloneNumberPattern(raw),
     };
   }
   const lowered = raw.toLowerCase();
@@ -970,7 +995,8 @@ function responseStaticCopy(response: MatchResponse): string {
  *
  * The work hours answer written as a plain number is matched only as its
  * own number, never inside a date, an id, or a longer number, and never
- * against the entry version or card score (HACK-121; see
+ * against the entry version or card score, and it is excused only where the
+ * public copy holds it as a token of its own (HACK-121; see
  * privateValueMatcher and OWN_NUMBER_QUESTION_IDS).
  */
 export function assertNoPiiValuesInMatch(
