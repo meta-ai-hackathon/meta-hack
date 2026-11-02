@@ -393,7 +393,13 @@ describe("POST /api/conversation/turn — the talk stage after quick questions (
     let cookie: string | null = null;
     for (const id of requiredForPrograms(DEFAULT_PROGRAM_IDS)) {
       const question = QUESTION_BY_ID[id]!;
-      const value = specValueFor(question);
+      // main_goal captures as "other" so goal_detail — the one spec
+      // question outside every program's required list — stays VISIBLE
+      // and unanswered, giving the hand-off a real target. (Until the
+      // nc_snap program joined the defaults, student_status was the
+      // leftover; the DSS-8207 form asks it, so the universe covers it
+      // now and the stage captures it with the rest.)
+      const value = id === "main_goal" ? "other" : specValueFor(question);
       const response = await postAnswer(
         new Request("http://localhost:3100/api/intake/answer", {
           method: "POST",
@@ -412,7 +418,7 @@ describe("POST /api/conversation/turn — the talk stage after quick questions (
     installScript([
       {
         extraction: JSON.stringify({ answers: [] }),
-        reply: "That was the short list — tell me a bit more about where you live.",
+        reply: "That was the short list — tell me a bit more about what would help the most.",
       },
     ]);
 
@@ -420,14 +426,13 @@ describe("POST /api/conversation/turn — the talk stage after quick questions (
     expect(response.status).toBe(200);
     const data = (await response.json()) as TurnResponse;
     // The quick-questions stage is complete; the talk continues with the
-    // spec questions it never captured — the ENGINE's first leftover, in
-    // spec order: goal_detail is skipped by main_goal=food, so
-    // student_status is asked (household_seniors is IN the required
-    // universe and already captured; the work-requirements questions are
-    // captured too). The hand-off is pinned to the engine's own choice —
-    // the script carries no nextQuestionId to echo.
+    // spec question it never captures — the ENGINE's first leftover, in
+    // spec order: goal_detail (visible because main_goal=other; the
+    // work-requirements questions and student_status are IN the required
+    // universe and already captured). The hand-off is pinned to the
+    // engine's own choice — the script carries no nextQuestionId to echo.
     expect(data.state.quickQuestions.complete).toBe(true);
-    expect(data.nextQuestionId).toBe("student_status");
+    expect(data.nextQuestionId).toBe("goal_detail");
     for (const id of requiredForPrograms(DEFAULT_PROGRAM_IDS)) {
       expect(data.nextQuestionId, id).not.toBe(id);
     }
