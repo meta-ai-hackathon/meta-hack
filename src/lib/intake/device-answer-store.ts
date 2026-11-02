@@ -34,6 +34,8 @@ import {
 // reports success only when a read afterwards finds neither.
 
 export const DEVICE_ANSWERS_ENVELOPE_KEY = "intake-answers";
+/** KV key for the sealed Rampart session table (HACK-107), sealed under the same device key. */
+export const DEVICE_SESSION_ENVELOPE_KEY = "rampart-session";
 export const DEVICE_ANSWERS_CRYPTO_KEY_KEY = "intake-answers-key";
 
 /** How many times a save re-applies its answer when other tabs keep saving. */
@@ -90,7 +92,7 @@ export function isSealingKey(value: unknown): value is CryptoKey {
  * save seals under a fresh IV, so every envelope is a different string), or
  * something else, which a save may replace.
  */
-function envelopeIdentity(raw: unknown): string {
+export function envelopeIdentity(raw: unknown): string {
   if (raw === undefined || raw === null) {
     return "none";
   }
@@ -101,6 +103,8 @@ interface StoredRead {
   readonly identity: string;
   /** The stored key, when it is a usable sealing key. */
   readonly key: CryptoKey | null;
+  /** True when the key slot holds nothing at all (a fresh device). */
+  readonly keySlotEmpty: boolean;
   /** True when nothing is stored or the stored answers opened under the key. */
   readonly readable: boolean;
   readonly state: ClientAnswerState;
@@ -113,20 +117,21 @@ async function readStored(deps: DeviceAnswerStoreDeps): Promise<StoredRead> {
   ]);
   const identity = envelopeIdentity(rawEnvelope);
   const key = isSealingKey(rawKey) ? rawKey : null;
+  const keySlotEmpty = rawKey === undefined || rawKey === null;
   if (identity === "none") {
-    return { identity, key, readable: true, state: EMPTY_CLIENT_ANSWERS };
+    return { identity, key, keySlotEmpty, readable: true, state: EMPTY_CLIENT_ANSWERS };
   }
   if (typeof rawEnvelope !== "string" || key === null) {
-    return { identity, key, readable: false, state: EMPTY_CLIENT_ANSWERS };
+    return { identity, key, keySlotEmpty, readable: false, state: EMPTY_CLIENT_ANSWERS };
   }
   const plaintext = await openSealed(rawEnvelope, key, deps.subtle);
   if (plaintext === null) {
-    return { identity, key, readable: false, state: EMPTY_CLIENT_ANSWERS };
+    return { identity, key, keySlotEmpty, readable: false, state: EMPTY_CLIENT_ANSWERS };
   }
-  return { identity, key, readable: true, state: parseClientAnswers(plaintext) };
+  return { identity, key, keySlotEmpty, readable: true, state: parseClientAnswers(plaintext) };
 }
 
-function generateSealingKey(subtle: SubtleCrypto): Promise<CryptoKey> {
+export function generateSealingKey(subtle: SubtleCrypto): Promise<CryptoKey> {
   return subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
     "encrypt",
     "decrypt",
@@ -177,22 +182,69 @@ export async function recordDeviceAnswer(
     // Unreadable answers cannot be merged into; this answer replaces them,
     // under a fresh key, as the load already told the person.
     const next = saveClientAnswer(read.readable ? read.state : EMPTY_CLIENT_ANSWERS, record);
-    const key =
-      read.key !== null && read.readable ? read.key : await generateSealingKey(deps.subtle);
+    // A usable stored key is reused and never rewritten — and the reuse must
+    // not depend on the answers envelope being readable: the same device key
+    // also seals the Rampart session envelope, so replacing the key here
+    // would orphan that session, restart its token ordinals, and let server
+    // history that still holds old tokens collide (review P2). An unreadable
+    // answers envelope is replaced under the SAME key instead (its
+    // ciphertext is worthless either way). A generated key is written only
+    // when the slot holds nothing usable — empty, or garbage that seals
+    // nothing, which is replaced like an empty slot — so only one of two
+    // overlapping first saves wins and the loser retries under the
+    // winner's key.
+    const reuseKey = read.key !== null;
+    const key = reuseKey ? read.key : await generateSealingKey(deps.subtle);
     const sealed = await sealForStorage(serializeClientAnswers(next), key, deps.subtle);
     // The key is written with the envelope it sealed, so the pair on the
-    // device always matches. The write checks, in its own transaction, that
-    // the envelope is still the one read above.
-    const written = await deps.kv.setMany(
-      [
-        [DEVICE_ANSWERS_CRYPTO_KEY_KEY, key],
-        [DEVICE_ANSWERS_ENVELOPE_KEY, sealed],
-      ],
-      {
+    // device always matches. The anchors differ by path:
+    // - A reused key is never rewritten, so the answers envelope is the
+    //   anchor: the write lands only while the answers are still the ones
+    //   read; a concurrent answers save replaced them, and the retry
+    //   merges on top of that save.
+    // - A generated key write is two anchored writes (review P2): first
+    //   the key slot is CLAIMED while it holds nothing usable, mirroring
+    //   saveRampartSession's fresh writes — the first of two overlapping
+    //   first saves of either table to claim it wins, and the loser
+    //   aborts and retries under the winner's key. The answers envelope
+    //   cannot be the anchor for the claim: a Rampart session save claims
+    //   the key with the SESSION envelope, which this save never touches,
+    //   so the answers envelope still looks unchanged and an
+    //   envelope-anchored claim would replace the session writer's key —
+    //   orphaning the session envelope sealed under it and restarting the
+    //   token ordinals against server history. Then the answers envelope
+    //   LANDS anchored on the envelope read: a purge between this save's
+    //   read and its write has deleted the envelope, its identity no
+    //   longer matches, and the write aborts — the retry finds nothing
+    //   and reports "purged" instead of putting answers back on a device
+    //   the person wiped (HACK-80). A concurrent save that replaced the
+    //   envelope aborts the same way and the retry merges on top. When
+    //   nothing at all was read (a fresh device) a purge removed nothing,
+    //   so landing is that save, not a resurrection. Garbage slots are
+    //   not usable, so they stay ours to claim, as above.
+    let written: boolean;
+    if (reuseKey) {
+      written = await deps.kv.setMany([[DEVICE_ANSWERS_ENVELOPE_KEY, sealed]], {
         key: DEVICE_ANSWERS_ENVELOPE_KEY,
         keep: (current) => envelopeIdentity(current) !== read.identity,
-      },
-    );
+      });
+    } else {
+      written = await deps.kv.setMany([[DEVICE_ANSWERS_CRYPTO_KEY_KEY, key]], {
+        key: DEVICE_ANSWERS_CRYPTO_KEY_KEY,
+        // Claim only an unusable slot (empty or garbage): a concurrent
+        // writer's usable key is kept, never replaced.
+        keep: (current) => isSealingKey(current),
+      });
+      if (written) {
+        // Land only on the answers that were read: the envelope is the
+        // anchor, so a purge or a newer save since the read aborts this
+        // write (see the comment above).
+        written = await deps.kv.setMany([[DEVICE_ANSWERS_ENVELOPE_KEY, sealed]], {
+          key: DEVICE_ANSWERS_ENVELOPE_KEY,
+          keep: (current) => envelopeIdentity(current) !== read.identity,
+        });
+      }
+    }
     if (written) {
       return { status: "saved", state: next };
     }
@@ -212,16 +264,18 @@ export async function purgeDeviceAnswers(deps: DeviceAnswerStoreDeps): Promise<b
   try {
     const deleted = await deps.kv.deleteMany([
       DEVICE_ANSWERS_ENVELOPE_KEY,
+      DEVICE_SESSION_ENVELOPE_KEY,
       DEVICE_ANSWERS_CRYPTO_KEY_KEY,
     ]);
     if (!deleted) {
       return false;
     }
-    const [envelope, key] = await deps.kv.getMany([
+    const [envelope, session, key] = await deps.kv.getMany([
       DEVICE_ANSWERS_ENVELOPE_KEY,
+      DEVICE_SESSION_ENVELOPE_KEY,
       DEVICE_ANSWERS_CRYPTO_KEY_KEY,
     ]);
-    return envelope === undefined && key === undefined;
+    return envelope === undefined && session === undefined && key === undefined;
   } catch {
     return false;
   }
