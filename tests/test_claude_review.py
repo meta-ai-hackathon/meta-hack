@@ -4,7 +4,8 @@ Property-based tests (Hypothesis) pin the pure helpers: mention and issue
 reference neutralizing (outside code only), redaction (a private key in
 any written form goes whole, a PGP private key block too, never less than
 main's old pattern took, and code between a key's markers always stays; a
-token stuck to an SSN or a card number goes with it in one pass),
+token stuck to an SSN or a card number goes with it in one pass, and a
+JWT goes whole whatever its segments hold),
 delimiter escaping,
 file selection under the token budget, comment size and contents, the
 sticky state line, the exit-code rule, and the output parser. More
@@ -1628,11 +1629,11 @@ class PgpKeyBlockProperties(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 2.0, text[:40])
 
 
-# --- tokens stuck to a number (HACK-120) ------------------------------------------
+# --- tokens stuck to a number, and JWTs (HACK-120) ---------------------------------
 
-# Tokens the token patterns find, each with the kind its marker names. A
-# JWT's segments hold no digits, so no SSN or card number can sit inside one.
-TOKENS = st.one_of(
+# Tokens the token patterns find, other than a JWT, each with the kind its
+# marker names.
+OTHER_TOKENS = st.one_of(
     st.from_regex(r"sk-ant-api03-[A-Za-z0-9_-]{40}", fullmatch=True).map(lambda token: ("api key", token)),
     st.from_regex(r"sk-proj-[A-Za-z0-9_-]{48}", fullmatch=True).map(lambda token: ("api key", token)),
     st.from_regex(r"(sk|rk)_live_[A-Za-z0-9]{24}", fullmatch=True).map(lambda token: ("api key", token)),
@@ -1641,7 +1642,11 @@ TOKENS = st.one_of(
     st.from_regex(r"github_pat_[A-Za-z0-9_]{60}", fullmatch=True).map(lambda token: ("access token", token)),
     st.from_regex(r"xox[abposr]-[A-Za-z0-9-]{20}", fullmatch=True).map(lambda token: ("access token", token)),
     st.from_regex(r"(AKIA|ASIA)[0-9A-Z]{16}", fullmatch=True).map(lambda token: ("access token", token)),
-    st.from_regex(r"eyJ[A-Za-z_-]{8,30}\.eyJ[A-Za-z_-]{8,30}\.[A-Za-z_-]{8,30}", fullmatch=True).map(lambda token: ("jwt", token)),
+)
+# Every kind of token. These JWTs have segments of letters only, so no SSN
+# or card number sits inside one (JwtProperties covers the ones that do).
+TOKENS = OTHER_TOKENS | st.from_regex(r"eyJ[A-Za-z]{8,30}\.eyJ[A-Za-z]{8,30}\.[A-Za-z]{8,30}", fullmatch=True).map(
+    lambda token: ("jwt", token)
 )
 # Values a pattern after the token patterns redacts and that end in a
 # digit: SSN shapes, and the networks' test card numbers, bare or in groups
@@ -1674,11 +1679,16 @@ class StuckTokenProperties(unittest.TestCase):
         self.assertEqual(review.redact_sensitive(out), (out, 0))
 
     @PBT
-    @given(st.text(alphabet=string.ascii_letters + "_", min_size=1, max_size=12), TOKENS, SEPARATORS)
-    def test_a_token_right_after_a_letter_or_an_underscore_is_left_alone(self, word: str, token: tuple[str, str], sep: str) -> None:
+    @given(st.text(alphabet=string.ascii_lowercase + "_", min_size=1, max_size=12), TOKENS, SEPARATORS)
+    def test_a_token_right_after_a_letter_or_an_underscore_never_starts_a_match(
+        self, word: str, token: tuple[str, str], sep: str
+    ) -> None:
         # The tail of a longer name that happens to be shaped like a token.
+        # The word has no capitals, so it can't spell the eyJ a JWT starts
+        # with. A run inside the token with a token's shape of its own may
+        # still go, but the token's own start stays.
         text = word + token[1] + sep
-        self.assertEqual(review.redact_sensitive(text), (text, 0))
+        self.assertTrue(review.redact_sensitive(text)[0].startswith(word + token[1][:3]), text)
 
     def test_token_prefixes_after_a_digit_take_linear_time(self) -> None:
         # Rows of token prefixes, each right after a digit and each stopping
@@ -1694,6 +1704,68 @@ class StuckTokenProperties(unittest.TestCase):
         ]
         for text in texts:
             self.assertGreaterEqual(len(text), 50_000)
+            started = time.monotonic()
+            self.assertEqual(review.redact_sensitive(text), (text, 0), text[:40])
+            self.assertLess(time.monotonic() - started, 2.0, text[:40])
+
+
+# Pieces of a JWT's segments. They are base64url, which holds digits and
+# dashes, and so now and then the shape of an SSN, a card number or another
+# token. The digits are ASCII, as base64url's are.
+JWT_PIECES = st.one_of(
+    st.text(alphabet=string.ascii_letters + string.digits + "-_", min_size=1, max_size=10),
+    st.from_regex(r"[0-9]{3}-[0-9]{2}-[0-9]{4}", fullmatch=True),
+    st.sampled_from(TEST_CARDS),
+    st.sampled_from(TEST_CARDS).map(lambda number: "-".join(cut(number, 4))),
+    OTHER_TOKENS.map(lambda token: token[1]),
+)
+# A JWT of three segments made of those pieces, each with at least the 8
+# characters a segment needs.
+JWTS = st.lists(st.lists(JWT_PIECES, max_size=4).map(lambda pieces: "".join(pieces) + "FAKEFAKE"), min_size=3, max_size=3).map(
+    lambda segments: "eyJ{}.eyJ{}.{}".format(*segments)
+)
+# What comes right before a JWT, how it reads once redacted, and how many
+# markers it adds: a separator, or a number the JWT is stuck to.
+JWT_LEADS = SEPARATORS.map(lambda sep: (sep, sep, 0)) | NUMBERS.map(lambda number: (number[1], review.redaction_marker(number[0]), 1))
+
+
+class JwtProperties(unittest.TestCase):
+    """A JWT goes whole in the first pass, whatever its segments hold and
+    whether or not a number comes right before it, and the scan for one
+    stays linear in long runs of base64url."""
+
+    @PBT
+    @given(SAFE_TEXT, JWT_LEADS, JWTS, SEPARATORS, SAFE_TEXT)
+    @example("", (" ", " ", 0), "eyJFAKEFAKE.eyJFAKE000-12-3456FAKE.FAKEFAKE", "\n", "")  # an SSN shape in the payload
+    @example("", (" ", " ", 0), "eyJFAKE4242424242424242FAKE.eyJFAKEFAKE.FAKEFAKE", "\n", "")  # a card number in the header
+    @example(
+        "ssn ", ("000-12-3456", review.redaction_marker("ssn"), 1), "eyJFAKE666-12-3456FAKE.eyJFAKEFAKE.7sk-" + "FAKE" * 8, " ", ""
+    )  # stuck to an SSN, with an SSN shape and an API key's shape inside
+    def test_a_jwt_goes_whole_in_the_first_pass_whatever_its_segments_hold(
+        self, before: str, lead: tuple[str, str, int], jwt: str, sep: str, after: str
+    ) -> None:
+        # The JWT becomes one marker, so no SSN, card number or token
+        # inside it is redacted on its own and leaves the rest of it
+        # visible. A number before it goes as its own marker, nothing
+        # around them changes, and a second pass finds nothing more.
+        text, shown, numbers = lead
+        out, count = review.redact_sensitive(before + text + jwt + sep + after)
+        self.assertEqual((out, count), (before + shown + review.redaction_marker("jwt") + sep + after, 1 + numbers))
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    def test_long_base64url_runs_take_linear_time(self) -> None:
+        # Runs with an eyJ after every dash or digit, which a scan that
+        # tried a JWT from each of them would read again from each one (main
+        # did that after each dash), a run past a dot with a second segment
+        # and no third one, and runs that each end in a dot.
+        texts = [
+            "-eyJ" * 50_000,
+            "0eyJ" * 50_000,
+            "eyJ" + "a0-_" * 50_000,
+            "0eyJ" * 25_000 + ".eyJ" + "0eyJ" * 25_000,
+            ("0eyJ" * 2_000 + ".") * 25,
+        ]
+        for text in texts:
             started = time.monotonic()
             self.assertEqual(review.redact_sensitive(text), (text, 0), text[:40])
             self.assertLess(time.monotonic() - started, 2.0, text[:40])
