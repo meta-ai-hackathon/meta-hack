@@ -769,13 +769,22 @@ function ownNumberPattern(raw: string): RegExp {
 const COMPUTED_NUMBER_KEYS: ReadonlySet<string> = new Set(["entryVersion", "score"]);
 
 /**
+ * The private number questions whose plain-number answers are matched as
+ * their own number (HACK-121): today the only private number question. A
+ * private number question added later keeps the strict substring check
+ * until its answers are checked against the copy a match carries, so
+ * turning the token rule on for it is a reviewed decision.
+ */
+const OWN_NUMBER_QUESTION_IDS: ReadonlySet<string> = new Set(["wr_work_activity_hours"]);
+
+/**
  * The gate's two tests for one private value: does a text carry it (the
  * trigger), and is it part of a public copy (the excusal). Every value
  * keeps the substring trigger and the word-boundary excusal, except a
- * number question's answer written as a plain number (HACK-121). Its digits
- * turn up inside the dates, ids, and longer numbers every response carries
- * ("0" inside 2026-10-30), so it counts only where it stands as its own
- * number, in the trigger and the excusal alike.
+ * plain-number answer to a question in OWN_NUMBER_QUESTION_IDS (HACK-121).
+ * Its digits turn up inside the dates, ids, and longer numbers every
+ * response carries ("0" inside 2026-10-30), so it counts only where it
+ * stands as its own number, in the trigger and the excusal alike.
  */
 interface PrivateValueMatcher {
   /** True when the value is matched as a whole number token. */
@@ -787,7 +796,11 @@ interface PrivateValueMatcher {
 }
 
 function privateValueMatcher(questionId: string, raw: string): PrivateValueMatcher {
-  if (QUESTION_BY_ID[questionId]?.type === "number" && PLAIN_NUMBER_PATTERN.test(raw)) {
+  if (
+    OWN_NUMBER_QUESTION_IDS.has(questionId) &&
+    QUESTION_BY_ID[questionId]?.type === "number" &&
+    PLAIN_NUMBER_PATTERN.test(raw)
+  ) {
     const ownNumber = ownNumberPattern(raw);
     return {
       wholeNumber: true,
@@ -955,10 +968,10 @@ function responseStaticCopy(response: MatchResponse): string {
  * Multi-select values are checked element by element (the old whole-array
  * JSON check could never substring-match).
  *
- * A number question's answer written as a plain number is matched only as
- * its own number, never inside a date, an id, or a longer number, and
- * never against the entry version or card score (HACK-121; see
- * privateValueMatcher).
+ * The work hours answer written as a plain number is matched only as its
+ * own number, never inside a date, an id, or a longer number, and never
+ * against the entry version or card score (HACK-121; see
+ * privateValueMatcher and OWN_NUMBER_QUESTION_IDS).
  */
 export function assertNoPiiValuesInMatch(
   response: MatchResponse,
