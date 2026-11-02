@@ -847,8 +847,94 @@ export class Walkthrough {
   }
 
   /**
+   * The quick-questions phase of the conversation journey: the session's
+   * pending required-for-programs questions answered through the LOCAL
+   * select route (POST /api/intake/answer — the same save the quick-
+   * questions stage makes), before the typed talk turns begin. This
+   * mirrors the product's own default flow (entry → quick questions →
+   * talk) and keeps the work-requirements questions (milestone
+   * work-requirements) out of the LLM extraction path in the rehearsal:
+   * sensitive select answers are captured through the local UI route
+   * only, never sent to the model (claude-review P1).
+   *
+   * @returns {Promise<{skippedBy: Map<string, string>}>} the skip ledger
+   *   this phase caused (the work-activity section hiding, for example)
+   */
+  async answerQuickQuestionsLocally() {
+    let state = this.state;
+    let answerNumber = 0;
+    const skippedBy = new Map();
+    while (state?.quickQuestions && state.quickQuestions.remainingCount > 0) {
+      const pending = state.quickQuestions.remainingIds.filter((id) =>
+        PLAN_BY_ID.has(id),
+      );
+      if (pending.length === 0) {
+        throw new WalkthroughError(
+          `the quick-questions stage has pending ids the journey plan does not cover: ` +
+            state.quickQuestions.remainingIds.join(", "),
+        );
+      }
+      const step = PLAN_BY_ID.get(pending[0]);
+      const served = state.questions.find((item) => item.id === step.id);
+      const isPii = served?.pii === true;
+      const beforeIds = new Set(state.questions.map((item) => item.id));
+      const response = await this.transport(
+        this.base,
+        "/api/intake/answer",
+        {
+          method: "POST",
+          body: {
+            questionId: step.id,
+            status: step.status,
+            value: step.value ?? null,
+          },
+          cookie: this.cookie,
+        },
+        this.timeoutMs,
+      );
+      const newState = parseJsonBody(response.text, `answer ${step.id}`);
+      if (response.status !== 200) {
+        throw new WalkthroughError(
+          `local answer ${step.id} rejected: ${response.status} ` +
+            `${this.maskPrivateValues(response.text.slice(0, 200))}`,
+        );
+      }
+      answerNumber += 1;
+      this.log(
+        `QQ-ANSWER ${String(answerNumber).padStart(2, "0")}  ${step.id} = ` +
+          `${Walkthrough.plannedDisplay(step, isPii)} — ` +
+          `${ANSWER_STATUS_LABELS[step.status]}  (local select route, no model)`,
+      );
+      const afterIds = new Set(newState.questions.map((item) => item.id));
+      const nowSkipped = [...beforeIds].filter((id) => !afterIds.has(id));
+      const nowAsked = [...afterIds].filter((id) => !beforeIds.has(id));
+      for (const id of nowSkipped) {
+        skippedBy.set(id, step.id);
+      }
+      if (nowSkipped.length > 0 || nowAsked.length > 0) {
+        const parts = [];
+        if (nowSkipped.length > 0) {
+          parts.push(`no longer asked: ${nowSkipped.join(", ")}`);
+        }
+        if (nowAsked.length > 0) {
+          parts.push(`newly asked: ${nowAsked.join(", ")}`);
+        }
+        this.log(`          ${parts.join(" · ")}`);
+      }
+      state = newState;
+      this.state = newState;
+    }
+    this.log(
+      `QQ-LOCAL  ${answerNumber} required question(s) answered through the ` +
+        "local select route — the model saw none of them",
+    );
+    return { skippedBy };
+  }
+
+  /**
    * The v2 CONVERSATIONAL journey (text mode), the full cross-area run:
-   * health → create session → typed turns driving the conversation
+   * health → create session → the quick-questions phase through the local
+   * select route → typed turns driving the conversation
    * (realistic tri-state mix) → match → review with the skip behavior →
    * save → exit → resume via the session token (+ stored history) → the
    * PDF download leg. Resolves true when completed cleanly, false when a
@@ -875,9 +961,18 @@ export class Walkthrough {
       "CONSENT   typed turns carry the AI consent receipt (voice off) — the "
         + "same grant the consent surface's typed path gives (HACK-81)",
     );
+    const { skippedBy: qqSkippedBy } = await this.answerQuickQuestionsLocally();
+    if (this.violations.length > 0) {
+      return this.reportViolations();
+    }
     const { skippedBy } = await this.runTurnLoop(plan, "conversation");
     if (this.violations.length > 0) {
       return this.reportViolations();
+    }
+    for (const [id, asker] of qqSkippedBy) {
+      if (!skippedBy.has(id)) {
+        skippedBy.set(id, asker);
+      }
     }
     this.summarizeSkips(skippedBy);
 

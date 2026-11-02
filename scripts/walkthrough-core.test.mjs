@@ -662,12 +662,27 @@ function turnBody({ reply, transcript, nextQuestionId, state, fresh = false }) {
   };
 }
 
+/** A state whose required-for-programs set is already handled — the
+ * talk-only scenario the v2 journey scripts (the conversation journey's
+ * quick-questions phase no-ops on it). */
+function talkOnlyState(state) {
+  return {
+    ...state,
+    quickQuestions: {
+      ...state.quickQuestions,
+      remainingIds: [],
+      remainingCount: 0,
+      complete: true,
+    },
+  };
+}
+
 /** A two-question scripted conversation: one plain question, one pii
  * free-form one whose redacted transcript carries the app's marker. */
 function v2JourneyRoutes({ formId = "form-x", historyTurns, finalState } = {}) {
   const appRoleQ = v2Question("application_role");
   const countyQ = v2Question("county", { pii: true, type: "text" });
-  const initialState = clientState([appRoleQ, countyQ], {}, 0);
+  const initialState = talkOnlyState(clientState([appRoleQ, countyQ], {}, 0));
   const midState = clientState(
     [appRoleQ, countyQ],
     { application_role: { status: "known", value: "self" } },
@@ -830,6 +845,117 @@ const MINI_PLAN = [
     privateValue: "Mecklenburg County",
   },
 ];
+
+describe("the conversation journey's quick-questions phase", () => {
+  /** Routes for a scripted QQ phase: two pending required ids (the
+   * exemption screen and a sensitive one), answered locally; each answer
+   * shrinks the pending list until it is empty. */
+  function qqPhaseRoutes() {
+    const exemptQ = v2Question("wr_exempt_situations");
+    const pregnantQ = v2Question("wr_pregnant", { pii: true });
+    const mkState = (remainingIds) => ({
+      ...clientState([exemptQ, pregnantQ], {}, 0),
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: [exemptQ.id, pregnantQ.id],
+        requiredCount: 2,
+        remainingIds,
+        remainingCount: remainingIds.length,
+        complete: remainingIds.length === 0,
+      },
+    });
+    return [
+      {
+        method: "POST",
+        path: "/api/intake/answer",
+        respondNext: queue([
+          jsonResponse(200, mkState(["wr_pregnant"])),
+          jsonResponse(200, mkState([])),
+        ]),
+      },
+    ];
+  }
+
+  it("answers the pending required ids through the local select route, never the model", async () => {
+    const transport = fakeTransport(qqPhaseRoutes());
+    const walk = new Walkthrough("http://fake.test", 1000, transport);
+    walk.state = clientState(
+      [v2Question("wr_exempt_situations"), v2Question("wr_pregnant", { pii: true })],
+      {},
+      0,
+    );
+    const { skippedBy } = await walk.answerQuickQuestionsLocally();
+    expect(transport.calls.map((call) => call.path)).toEqual([
+      "/api/intake/answer",
+      "/api/intake/answer",
+    ]);
+    expect(skippedBy.size).toBe(0);
+    // The transcript says the local route was used and the model saw
+    // none of it; the pii answer's value is kept private in the log.
+    const transcript = walk.lines.join("\n");
+    expect(transcript).toContain("(local select route, no model)");
+    expect(transcript).toContain("the model saw none of them");
+    expect(transcript).toContain("(answer kept private)");
+  });
+
+  it("tracks the questions a local answer hides (the work-activity section)", async () => {
+    const exemptQ = v2Question("wr_exempt_situations");
+    const reportingQ = v2Question("wr_work_activity_who", { pii: true });
+    const routes = [
+      {
+        method: "POST",
+        path: "/api/intake/answer",
+        respondNext: queue([
+          jsonResponse(200, {
+            ...clientState([exemptQ], {}, null),
+            quickQuestions: {
+              programs: ["nc_medicaid"],
+              requiredIds: [exemptQ.id],
+              requiredCount: 1,
+              remainingIds: [],
+              remainingCount: 0,
+              complete: true,
+            },
+          }),
+        ]),
+      },
+    ];
+    const transport = fakeTransport(routes);
+    const walk = new Walkthrough("http://fake.test", 1000, transport);
+    walk.state = {
+      ...clientState([exemptQ, reportingQ], {}, 0),
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: [exemptQ.id, reportingQ.id],
+        requiredCount: 2,
+        remainingIds: [exemptQ.id],
+        remainingCount: 1,
+        complete: false,
+      },
+    };
+    const { skippedBy } = await walk.answerQuickQuestionsLocally();
+    expect(skippedBy.get("wr_work_activity_who")).toBe("wr_exempt_situations");
+  });
+
+  it("refuses to guess when a pending id is outside the journey plan", async () => {
+    const transport = fakeTransport(qqPhaseRoutes());
+    const walk = new Walkthrough("http://fake.test", 1000, transport);
+    walk.state = {
+      ...clientState([v2Question("wr_something_new")], {}, 0),
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: ["wr_something_new"],
+        requiredCount: 1,
+        remainingIds: ["wr_something_new"],
+        remainingCount: 1,
+        complete: false,
+      },
+    };
+    await expect(walk.answerQuickQuestionsLocally()).rejects.toThrow(
+      /journey plan does not cover/,
+    );
+  });
+});
 
 const MINI_UNMAPPED = { name_field: "Jamie Watts" };
 
@@ -1061,10 +1187,12 @@ describe("v2 conversational journey (VAL-WALK2-001 / VAL-X2-001 contract)", () =
 
   it("a turn that saves nothing for the asked question twice is a journey error", async () => {
     const routes = v2JourneyRoutes();
-    const stuckState = clientState(
-      [v2Question("application_role"), v2Question("county", { pii: true, type: "text" })],
-      {},
-      0,
+    const stuckState = talkOnlyState(
+      clientState(
+        [v2Question("application_role"), v2Question("county", { pii: true, type: "text" })],
+        {},
+        0,
+      ),
     );
     routeOf(routes, "POST", "/api/session").respondNext = queue([
       jsonResponse(201, { session: { status: "draft" }, state: stuckState }, { setCookie: V2_COOKIE }),

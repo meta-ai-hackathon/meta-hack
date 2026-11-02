@@ -7,6 +7,7 @@ import {
   BRANCH_ONLY_QUESTION_IDS,
   EVAL_CASES,
   KB_PHRASE_VARIANTS,
+  QQ_PHASE_ANSWERS,
   SHOULD_ANSWER_PROBES,
   SHOULD_REFUSE_PROBES,
 } from "./eval-cases.mjs";
@@ -311,10 +312,43 @@ describe("the frozen cases", PROPERTY_BUDGET, () => {
         value: testCase.expectedValue ?? privateChoices[testCase.questionId] ?? "fictional",
       };
     }
+    // The quick-questions phase answers the work-requirements questions
+    // through the LOCAL select route before the scored turns run — the
+    // same pass-through the runner and the rehearsal harness make.
+    for (const passThrough of QQ_PHASE_ANSWERS) {
+      answers[passThrough.questionId] = {
+        status: passThrough.intendedStatus,
+        value: passThrough.value,
+      };
+    }
     const visible = visibleQuestions(QUESTIONS, answers).map((question) => question.id);
-    expect(visible).toEqual(ANSWER_TURN_CASES.map((testCase) => testCase.questionId));
+    expect(visible).toEqual([
+      ...ANSWER_TURN_CASES.map((testCase) => testCase.questionId),
+      ...QQ_PHASE_ANSWERS.map((passThrough) => passThrough.questionId),
+    ]);
     for (const id of BRANCH_ONLY_QUESTION_IDS) {
       expect(visible).not.toContain(id);
+    }
+  });
+
+  it("never send a work-requirements answer through the model extraction path", () => {
+    // The work-requirements questions (milestone work-requirements) are
+    // captured through the local select route only — the quick-questions
+    // phase — so no scored case (a typed turn to the conversation
+    // endpoint) may carry one, and every one of them is in the
+    // pass-through list (claude-review P1).
+    for (const testCase of ANSWER_TURN_CASES) {
+      expect(testCase.questionId.startsWith("wr_")).toBe(false);
+    }
+    const wrIds = [...SPEC_BY_ID.keys()].filter((id) => id.startsWith("wr_"));
+    expect(wrIds.length).toBeGreaterThan(0);
+    const passThroughIds = QQ_PHASE_ANSWERS.map((passThrough) => passThrough.questionId);
+    for (const id of wrIds) {
+      if (id === "wr_applied_last_month_which" || id.startsWith("wr_work_activity_")) {
+        // Skipped by the persona's answers — the flow never asks them.
+        continue;
+      }
+      expect(passThroughIds, id).toContain(id);
     }
   });
 

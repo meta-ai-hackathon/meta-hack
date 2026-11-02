@@ -50,7 +50,7 @@ import {
   sessionCookieFrom,
 } from "./walkthrough-core.mjs";
 import { CONVERSATION_PLAN } from "./walkthrough-plans.mjs";
-import { EVAL_CASES } from "./eval-cases.mjs";
+import { EVAL_CASES, QQ_PHASE_ANSWERS } from "./eval-cases.mjs";
 import {
   CATEGORIES,
   RECORD_MODEL,
@@ -75,10 +75,8 @@ export const TURN_PACE_LIMIT = 11;
 /** The statuses worth a patient retry, the same set the walkthrough's
  * fetch helper and turn loop retry on. */
 export const TRANSIENT_STATUSES = Object.freeze([429, 502, 503, 504]);
-/** A runaway guard for the answer-turn loop (the spec has 56 questions
- * since the work-requirements addition; the guard stays ~2 steps per
- * question plus headroom). */
-const MAX_FLOW_STEPS = 200;
+/** A runaway guard for the answer-turn loop (the spec has 37 questions). */
+const MAX_FLOW_STEPS = 120;
 
 function defaultSleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -301,6 +299,38 @@ class EvalRun {
     }
   }
 
+  /** The quick-questions phase's pass-through: the local select route's
+   * save (the quick-questions stage's own endpoint) for a question no
+   * typed turn covers — never the model. */
+  async answerLocally(session, passThrough) {
+    try {
+      const response = await this.transport(
+        this.base,
+        "/api/intake/answer",
+        {
+          method: "POST",
+          body: {
+            questionId: passThrough.questionId,
+            status: passThrough.intendedStatus,
+            value: passThrough.value ?? null,
+          },
+          cookie: session.cookie,
+        },
+        this.timeoutMs,
+      );
+      const body = safeJson(response.text, "POST /api/intake/answer");
+      if (response.status === 200 && body && Array.isArray(body.questions)) {
+        return { ok: true, state: body };
+      }
+      return {
+        ok: false,
+        failure: failureOf(response.status, response.text, "local_answer_failed"),
+      };
+    } catch {
+      return { ok: false, failure: { reason: "http_error", errorCode: "network" } };
+    }
+  }
+
   logOutcome(testCase, observation) {
     this.say(`CASE      ${testCase.id} → ${scoreCase(testCase, observation).outcome}`);
   }
@@ -331,6 +361,10 @@ class EvalRun {
   async runAnswerTurns(session, cases, plan, observations) {
     const caseByQuestion = new Map(cases.map((testCase) => [testCase.questionId, testCase]));
     const planById = new Map(plan.map((step) => [step.id, step]));
+    // The quick-questions phase's pass-through answers (the local select
+    // route — the work-requirements questions among them): never typed
+    // turns, never scored (see eval-cases.mjs).
+    const qqById = new Map(QQ_PHASE_ANSWERS.map((passThrough) => [passThrough.questionId, passThrough]));
     const privateValues = [];
     const asked = new Set();
     let state = session.state;
@@ -345,11 +379,32 @@ class EvalRun {
         break;
       }
       const step = planById.get(question.id);
-      if (!step || asked.has(question.id)) {
-        failure = { reason: "http_error", errorCode: step ? "repeated_question" : "uncovered_question" };
+      const qqAnswer = qqById.get(question.id);
+      if (!step && !qqAnswer) {
+        failure = { reason: "http_error", errorCode: "uncovered_question" };
+        break;
+      }
+      if (asked.has(question.id)) {
+        failure = { reason: "http_error", errorCode: "repeated_question" };
         break;
       }
       asked.add(question.id);
+      if (!step && qqAnswer) {
+        // The quick-questions phase: captured through the LOCAL select
+        // route (the same save the quick-questions stage makes), never a
+        // typed turn to the model — sensitive select answers do not ride
+        // the extraction path (claude-review P1).
+        const response = await this.answerLocally(session, qqAnswer);
+        if (!response.ok) {
+          failure = response.failure;
+          break;
+        }
+        state = response.state;
+        this.say(
+          `QQ-ANSWER the flow reached ${question.id} — answered through the local select route (no model, not scored)`,
+        );
+        continue;
+      }
       const testCase = caseByQuestion.get(question.id);
       if (!testCase) {
         this.stats.branchQuestionsAsked.push(question.id);

@@ -28,15 +28,12 @@ import { CONVERSATION_PLAN } from "./walkthrough-plans.mjs";
  * main_goal is health care, so goal_detail is skipped; income_sources has
  * no family, child support or other income, so other_income_amount is
  * skipped; id_status is have_id, so id_issue_detail is skipped;
- * mailing_situation is a P.O. box, so shelter_mail_consent is skipped;
- * contact_preference is email, so phone_contact is skipped; and the
- * persona's work-requirements answers (a parent of a child under 18 whose
- * household makes at least $580 a month) hide the which-situations
- * follow-up and the whole work-activity reporting section — the Civilla
- * two-section design working as intended. The harness still answers one
- * with its plan turn if the flow asks it (the extraction heard an earlier
- * answer differently), but it is not a scored case. The drift test in
- * eval-record-core.test.mjs proves this list against the real flow engine.
+ * mailing_situation is a P.O. box, so shelter_mail_consent is skipped; and
+ * contact_preference is email, so phone_contact is skipped. The harness
+ * still answers one with its plan turn if the flow asks it (the extraction
+ * heard an earlier answer differently), but it is not a scored case. The
+ * drift test in eval-record-core.test.mjs proves this list against the real
+ * flow engine.
  */
 export const BRANCH_ONLY_QUESTION_IDS = Object.freeze([
   "goal_detail",
@@ -44,10 +41,6 @@ export const BRANCH_ONLY_QUESTION_IDS = Object.freeze([
   "id_issue_detail",
   "shelter_mail_consent",
   "phone_contact",
-  "wr_applied_last_month_which",
-  "wr_work_activity_who",
-  "wr_work_activity_types",
-  "wr_work_activity_hours",
 ]);
 
 /**
@@ -81,11 +74,40 @@ export const ANSWER_VALUE_LABELS = Object.freeze({
   received_benefits_before: false,
   contact_preference: "email",
   best_time_to_reach: "afternoon",
-  wr_exempt_situations: Object.freeze(["parent_child_under_18"]),
-  wr_applied_last_month: "no",
-  wr_student_enrolled: "not_enrolled",
-  wr_income_580: "yes",
 });
+
+/**
+ * The work-requirements questions (milestone work-requirements), answered
+ * through the conversation journey's quick-questions phase — the LOCAL
+ * select route (POST /api/intake/answer), exactly the way the
+ * conversation page's quick-questions stage captures them before the
+ * typed talk turns begin. They are deliberately NOT scored cases and
+ * carry no typed turns: sensitive select answers never ride the LLM
+ * extraction path, so the model-driven case list stays free of them
+ * (claude-review P1). The persona matches the plan's own (a parent of
+ * two whose household income clears the $580 screen), so the reporting
+ * section and the which-situations follow-up are skipped by the flow.
+ * The runner answers these pass-throughs locally when the flow reaches
+ * them; the drift test in eval-record-core.test.mjs proves the list
+ * against the real flow engine.
+ */
+export const QQ_PHASE_ANSWERS = Object.freeze([
+  { questionId: "wr_exempt_situations", intendedStatus: "known", value: ["parent_child_under_18"] },
+  { questionId: "wr_pregnant", intendedStatus: "known", value: "no" },
+  { questionId: "wr_drug_alcohol_treatment", intendedStatus: "known", value: "no" },
+  { questionId: "wr_drug_alcohol_disorder", intendedStatus: "known", value: "no" },
+  { questionId: "wr_disability_hard_work", intendedStatus: "known", value: "no" },
+  { questionId: "wr_mental_health_hard_work", intendedStatus: "known", value: "no" },
+  { questionId: "wr_serious_health_condition", intendedStatus: "known", value: "no" },
+  { questionId: "wr_jail_prison_past_4_months", intendedStatus: "known", value: "no" },
+  { questionId: "wr_foster_care_under_26", intendedStatus: "known", value: "no" },
+  { questionId: "wr_veteran_100_disabled", intendedStatus: "known", value: "no" },
+  { questionId: "wr_applied_last_month", intendedStatus: "known", value: "no" },
+  { questionId: "wr_medical_travel_1hr", intendedStatus: "known", value: "no" },
+  { questionId: "wr_hospital_care_24hr", intendedStatus: "known", value: "no" },
+  { questionId: "wr_student_enrolled", intendedStatus: "known", value: "not_enrolled" },
+  { questionId: "wr_income_580", intendedStatus: "known", value: "yes" },
+]);
 
 /**
  * One scored case per plan turn the flow asks under the plan's intended
