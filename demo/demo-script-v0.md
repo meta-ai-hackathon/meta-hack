@@ -69,6 +69,16 @@ Total runtime: 3:00.
 | Save/resume moment (BN-13) | Between beats 6 and 7 | If you want to show real-life pacing: close the session mid-journey, reopen the saved link in a fresh context, land on the next unanswered question with answers intact |
 | Caseworker-mode moment (BN-10) | Between beats 7 and 8 | If the audience includes services providers: a helper takes over the same session under "I'm helping someone else," with an audit note |
 
+## On-screen credits
+
+- The quick-questions stage ("About these questions" affordance) carries the
+  visible credit: "Question wording adapted from Civilla's public
+  work-requirements templates, [civilla.org/work/hr1](https://civilla.org/work/hr1/)".
+  Keep it in frame whenever the stage is filmed.
+- The same affordance links the official North Carolina resource — the Work
+  and Community Engagement Requirement page on the NC Medicaid (NCDHHS)
+  site (medicaid.ncdhhs.gov, retrieved 2026-11-01).
+
 ## Ready-to-film checklist
 
 Everything below must exist before shooting:
