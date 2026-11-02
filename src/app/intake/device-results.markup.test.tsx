@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import fc from "fast-check";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { pagePointer } from "../../lib/forms/disposition";
 import type { AnswerStatus } from "../../lib/honesty";
 import { findBannedClaims } from "../../lib/honesty";
@@ -177,6 +177,14 @@ function render(state: ClientAnswerState): { html: string; root: HTMLElement } {
 }
 
 describe("the device results, for any answers on the device", () => {
+  // Every property here renders the whole end of /intake over and over
+  // without waiting on anything, so on a slow runner the file can run for
+  // over a minute without the worker's event loop getting a turn. Vitest's
+  // own messages then time out and fail the run ("Timeout calling
+  // onTaskUpdate") even though every test passed. A turn before each test
+  // keeps every stretch well under that.
+  beforeEach(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+
   it("are drawn with match cards on screen often (non-vacuous)", () => {
     const states = fc.sample(deviceAnswersArb, { numRuns: 200, seed: 115 });
     const withCards = states.filter((state) => deviceMatch(state).matches.length > 0);
