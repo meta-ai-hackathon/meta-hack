@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { webcrypto } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { QUESTIONS } from "../../lib/intake/spec";
 
 // The wizard in device mode (HACK-99), driven through the DOM: what the
 // person sees, clicks, and hears. The answer path never makes a request;
@@ -9,6 +10,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // later" saves the answer on screen, and is the only thing that asks the
 // browser to keep its storage; and a delete in another tab shows up when the
 // page comes back into view.
+
+// The wizard's honest total is the spec's question count — derived, never
+// a literal pinned to one spec generation (the work-questions addition
+// grew the spec from 37 to 56; the counter assertions below track the
+// spec, which is the stronger pin).
+const SPEC_TOTAL = QUESTIONS.length;
 
 type Handler = ((event: unknown) => void) | null;
 
@@ -193,14 +200,14 @@ describe("the wizard in device mode", () => {
     expect(page.text()).toContain(page.copy.keptBlurb);
     await page.choose("Me");
     await page.click(page.button("Continue"));
-    expect(page.status()).toBe("Saved on this device. 1 of 37 answered.");
-    expect(page.text()).toContain("Answered 1 of 37");
+    expect(page.status()).toBe(`Saved on this device. 1 of ${SPEC_TOTAL} answered.`);
+    expect(page.text()).toContain(`Answered 1 of ${SPEC_TOTAL}`);
     expect(device.stores.get("kv")?.has("intake-answers")).toBe(true);
     await page.unmount();
 
     const again = await visit();
     expect(again.status()).toBe(again.copy.resumedOnLoad);
-    expect(again.text()).toContain("Answered 1 of 37");
+    expect(again.text()).toContain(`Answered 1 of ${SPEC_TOTAL}`);
     expect(fetchSpy).not.toHaveBeenCalled();
     await again.unmount();
   });
@@ -211,7 +218,7 @@ describe("the wizard in device mode", () => {
     await page.press(page.button("Continue"));
     // The double-click's second press lands on the next question's buttons.
     await page.press(page.button("I'm not sure"));
-    expect(page.text()).toContain("Answered 1 of 37");
+    expect(page.text()).toContain(`Answered 1 of ${SPEC_TOTAL}`);
     await pause(450);
     await page.press(page.button("I'm not sure"));
     expect(page.text()).toContain("Answered 2 of");
@@ -253,7 +260,7 @@ describe("the wizard in device mode", () => {
     expect(page.text()).toContain(page.copy.deleteConfirm);
     await page.click(page.button(page.copy.deleteYes));
     expect(page.status()).toBe(page.copy.deleted);
-    expect(page.text()).toContain("Answered 0 of 37");
+    expect(page.text()).toContain(`Answered 0 of ${SPEC_TOTAL}`);
     expect(document.activeElement?.tagName).toBe("INPUT");
     expect(device.stores.get("kv")?.size).toBe(0);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -327,10 +334,10 @@ describe("the wizard in device mode", () => {
     });
     await page.settle();
     expect(page.status()).toBe(page.copy.purgedElsewhere);
-    expect(page.text()).toContain("Answered 0 of 37");
+    expect(page.text()).toContain(`Answered 0 of ${SPEC_TOTAL}`);
     await page.click(page.button("Save and finish later"));
     expect(page.status()).toBe(page.copy.savedForLaterKept);
-    expect(page.text()).toContain("Answered 0 of 37");
+    expect(page.text()).toContain(`Answered 0 of ${SPEC_TOTAL}`);
     await page.unmount();
   });
 

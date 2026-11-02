@@ -701,8 +701,22 @@ function piiValueArbitrary(question: Question): fc.Arbitrary<unknown> {
   switch (question.type) {
     case "single_select":
       return fc.constantFrom(...(optionValues ?? ["x"]));
-    case "multi_select":
-      return fc.constant(["x"]);
+    case "multi_select": {
+      // Any non-empty subset of the question's OWN options, in option
+      // order — the canonical multi_select shape. The first pii
+      // multi_select (wr_applied_last_month_which) joined the spec with
+      // the work-requirements milestone; the old constant ["x"] was never
+      // a spec-valid value. Flat mask, not fc.subarray — subarray inside
+      // a chain crashes the shrinker (see requirements.test.ts).
+      const values = optionValues ?? ["x"];
+      return fc
+        .array(fc.boolean(), {
+          minLength: values.length,
+          maxLength: values.length,
+        })
+        .filter((mask) => mask.some(Boolean))
+        .map((mask) => values.filter((_, index) => mask[index]));
+    }
     case "boolean":
       return fc.boolean();
     case "date":

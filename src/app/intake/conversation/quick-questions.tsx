@@ -6,6 +6,10 @@ import type {
   IntakeClientState,
 } from "../../../lib/intake/serialize";
 import type { AnswerStatus } from "../../../lib/honesty";
+import {
+  INCOME_580_QUESTION_ID,
+  matchIncome580,
+} from "../../../lib/intake/work-requirements";
 
 // The quick-questions stage (demo-core sprint, milestone quick-questions,
 // part 2): the requirements engine's computed still-to-ask set rendered
@@ -88,11 +92,26 @@ export function counterCopy(remaining: number, total: number): string {
  * why-we-ask note"). Ids ONLY — the prompts and options stay in the
  * question spec, consumed read-only, the same discipline as the sidebar
  * theme mapping. Extensible by editing this list; the stage renders
- * whatever the engine's remaining set contains.
+ * whatever the engine's remaining set contains. The work-requirements
+ * milestone (VAL-WR-006) joins the sensitive Civilla items — pregnancy,
+ * drug/alcohol treatment and disorder, disability-hard-work, mental
+ * health, serious health condition, incarceration, foster care, and the
+ * 100%-disabled veteran rating — to this group: they are all `pii: true`
+ * in the spec and render LAST with why-we-ask notes and skip
+ * affordances.
  */
 export const SENSITIVE_QUESTION_IDS: readonly string[] = [
   "citizenship_status",
   "disability_status",
+  "wr_pregnant",
+  "wr_drug_alcohol_treatment",
+  "wr_drug_alcohol_disorder",
+  "wr_disability_hard_work",
+  "wr_mental_health_hard_work",
+  "wr_serious_health_condition",
+  "wr_jail_prison_past_4_months",
+  "wr_foster_care_under_26",
+  "wr_veteran_100_disabled",
 ];
 
 interface GroupSpec {
@@ -138,6 +157,30 @@ const GROUP_SPECS: readonly GroupSpec[] = [
       "benefits_income_amount",
       "benefits_income_frequency",
       "other_income_amount",
+    ],
+  },
+  {
+    // The work-requirements milestone (wr-stage-ui): the Civilla-derived
+    // questions in the engine's required universe — the exemption screen,
+    // the other-situations screen (the $580 income screen, student
+    // status, medical travel, hospital care, applied-last-month), and the
+    // work-activity reporting section (rendered only when the spec's
+    // skip conditions leave it visible). Ids follow the question spec's
+    // order; the sensitive health items live in the SENSITIVE-LAST group,
+    // not here.
+    id: "work-requirements",
+    heading: "Work requirements",
+    questionIds: [
+      "wr_exempt_situations",
+      "wr_applied_last_month",
+      "wr_applied_last_month_which",
+      "wr_medical_travel_1hr",
+      "wr_hospital_care_24hr",
+      "wr_student_enrolled",
+      "wr_income_580",
+      "wr_work_activity_who",
+      "wr_work_activity_types",
+      "wr_work_activity_hours",
     ],
   },
   {
@@ -228,14 +271,35 @@ export function groupRemainingQuestions(
   return groups;
 }
 
-/** Why-we-ask notes for the sensitive cards (VAL-QQ-006) — calm, honest,
- * skippable. New product copy: it must pass the banned-claims gate like
+/** Why-we-ask notes for the sensitive cards (VAL-QQ-006; VAL-WR-006 joins
+ * the sensitive work-requirements items). Calm, honest, skippable — and
+ * HARD-LINE safe: every note says what the state looks at, never that
+ * anyone is or is not exempt ("the state decides" is the permitted
+ * framing). New product copy: it must pass the banned-claims gate like
  * every user-visible string (it does — the UI-string scan covers it). */
 const WHY_WE_ASK: Readonly<Record<string, string>> = {
   citizenship_status:
     "Why we ask: the official application includes a citizenship and immigration status section. This one is optional — skip it now and the conversation can come back to it.",
   disability_status:
     "Why we ask: disability and health conditions can matter for program rules and services. This one is optional — skip it, for example, if this part of the application is for a child.",
+  wr_pregnant:
+    "Why we ask: pregnancy is one of the situations the state looks at for its work-activity reporting rules — you may not need to report work activities. The state decides. Optional — skip it here and the conversation can come back to it.",
+  wr_drug_alcohol_treatment:
+    "Why we ask: being in a treatment program is one of the situations the state looks at for its work-activity reporting rules — you may not need to report work activities. The state decides. Optional — skip it here and the conversation can come back to it.",
+  wr_drug_alcohol_disorder:
+    "Why we ask: a drug or alcohol disorder, including recovery, is one of the situations the state looks at for its work-activity reporting rules — you may not need to report work activities. The state decides. Optional — skip it here and the conversation can come back to it.",
+  wr_disability_hard_work:
+    "Why we ask: a disability that makes work hard is one of the situations the state looks at for its work-activity reporting rules — you may not need to report work activities. The state decides. Optional — skip it here and the conversation can come back to it.",
+  wr_mental_health_hard_work:
+    "Why we ask: a mental health condition that makes work hard is one of the situations the state looks at for its work-activity reporting rules — you may not need to report work activities. The state decides. Optional — skip it here and the conversation can come back to it.",
+  wr_serious_health_condition:
+    "Why we ask: a serious health condition is one of the situations the state looks at for its work-activity reporting rules — you may not need to report work activities. The state decides. Optional — skip it here and the conversation can come back to it.",
+  wr_jail_prison_past_4_months:
+    "Why we ask: jail or prison in the past 4 months is one of the situations the state looks at for its work-activity reporting rules — you may not need to report work activities. The state decides. Optional — skip it here and the conversation can come back to it.",
+  wr_foster_care_under_26:
+    "Why we ask: being in foster care at 18 and under 26 is one of the situations the state looks at for its work-activity reporting rules — you may not need to report work activities. The state decides. Optional — skip it here and the conversation can come back to it.",
+  wr_veteran_100_disabled:
+    "Why we ask: a 100% disabled veteran rating is one of the situations the state looks at for its work-activity reporting rules — you may not need to report work activities. The state decides. Optional — skip it here and the conversation can come back to it.",
 };
 
 const EMPTY_REQUIRED_ERROR =
@@ -290,18 +354,35 @@ function optionRow(
  * One question card. A grouped multi-select renders a checkbox group with
  * the None-of-these exclusion; single-select renders radios; scalars
  * render inputs; every card saves through the existing tri-state path.
+ *
+ * `prefill` carries the deterministic $580-screen match (VAL-WR-008): the
+ * engine's proposal for `wr_income_580`, computed from already-captured
+ * income answers — never an LLM, never a compliance statement. The
+ * proposal IS the card's pre-picked draft (derived state, no adoption
+ * effect) until the person picks something themselves: saving it is the
+ * confirmation, picking the other option is the correction, and "I'm not
+ * sure" is always available. The save path itself is the unchanged
+ * user-supplied route.
  */
 function QuestionCard(props: {
   question: ClientQuestion;
   sensitive: boolean;
+  prefill?: "yes" | "no";
   onNotice: (message: string) => void;
   onSaved: (state: IntakeClientState) => void;
 }) {
-  const { question, sensitive, onNotice, onSaved } = props;
+  const { question, sensitive, prefill, onNotice, onSaved } = props;
   const [draft, setDraft] = useState<unknown>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The pre-picked match: whatever the person chose, or the engine's
+  // proposal when they haven't touched the card yet. Derived, never an
+  // effect — a draft the person began always wins.
+  const effectiveDraft = draft !== undefined ? draft : prefill;
+  // The "Matched for you" note stands while the proposal does — until the
+  // person picks or skips the card themselves.
+  const matched = !skipped && prefill !== undefined && draft === undefined;
   // The in-flight ref mirrors `saving` for the async re-entrancy guard:
   // a double click during the await must never double-POST an answer.
   const saveInFlight = useRef(false);
@@ -317,9 +398,9 @@ function QuestionCard(props: {
       // number conversion happens at the store boundary (the same
       // numeric-string rule the wizard and the API share).
       const value =
-        question.type === "number" && typeof draft === "string"
-          ? Number(draft)
-          : draft;
+        question.type === "number" && typeof effectiveDraft === "string"
+          ? Number(effectiveDraft)
+          : effectiveDraft;
       const response = await fetch("/api/intake/answer", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -351,7 +432,7 @@ function QuestionCard(props: {
   }
 
   function submitKnown(): void {
-    if (!hasDraft(draft)) {
+    if (!hasDraft(effectiveDraft)) {
       setError(question.required ? EMPTY_REQUIRED_ERROR : EMPTY_OPTIONAL_ERROR);
       return;
     }
@@ -399,10 +480,10 @@ function QuestionCard(props: {
             question.id,
             option,
             "checkbox",
-            Array.isArray(draft) && draft.includes(option.value),
+            Array.isArray(effectiveDraft) && effectiveDraft.includes(option.value),
             () =>
               setDraft(
-                toggleNoneExclusive(draft, option.value),
+                toggleNoneExclusive(effectiveDraft, option.value),
               ),
           ),
         )}
@@ -421,7 +502,7 @@ function QuestionCard(props: {
           ) : null}
         </legend>
         {(question.options ?? []).map((option) =>
-          optionRow(question.id, option, "radio", draft === option.value, () =>
+          optionRow(question.id, option, "radio", effectiveDraft === option.value, () =>
             setDraft(option.value),
           ),
         )}
@@ -447,7 +528,7 @@ function QuestionCard(props: {
             question.id,
             { value: String(choice.pick), label: choice.label },
             "radio",
-            draft === choice.pick,
+            effectiveDraft === choice.pick,
             () => setDraft(choice.pick),
           ),
         )}
@@ -505,6 +586,16 @@ function QuestionCard(props: {
       className="flex flex-col gap-3 rounded-2xl border border-surface-border bg-surface p-4"
     >
       {control}
+      {matched ? (
+        <p
+          data-qq-matched={question.id}
+          className="rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"
+        >
+          Matched for you — based on the income you told us, this answer is
+          pre-picked. Check it, change it, or save it as it is; the state
+          decides how income counts.
+        </p>
+      ) : null}
       {sensitive ? (
         <p
           data-qq-why={question.id}
@@ -581,6 +672,11 @@ export function QuickQuestionsStage(props: {
   const { state, onStateChange, onNotice, onToTalk } = props;
   const groups = groupRemainingQuestions(state);
   const { remainingCount, requiredCount } = state.quickQuestions;
+  // The $580 screen's deterministic match (VAL-WR-008): computed from the
+  // already-captured income answers by the documented engine rule — never
+  // an LLM, and a FORM ANSWER proposal only (the card lets the person
+  // confirm or correct it; nothing here states or implies compliance).
+  const incomeMatch = matchIncome580(state.answers);
 
   return (
     <section
@@ -604,6 +700,33 @@ export function QuickQuestionsStage(props: {
           you&apos;d rather not. Your answers save as you go, and private
           details stay private.
         </p>
+        <details
+          data-qq-credit
+          className="max-w-xl rounded-xl border border-surface-border bg-surface px-4 py-1"
+        >
+          <summary className="min-h-11 cursor-pointer self-start py-2 text-sm font-medium text-foreground">
+            About these questions
+          </summary>
+          <p className="pb-3 text-sm text-muted">
+            Question wording adapted from Civilla&apos;s public
+            work-requirements templates,{" "}
+            <a
+              href="https://civilla.org/work/hr1/"
+              className="underline decoration-surface-border underline-offset-2 hover:decoration-teal"
+            >
+              civilla.org/work/hr1
+            </a>
+            . The state&apos;s own information:{" "}
+            <a
+              href="https://medicaid.ncdhhs.gov/beneficiaries/impact-hr-1-and-federal-changes-medicaid/work-and-community-engagement-requirement"
+              className="underline decoration-surface-border underline-offset-2 hover:decoration-teal"
+            >
+              the Work and Community Engagement Requirement (NC Medicaid)
+            </a>
+            . What you may not need to report is the state&apos;s decision —
+            answering here helps you report.
+          </p>
+        </details>
       </div>
       {groups.map((group) => (
         <section
@@ -621,6 +744,12 @@ export function QuickQuestionsStage(props: {
                 key={question.id}
                 question={question}
                 sensitive={group.sensitive}
+                prefill={
+                  question.id === INCOME_580_QUESTION_ID &&
+                  incomeMatch.proposal !== null
+                    ? incomeMatch.proposal
+                    : undefined
+                }
                 onNotice={onNotice}
                 onSaved={onStateChange}
               />

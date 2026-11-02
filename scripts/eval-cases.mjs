@@ -77,6 +77,39 @@ export const ANSWER_VALUE_LABELS = Object.freeze({
 });
 
 /**
+ * The work-requirements questions (milestone work-requirements), answered
+ * through the conversation journey's quick-questions phase — the
+ * wizard's answer route (POST /api/intake/answer, a server endpoint with
+ * no model in the loop), exactly the way the conversation page's
+ * quick-questions stage captures them before the typed talk turns begin. They are deliberately NOT scored cases and
+ * carry no typed turns: sensitive select answers never ride the LLM
+ * extraction path, so the model-driven case list stays free of them
+ * (claude-review P1). The persona matches the plan's own (a parent of
+ * two whose household income clears the $580 screen), so the reporting
+ * section and the which-situations follow-up are skipped by the flow.
+ * The runner answers these pass-throughs locally when the flow reaches
+ * them; the drift test in eval-record-core.test.mjs proves the list
+ * against the real flow engine.
+ */
+export const QQ_PHASE_ANSWERS = Object.freeze([
+  { questionId: "wr_exempt_situations", intendedStatus: "known", value: ["parent_child_under_18"] },
+  { questionId: "wr_pregnant", intendedStatus: "known", value: "no" },
+  { questionId: "wr_drug_alcohol_treatment", intendedStatus: "known", value: "no" },
+  { questionId: "wr_drug_alcohol_disorder", intendedStatus: "known", value: "no" },
+  { questionId: "wr_disability_hard_work", intendedStatus: "known", value: "no" },
+  { questionId: "wr_mental_health_hard_work", intendedStatus: "known", value: "no" },
+  { questionId: "wr_serious_health_condition", intendedStatus: "known", value: "no" },
+  { questionId: "wr_jail_prison_past_4_months", intendedStatus: "known", value: "no" },
+  { questionId: "wr_foster_care_under_26", intendedStatus: "known", value: "no" },
+  { questionId: "wr_veteran_100_disabled", intendedStatus: "known", value: "no" },
+  { questionId: "wr_applied_last_month", intendedStatus: "known", value: "no" },
+  { questionId: "wr_medical_travel_1hr", intendedStatus: "known", value: "no" },
+  { questionId: "wr_hospital_care_24hr", intendedStatus: "known", value: "no" },
+  { questionId: "wr_student_enrolled", intendedStatus: "known", value: "not_enrolled" },
+  { questionId: "wr_income_580", intendedStatus: "known", value: "yes" },
+]);
+
+/**
  * One scored case per plan turn the flow asks under the plan's intended
  * answers. `step` is the imported plan entry itself (its text and retry
  * are read from it at run time); `privateValue` is carried so the record

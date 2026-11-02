@@ -71,9 +71,36 @@ describe("pilot seam: the locked real program (VAL-PILOTREAL-001)", () => {
       PILOT_CONFIG.programName,
       PILOT_CONFIG.countyName,
       ...PILOT_CONFIG.portalLinks.map((link) => link.label),
+      // The additional applications' entry-point copy promises nothing
+      // either (snap-form milestone, VAL-SNAP-013).
+      ...PILOT_CONFIG.additionalApplications.flatMap((application) => [
+        application.programName,
+        application.entryPoint.headline,
+        application.entryPoint.detail,
+        application.entryPoint.action,
+        ...application.portalLinks.map((link) => link.label),
+      ]),
     ];
     for (const text of strings) {
       expect(() => assertNoBannedClaimsEverySentence(text)).not.toThrow();
     }
+  });
+
+  it("registers every additional application and dates its links (VAL-SNAP-005)", () => {
+    for (const application of PILOT_CONFIG.additionalApplications) {
+      // The form it names IS registered (the review/fill machinery's ids).
+      const entry = getFormRegistryEntry(application.formRegistryId);
+      expect(entry.source.origin).toBe("official_source");
+      expect(application.programName.length).toBeGreaterThan(0);
+      for (const link of application.portalLinks) {
+        expect(link.url.startsWith("https://")).toBe(true);
+        expect(link.retrievedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+    }
+    // The pilot's primary form is not doubled in the additional list.
+    const additionalIds = PILOT_CONFIG.additionalApplications.map(
+      (application) => application.formRegistryId,
+    );
+    expect(additionalIds).not.toContain(PILOT_CONFIG.formRegistryId);
   });
 });

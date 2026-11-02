@@ -29,6 +29,12 @@ export interface HandoffSectionProps {
   readonly stillNeededCount: number;
   /** The sourced steps. Defaults to the ones the KB writes for this form. */
   readonly companion?: HandoffCompanion | null;
+  /**
+   * DOM-id prefix for this section's labelled headings: two prepared
+   * applications render as sibling review sections, and ids must stay
+   * unique per form (the label wiring + axe).
+   */
+  readonly idPrefix?: string;
 }
 
 function StepItem({ step }: { step: HandoffStepView }) {
@@ -58,6 +64,7 @@ export function HandoffSection({
   downloaded,
   stillNeededCount,
   companion = handoffCompanionForForm(formId),
+  idPrefix = "",
 }: HandoffSectionProps) {
   // Without sourced steps written for this form, or with a status outside
   // BN-25, there is nothing honest to say here, so the section stays out
@@ -65,6 +72,8 @@ export function HandoffSection({
   if (!companion || !isSessionStatus(sessionStatus)) {
     return null;
   }
+  const idFor = (suffix: string): string =>
+    idPrefix === "" ? suffix : `${idPrefix}-${suffix}`;
   const action = nextHandoffAction({
     sessionStatus,
     downloaded,
@@ -73,11 +82,14 @@ export function HandoffSection({
   return (
     <div data-handoff-companion className="flex flex-col gap-5">
       <section
-        aria-labelledby="next-action-heading"
+        aria-labelledby={idFor("next-action-heading")}
         data-next-action={action.kind}
         className="flex flex-col gap-2 rounded-2xl border-2 border-teal bg-teal-soft p-5"
       >
-        <h3 id="next-action-heading" className="font-display text-xl font-bold">
+        <h3
+          id={idFor("next-action-heading")}
+          className="font-display text-xl font-bold"
+        >
           Your next step
         </h3>
         <p>
@@ -93,12 +105,12 @@ export function HandoffSection({
       </section>
 
       <section
-        aria-labelledby="submission-steps-heading"
+        aria-labelledby={idFor("submission-steps-heading")}
         data-submission-steps
         className="flex flex-col gap-2"
       >
         <h3
-          id="submission-steps-heading"
+          id={idFor("submission-steps-heading")}
           className="font-display text-xl font-bold"
         >
           Signing it and sending it in yourself
@@ -117,12 +129,12 @@ export function HandoffSection({
 
       {showsAfterYouApply(sessionStatus) ? (
         <section
-          aria-labelledby="after-you-apply-heading"
+          aria-labelledby={idFor("after-you-apply-heading")}
           data-after-you-apply
           className="flex flex-col gap-2"
         >
           <h3
-            id="after-you-apply-heading"
+            id={idFor("after-you-apply-heading")}
             className="font-display text-xl font-bold"
           >
             What to expect after you send it

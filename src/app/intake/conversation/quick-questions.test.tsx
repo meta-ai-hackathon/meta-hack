@@ -170,9 +170,24 @@ describe("grouping the remaining questions", () => {
     const groups = groupRemainingQuestions(stageState());
     expect(groups[groups.length - 1]?.sensitive).toBe(true);
     expect(groups.slice(0, -1).every((group) => !group.sensitive)).toBe(true);
-    // The sensitive ids are exactly the owner-named set: citizenship /
-    // immigration status and disability.
-    expect(SENSITIVE_QUESTION_IDS).toEqual(["citizenship_status", "disability_status"]);
+    // The sensitive ids are the owner-named set: citizenship /
+    // immigration status and disability, plus the sensitive
+    // work-requirements items (pregnancy, drug/alcohol, mental health,
+    // disability-hard-work, serious health condition, incarceration,
+    // foster care, veteran) — VAL-WR-006 joins them to this group.
+    expect(SENSITIVE_QUESTION_IDS).toEqual([
+      "citizenship_status",
+      "disability_status",
+      "wr_pregnant",
+      "wr_drug_alcohol_treatment",
+      "wr_drug_alcohol_disorder",
+      "wr_disability_hard_work",
+      "wr_mental_health_hard_work",
+      "wr_serious_health_condition",
+      "wr_jail_prison_past_4_months",
+      "wr_foster_care_under_26",
+      "wr_veteran_100_disabled",
+    ]);
     const sensitive = groups[groups.length - 1]!;
     expect(sensitive.questions.map((q) => q.id)).toEqual([
       "citizenship_status",
@@ -198,6 +213,49 @@ describe("grouping the remaining questions", () => {
       group.questions.map((q) => q.id),
     );
     expect(flat).toEqual(["income_sources"]);
+  });
+  it("claims the work-requirements questions in their own group, before the sensitive group (VAL-WR-006)", () => {
+    const WR_IDS = [
+      "wr_exempt_situations",
+      "wr_applied_last_month",
+      "wr_applied_last_month_which",
+      "wr_medical_travel_1hr",
+      "wr_hospital_care_24hr",
+      "wr_student_enrolled",
+      "wr_income_580",
+      "wr_work_activity_who",
+      "wr_work_activity_types",
+      "wr_work_activity_hours",
+    ];
+    const wrDefinitions = WR_IDS.map((id) =>
+      question({ id, prompt: `The ${id} prompt`, pii: true, required: false }),
+    );
+    const groups = groupRemainingQuestions(stageState());
+    // None of the fixture's remaining ids is a wr id, so no work-requirements
+    // group renders here — the group exists only when it has cards.
+    expect(groups.some((group) => group.id === "work-requirements")).toBe(false);
+    // With wr ids remaining, they bucket into the work-requirements group in
+    // the engine's spec order; the sensitive wr ids stay in the LAST group.
+    const wrState = stageState({
+      questions: [...ALL_QUESTIONS, ...wrDefinitions],
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: WR_IDS,
+        requiredCount: WR_IDS.length,
+        remainingIds: WR_IDS,
+        remainingCount: WR_IDS.length,
+        complete: false,
+      },
+    });
+    const wrGroups = groupRemainingQuestions(wrState);
+    const wrGroup = wrGroups.find((group) => group.id === "work-requirements");
+    expect(wrGroup).toBeDefined();
+    expect(wrGroup!.sensitive).toBe(false);
+    expect(wrGroup!.questions.map((q) => q.id)).toEqual(WR_IDS);
+    // This fixture's WR_IDS carry no sensitive item, so no sensitive group
+    // renders; the work-requirements group is the stage's last.
+    expect(wrGroups[wrGroups.length - 1]!.id).toBe("work-requirements");
+    expect(wrGroups.some((group) => group.sensitive)).toBe(false);
   });
 });
 
@@ -608,5 +666,410 @@ describe("the quick-questions stage static markup", () => {
     expect(html).toContain("5 questions instead of 5");
     expect(html).toContain("Why we ask");
     expect(findBannedClaims(html)).toEqual([]);
+  });
+});
+
+describe("work-activity reporting renders on the stage (VAL-WR-005)", () => {
+  // The complement case of the skip chains, proven on the live stage:
+  // when no exemption, income, or student path applies, the three
+  // work-activity reporting questions are in the still-to-ask set and
+  // RENDER as cards — claimed by the stage's work-requirements group
+  // (wr-stage-ui), which also holds the exemption screen and the other
+  // work-requirements questions; sensitive items stay in the LAST group.
+  const WORK_ACTIVITY = [
+    question({
+      id: "wr_work_activity_who",
+      prompt: "Who completed work activities last month?",
+      type: "text",
+      required: false,
+      pii: true,
+    }),
+    question({
+      id: "wr_work_activity_types",
+      prompt: "What kinds of work activities did they do last month?",
+      type: "multi_select",
+      required: false,
+      options: [
+        { value: "job_internship", label: "A job or internship" },
+        { value: "self_employment", label: "Self-employment" },
+        { value: "caregiving", label: "Caregiving" },
+      ],
+    }),
+    question({
+      id: "wr_work_activity_hours",
+      prompt: "About how many hours of work activities were completed last month?",
+      type: "number",
+      required: false,
+    }),
+  ];
+  const ids = WORK_ACTIVITY.map((q) => q.id);
+
+  async function renderWrStage(): Promise<HTMLElement> {
+    const React = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const state = stageState({
+      questions: WORK_ACTIVITY,
+      progress: { answered: 0, remaining: 3, total: 3 },
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: ids,
+        requiredCount: 3,
+        remainingIds: ids,
+        remainingCount: 3,
+        complete: false,
+      },
+      income: {
+        questionIds: [],
+        answeredCount: 0,
+        confirmedCount: 0,
+        totalCount: 0,
+        handled: true,
+      },
+    });
+    await React.act(async () => {
+      createRoot(container).render(
+        <QuickQuestionsStage
+          state={state}
+          onStateChange={() => undefined}
+          onNotice={() => undefined}
+          onToTalk={() => undefined}
+        />,
+      );
+    });
+    await React.act(async () => undefined);
+    return container;
+  }
+
+  it("renders the three work-activity cards in spec order for a no-exemption session", async () => {
+    const container = await renderWrStage();
+    const cards = [...container.querySelectorAll("[data-qq-card]")].map(
+      (card) => card.getAttribute("data-qq-card"),
+    );
+    expect(cards).toEqual(ids);
+    // The work-requirements group claims them (wr-stage-ui); a spec id the
+    // group mapping doesn't know would still fall through to the "Other
+    // questions" bucket — a spec addition can never silently drop off.
+    const group = container.querySelector('[data-qq-group="work-requirements"]');
+    expect(group).not.toBeNull();
+    expect(group!.querySelectorAll("[data-qq-card]").length).toBe(3);
+    for (const wr of WORK_ACTIVITY) {
+      expect(container.textContent).toContain(wr.prompt);
+    }
+    expect(findBannedClaims(container.textContent ?? "")).toEqual([]);
+  });
+});
+
+describe("work-requirements groups, credit, and the matched income screen (VAL-WR-006/008/009/010/011)", () => {
+  // The wr-stage-ui part: the exemption screen + other-situations +
+  // work-activity reporting render in a dedicated work-requirements group;
+  // the sensitive items join the SENSITIVE-LAST group with why-we-ask
+  // notes, optional marks, and skip affordances; the $580 screen carries
+  // the deterministic "Matched for you" proposal (engine-computed,
+  // person-correctable); the stage's info affordance carries the Civilla
+  // credit and the official NC resource link.
+
+  let posts: { body: string }[] = [];
+
+  beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    posts = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        posts.push({ body: String(init?.body) });
+        return new Response(JSON.stringify(stageState()), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.replaceChildren();
+  });
+
+  const WR_EXEMPT = question({
+    id: "wr_exempt_situations",
+    prompt: "Are you or anyone applying for Medicaid in one of these situations?",
+    type: "multi_select",
+    pii: true,
+    options: [
+      { value: "parent_child_under_18", label: "A parent of a child under 18" },
+      { value: "none", label: "None of these apply" },
+    ],
+  });
+  const WR_INCOME_580 = question({
+    id: "wr_income_580",
+    prompt: "Does your household make at least $580 in monthly income?",
+    type: "single_select",
+    pii: true,
+    options: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
+  });
+  const WR_WHO = question({
+    id: "wr_work_activity_who",
+    prompt: "Who completed work activities last month?",
+    type: "text",
+    required: false,
+    pii: true,
+  });
+  const WR_PREGNANT = question({
+    id: "wr_pregnant",
+    prompt: "Are you pregnant now or were you pregnant in the last 12 months?",
+    type: "single_select",
+    required: false,
+    pii: true,
+    options: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
+  });
+  const WR_JAIL = question({
+    id: "wr_jail_prison_past_4_months",
+    prompt: "Were you in jail or prison in the past 4 months?",
+    type: "single_select",
+    required: false,
+    pii: true,
+    options: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
+  });
+
+  const WR_QUESTIONS = [WR_EXEMPT, WR_INCOME_580, WR_WHO, WR_PREGNANT, WR_JAIL];
+  const WR_REMAINING = WR_QUESTIONS.map((q) => q.id);
+
+  function wrStageState(
+    overrides?: Partial<IntakeClientState>,
+  ): IntakeClientState {
+    return stageState({
+      questions: [...ALL_QUESTIONS, ...WR_QUESTIONS],
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: [...ALL_QUESTIONS.map((q) => q.id), ...WR_REMAINING],
+        requiredCount: ALL_QUESTIONS.length + WR_REMAINING.length,
+        remainingIds: [...ALL_QUESTIONS.map((q) => q.id), ...WR_REMAINING],
+        remainingCount: ALL_QUESTIONS.length + WR_REMAINING.length,
+        complete: false,
+      },
+      income: {
+        questionIds: [],
+        answeredCount: 0,
+        confirmedCount: 0,
+        totalCount: 0,
+        handled: true,
+      },
+      ...overrides,
+    });
+  }
+
+  /** The captured income answers the $580 matcher reads (pii:false set). */
+  const CAPTURED_INCOME_ANSWERS = {
+    income_sources: { status: "known" as const, value: ["job"] },
+    job_income_amount: { status: "known" as const, value: 150 },
+    job_income_frequency: { status: "known" as const, value: "weekly" },
+  };
+
+  async function renderWrState(
+    state: IntakeClientState,
+  ): Promise<{ container: HTMLElement; act: (fn: () => Promise<void> | void) => Promise<void> }> {
+    const React = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const act = async (fn: () => Promise<void> | void) => {
+      await React.act(async () => {
+        await fn();
+        for (let i = 0; i < 6; i += 1) {
+          await new Promise((done) => setTimeout(done, 0));
+        }
+      });
+    };
+    await act(async () => {
+      root.render(
+        <QuickQuestionsStage
+          state={state}
+          onStateChange={() => undefined}
+          onNotice={() => undefined}
+          onToTalk={() => undefined}
+        />,
+      );
+    });
+    await act(async () => undefined);
+    return { container, act };
+  }
+
+  const q = (container: HTMLElement, attr: string): Element | null =>
+    container.querySelector(`[data-${attr}]`);
+
+  it("renders the work-requirements group BEFORE the sensitive group, whose cards carry why-we-ask notes, optional marks, and skips (VAL-WR-006)", async () => {
+    const { container } = await renderWrState(wrStageState());
+    const groupIds = [...container.querySelectorAll("[data-qq-group]")].map(
+      (group) => group.getAttribute("data-qq-group"),
+    );
+    // The work-requirements group sits with the topical groups (after
+    // income, before the trailing buckets); the sensitive group (carrying
+    // the sensitive wr items) is LAST.
+    expect(groupIds).toEqual([
+      "application",
+      "household",
+      "income",
+      "work-requirements",
+      "sensitive",
+    ]);
+    const wrGroup = container.querySelector('[data-qq-group="work-requirements"]')!;
+    const wrCards = [...wrGroup.querySelectorAll("[data-qq-card]")].map((card) =>
+      card.getAttribute("data-qq-card"),
+    );
+    expect(wrCards).toEqual(["wr_exempt_situations", "wr_income_580", "wr_work_activity_who"]);
+
+    const sensitiveGroup = container.querySelector('[data-qq-group="sensitive"]')!;
+    const sensitiveCards = [...sensitiveGroup.querySelectorAll("[data-qq-card]")].map(
+      (card) => card.getAttribute("data-qq-card"),
+    );
+    // Sensitive LAST: the wr sensitive items render after every
+    // non-sensitive card (citizenship_status/disability_status are not in
+    // this fixture's remaining set).
+    const allCards = [...container.querySelectorAll("[data-qq-card]")].map((card) =>
+      card.getAttribute("data-qq-card"),
+    );
+    expect(allCards.slice(-sensitiveCards.length)).toEqual(sensitiveCards);
+    // The fixture's remaining set includes citizenship_status and
+    // disability_status (the original sensitive pair) — the wr sensitive
+    // items join them in the LAST group, after all non-sensitive cards.
+    expect(sensitiveCards).toEqual([
+      "citizenship_status",
+      "disability_status",
+      "wr_pregnant",
+      "wr_jail_prison_past_4_months",
+    ]);
+
+    // Each sensitive card: a visible why-we-ask note, the optional mark,
+    // and a skip affordance that writes nothing.
+    for (const id of sensitiveCards) {
+      const note = q(container, `qq-why="${id}"`);
+      expect(note).not.toBeNull();
+      expect(note?.textContent).toContain("Why we ask");
+      const card = q(container, `qq-card="${id}"`)!;
+      expect(card.getAttribute("data-qq-optional")).toBe("true");
+      expect(q(container, `qq-skip="${id}"`)).not.toBeNull();
+    }
+  });
+
+  it("carries the Civilla credit and the official NC work-requirements link on the stage's info affordance (VAL-WR-010)", async () => {
+    const { container } = await renderWrState(wrStageState());
+    const credit = container.querySelector("[data-qq-credit]");
+    expect(credit).not.toBeNull();
+    expect(credit?.textContent).toContain("Civilla");
+    const links = [...credit!.querySelectorAll("a")].map((a) =>
+      a.getAttribute("href"),
+    );
+    expect(links).toContain("https://civilla.org/work/hr1/");
+    // Worker research (retrieved 2026-11-01): NC publishes an official
+    // work-requirements information page — the Work and Community
+    // Engagement Requirement on the NC Medicaid (NCDHHS) site.
+    expect(links).toContain(
+      "https://medicaid.ncdhhs.gov/beneficiaries/impact-hr-1-and-federal-changes-medicaid/work-and-community-engagement-requirement",
+    );
+  });
+
+  it("renders the engine's live N of M over the grown universe, never hardcoded (VAL-WR-011)", async () => {
+    const state = wrStageState();
+    const { container } = await renderWrState(state);
+    const counter = container.querySelector("[data-qq-counter]");
+    expect(counter?.textContent).toBe(
+      counterCopy(state.quickQuestions.remainingCount, state.quickQuestions.requiredCount),
+    );
+    expect(counter?.textContent).toBe(
+      `${ALL_QUESTIONS.length + WR_REMAINING.length} questions instead of ${ALL_QUESTIONS.length + WR_REMAINING.length}`,
+    );
+  });
+
+  it("every rendered string stays banned-claims clean, and seeded work-requirements phrasings provably bite (VAL-WR-009)", async () => {
+    const { container } = await renderWrState(wrStageState());
+    expect(findBannedClaims(container.textContent ?? "")).toEqual([]);
+    // The seeded violation phrasings (the HARD LINE): each must bite.
+    for (const seeded of [
+      "Work requirements done — you are exempt from the work requirement.",
+      "No need here: you meet the work requirement.",
+      "All set — you don't need to report work activities.",
+    ]) {
+      expect(findBannedClaims(seeded).length, seeded).toBeGreaterThan(0);
+    }
+    // The permitted framing passes untouched.
+    expect(
+      findBannedClaims("You may not need to report work activities — the state decides."),
+    ).toEqual([]);
+  });
+
+  it("the $580 screen is pre-picked 'Matched for you' from captured income and saving confirms it (VAL-WR-008)", async () => {
+    posts = [];
+    const { container, act } = await renderWrState(
+      wrStageState({ answers: CAPTURED_INCOME_ANSWERS }),
+    );
+    // The deterministic match (150/week floor ×4 = 600 ≥ 580) is adopted:
+    // the card shows the Matched-for-you note with the proposal pre-picked.
+    const matched = q(container, 'qq-matched="wr_income_580"');
+    expect(matched).not.toBeNull();
+    expect(matched?.textContent).toContain("Matched for you");
+    const yes = container.querySelector("#wr_income_580-yes") as HTMLInputElement;
+    expect(yes.checked).toBe(true);
+    expect(findBannedClaims(container.textContent ?? "")).toEqual([]);
+
+    // Confirming saves through the existing tri-state path (user-supplied
+    // provenance, like every card here).
+    await act(async () => {
+      q(container, 'qq-save="wr_income_580"')?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(JSON.parse(posts[0]!.body)).toMatchObject({
+      questionId: "wr_income_580",
+      status: "known",
+      value: "yes",
+    });
+  });
+
+  it("correcting the $580 proposal saves the person's own answer (VAL-WR-008)", async () => {
+    posts = [];
+    // One mounted stage per test: two live roots would share a
+    // document-scoped radio group in jsdom (a test-environment artifact,
+    // not app behavior — the app mounts one stage).
+    const { container, act } = await renderWrState(
+      wrStageState({ answers: CAPTURED_INCOME_ANSWERS }),
+    );
+    await act(async () => {
+      (container.querySelector("#wr_income_580-no") as HTMLInputElement).click();
+    });
+    const no = container.querySelector("#wr_income_580-no") as HTMLInputElement;
+    expect(no.checked).toBe(true);
+    // The matched note yields to the person's own pick.
+    expect(container.querySelector('[data-qq-matched="wr_income_580"]')).toBeNull();
+    await act(async () => {
+      q(container, 'qq-save="wr_income_580"')?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(JSON.parse(posts[0]!.body)).toMatchObject({
+      questionId: "wr_income_580",
+      status: "known",
+      value: "no",
+    });
+  });
+
+  it("without captured income the $580 screen is asked directly (VAL-WR-008)", async () => {
+    const { container } = await renderWrState(wrStageState());
+    expect(container.querySelector('[data-qq-matched="wr_income_580"]')).toBeNull();
+    const yes = container.querySelector("#wr_income_580-yes") as HTMLInputElement;
+    expect(yes.checked).toBe(false);
+    const no = container.querySelector("#wr_income_580-no") as HTMLInputElement;
+    expect(no.checked).toBe(false);
   });
 });

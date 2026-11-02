@@ -21,6 +21,32 @@ export interface PilotPortalLink {
   readonly retrievedAt: string;
 }
 
+/**
+ * An additional application one session's answers also prepare (snap-form
+ * milestone, VAL-SNAP-004/005): ask-once reuse across programs. The
+ * registries' spec_question_id links drive the carry-over — an
+ * already-answered question is never re-asked on either surface.
+ */
+export interface PilotApplication {
+  /** The program's plain-language name as the person knows it. */
+  readonly programName: string;
+  /** The form-registry entry the PDF pipeline fills for this program. */
+  readonly formRegistryId: string;
+  /**
+   * The honest entry-point copy on the results/review surface. Promises
+   * nothing: the program is decided solely by the agency; the app
+   * prepares, the person reviews, signs, and submits themselves.
+   */
+  readonly entryPoint: {
+    readonly headline: string;
+    readonly detail: string;
+    /** The control's accessible name (what choosing it does). */
+    readonly action: string;
+  };
+  /** Official portal links shown to the person (never auto-submitted). */
+  readonly portalLinks: readonly PilotPortalLink[];
+}
+
 export interface PilotConfig {
   /** The benefits program the pilot serves. */
   readonly programName: string;
@@ -40,6 +66,11 @@ export interface PilotConfig {
   readonly kbEntryIds: readonly string[];
   /** Official portal links shown to the person (never auto-submitted). */
   readonly portalLinks: readonly PilotPortalLink[];
+  /**
+   * The additional applications the SAME session's answers also prepare
+   * ("also prepare" entry points on the results/review surface, in order).
+   */
+  readonly additionalApplications: readonly PilotApplication[];
 }
 
 export const PILOT_CONFIG: PilotConfig = {
@@ -68,4 +99,64 @@ export const PILOT_CONFIG: PilotConfig = {
       retrievedAt: "2026-10-30",
     },
   ],
+  additionalApplications: [
+    {
+      programName: "Food and Nutrition Services (SNAP)",
+      formRegistryId: "dss-8207",
+      entryPoint: {
+        headline: "Also prepare your SNAP application (DSS-8207)",
+        detail:
+          "The same answers can prepare a Food and Nutrition Services " +
+          "application. Applying may be worth pursuing — SNAP is decided " +
+          "solely by your county DSS. We prepare the form; you review it, " +
+          "sign it, and submit it yourself.",
+        action: "Prepare my SNAP application from these answers",
+      },
+      portalLinks: [
+        {
+          label: "Apply online through ePASS",
+          url: "https://epass.nc.gov/",
+          retrievedAt: "2026-11-01",
+        },
+        {
+          label: "Food and Nutrition Services (official guidance)",
+          url: "https://www.ncdhhs.gov/divisions/child-and-family-well-being/food-and-nutrition-services-food-stamps",
+          retrievedAt: "2026-11-01",
+        },
+        {
+          label: "Printable application (DSS-8207, PDF)",
+          url: "https://policies.ncdhhs.gov/wp-content/uploads/DSS-8207-FNS-App_10.2024.pdf",
+          retrievedAt: "2026-11-01",
+        },
+      ],
+    },
+  ],
 };
+
+/**
+ * The pilot application a form id belongs to: the pilot's primary program
+ * for its own form, or one of the additional applications. Null for forms
+ * outside the pilot's programs (the sample/demo fixtures) — callers fall
+ * back to the pilot's primary identity.
+ */
+export function pilotApplicationForForm(formId: string): {
+  programName: string;
+  portalLinks: readonly PilotPortalLink[];
+} | null {
+  if (formId === PILOT_CONFIG.formRegistryId) {
+    return {
+      programName: PILOT_CONFIG.programName,
+      portalLinks: PILOT_CONFIG.portalLinks,
+    };
+  }
+  const additional = PILOT_CONFIG.additionalApplications.find(
+    (application) => application.formRegistryId === formId,
+  );
+  if (!additional) {
+    return null;
+  }
+  return {
+    programName: additional.programName,
+    portalLinks: additional.portalLinks,
+  };
+}

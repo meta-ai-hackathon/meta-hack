@@ -1,8 +1,10 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import dhb5200Raw from "../../../kb/forms/dhb-5200.json";
+import dss8207Raw from "../../../kb/forms/dss-8207.json";
 import { PILOT_CONFIG } from "../pilot";
 import { visibleQuestions, type AnswerMap, type StoredAnswer } from "./flow";
+import { buildClientState } from "./client-state";
 import {
   DEFAULT_PROGRAM_IDS,
   PROGRAM_REQUIREMENTS,
@@ -90,11 +92,15 @@ const extraAnswerIdsArb: fc.Arbitrary<readonly string[]> = fc.subarray(ALL_IDS, 
 
 /** The spec question ids a committed registry's fields link to (raw read). */
 function registryLinks(registryId: string): readonly string[] {
-  expect(registryId).toBe("dhb-5200");
-  const raw = dhb5200Raw as unknown as {
-    fields: readonly { spec_question_id: string | null }[];
+  const rawById: Record<string, unknown> = {
+    "dhb-5200": dhb5200Raw,
+    "dss-8207": dss8207Raw,
   };
-  return raw.fields.flatMap((field) =>
+  const raw = rawById[registryId] as
+    | { fields: readonly { spec_question_id: string | null }[] }
+    | undefined;
+  expect(raw, `committed registry ${registryId}`).toBeDefined();
+  return raw!.fields.flatMap((field) =>
     field.spec_question_id === null ? [] : [field.spec_question_id],
   );
 }
@@ -126,15 +132,14 @@ describe("requiredForPrograms", () => {
   it("is idempotent and deduplicates program ids (property)", () => {
     const programIds = PROGRAM_REQUIREMENTS.programs.map((program) => program.id);
     fc.assert(
-      fc.property(
-        fc.subarray(programIds, { minLength: 1 }),
-        fc.subarray(programIds, { minLength: 1 }),
-        (list, repeat) => {
-          const once = requiredForPrograms(list);
-          expect(requiredForPrograms(list)).toEqual(once);
-          expect(requiredForPrograms([...list, ...repeat])).toEqual(once);
-        },
-      ),
+      fc.property(fc.subarray(programIds, { minLength: 1 }), (list) => {
+        const once = requiredForPrograms(list);
+        expect(requiredForPrograms(list)).toEqual(once);
+        // Repeating ids already in the list adds nothing (dedup), and a
+        // repeated call is idempotent. (Different programs legitimately
+        // have different universes — the union is per program set.)
+        expect(requiredForPrograms([...list, ...list])).toEqual(once);
+      }),
     );
   });
 
@@ -297,5 +302,253 @@ describe("the committed layer's consistency with the pilot", () => {
         expect(QUESTION_BY_ID[id], `${program.id}: ${id}`).toBeDefined();
       }
     }
+  });
+});
+
+describe("the grown universe with the work-requirements questions (VAL-WR-011)", () => {
+  // The wr_* ids landed in the spec + program-requirements (part 1); the
+  // counter's M must grow with them — COMPUTED from the committed data,
+  // never hardcoded. These pins complement the skip-chain suite below
+  // (VAL-WR-004/005) and the stage tests that render the live counter.
+
+  const WORK_REQUIREMENTS_IDS = QUESTIONS.filter((question) =>
+    question.id.startsWith("wr_"),
+  ).map((question) => question.id);
+
+  it("every work-requirements question is in the required universe (M grew with the spec)", () => {
+    expect(WORK_REQUIREMENTS_IDS.length).toBeGreaterThan(0);
+    const universe = requiredForPrograms(DEFAULT_PROGRAM_IDS);
+    for (const id of WORK_REQUIREMENTS_IDS) {
+      expect(universe, id).toContain(id);
+    }
+  });
+
+  it("M equals the committed data's own count — derived, never hardcoded", () => {
+    // Re-derive M from the RAW committed requirements entries (each default
+    // program's required ids plus its registries' spec links), independently
+    // of the engine's union/order logic, and assert the engine's M matches.
+    const rawIds = new Set<string>();
+    for (const programId of DEFAULT_PROGRAM_IDS) {
+      const entry = PROGRAM_REQUIREMENTS.programs.find(
+        (candidate) => candidate.id === programId,
+      )!;
+      for (const id of entry.required_question_ids) {
+        rawIds.add(id);
+      }
+      for (const registryId of entry.form_registry_ids) {
+        for (const link of registryLinks(registryId)) {
+          rawIds.add(link);
+        }
+      }
+    }
+    const universe = requiredForPrograms(DEFAULT_PROGRAM_IDS);
+    expect(universe.length).toBe(rawIds.size);
+    expect(remainingQuickQuestions({}).requiredCount).toBe(rawIds.size);
+  });
+
+  it("N decrements by one as a work-requirements question is answered, M fixed", () => {
+    const before = remainingQuickQuestions({});
+    expect(before.remainingCount).toBe(before.requiredCount);
+    // A "no" answer hides nothing (the skip conditions key on "yes"), so
+    // exactly one card leaves the stage.
+    const after = remainingQuickQuestions({
+      wr_pregnant: { status: "known", value: "no" },
+    });
+    expect(after.requiredCount).toBe(before.requiredCount);
+    expect(after.remainingCount).toBe(before.remainingCount - 1);
+    expect(after.remainingIds).not.toContain("wr_pregnant");
+    expect(after.remainingIds.length).toBe(after.remainingCount);
+    // The exemption screen is the bigger honest recompute: answering it
+    // with a selection ALSO hides the work-activity reporting section
+    // (the spec's skip conditions — VAL-WR-004), so N drops by four, the
+    // counter recomputing over the grown universe in one save.
+    const exempted = remainingQuickQuestions({
+      wr_exempt_situations: { status: "known", value: ["parent_child_under_18"] },
+    });
+    expect(exempted.requiredCount).toBe(before.requiredCount);
+    expect(exempted.remainingCount).toBe(before.remainingCount - 4);
+    for (const id of [
+      "wr_work_activity_who",
+      "wr_work_activity_types",
+      "wr_work_activity_hours",
+    ]) {
+      expect(exempted.remainingIds).not.toContain(id);
+    }
+  });
+});
+
+describe("work-requirements skip chains (VAL-WR-004/005)", () => {
+  // The Civilla two-section design, encoded in the spec: work-activity
+  // reporting (who / types / hours last month) is visible ONLY when no
+  // exemption, income, or student path applies. The hiding lives in the
+  // new questions' skip_conditions — the flow engine's isQuestionVisible
+  // does the work; nothing forks flow.ts.
+
+  const WORK_ACTIVITY_IDS = [
+    "wr_work_activity_who",
+    "wr_work_activity_types",
+    "wr_work_activity_hours",
+  ];
+
+  const known = (id: string, value: unknown): AnswerMap => ({
+    [id]: { status: "known", value },
+  });
+
+  /** One fixture per hiding path: a known answer that must hide all three. */
+  const HIDING_CASES: readonly {
+    readonly path: string;
+    readonly answers: AnswerMap;
+  }[] = [
+    ...["parent_child_under_18", "nonparent_caregiver_child_under_14", "caregiver_daily_activities", "already_snap_tanf_work_requirements"].map(
+      (option) => ({
+        path: `exemption selection: ${option}`,
+        answers: known("wr_exempt_situations", [option]),
+      }),
+    ),
+    ...[
+      "wr_pregnant",
+      "wr_drug_alcohol_treatment",
+      "wr_drug_alcohol_disorder",
+      "wr_disability_hard_work",
+      "wr_mental_health_hard_work",
+      "wr_serious_health_condition",
+      "wr_jail_prison_past_4_months",
+      "wr_foster_care_under_26",
+      "wr_veteran_100_disabled",
+    ].map((id) => ({
+      path: `exemption yes: ${id}`,
+      answers: known(id, "yes"),
+    })),
+    { path: "past-month situation: wr_applied_last_month", answers: known("wr_applied_last_month", "yes") },
+    { path: "other situation: wr_medical_travel_1hr", answers: known("wr_medical_travel_1hr", "yes") },
+    { path: "other situation: wr_hospital_care_24hr", answers: known("wr_hospital_care_24hr", "yes") },
+    { path: "income path: wr_income_580", answers: known("wr_income_580", "yes") },
+    { path: "student path: full_time", answers: known("wr_student_enrolled", "full_time") },
+    { path: "student path: at_least_half_time", answers: known("wr_student_enrolled", "at_least_half_time") },
+  ];
+
+  it("hides the work-activity questions for each exemption/income/student path (directed, VAL-WR-004)", () => {
+    for (const { path, answers } of HIDING_CASES) {
+      // Both surfaces of the same engine: the visible-question filter and
+      // the quick-questions still-to-ask set (which reuses it).
+      const visible = new Set(
+        visibleQuestions(QUESTIONS, answers).map((question) => question.id),
+      );
+      const view = remainingQuickQuestions(answers);
+      for (const id of WORK_ACTIVITY_IDS) {
+        expect(visible.has(id), `${path}: ${id} visible`).toBe(false);
+        expect(view.remainingIds, `${path}: ${id} still asked`).not.toContain(
+          id,
+        );
+      }
+      // ...and the hiding path never over-hides: the exemption screen
+      // itself stays in the still-to-ask set (the skip targets ONLY the
+      // reporting section).
+      const answeredIds = Object.keys(answers);
+      for (const id of Object.keys(QUESTION_BY_ID).filter(
+        (candidate) =>
+          candidate.startsWith("wr_") &&
+          !WORK_ACTIVITY_IDS.includes(candidate) &&
+          !answeredIds.includes(candidate),
+      )) {
+        expect(view.remainingIds, `${path}: ${id} over-hidden`).toContain(id);
+      }
+    }
+  });
+
+  it("fail-open: unknown, unverified, or blank answers never trigger the skip", () => {
+    for (const status of ["unknown", "unverified"] as const) {
+      const answers: Record<string, StoredAnswer> = {};
+      for (const id of [
+        "wr_exempt_situations",
+        "wr_pregnant",
+        "wr_applied_last_month",
+        "wr_medical_travel_1hr",
+        "wr_hospital_care_24hr",
+        "wr_income_580",
+        "wr_student_enrolled",
+      ]) {
+        answers[id] = { status, value: null };
+      }
+      const view = remainingQuickQuestions(answers);
+      for (const id of WORK_ACTIVITY_IDS) {
+        expect(view.remainingIds, `${status}: ${id}`).toContain(id);
+      }
+    }
+    // Absent answers: a fresh session is asked everything, reporting too.
+    const fresh = remainingQuickQuestions({});
+    for (const id of WORK_ACTIVITY_IDS) {
+      expect(fresh.remainingIds, id).toContain(id);
+    }
+  });
+
+  it("keeps the work-activity questions visible when every path resolves negative (VAL-WR-005, engine direction)", () => {
+    const answers: AnswerMap = {
+      wr_exempt_situations: { status: "known", value: ["none"] },
+      wr_pregnant: { status: "known", value: "no" },
+      wr_drug_alcohol_treatment: { status: "known", value: "no" },
+      wr_drug_alcohol_disorder: { status: "known", value: "no" },
+      wr_disability_hard_work: { status: "known", value: "no" },
+      wr_mental_health_hard_work: { status: "known", value: "no" },
+      wr_serious_health_condition: { status: "known", value: "no" },
+      wr_jail_prison_past_4_months: { status: "known", value: "no" },
+      wr_foster_care_under_26: { status: "known", value: "no" },
+      wr_veteran_100_disabled: { status: "known", value: "no" },
+      wr_applied_last_month: { status: "known", value: "no" },
+      wr_medical_travel_1hr: { status: "known", value: "no" },
+      wr_hospital_care_24hr: { status: "known", value: "no" },
+      wr_income_580: { status: "known", value: "no" },
+      wr_student_enrolled: { status: "known", value: "not_enrolled" },
+    };
+    const view = remainingQuickQuestions(answers);
+    for (const id of WORK_ACTIVITY_IDS) {
+      expect(view.remainingIds, id).toContain(id);
+    }
+    // The which-situations follow-up is NOT asked when nothing applied
+    // last month (its own skip chain).
+    expect(view.remainingIds).not.toContain("wr_applied_last_month_which");
+  });
+});
+
+describe("the live completeness definition (client-state complete, pinned)", () => {
+  // The results auto-advance's "complete" is the FULL visible-spec walk
+  // the conversation has always done: every VISIBLE spec question
+  // answered — never required-for-programs only. The quick-questions
+  // block's complete narrows to the required universe (the honest
+  // counter's denominator); the journey gate does NOT. Pinned explicitly
+  // (orchestrator note, Nov 2): live behavior stays as validated across
+  // the walkthrough assertions; talk remains the catch-all.
+  it("state.complete stays false while a spec question outside the required universe is unanswered", () => {
+    const universe = requiredForPrograms(DEFAULT_PROGRAM_IDS);
+    const answers: Record<string, StoredAnswer> = {};
+    for (const id of universe) {
+      answers[id] = knownAnswer(id);
+    }
+    const state = buildClientState(answers);
+    expect(state.quickQuestions.complete).toBe(true);
+    // goal_detail is a spec question OUTSIDE the required universe (the
+    // requirements lists never name it) — visible here because main_goal
+    // is answered "other" (its skip condition) and unanswered: the
+    // full-spec walk is not done, so the journey gate stays open. (It was
+    // received_benefits_before/student_status until the snap-form milestone
+    // added the nc_snap program, whose DSS-8207 form asks them; goal_detail
+    // stays outside every program's list.)
+    answers.main_goal = { status: "known", value: "other" };
+    const withGoalVisible = buildClientState(answers);
+    expect(
+      withGoalVisible.quickQuestions.complete,
+      "main_goal's value change never shrinks the universe",
+    ).toBe(true);
+    expect(withGoalVisible.complete).toBe(false);
+  });
+
+  it("state.complete turns true exactly when every visible spec question is answered (skips included)", () => {
+    const answers: Record<string, StoredAnswer> = {};
+    for (const question of QUESTIONS) {
+      answers[question.id] = knownAnswer(question.id);
+    }
+    // Every id has a stored answer, so whatever the skip logic hides is
+    // invisible and every visible question is answered.
+    expect(buildClientState(answers).complete).toBe(true);
   });
 });
