@@ -26,25 +26,36 @@ import type { AnswerMap } from "./flow";
 // 2. A source is COUNTABLE when its amount is a known, finite,
 //    non-negative number (a captured number question is stored as a
 //    number; a numeric string converts the way the answer canonicalizer
-//    does — deterministically) AND its frequency converts to a month by
-//    a fixed factor: weekly ×4, biweekly ×2, twice_monthly ×2, monthly
-//    ×1. A week is treated as a quarter of a month — a conservative
-//    whole-month factor (the true average is ~4.33 weeks). Understating
-//    income biases the match toward asking/reporting rather than
-//    skipping, which is the fail-open direction for a reporting helper.
-//    No rounding is applied anywhere: the captured number is compared
-//    as-is.
+//    does — deterministically) AND its frequency converts to a month.
+//    Two fixed factors per frequency, and no rounding anywhere — the
+//    captured number is compared as-is:
+//    - a FLOOR factor (weekly ×4, biweekly ×2, twice_monthly ×2, monthly
+//      ×1): every calendar month contains at least that many paydays, so
+//      amount × floor is a certain minimum monthly figure;
+//    - a CEILING factor (weekly ×52/12, biweekly ×26/12, twice_monthly
+//      ×2, monthly ×1): the average-month conversion — the most a
+//      source's captured amount can average out to per month.
 // 3. A captured amount whose frequency is missing, not a known status,
 //    or "varies" is UNCOUNTABLE — it cannot be converted deterministically
 //    and is never estimated.
-// 4. The monthly total is the sum of the countable sources' monthly
-//    figures.
-// 5. The proposal is what is CERTAIN from the captured numbers:
-//    - total ≥ $580 → "yes" (a non-negative uncountable source cannot
-//      lower the total, so the threshold is met regardless);
-//    - total < $580 with NOTHING uncountable → "no";
-//    - anything else (no captured income at all, or total < $580 with an
-//      uncountable source) → no proposal: the question is ASKED DIRECTLY.
+// 4. The match also reads income_sources, the session's own list of where
+//    money comes from. Sources the three amount questions never capture
+//    (self-employed, family/friends, child support) are UNREAD income:
+//    the match cannot see them, so they never feed a total.
+// 5. The proposal is what is CERTAIN from the captured numbers, in BOTH
+//    directions:
+//    - "yes" when the FLOOR total is ≥ $580: the counted sources alone
+//      cross the threshold, and neither an uncountable amount nor an
+//      unread source can lower a real total;
+//    - "no" only when EVERYTHING is accounted for — every captured
+//      amount converted, no uncountable source, income_sources is known
+//      and names none of the unread sources — and the CEILING total is
+//      still < $580 (understating a week or fortnight must not fake a
+//      "no": $140/week averages ~$606/month, so that session is ASKED,
+//      not pre-answered);
+//    - anything else (no captured income at all, an uncountable source,
+//      or an unread source named in income_sources) → no proposal: the
+//      question is ASKED DIRECTLY.
 //
 // Pure and browser-safe: imports only the flow engine's answer-map type.
 // The import-boundary test (work-requirements.test.ts, per the
@@ -58,16 +69,39 @@ export const INCOME_580_QUESTION_ID = "wr_income_580";
 export const INCOME_580_MONTHLY_THRESHOLD = 580;
 
 /**
- * The fixed monthly factor per frequency option value. A frequency
+ * The fixed monthly factors per frequency option value. A frequency
  * outside this table ("varies", or anything not stored as one of these
- * option values) does not convert — see the rule above.
+ * option values) does not convert — see the rule above. twice_monthly
+ * and monthly convert exactly; weekly and biweekly carry the floor /
+ * ceiling pair.
  */
-const MONTHLY_FACTOR: Readonly<Record<string, number>> = {
+const FLOOR_MONTHLY_FACTOR: Readonly<Record<string, number>> = {
   weekly: 4,
   biweekly: 2,
   twice_monthly: 2,
   monthly: 1,
 };
+
+const CEILING_MONTHLY_FACTOR: Readonly<Record<string, number>> = {
+  weekly: 52 / 12,
+  biweekly: 26 / 12,
+  twice_monthly: 2,
+  monthly: 1,
+};
+
+/**
+ * The income_sources option values that account for every source of
+ * money: the three the amount questions capture, plus "none" (the
+ * person's own assertion that no money is coming in at all). Any OTHER
+ * option ("self_employed", "family_friends", "child_support") is money
+ * the match never sees — see rule 4.
+ */
+const CAPTURED_SOURCE_VALUES: ReadonlySet<string> = new Set([
+  "job",
+  "benefits",
+  "other",
+  "none",
+]);
 
 /** One income source: an amount question and, when it has one, its frequency. */
 interface IncomeSource {
@@ -129,8 +163,14 @@ function knownAmount(answers: AnswerMap, id: string): number | null {
   return null;
 }
 
-/** The stored frequency's monthly factor, or null when it does not convert. */
-function monthlyFactor(answers: AnswerMap, id: string): number | null {
+/**
+ * The stored frequency's monthly factor pair, or null when it does not
+ * convert.
+ */
+function monthlyFactors(
+  answers: AnswerMap,
+  id: string,
+): { floor: number; ceiling: number } | null {
   const stored = answers[id];
   if (!stored || stored.status !== "known") {
     return null;
@@ -139,48 +179,82 @@ function monthlyFactor(answers: AnswerMap, id: string): number | null {
   if (typeof value !== "string") {
     return null;
   }
-  return MONTHLY_FACTOR[value] ?? null;
+  const floor = FLOOR_MONTHLY_FACTOR[value];
+  const ceiling = CEILING_MONTHLY_FACTOR[value];
+  return floor === undefined || ceiling === undefined
+    ? null
+    : { floor, ceiling };
+}
+
+/**
+ * True when the session's own income_sources answer names a source the
+ * three amount questions never capture (rule 4). Unknown or absent —
+ * the match cannot rule unread money out.
+ */
+function namesUnreadSource(answers: AnswerMap): boolean {
+  const stored = answers.income_sources;
+  if (!stored || stored.status !== "known") {
+    return true;
+  }
+  const value = stored.value;
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? [value]
+      : [];
+  return values.some((item) => !CAPTURED_SOURCE_VALUES.has(String(item)));
 }
 
 /**
  * The deterministic $580-screen match over stored answers. See the
-// module doc comment for the complete, documented rule.
+ * module doc comment for the complete, documented rule.
  */
 export function matchIncome580(answers: AnswerMap): Income580Match {
   const countedSourceIds: string[] = [];
   const uncountedSourceIds: string[] = [];
-  let total = 0;
+  let floorTotal = 0;
+  let ceilingTotal = 0;
   for (const source of INCOME_SOURCES) {
     const amount = knownAmount(answers, source.amountId);
     if (amount === null) {
       continue;
     }
-    const factor =
+    const factors =
       source.frequencyId === null
-        ? 1
-        : monthlyFactor(answers, source.frequencyId);
-    if (factor === null) {
+        ? { floor: 1, ceiling: 1 }
+        : monthlyFactors(answers, source.frequencyId);
+    if (factors === null) {
       uncountedSourceIds.push(source.amountId);
       continue;
     }
     countedSourceIds.push(source.amountId);
-    total += amount * factor;
+    floorTotal += amount * factors.floor;
+    ceilingTotal += amount * factors.ceiling;
   }
-  if (total >= INCOME_580_MONTHLY_THRESHOLD) {
-    // Certain: the counted sources alone cross the threshold; a
-    // non-negative uncountable source cannot lower the total.
+  if (floorTotal >= INCOME_580_MONTHLY_THRESHOLD) {
+    // Certain: the counted sources' minimum month already crosses the
+    // threshold; neither an uncountable amount nor an unread source can
+    // lower a real total.
     return {
       proposal: "yes",
-      monthlyTotal: total,
+      monthlyTotal: floorTotal,
       countedSourceIds,
       uncountedSourceIds,
     };
   }
-  if (countedSourceIds.length > 0 && uncountedSourceIds.length === 0) {
-    // Certain: everything captured converted, and the total stays under.
+  const unreadSource = namesUnreadSource(answers);
+  if (
+    countedSourceIds.length > 0 &&
+    uncountedSourceIds.length === 0 &&
+    !unreadSource &&
+    ceilingTotal < INCOME_580_MONTHLY_THRESHOLD
+  ) {
+    // Certain: everything is accounted for (every captured amount
+    // converted, no unread source named), and even the average-month
+    // conversion stays under the threshold.
     return {
       proposal: "no",
-      monthlyTotal: total,
+      monthlyTotal: ceilingTotal,
       countedSourceIds,
       uncountedSourceIds: [],
     };
@@ -190,7 +264,7 @@ export function matchIncome580(answers: AnswerMap): Income580Match {
   // threshold, the total is known-incomplete and is never estimated.)
   return {
     proposal: null,
-    monthlyTotal: countedSourceIds.length > 0 ? total : null,
+    monthlyTotal: countedSourceIds.length > 0 ? ceilingTotal : null,
     countedSourceIds,
     uncountedSourceIds,
   };

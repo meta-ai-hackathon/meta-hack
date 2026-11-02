@@ -33,6 +33,11 @@ function merge(...maps: readonly AnswerMap[]): AnswerMap {
   return Object.assign({}, ...maps);
 }
 
+/** A known income_sources answer naming the given option values. */
+function sources(...values: string[]): AnswerMap {
+  return { income_sources: { status: "known", value: values } };
+}
+
 describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
   it("proposes for the spec question it names — a yes/no screen, asked directly otherwise", () => {
     const question = QUESTION_BY_ID[INCOME_580_QUESTION_ID];
@@ -60,8 +65,17 @@ describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
   });
 
   it("converts each frequency by its documented monthly factor", () => {
-    // weekly ×4 → 400 < 580: no.
-    expect(matchIncome580(merge(amount("job_income_amount", 100), frequency("job_income_frequency", "weekly"))).proposal).toBe("no");
+    // weekly ×4 → 400, and even the average-month conversion (×52/12 ≈
+    // 433) stays under: no, with every source accounted for.
+    expect(
+      matchIncome580(
+        merge(
+          amount("job_income_amount", 100),
+          frequency("job_income_frequency", "weekly"),
+          sources("job"),
+        ),
+      ).proposal,
+    ).toBe("no");
     // biweekly ×2 → 600 ≥ 580: yes.
     expect(matchIncome580(merge(amount("job_income_amount", 300), frequency("job_income_frequency", "biweekly"))).proposal).toBe("yes");
     // twice monthly ×2 → 600 ≥ 580: yes.
@@ -69,12 +83,49 @@ describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
     // monthly ×1, exactly at the threshold: the screen asks "at least $580" — yes.
     expect(matchIncome580(merge(amount("job_income_amount", INCOME_580_MONTHLY_THRESHOLD), frequency("job_income_frequency", "monthly"))).proposal).toBe("yes");
     // Just under: no.
-    expect(matchIncome580(merge(amount("job_income_amount", INCOME_580_MONTHLY_THRESHOLD - 0.01), frequency("job_income_frequency", "monthly"))).proposal).toBe("no");
+    expect(matchIncome580(merge(amount("job_income_amount", INCOME_580_MONTHLY_THRESHOLD - 0.01), frequency("job_income_frequency", "monthly"), sources("job"))).proposal).toBe("no");
+  });
+
+  it("never fakes a 'no' from understated weeks: $140/week averages over the threshold, so the session is asked (claude-review P2)", () => {
+    // Floor 4 × 140 = 560 (< 580) but the average month is 140 × 52/12
+    // ≈ 606.67 — a certain 'no' must survive the UPPER factors too.
+    const answers = merge(
+      amount("job_income_amount", 140),
+      frequency("job_income_frequency", "weekly"),
+      sources("job"),
+    );
+    expect(matchIncome580(answers)).toMatchObject({
+      proposal: null,
+      countedSourceIds: ["job_income_amount"],
+      uncountedSourceIds: [],
+    });
+  });
+
+  it("withholds a 'no' when income_sources names money the match never reads (claude-review P2)", () => {
+    // Self-employment only: the match sees no amount question for it and
+    // cannot rule the money out — asked directly, never a blind 'no'.
+    expect(
+      matchIncome580(sources("self_employed")).proposal,
+    ).toBeNull();
+    // Family money named but not captured: the small captured amount
+    // stays a proposal-less total.
+    const withFamily = merge(
+      amount("other_income_amount", 100),
+      sources("other", "family_friends"),
+    );
+    expect(matchIncome580(withFamily).proposal).toBeNull();
+    // Same amounts with the sources list accounting for everything: the
+    // 'no' becomes certain.
+    const accounted = merge(
+      amount("other_income_amount", 100),
+      sources("other"),
+    );
+    expect(matchIncome580(accounted).proposal).toBe("no");
   });
 
   it("treats other_income_amount as monthly by definition (the question asks per month)", () => {
     expect(matchIncome580(amount("other_income_amount", 600)).proposal).toBe("yes");
-    expect(matchIncome580(amount("other_income_amount", 100)).proposal).toBe("no");
+    expect(matchIncome580(merge(amount("other_income_amount", 100), sources("other"))).proposal).toBe("no");
   });
 
   it("sums every countable source into the monthly total", () => {
@@ -141,6 +192,7 @@ describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
     const answers = merge(
       amount("job_income_amount", 0),
       frequency("job_income_frequency", "monthly"),
+      sources("job"),
     );
     expect(matchIncome580(answers)).toMatchObject({
       proposal: "no",
@@ -175,9 +227,17 @@ describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
             INCOME_580_MONTHLY_THRESHOLD,
           );
         } else if (match.proposal === "no") {
-          // Certain upper bound: nothing was captured that could raise it.
+          // Certain upper bound: nothing was captured that could raise
+          // it, and no unread source is named (the stored answer
+          // accounts for every source of money).
           expect(match.monthlyTotal).toBeLessThan(INCOME_580_MONTHLY_THRESHOLD);
           expect(match.uncountedSourceIds).toEqual([]);
+          const named = answers.income_sources;
+          expect(named?.status).toBe("known");
+          const values = Array.isArray(named?.value) ? named.value : [named?.value];
+          for (const item of values) {
+            expect(["job", "benefits", "other", "none"]).toContain(item);
+          }
         } else {
           // Asked directly: no captured income, or an unconvertible one
           // keeps the total under the threshold with uncertainty left.
@@ -209,6 +269,16 @@ const FREQUENCY_VALUES = [
   "varies",
 ] as const;
 
+const INCOME_SOURCE_VALUES = [
+  "job",
+  "self_employed",
+  "benefits",
+  "family_friends",
+  "child_support",
+  "other",
+  "none",
+] as const;
+
 /** One income-source field: known with a value, unknown, or absent. */
 const fieldArb = (value: fc.Arbitrary<unknown>): fc.Arbitrary<
   AnswerMap[string]
@@ -220,7 +290,7 @@ const fieldArb = (value: fc.Arbitrary<unknown>): fc.Arbitrary<
     fc.constant(undefined),
   );
 
-/** An arbitrary answer map over the five income fields the match reads. */
+/** An arbitrary answer map over the income fields the match reads. */
 const incomeAnswersArb: fc.Arbitrary<AnswerMap> = fc
   .record({
     job_income_amount: fieldArb(fc.integer({ min: -10, max: 5000 })),
@@ -228,6 +298,12 @@ const incomeAnswersArb: fc.Arbitrary<AnswerMap> = fc
     benefits_income_amount: fieldArb(fc.integer({ min: 0, max: 5000 })),
     benefits_income_frequency: fieldArb(fc.constantFrom(...FREQUENCY_VALUES)),
     other_income_amount: fieldArb(fc.float({ min: 0, max: 5000, noNaN: true })),
+    income_sources: fieldArb(
+      fc.subarray([...INCOME_SOURCE_VALUES], {
+        minLength: 1,
+        maxLength: INCOME_SOURCE_VALUES.length,
+      }),
+    ),
   })
   .filter((map) => Object.values(map).some((entry) => entry !== undefined));
 
