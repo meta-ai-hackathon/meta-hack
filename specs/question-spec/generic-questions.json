@@ -1,6 +1,6 @@
 {
   "title": "Generic benefits-application questions",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "answer_statuses": ["known", "unknown", "unverified"],
   "questions": [
     {
@@ -565,6 +565,346 @@
       "required": false,
       "skip_conditions": [
         { "question_id": "contact_preference", "operator": "equals", "value": "in_person" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_exempt_situations",
+      "prompt": "Are you or anyone applying for Medicaid in one of these situations?",
+      "type": "multi_select",
+      "help": "Check all that apply. If one applies, you may not need to report work activities for that person — the state decides what counts. Someone applying who is not in one of these situations may still need to report their work activities, and the state decides that per person.",
+      "options": [
+        { "value": "parent_child_under_18", "label": "A parent of a child under 18" },
+        { "value": "nonparent_caregiver_child_under_14", "label": "A non-parent caregiver of a child under 14, such as a relative or anyone who provides at least 80 hours of care per month" },
+        { "value": "caregiver_daily_activities", "label": "A caregiver of someone who needs help with daily activities, such as a disabled person or an older adult" },
+        { "value": "already_snap_tanf_work_requirements", "label": "Already required to meet SNAP or TANF work requirements" },
+        { "value": "none", "label": "None of these apply" }
+      ],
+      "pii": true,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_pregnant",
+      "prompt": "Is anyone applying pregnant now, or have they been in the past 12 months?",
+      "type": "single_select",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_drug_alcohol_treatment",
+      "prompt": "Is anyone applying in a treatment program for a drug or alcohol disorder?",
+      "type": "single_select",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_drug_alcohol_disorder",
+      "prompt": "Does anyone applying have a drug or alcohol disorder that makes it hard to work? This includes people who have been in recovery for less than 5 years.",
+      "type": "single_select",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_disability_hard_work",
+      "prompt": "Does anyone applying have a physical, intellectual, or developmental disability that makes it hard to work and do daily activities (such as eating, walking, or getting out of a bed or chair)?",
+      "type": "single_select",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_mental_health_hard_work",
+      "prompt": "Does anyone applying have a mental health disorder that makes it hard to work (such as schizophrenia, major depression, bipolar disorder, or panic disorder)?",
+      "type": "single_select",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_serious_health_condition",
+      "prompt": "Does anyone applying have a serious health condition that makes it hard to work (such as cancer, multiple sclerosis, HIV/AIDS, or viral hepatitis)?",
+      "type": "single_select",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_jail_prison_past_4_months",
+      "prompt": "Is anyone applying in jail or prison now, or were they in the past 4 months?",
+      "type": "single_select",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_foster_care_under_26",
+      "prompt": "Was anyone applying in foster care at age 18, and are they now younger than 26?",
+      "type": "single_select",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_veteran_100_disabled",
+      "prompt": "Is anyone applying a disabled veteran with a 100% disability rating?",
+      "type": "single_select",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_applied_last_month",
+      "prompt": "Did any of these situations apply last month, but not this month?",
+      "type": "single_select",
+      "help": "A situation that applied last month may still matter for what gets reported. The state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_applied_last_month_which",
+      "prompt": "Which situations applied last month, but not this month?",
+      "type": "multi_select",
+      "help": "Check every situation that applied last month but not this month.",
+      "options": [
+        { "value": "pregnant", "label": "Pregnancy now or in the past 12 months" },
+        { "value": "parent_child_under_18", "label": "A parent of a child under 18" },
+        { "value": "nonparent_caregiver_child_under_14", "label": "A non-parent caregiver of a child under 14" },
+        { "value": "caregiver_daily_activities", "label": "A caregiver of someone who needs help with daily activities" },
+        { "value": "already_snap_tanf_work_requirements", "label": "Already meeting SNAP or TANF work requirements" },
+        { "value": "drug_alcohol_treatment", "label": "In a treatment program for a drug or alcohol disorder" },
+        { "value": "drug_alcohol_disorder", "label": "A drug or alcohol disorder making work hard" },
+        { "value": "disability_hard_work", "label": "A physical, intellectual, or developmental disability" },
+        { "value": "mental_health_hard_work", "label": "A mental health disorder" },
+        { "value": "serious_health_condition", "label": "A serious health condition" },
+        { "value": "jail_prison_past_4_months", "label": "Jail or prison in the past 4 months" },
+        { "value": "foster_care_under_26", "label": "Foster care at age 18, under 26" },
+        { "value": "veteran_100_disabled", "label": "A 100%-disabled veteran" },
+        { "value": "medical_travel_1hr", "label": "Traveling an hour or more for medical care" },
+        { "value": "hospital_care_24hr", "label": "Receiving 24-hour-level care" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "wr_applied_last_month", "operator": "equals", "value": "no" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_medical_travel_1hr",
+      "prompt": "Does anyone applying travel an hour or more to get medical care for themselves or a dependent with a serious health condition (including travel coordination that makes it hard to work)?",
+      "type": "single_select",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_hospital_care_24hr",
+      "prompt": "Is anyone applying receiving care in a hospital for more than 24 hours, or a similar level of care at another location (such as a nursing facility, psychiatric hospital, clinic, the VA, or at home)?",
+      "type": "single_select",
+      "help": "You can skip this if you'd rather not answer — the state decides what counts.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_student_enrolled",
+      "prompt": "Is anyone applying enrolled as a student (college, vocational, or GED program) full-time or at least half-time?",
+      "type": "single_select",
+      "help": "Part-time students can report their hours under work activities instead.",
+      "options": [
+        { "value": "not_enrolled", "label": "No" },
+        { "value": "full_time", "label": "Yes, full time" },
+        { "value": "at_least_half_time", "label": "Yes, at least half time" }
+      ],
+      "pii": true,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_income_580",
+      "prompt": "Does your household make at least $580 in monthly income? This includes all jobs, gig work, seasonal work, and unearned income such as unemployment.",
+      "type": "single_select",
+      "help": "Income from seasonal work can be averaged across 6 months. The state looks at your household's monthly income when it decides.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" }
+      ],
+      "pii": true,
+      "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_work_activity_who",
+      "prompt": "Who completed work activities last month?",
+      "type": "text",
+      "help": "Report work activities for household members who completed at least 80 hours last month. First names or nicknames are fine.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "wr_exempt_situations", "operator": "in", "value": "parent_child_under_18,nonparent_caregiver_child_under_14,caregiver_daily_activities,already_snap_tanf_work_requirements" },
+        { "question_id": "wr_pregnant", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_treatment", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_disorder", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_disability_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_mental_health_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_serious_health_condition", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_jail_prison_past_4_months", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_foster_care_under_26", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_veteran_100_disabled", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_applied_last_month", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_medical_travel_1hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_hospital_care_24hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_income_580", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_student_enrolled", "operator": "in", "value": "full_time,at_least_half_time" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_work_activity_types",
+      "prompt": "What kinds of work activities did they do last month?",
+      "type": "multi_select",
+      "help": "Check all that apply. Total hours can be a combination of the types of activities listed.",
+      "options": [
+        { "value": "job_internship", "label": "A job or internship" },
+        { "value": "self_employment", "label": "Self-employment" },
+        { "value": "work_program", "label": "A work program" },
+        { "value": "community_service", "label": "Community service or unpaid work, including volunteering with a non-profit, school, or other organization, or work in exchange for housing, meals, or other goods" },
+        { "value": "part_time_student_hours", "label": "Part-time student hours, where class, lab, or training time counts" },
+        { "value": "caregiving", "label": "Caregiving" }
+      ],
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "wr_exempt_situations", "operator": "in", "value": "parent_child_under_18,nonparent_caregiver_child_under_14,caregiver_daily_activities,already_snap_tanf_work_requirements" },
+        { "question_id": "wr_pregnant", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_treatment", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_disorder", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_disability_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_mental_health_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_serious_health_condition", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_jail_prison_past_4_months", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_foster_care_under_26", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_veteran_100_disabled", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_applied_last_month", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_medical_travel_1hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_hospital_care_24hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_income_580", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_student_enrolled", "operator": "in", "value": "full_time,at_least_half_time" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_work_activity_hours",
+      "prompt": "About how many hours of work activities were completed last month?",
+      "type": "number",
+      "help": "The monthly target is 80 hours. For part-time students, 1 credit hour equals 13 work activity hours per month. A best count is fine.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "wr_exempt_situations", "operator": "in", "value": "parent_child_under_18,nonparent_caregiver_child_under_14,caregiver_daily_activities,already_snap_tanf_work_requirements" },
+        { "question_id": "wr_pregnant", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_treatment", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_disorder", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_disability_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_mental_health_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_serious_health_condition", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_jail_prison_past_4_months", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_foster_care_under_26", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_veteran_100_disabled", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_applied_last_month", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_medical_travel_1hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_hospital_care_24hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_income_580", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_student_enrolled", "operator": "in", "value": "full_time,at_least_half_time" }
       ],
       "provenance": "user-supplied"
     }

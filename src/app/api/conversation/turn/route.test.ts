@@ -21,9 +21,11 @@ import {
   PII_QUESTION_IDS_IN_SPEC,
   QUESTION_BY_ID,
 } from "../../../../lib/intake/spec";
+import type { IntakeClientState } from "../../../../lib/intake/client-state";
 import { SESSION_COOKIE } from "../../../../lib/intake/store";
 import { CONSENT_HEADER } from "../../../../lib/consent";
 import { GET as historyGet } from "../history/route";
+import { POST as postIntakeAnswer } from "../../intake/answer/route";
 import { POST } from "./route";
 
 // Conversation turn route tests (Mission v2 M1, VAL-CONV-001..007, 009):
@@ -487,10 +489,80 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       { questionId: "prior_employer_last_month", text: "I last got paid by that employer in June 2024", value: "June 2024", verbatim: "June 2024", vaultValue: "June 2024", wholeBodyCheck: true },
     ];
 
-    // The full population: exactly every pii:true question in the spec.
-    expect(fixtures.map((fixture) => fixture.questionId).sort()).toEqual(
-      [...PII_QUESTION_IDS_IN_SPEC].sort(),
-    );
+    // The work-questions' capture path: the quick-questions stage's own
+    // endpoint, POST /api/intake/answer — a server endpoint with no model
+    // in the loop — never a typed turn to the model: sensitive select
+    // answers do not ride the LLM extraction path (claude-review P1).
+    // Their fixtures drive that answer route and assert the same vault
+    // invariants.
+    type AnswerRouteFixture = {
+      questionId: string;
+      value: unknown;
+      vaultValue: string;
+    };
+    const answerRouteFixtures: AnswerRouteFixture[] = [
+      {
+        // "None of these apply" — any other selection would hide the
+        // reporting section (the two-section design), and the who fixture
+        // below needs it visible.
+        questionId: "wr_exempt_situations",
+        value: ["none"],
+        vaultValue: "none",
+      },
+      { questionId: "wr_pregnant", value: "no", vaultValue: "no" },
+      { questionId: "wr_drug_alcohol_treatment", value: "no", vaultValue: "no" },
+      { questionId: "wr_drug_alcohol_disorder", value: "no", vaultValue: "no" },
+      { questionId: "wr_disability_hard_work", value: "no", vaultValue: "no" },
+      { questionId: "wr_mental_health_hard_work", value: "no", vaultValue: "no" },
+      { questionId: "wr_serious_health_condition", value: "no", vaultValue: "no" },
+      { questionId: "wr_jail_prison_past_4_months", value: "no", vaultValue: "no" },
+      { questionId: "wr_foster_care_under_26", value: "no", vaultValue: "no" },
+      { questionId: "wr_veteran_100_disabled", value: "no", vaultValue: "no" },
+      {
+        questionId: "wr_applied_last_month_which",
+        value: ["caregiver_daily_activities"],
+        vaultValue: "caregiver_daily_activities",
+      },
+      {
+        // Answered AFTER the which follow-up: a "no" here hides that
+        // question (the which-situations skip), and its fixture above is
+        // already saved.
+        questionId: "wr_applied_last_month",
+        value: "no",
+        vaultValue: "no",
+      },
+      { questionId: "wr_medical_travel_1hr", value: "no", vaultValue: "no" },
+      { questionId: "wr_hospital_care_24hr", value: "no", vaultValue: "no" },
+      { questionId: "wr_work_activity_who", value: "Alex", vaultValue: "Alex" },
+      {
+        questionId: "wr_work_activity_types",
+        value: ["community_service"],
+        vaultValue: "community_service",
+      },
+      { questionId: "wr_work_activity_hours", value: 20, vaultValue: "20" },
+      {
+        questionId: "wr_student_enrolled",
+        value: "not_enrolled",
+        vaultValue: "not_enrolled",
+      },
+      {
+        // Last: a "yes" here hides the reporting section for the rest of
+        // the session (the income path), and the activity fixtures above
+        // are already saved.
+        questionId: "wr_income_580",
+        value: "yes",
+        vaultValue: "yes",
+      },
+    ];
+
+    // The full population: exactly every pii:true question in the spec —
+    // the talk path's fixtures plus the answer route's.
+    expect(
+      [
+        ...fixtures.map((fixture) => fixture.questionId),
+        ...answerRouteFixtures.map((fixture) => fixture.questionId),
+      ].sort(),
+    ).toEqual([...PII_QUESTION_IDS_IN_SPEC].sort());
 
     let cookie: string | undefined;
     for (const fixture of fixtures) {
@@ -591,6 +663,61 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
           fixture.vaultValue.toLowerCase(),
         );
       }
+    }
+
+    // The answer route's own vault routing for the work-requirements
+    // questions: same invariants, the capture path with no model — the
+    // quick-questions stage's endpoint, never the model.
+    let answerCookie: string | undefined = cookie;
+    for (const fixture of answerRouteFixtures) {
+      const response = await postIntakeAnswer(
+        new Request("http://localhost:3100/api/intake/answer", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(answerCookie ? { cookie: answerCookie } : {}),
+          },
+          body: JSON.stringify({
+            questionId: fixture.questionId,
+            status: "known",
+            value: fixture.value,
+          }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      const setCookie = response.headers.get("set-cookie");
+      if (setCookie) {
+        answerCookie = setCookie.split(";")[0].trim();
+      }
+      // The intake answer route responds with the client state itself.
+      const data = (await response.json()) as IntakeClientState;
+
+      // The served state carries the status alone — structurally no value.
+      expect(data.answers[fixture.questionId]).toEqual({
+        status: "known",
+      });
+      expect(
+        Object.hasOwn(data.answers[fixture.questionId] ?? {}, "value"),
+      ).toBe(false);
+
+      // The answer row: value NULL, status known, provenance user_supplied.
+      const answerRows = await testDb`
+        SELECT value, status, provenance FROM answer
+        WHERE question_id = ${fixture.questionId}
+      `;
+      expect(answerRows).toHaveLength(1);
+      expect(answerRows[0].value).toBeNull();
+      expect(answerRows[0].status).toBe("known");
+      expect(answerRows[0].provenance).toBe("user_supplied");
+
+      // The vault holds the value — the same encrypted envelope.
+      const vaultRows = await testDb`
+        SELECT value FROM vault_entry WHERE field = ${fixture.questionId}
+      `;
+      expect(vaultRows).toHaveLength(1);
+      const storedValue = String(vaultRows[0].value);
+      expect(storedValue).not.toBe(fixture.vaultValue);
+      expect(storedValue).toMatch(/^enc1\./);
     }
 
     // One assistant turn per pii question, all clean.

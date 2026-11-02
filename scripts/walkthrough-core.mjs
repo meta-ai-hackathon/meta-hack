@@ -114,6 +114,27 @@ export const JOURNEY_PLAN = [
   { id: "contact_preference", status: "known", value: "email" },
   { id: "email_contact", status: "known", value: "jamie.watts@example.com" },
   { id: "best_time_to_reach", status: "known", value: "afternoon" },
+  // The work-requirements questions (milestone work-requirements), in spec
+  // order. The persona is a parent of a child under 18 whose household
+  // makes at least $580 a month — so the Civilla two-section design's
+  // reporting section (wr_work_activity_who/types/hours) is never asked
+  // (the exemption and income paths hide it), and neither is the
+  // which-situations follow-up (wr_applied_last_month = no).
+  { id: "wr_exempt_situations", status: "known", value: ["parent_child_under_18"] },
+  { id: "wr_pregnant", status: "known", value: "no" },
+  { id: "wr_drug_alcohol_treatment", status: "known", value: "no" },
+  { id: "wr_drug_alcohol_disorder", status: "known", value: "no" },
+  { id: "wr_disability_hard_work", status: "known", value: "no" },
+  { id: "wr_mental_health_hard_work", status: "known", value: "no" },
+  { id: "wr_serious_health_condition", status: "known", value: "no" },
+  { id: "wr_jail_prison_past_4_months", status: "known", value: "no" },
+  { id: "wr_foster_care_under_26", status: "known", value: "no" },
+  { id: "wr_veteran_100_disabled", status: "known", value: "no" },
+  { id: "wr_applied_last_month", status: "known", value: "no" },
+  { id: "wr_medical_travel_1hr", status: "known", value: "no" },
+  { id: "wr_hospital_care_24hr", status: "known", value: "no" },
+  { id: "wr_student_enrolled", status: "known", value: "not_enrolled" },
+  { id: "wr_income_580", status: "known", value: "yes" },
 ];
 
 const PLAN_BY_ID = new Map(JOURNEY_PLAN.map((step) => [step.id, step]));
@@ -826,8 +847,107 @@ export class Walkthrough {
   }
 
   /**
+   * The quick-questions phase of the typed journeys: the work-requirements
+   * questions (milestone work-requirements) answered through the wizard's answer route
+   * (POST /api/intake/answer — a server endpoint, the same save the
+   * quick-questions stage makes; NO MODEL in the loop), before the typed talk turns begin. ONLY those
+   * sensitive questions are captured here — every other required question
+   * stays with the typed turns, so the journeys keep their full
+   * typed-turn coverage (claude-review P2). The phase mirrors the
+   * product's own default flow (entry → quick questions → talk), where
+   * sensitive select answers are captured through the local UI route and
+   * never sent to the model (claude-review P1).
+   *
+   * @returns {Promise<{skippedBy: Map<string, string>}>} the skip ledger
+   *   this phase caused (the work-activity section hiding, for example)
+   */
+  async answerWorkRequirementsLocally() {
+    let state = this.state;
+    let answerNumber = 0;
+    const skippedBy = new Map();
+    // Progress guard: every pass must answer one pending id and shrink
+    // the remaining set — a route that saved nothing would otherwise
+    // spin forever (claude-review P3).
+    while (
+      state?.quickQuestions &&
+      state.quickQuestions.remainingCount > 0 &&
+      answerNumber <= state.quickQuestions.requiredIds.length
+    ) {
+      const pendingWr = state.quickQuestions.remainingIds.filter((id) =>
+        id.startsWith("wr_"),
+      );
+      if (pendingWr.some((id) => !PLAN_BY_ID.has(id))) {
+        throw new WalkthroughError(
+          `the work-requirements questions include a pending id the journey plan does not cover: ` +
+            pendingWr.filter((id) => !PLAN_BY_ID.has(id)).join(", "),
+        );
+      }
+      if (pendingWr.length === 0) {
+        break;
+      }
+      const step = PLAN_BY_ID.get(pendingWr[0]);
+      const served = state.questions.find((item) => item.id === step.id);
+      const isPii = served?.pii === true;
+      const beforeIds = new Set(state.questions.map((item) => item.id));
+      const response = await this.transport(
+        this.base,
+        "/api/intake/answer",
+        {
+          method: "POST",
+          body: {
+            questionId: step.id,
+            status: step.status,
+            value: step.value ?? null,
+          },
+          cookie: this.cookie,
+        },
+        this.timeoutMs,
+      );
+      const newState = parseJsonBody(response.text, `answer ${step.id}`);
+      if (response.status !== 200) {
+        throw new WalkthroughError(
+          `local answer ${step.id} rejected: ${response.status} ` +
+            `${this.maskPrivateValues(response.text.slice(0, 200))}`,
+        );
+      }
+      answerNumber += 1;
+      this.log(
+        `QQ-ANSWER ${String(answerNumber).padStart(2, "0")}  ${step.id} = ` +
+          `${Walkthrough.plannedDisplay(step, isPii)} — ` +
+          `${ANSWER_STATUS_LABELS[step.status]}  (answer route, no model)`,
+      );
+      const afterIds = new Set(newState.questions.map((item) => item.id));
+      const nowSkipped = [...beforeIds].filter((id) => !afterIds.has(id));
+      const nowAsked = [...afterIds].filter((id) => !beforeIds.has(id));
+      for (const id of nowSkipped) {
+        skippedBy.set(id, step.id);
+      }
+      if (nowSkipped.length > 0 || nowAsked.length > 0) {
+        const parts = [];
+        if (nowSkipped.length > 0) {
+          parts.push(`no longer asked: ${nowSkipped.join(", ")}`);
+        }
+        if (nowAsked.length > 0) {
+          parts.push(`newly asked: ${nowAsked.join(", ")}`);
+        }
+        this.log(`          ${parts.join(" · ")}`);
+      }
+      state = newState;
+      this.state = newState;
+    }
+    if (answerNumber > 0) {
+      this.log(
+        `QQ-LOCAL  ${answerNumber} work-requirements question(s) answered ` +
+          "through the answer route — the model saw none of them",
+      );
+    }
+    return { skippedBy };
+  }
+
+  /**
    * The v2 CONVERSATIONAL journey (text mode), the full cross-area run:
-   * health → create session → typed turns driving the conversation
+   * health → create session → the quick-questions phase through the local
+   * select route → typed turns driving the conversation
    * (realistic tri-state mix) → match → review with the skip behavior →
    * save → exit → resume via the session token (+ stored history) → the
    * PDF download leg. Resolves true when completed cleanly, false when a
@@ -854,9 +974,18 @@ export class Walkthrough {
       "CONSENT   typed turns carry the AI consent receipt (voice off) — the "
         + "same grant the consent surface's typed path gives (HACK-81)",
     );
+    const { skippedBy: qqSkippedBy } = await this.answerWorkRequirementsLocally();
+    if (this.violations.length > 0) {
+      return this.reportViolations();
+    }
     const { skippedBy } = await this.runTurnLoop(plan, "conversation");
     if (this.violations.length > 0) {
       return this.reportViolations();
+    }
+    for (const [id, asker] of qqSkippedBy) {
+      if (!skippedBy.has(id)) {
+        skippedBy.set(id, asker);
+      }
     }
     this.summarizeSkips(skippedBy);
 
@@ -952,9 +1081,18 @@ export class Walkthrough {
       "CONSENT   typed turns carry the AI consent receipt (voice off) — the "
         + "same grant the consent surface's typed path gives (HACK-81)",
     );
+    const { skippedBy: qqSkippedBy } = await this.answerWorkRequirementsLocally();
+    if (this.violations.length > 0) {
+      return this.reportViolations();
+    }
     const { skippedBy } = await this.runTurnLoop(plan, "form-driven conversation");
     if (this.violations.length > 0) {
       return this.reportViolations();
+    }
+    for (const [id, asker] of qqSkippedBy) {
+      if (!skippedBy.has(id)) {
+        skippedBy.set(id, asker);
+      }
     }
     this.summarizeSkips(skippedBy);
 

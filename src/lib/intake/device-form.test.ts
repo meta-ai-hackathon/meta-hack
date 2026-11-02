@@ -17,6 +17,7 @@ import {
 import { formRegistryEntries } from "../forms/registry";
 import type { FormRegistryEntry } from "../forms/registry-core";
 import type { AnswerStatus } from "../honesty";
+import { assertNoPiiValuesInMatch } from "../match";
 import { runMigrations } from "../migrate";
 import { setLogSink } from "../telemetry";
 import type { CanonicalAnswerValue } from "./answer-input";
@@ -24,6 +25,7 @@ import {
   CLIENT_ANSWER_PROVENANCES,
   EMPTY_CLIENT_ANSWERS,
   saveClientAnswer,
+  toAnswerMap,
   type ClientAnswerProvenance,
   type ClientAnswerState,
 } from "./client-store";
@@ -314,6 +316,7 @@ describe("the device form against the server's, for the same answers", () => {
   }, 120_000);
 
   it("reviews the form and builds the match exactly as the server's routes do", async () => {
+    let compared = 0;
     await fc.assert(
       fc.asyncProperty(caseArb, async ({ entry, answers }) => {
         const sessionId = await seedServer(answers);
@@ -337,14 +340,27 @@ describe("the device form against the server's, for the same answers", () => {
         const matchResponse = await matchRoute(
           new Request("http://localhost:3100/api/match", { headers: { cookie } }),
         );
-        expect(matchResponse.status).toBe(200);
-        const match = (await matchResponse.json()) as Record<string, unknown>;
         const onDevice = deviceMatch(state);
+        if (matchResponse.status !== 200) {
+          // The route's last check refuses a whole response when a private
+          // answer's text turns up in it without the public copy excusing
+          // it. Since main made the work hours question private, an answer
+          // like 0 or 1 does, because those digits appear in the response's
+          // dates and ids. That is the only refusal: the same check refuses
+          // the device's response too, which never leaves the device.
+          expect(matchResponse.status).toBe(500);
+          expect(() => assertNoPiiValuesInMatch(onDevice, toAnswerMap(state))).toThrow();
+          return;
+        }
+        compared += 1;
+        const match = (await matchResponse.json()) as Record<string, unknown>;
         expect(asJson(onDevice.matches)).toEqual(match.matches);
         expect(asJson(onDevice.toResolve)).toEqual(match.toResolve);
       }),
       { numRuns: 40 },
     );
+    // Most answer sets still reach a served match to compare against.
+    expect(compared).toBeGreaterThan(10);
   }, 120_000);
 });
 

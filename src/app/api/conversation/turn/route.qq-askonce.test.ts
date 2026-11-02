@@ -412,8 +412,7 @@ describe("POST /api/conversation/turn — the talk stage after quick questions (
     installScript([
       {
         extraction: JSON.stringify({ answers: [] }),
-        reply: "That was the short list — are you a student?",
-        nextQuestionId: "student_status",
+        reply: "That was the short list — tell me a bit more about where you live.",
       },
     ]);
 
@@ -421,8 +420,12 @@ describe("POST /api/conversation/turn — the talk stage after quick questions (
     expect(response.status).toBe(200);
     const data = (await response.json()) as TurnResponse;
     // The quick-questions stage is complete; the talk continues with the
-    // spec questions it never captured (goal_detail is skipped by
-    // main_goal=food; student_status is the first leftover).
+    // spec questions it never captured — the ENGINE's first leftover, in
+    // spec order: goal_detail is skipped by main_goal=food, so
+    // student_status is asked (household_seniors is IN the required
+    // universe and already captured; the work-requirements questions are
+    // captured too). The hand-off is pinned to the engine's own choice —
+    // the script carries no nextQuestionId to echo.
     expect(data.state.quickQuestions.complete).toBe(true);
     expect(data.nextQuestionId).toBe("student_status");
     for (const id of requiredForPrograms(DEFAULT_PROGRAM_IDS)) {

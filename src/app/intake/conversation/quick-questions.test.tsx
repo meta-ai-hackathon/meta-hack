@@ -610,3 +610,92 @@ describe("the quick-questions stage static markup", () => {
     expect(findBannedClaims(html)).toEqual([]);
   });
 });
+
+describe("work-activity reporting renders on the stage (VAL-WR-005)", () => {
+  // The complement case of the skip chains, proven on the live stage:
+  // when no exemption, income, or student path applies, the three
+  // work-activity reporting questions are in the still-to-ask set and
+  // RENDER as cards. (Until the wr-stage-ui part claims them in
+  // GROUP_SPECS, they arrive through the stage's "Other questions"
+  // fallback bucket — a spec addition can never silently drop off.)
+  const WORK_ACTIVITY = [
+    question({
+      id: "wr_work_activity_who",
+      prompt: "Who completed work activities last month?",
+      type: "text",
+      required: false,
+      pii: true,
+    }),
+    question({
+      id: "wr_work_activity_types",
+      prompt: "What kinds of work activities did they do last month?",
+      type: "multi_select",
+      required: false,
+      options: [
+        { value: "job_internship", label: "A job or internship" },
+        { value: "self_employment", label: "Self-employment" },
+        { value: "caregiving", label: "Caregiving" },
+      ],
+    }),
+    question({
+      id: "wr_work_activity_hours",
+      prompt: "About how many hours of work activities were completed last month?",
+      type: "number",
+      required: false,
+    }),
+  ];
+  const ids = WORK_ACTIVITY.map((q) => q.id);
+
+  async function renderWrStage(): Promise<HTMLElement> {
+    const React = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const state = stageState({
+      questions: WORK_ACTIVITY,
+      progress: { answered: 0, remaining: 3, total: 3 },
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: ids,
+        requiredCount: 3,
+        remainingIds: ids,
+        remainingCount: 3,
+        complete: false,
+      },
+      income: {
+        questionIds: [],
+        answeredCount: 0,
+        confirmedCount: 0,
+        totalCount: 0,
+        handled: true,
+      },
+    });
+    await React.act(async () => {
+      createRoot(container).render(
+        <QuickQuestionsStage
+          state={state}
+          onStateChange={() => undefined}
+          onNotice={() => undefined}
+          onToTalk={() => undefined}
+        />,
+      );
+    });
+    await React.act(async () => undefined);
+    return container;
+  }
+
+  it("renders the three work-activity cards in spec order for a no-exemption session", async () => {
+    const container = await renderWrStage();
+    const cards = [...container.querySelectorAll("[data-qq-card]")].map(
+      (card) => card.getAttribute("data-qq-card"),
+    );
+    expect(cards).toEqual(ids);
+    // The fallback group catches them until the stage's group mapping
+    // claims them — the stage renders whatever the engine's set contains.
+    expect(container.textContent).toContain("Other questions");
+    for (const wr of WORK_ACTIVITY) {
+      expect(container.textContent).toContain(wr.prompt);
+    }
+    expect(findBannedClaims(container.textContent ?? "")).toEqual([]);
+  });
+});
