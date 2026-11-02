@@ -2,14 +2,31 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import postgres from "postgres";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { closeDb } from "../../../../lib/db";
 import { runMigrations } from "../../../../lib/migrate";
-import { setLogSink } from "../../../../lib/telemetry";
+import { setLogSink, userMessageFor } from "../../../../lib/telemetry";
 import { GET as getState } from "../state/route";
 import { POST } from "./route";
+import {
+  parse1040Pdf,
+  PdfEnvironmentError,
+} from "../../../../lib/income/tax-parse";
+
+// parse1040Pdf is a delegating spy by default (identical behavior for
+// every test below); the engine-failure test overrides it once to pin the
+// route's mapping of a PDF-engine failure to the internal taxonomy error.
+vi.mock("../../../../lib/income/tax-parse", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../../../../lib/income/tax-parse")
+  >();
+  return {
+    ...actual,
+    parse1040Pdf: vi.fn(actual.parse1040Pdf),
+  };
+});
 
 // POST /api/intake/tax-return route tests (milestone income-capture part 2;
 // VAL-INC-006/007/008/013). The route parses an uploaded 1040 in memory and
@@ -280,6 +297,25 @@ describe("POST /api/intake/tax-return", () => {
       expect(body.message, name).toMatch(/type/i);
       expect(await answerRowCount(sessionId), name).toBe(0);
     }
+  });
+
+  it("maps a PDF engine failure to the internal taxonomy error, never the unreadable fallback", async () => {
+    // Bundler/runtime breakage in the engine layer (module or worker
+    // chunk) must be VISIBLE as a distinct internal taxonomy error — the
+    // honest-unreadable fallback (200, readable:false) is reserved for
+    // genuine content verdicts and must never cover engine breakage.
+    vi.mocked(parse1040Pdf).mockRejectedValueOnce(
+      new PdfEnvironmentError("the PDF engine failed to load"),
+    );
+    const cookie = await createSessionAndGetCookie();
+    const bytes = await fillFixture({ wages: "52500" });
+
+    const response = await POST(uploadRequest(cookie, bytes));
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("internal");
+    expect(body.error.message).toBe(userMessageFor("internal"));
   });
 
   it("rejects a request without a session", async () => {
