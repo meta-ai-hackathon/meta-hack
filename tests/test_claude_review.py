@@ -1723,15 +1723,16 @@ class StuckTokenProperties(unittest.TestCase):
         self.assertEqual(review.redact_sensitive(out), (out, 0))
 
     @PBT
-    @given(st.text(alphabet=string.ascii_lowercase + "_", min_size=1, max_size=12), TOKENS, SEPARATORS)
+    @given(st.text(alphabet=string.ascii_letters + "_", min_size=1, max_size=12), TOKENS, SEPARATORS)
     def test_a_token_right_after_a_letter_or_an_underscore_never_starts_a_match(
         self, word: str, token: tuple[str, str], sep: str
     ) -> None:
-        # The tail of a longer name that happens to be shaped like a token:
-        # no redaction starts where the token does. A run inside the token
-        # with a token's shape of its own may still go, and so may a word
-        # that is itself the start of a token, such as github_pat_ before a
-        # GitHub token, since then the match starts at the word.
+        # The tail of a longer name that happens to be shaped like a token,
+        # after a capital, a small letter or an underscore: no redaction
+        # starts where the token does. A run inside the token with a token's
+        # shape of its own may still go, and so may a word that is itself
+        # the start of a token, such as github_pat_ before a GitHub token,
+        # since then the match starts at the word.
         text = word + token[1] + sep
         self.assertFalse(review.redact_sensitive(text)[0].startswith(word + "[REDACTED "), text)
 
