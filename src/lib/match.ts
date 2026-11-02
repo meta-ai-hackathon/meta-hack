@@ -770,18 +770,34 @@ function ownNumberPattern(raw: string): RegExp {
 }
 
 /**
+ * The excusal's token edges read every script. Any letter, mark, or number
+ * character is part of a token, an accented letter, a superscript two and a
+ * one half included, and a Unicode hyphen, an en dash, a minus sign, or an
+ * invisible format character such as a soft hyphen or a zero-width space
+ * joins like the ASCII separators do. Copy pasted from an official page
+ * often prints those, so a "24-hour" printed with a non-breaking hyphen, or
+ * a "1-2 weeks" printed with an en dash, holds the number no more than the
+ * ASCII spelling does. An em dash ends a clause rather than joining a word,
+ * so it does not join.
+ */
+const STANDALONE_TOKEN_CHAR = "[\\p{L}\\p{M}\\p{N}]";
+const STANDALONE_TOKEN_JOINER = "[-./:,_\\u2010-\\u2013\\u2212\\ufe63\\uff0d\\p{Cf}]";
+
+/**
  * The excusal: a plain number answer as a token of its own, with no letter
  * or digit right before or after it and no separator joining it to one on
  * either side. A unit or label glued on still shows the answer in a leak,
  * but in the public copy that shape is a longer token, so a "1st", "20h",
  * "24-hour" or "hours:3" there never excuses a leaked 1, 20, 24 or 3
- * (security review on PR #132). "page 1" still excuses 1.
+ * (security review on PR #132), whatever script or hyphen the copy prints
+ * it in. "page 1" still excuses 1.
  */
 function standaloneNumberPattern(raw: string): RegExp {
   return new RegExp(
-    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${TOKEN_JOINER})` +
-      `${numberValuePattern(raw)}(?!${TOKEN_CHAR})(?!${TOKEN_JOINER}${TOKEN_CHAR})`,
-    "i",
+    `(?<!${STANDALONE_TOKEN_CHAR})(?<!${STANDALONE_TOKEN_CHAR}${STANDALONE_TOKEN_JOINER})` +
+      `${numberValuePattern(raw)}` +
+      `(?!${STANDALONE_TOKEN_CHAR})(?!${STANDALONE_TOKEN_JOINER}${STANDALONE_TOKEN_CHAR})`,
+    "iu",
   );
 }
 
