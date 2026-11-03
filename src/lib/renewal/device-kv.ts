@@ -13,6 +13,15 @@ import type { DeviceKv, KvGuard, ReminderStoreDeps } from "./reminder-store";
  * through an in-memory DeviceKv.
  */
 
+/**
+ * The device database, which the step-by-step answers' adapter
+ * (src/lib/device-kv.ts, HACK-99) opens too, with an upgrade of its own.
+ * The two must agree on the name, the version, and the stores the upgrade
+ * makes, or whichever opens second gets a VersionError or finds a store
+ * missing (review of 7fbeb3c). shared-device-store.test.ts pins the two
+ * openers together, so a version bump or a new store goes into both
+ * modules in the same change.
+ */
 export const DEVICE_DB_NAME = "benefits-navigator-device";
 export const DEVICE_DB_VERSION = 1;
 export const DEVICE_DB_STORE = "kv";
