@@ -43,6 +43,14 @@ WORK_REQUIREMENTS_IDS = [
     "wr_work_activity_hours",
 ]
 
+# The seasonal-work pair (HACK-130, Civilla's dedicated seasonal question):
+# income questions, so they live in the income section right after
+# job_income_frequency rather than in the appended work-requirements block.
+SEASONAL_IDS = [
+    "job_income_seasonal",
+    "job_income_seasonal_total",
+]
+
 # The reporting section of the Civilla two-section design: these three ask
 # who did work activities, what kinds, and how many hours last month —
 # and are hidden by the spec whenever an exemption, income, or student
@@ -241,9 +249,14 @@ class TestWorkRequirementsQuestions(unittest.TestCase):
     def test_spec_addition_is_purely_additive(self):
         # The 37 pre-existing questions are untouched: same ids, same
         # order — the work-requirements questions were appended after them.
+        # The HACK-130 seasonal pair is excluded here: it is an income
+        # addition, pinned separately below.
         ids = [q["id"] for q in self.questions]
         preexisting = [
-            qid for qid in ids if qid not in set(WORK_REQUIREMENTS_IDS)
+            qid
+            for qid in ids
+            if qid not in set(WORK_REQUIREMENTS_IDS)
+            and qid not in set(SEASONAL_IDS)
         ]
         self.assertEqual(
             len(preexisting), 37, "pre-existing question ids changed"
@@ -252,6 +265,55 @@ class TestWorkRequirementsQuestions(unittest.TestCase):
             ids[-len(WORK_REQUIREMENTS_IDS):],
             WORK_REQUIREMENTS_IDS,
             "work-requirements questions were not appended at the end",
+        )
+
+    def test_seasonal_pair_sits_in_the_income_section(self):
+        # HACK-130: the seasonal questions directly follow the job-income
+        # frequency they qualify, and the total is only asked after a
+        # seasonal "yes" (its skip condition reads the seasonal answer).
+        ids = [q["id"] for q in self.questions]
+        frequency_at = ids.index("job_income_frequency")
+        self.assertEqual(ids[frequency_at + 1 : frequency_at + 3], SEASONAL_IDS)
+        seasonal = self.by_id["job_income_seasonal"]
+        self.assertEqual(
+            seasonal["skip_conditions"],
+            [
+                {
+                    "question_id": "income_sources",
+                    "operator": "not_in",
+                    "value": "job",
+                }
+            ],
+        )
+        # Both seasonal prompts are household-scoped, matching the
+        # household-level $580 screen the answers feed.
+        self.assertIn("household", self.by_id["job_income_seasonal"]["prompt"])
+        self.assertIn(
+            "everyone in your household",
+            self.by_id["job_income_seasonal_total"]["prompt"],
+        )
+        # The seasonal total is the same kind of income figure as the
+        # per-paycheck job amount: their pii classification must match,
+        # so the total takes the same vault/serialization path.
+        self.assertEqual(
+            self.by_id["job_income_seasonal_total"]["pii"],
+            self.by_id["job_income_amount"]["pii"],
+        )
+        total = self.by_id["job_income_seasonal_total"]
+        self.assertEqual(
+            total["skip_conditions"],
+            [
+                {
+                    "question_id": "income_sources",
+                    "operator": "not_in",
+                    "value": "job",
+                },
+                {
+                    "question_id": "job_income_seasonal",
+                    "operator": "not_equals",
+                    "value": "yes",
+                },
+            ],
         )
 
     def test_sensitive_work_requirements_questions_are_pii(self):

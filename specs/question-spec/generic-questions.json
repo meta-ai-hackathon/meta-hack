@@ -1,6 +1,6 @@
 {
   "title": "Generic benefits-application questions",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "answer_statuses": ["known", "unknown", "unverified"],
   "questions": [
     {
@@ -262,6 +262,36 @@
       "required": false,
       "skip_conditions": [
         { "question_id": "income_sources", "operator": "not_in", "value": "job,self_employed" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "job_income_seasonal",
+      "prompt": "Is all of the job work in your household seasonal \u2014 work that only happens part of the year?",
+      "type": "single_select",
+      "help": "Answer yes only if all of the job work in your household is seasonal, like harvest, holiday, or summer work. If anyone in your household has year-round work, answer no. Pick 'not sure' if you do not know.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_sources", "operator": "not_in", "value": "job" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "job_income_seasonal_total",
+      "prompt": "About how much did everyone in your household make from that seasonal work in the last 6 months, in total?",
+      "type": "number",
+      "help": "Add up what everyone in your household made from seasonal work in the last 6 months, as best you can. Income from seasonal work can be averaged across 6 months, and this total is what gets averaged.",
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_sources", "operator": "not_in", "value": "job" },
+        { "question_id": "job_income_seasonal", "operator": "not_equals", "value": "yes" }
       ],
       "provenance": "user-supplied"
     },
