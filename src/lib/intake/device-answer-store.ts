@@ -275,7 +275,9 @@ export async function removeDeviceAnswer(
       return { status: "purged" };
     }
     if (!read.readable || read.key === null) {
-      return { status: "saved", state: read.readable ? read.state : EMPTY_CLIENT_ANSWERS };
+      // Nothing was removed: report busy (not saved) so callers keep the
+      // state they hold instead of believing the store is now empty.
+      return { status: "busy" };
     }
     const next = deleteClientAnswer(read.state, questionId);
     const sealed = await sealForStorage(serializeClientAnswers(next), read.key, deps.subtle);
