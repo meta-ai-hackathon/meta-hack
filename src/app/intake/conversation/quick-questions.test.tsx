@@ -261,7 +261,31 @@ describe("grouping the remaining questions", () => {
 
 type StageAct = (fn: () => Promise<void> | void) => Promise<void>;
 
-/** Advance the paginated stage (HACK-132) until the named group renders. */
+/**
+ * The one section walk (HACK-132): visit the visible section, then click
+ * Continue, until Continue is gone or the visit returns false. Every
+ * section-walking helper below is built on this loop.
+ */
+async function walkSections(
+  container: HTMLElement,
+  act: StageAct,
+  visit: () => boolean,
+): Promise<void> {
+  for (let step = 0; step < 12; step += 1) {
+    if (!visit()) {
+      return;
+    }
+    const next = container.querySelector("[data-qq-section-next]");
+    if (!next) {
+      return;
+    }
+    await act(async () => {
+      next.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+}
+
+/** Advance the paginated stage (HACK-132) until the named group is visible. */
 async function goToGroup(
   container: HTMLElement,
   act: StageAct,
@@ -269,17 +293,9 @@ async function goToGroup(
 ): Promise<void> {
   const visible = () =>
     container.querySelector(`[data-qq-group="${groupId}"]:not([hidden])`);
-  for (let step = 0; step < 12; step += 1) {
-    if (visible()) {
-      return;
-    }
-    const next = container.querySelector("[data-qq-section-next]");
-    if (!next) {
-      break;
-    }
-    await act(async () => {
-      next.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
+  await walkSections(container, act, () => !visible());
+  if (visible()) {
+    return;
   }
   for (let step = 0; step < 12; step += 1) {
     if (visible()) {
@@ -304,18 +320,12 @@ async function cardIdsAcrossSections(
   act: StageAct,
 ): Promise<(string | null)[]> {
   const ids: (string | null)[] = [];
-  for (let step = 0; step < 12; step += 1) {
+  await walkSections(container, act, () => {
     container
       .querySelectorAll("[data-qq-group]:not([hidden]) [data-qq-card]")
       .forEach((card) => ids.push(card.getAttribute("data-qq-card")));
-    const next = container.querySelector("[data-qq-section-next]");
-    if (!next) {
-      break;
-    }
-    await act(async () => {
-      next.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-  }
+    return true;
+  });
   return ids;
 }
 
@@ -350,7 +360,7 @@ describe("the quick-questions stage component", () => {
 
   async function renderStage(state: IntakeClientState = stageState()): Promise<{
     container: HTMLElement;
-    act: (fn: () => Promise<void> | void) => Promise<void>;
+    act: StageAct;
   }> {
     const React = await import("react");
     const { createRoot } = await import("react-dom/client");
@@ -1147,7 +1157,7 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
 
   async function renderWrState(
     state: IntakeClientState,
-  ): Promise<{ container: HTMLElement; act: (fn: () => Promise<void> | void) => Promise<void> }> {
+  ): Promise<{ container: HTMLElement; act: StageAct }> {
     const React = await import("react");
     const { createRoot } = await import("react-dom/client");
     const container = document.createElement("div");
@@ -1230,7 +1240,7 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
     // group (carrying the sensitive wr items) is LAST.
     const groupIds: (string | null)[] = [];
     const cardsByGroup = new Map<string, (string | null)[]>();
-    for (let step = 0; step < 12; step += 1) {
+    await walkSections(container, act, () => {
       const section = container.querySelector(
         "[data-qq-group]:not([hidden])",
       );
@@ -1244,14 +1254,8 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
           ),
         );
       }
-      const next = container.querySelector("[data-qq-section-next]");
-      if (!next) {
-        break;
-      }
-      await act(async () => {
-        next.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
-    }
+      return true;
+    });
     expect(groupIds).toEqual([
       "application",
       "household",
