@@ -82,7 +82,19 @@ export function canonicalAnswerValue(
       return value;
     }
     case "roster": {
-      return parseRoster(value);
+      // A completely untouched editor row (blank name, both fields still
+      // "not sure") is an artifact of clicking Add, not an answer: drop
+      // such rows before the strict canonical check. A row the user has
+      // touched in any way is validated strictly by parseRoster.
+      const rows = Array.isArray(value)
+        ? value.filter((row) => {
+            if (!row || typeof row !== "object" || Array.isArray(row)) return true;
+            const m = row as Record<string, unknown>;
+            const blankName = typeof m.displayName !== "string" || m.displayName.trim() === "";
+            return !(blankName && m.relationship === "not_sure" && m.ageBand === "not_sure");
+          })
+        : value;
+      return parseRoster(rows);
     }
     case "multi_select": {
       if (!Array.isArray(value) || value.length === 0) {

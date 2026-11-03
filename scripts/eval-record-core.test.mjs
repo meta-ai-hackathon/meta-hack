@@ -329,14 +329,13 @@ describe("the frozen cases", PROPERTY_BUDGET, () => {
       value: [{ id: "member-1", displayName: "Fictional", relationship: "self", ageBand: "18_to_54" }],
     };
     const visible = visibleQuestions(QUESTIONS, answers).map((question) => question.id);
-    const specOrder = new Map(QUESTIONS.map((q, i) => [q.id, i]));
-    expect(visible).toEqual(
-      [
-        ...ANSWER_TURN_CASES.map((testCase) => testCase.questionId),
-        ...QQ_PHASE_ANSWERS.map((passThrough) => passThrough.questionId),
-        "household_roster",
-      ].sort((a, b) => specOrder.get(a) - specOrder.get(b)),
-    );
+    // Keep the original ordered comparison (it pins both fixture lists to
+    // spec order), with the mid-spec roster checked separately below.
+    expect(visible.filter((id) => id !== "household_roster")).toEqual([
+      ...ANSWER_TURN_CASES.map((testCase) => testCase.questionId),
+      ...QQ_PHASE_ANSWERS.map((passThrough) => passThrough.questionId),
+    ]);
+    expect(visible.indexOf("household_roster")).toBe(visible.indexOf("household_seniors") + 1);
     for (const id of BRANCH_ONLY_QUESTION_IDS) {
       expect(visible).not.toContain(id);
     }

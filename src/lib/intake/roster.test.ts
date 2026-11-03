@@ -67,6 +67,14 @@ describe("household roster (HACK-134)", () => {
     const twoSelf = [{ ...emptyMember("member-1", "self"), displayName: "A" }, { ...emptyMember("member-2", "self"), displayName: "B" }];
     expect(parseRoster(twoSelf)).toBeNull();
   });
+  it("canonicalization drops a completely untouched added row but not a touched one", () => {
+    const q = QUESTION_BY_ID["household_roster"];
+    const named = { id: "member-1", displayName: "Ada", relationship: "self", ageBand: "18_to_54" };
+    const untouched = { id: "member-2", displayName: "", relationship: "not_sure", ageBand: "not_sure" };
+    expect(canonicalAnswerValue(q!, [named, untouched])).toEqual([named]);
+    const touched = { ...untouched, relationship: "child" };
+    expect(canonicalAnswerValue(q!, [named, touched])).toBeNull();
+  });
   it("single member roster works and rosterFromAnswers ignores unknown", () => {
     const solo = [{ ...emptyMember("member-1"), displayName: "Sam" }];
     expect(memberOptions(solo)).toEqual([{ value: "member-1", label: "Sam" }]);
