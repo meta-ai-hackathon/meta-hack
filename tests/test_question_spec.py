@@ -285,6 +285,13 @@ class TestWorkRequirementsQuestions(unittest.TestCase):
                 }
             ],
         )
+        # The seasonal total is the same kind of income figure as the
+        # per-paycheck job amount: their pii classification must match,
+        # so the total takes the same vault/serialization path.
+        self.assertEqual(
+            self.by_id["job_income_seasonal_total"]["pii"],
+            self.by_id["job_income_amount"]["pii"],
+        )
         total = self.by_id["job_income_seasonal_total"]
         self.assertEqual(
             total["skip_conditions"],

@@ -62,9 +62,10 @@ import type { AnswerMap } from "./flow";
 // 6. Seasonal job work (HACK-130, from Civilla's dedicated seasonal
 //    question: seasonal workers fail standard per-paycheck questions).
 //    When job_income_seasonal is known "yes" (the question asks whether
-//    ALL of that job work is seasonal, so a "yes" means the seasonal
-//    total is the whole job source; mixed year-round + seasonal work
-//    answers "no" and stays on rules 1-5), the job source converts
+//    ALL of the job work in the household is seasonal, so a "yes" means
+//    the seasonal total is the whole job source; a household with any
+//    year-round earner answers "no" and stays on rules 1-5), the job
+//    source converts
 //    ONLY from job_income_seasonal_total — what the person made from
 //    that seasonal work in the last 6 months — averaged exactly across
 //    those 6 months (total / 6 is both the floor and the ceiling: a

@@ -267,9 +267,9 @@
     },
     {
       "id": "job_income_seasonal",
-      "prompt": "Is all of that job work seasonal \u2014 do you only work it part of the year?",
+      "prompt": "Is all of the job work in your household seasonal \u2014 work that only happens part of the year?",
       "type": "single_select",
-      "help": "Seasonal work only happens part of the year, like harvest, holiday, or summer work. Answer yes only if all of your job work is seasonal. If you also have year-round work, answer no. Pick 'not sure' if you do not know.",
+      "help": "Answer yes only if all of the job work in your household is seasonal, like harvest, holiday, or summer work. If anyone in your household has year-round work, answer no. Pick 'not sure' if you do not know.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },

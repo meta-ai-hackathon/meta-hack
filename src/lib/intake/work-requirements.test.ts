@@ -632,6 +632,38 @@ describe("the seasonal-work capture (HACK-130, rule 6)", () => {
     expect(over.monthlyTotal).toBe(600);
   });
 
+  it("keeps a household with a year-round earner on the paycheck path", () => {
+    // One seasonal earner + one year-round earner: the household answers
+    // "no" (not ALL household job work is seasonal), so the year-round
+    // paycheck converts on rules 1-5 and is never dropped for the total.
+    const match = matchIncome580(
+      merge(
+        sources("job"),
+        frequency("job_income_seasonal", "no"),
+        amount(SEASONAL_TOTAL_QUESTION_ID, 3600),
+        amount("job_income_amount", 200),
+        frequency("job_income_frequency", "weekly"),
+      ),
+    );
+    expect(match.proposal).toBe("yes");
+    expect(match.monthlyTotal).toBe(800);
+    expect(match.countedSourceIds).toEqual(["job_income_amount"]);
+  });
+
+  it("leaves a 'not_sure' seasonal answer on the old path too", () => {
+    const match = matchIncome580(
+      merge(
+        sources("job"),
+        frequency("job_income_seasonal", "not_sure"),
+        amount(SEASONAL_TOTAL_QUESTION_ID, 99999),
+        amount("job_income_amount", 100),
+        frequency("job_income_frequency", "weekly"),
+      ),
+    );
+    expect(match.countedSourceIds).toEqual(["job_income_amount"]);
+    expect(match.monthlyTotal).toBeCloseTo((100 * 52) / 12, 10);
+  });
+
   it("leaves non-seasonal answers on the old path (a stale total is ignored)", () => {
     const match = matchIncome580(
       merge(
