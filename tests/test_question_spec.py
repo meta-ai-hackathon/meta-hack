@@ -285,6 +285,13 @@ class TestWorkRequirementsQuestions(unittest.TestCase):
                 }
             ],
         )
+        # Both seasonal prompts are household-scoped, matching the
+        # household-level $580 screen the answers feed.
+        self.assertIn("household", self.by_id["job_income_seasonal"]["prompt"])
+        self.assertIn(
+            "everyone in your household",
+            self.by_id["job_income_seasonal_total"]["prompt"],
+        )
         # The seasonal total is the same kind of income figure as the
         # per-paycheck job amount: their pii classification must match,
         # so the total takes the same vault/serialization path.

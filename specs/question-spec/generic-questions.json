@@ -284,9 +284,9 @@
     },
     {
       "id": "job_income_seasonal_total",
-      "prompt": "About how much did you make from that seasonal work in the last 6 months, in total?",
+      "prompt": "About how much did everyone in your household make from that seasonal work in the last 6 months, in total?",
       "type": "number",
-      "help": "Add up the last 6 months as best you can, counting only that seasonal work. Income from seasonal work can be averaged across 6 months, and this total is what gets averaged.",
+      "help": "Add up what everyone in your household made from seasonal work in the last 6 months, as best you can. Income from seasonal work can be averaged across 6 months, and this total is what gets averaged.",
       "pii": false,
       "required": false,
       "skip_conditions": [
