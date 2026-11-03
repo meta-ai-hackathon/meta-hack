@@ -54,7 +54,7 @@ export function draftWorkRows(value: unknown, memberIds?: ReadonlySet<string>): 
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
     const r = raw as Record<string, unknown>;
     if (typeof r.memberId !== "string" || typeof r.activity !== "string") return [];
-    return [{ memberId: r.memberId, activity: r.activity, hours: typeof r.hours === "number" ? r.hours : null }];
+    return [{ memberId: r.memberId, activity: r.activity, hours: typeof r.hours === "number" ? r.hours : null, ...(r.hoursNotSure === true ? { hoursNotSure: true } : {}) }];
   }) : []);
   return memberIds ? rows.filter((r) => memberIds.has(r.memberId)) : rows;
 }
@@ -80,9 +80,10 @@ export function suggestedWorkRows(answers: AnswerMap, members: readonly Househol
   if (!stored || stored.status === "unknown" || !Array.isArray(stored.value)) return [];
   const sources = stored.value.map(String);
   const self = members.find((m) => m.relationship === "self") ?? members[0];
+  const known = new Set(activityTypes().map((a) => a.value));
   const out: WorkRow[] = [];
-  if (sources.includes("job")) out.push({ memberId: self.id, activity: "job_internship", hours: null, hoursNotSure: false });
-  if (sources.includes("self_employed")) out.push({ memberId: self.id, activity: "self_employment", hours: null, hoursNotSure: false });
+  if (sources.includes("job") && known.has("job_internship")) out.push({ memberId: self.id, activity: "job_internship", hours: null, hoursNotSure: false });
+  if (sources.includes("self_employed") && known.has("self_employment")) out.push({ memberId: self.id, activity: "self_employment", hours: null, hoursNotSure: false });
   return out;
 }
 

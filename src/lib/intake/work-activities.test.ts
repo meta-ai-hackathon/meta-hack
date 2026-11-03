@@ -48,6 +48,17 @@ describe("per-person work rows (HACK-128)", () => {
     expect(parseWorkRows([{ ...r, hours: null }])).toBeNull();
     expect(parseWorkRows([{ ...r, hours: null, hoursNotSure: true }])).toEqual([{ ...r, hours: null, hoursNotSure: true }]);
   });
+  it("draft fallback keeps the not-sure flag while another row is blank, and suggestions parse", () => {
+    const draft = [
+      { memberId: "member-1", activity: "job_internship", hours: null, hoursNotSure: true },
+      { memberId: "member-2", activity: "community_service", hours: null, hoursNotSure: false },
+    ];
+    expect(draftWorkRows(draft)[0].hoursNotSure).toBe(true);
+    const answers: AnswerMap = { income_sources: { status: "known", value: ["job", "self_employed"] } };
+    for (const s of suggestedWorkRows(answers, members)) {
+      expect(activityTypes().map((a) => a.value)).toContain(s.activity);
+    }
+  });
   it("set/remove touch only the indexed row", () => {
     const rows: WorkRow[] = [
       { memberId: "member-1", activity: "job_internship", hours: 10 },
