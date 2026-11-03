@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import type {
   ClientQuestion,
   IntakeClientState,
@@ -697,6 +697,62 @@ export function QuickQuestionsStage(props: {
   const { state, onStateChange, onNotice, onToTalk } = props;
   const groups = groupRemainingQuestions(state);
   const { remainingCount, requiredCount } = state.quickQuestions;
+  // Paginated by section (HACK-132, Civilla's section-per-screen online
+  // templates): one group is visible at a time instead of every remaining
+  // card stacked on one page. Inactive sections stay MOUNTED but hidden,
+  // so an unsaved draft or skip mark survives Back / Next section exactly as it
+  // survived scrolling before pagination. The index is clamped by
+  // derivation, so when a group empties and drops off (its last card
+  // saved), the next group simply takes its place — no state repair
+  // needed. Navigation never blocks: Back / Next section move between
+  // sections (they never save — each card keeps its own Save button, and
+  // the button is named so it cannot be read as saving), and the talk
+  // CTA below is always available whatever section shows.
+  // The active section is tracked by group ID, not raw index: when a
+  // save re-derives the group list, an earlier-inserted group cannot
+  // silently move the person to a different section. When the active
+  // group itself drops off, the last index (clamped) takes over, so the
+  // next group in line takes its place.
+  const [activeSection, setActiveSection] = useState<{
+    readonly id?: string;
+    readonly index: number;
+  }>({ index: 0 });
+  const foundIndex = activeSection.id
+    ? groups.findIndex((group) => group.id === activeSection.id)
+    : -1;
+  const activeIndex =
+    foundIndex >= 0
+      ? foundIndex
+      : Math.min(activeSection.index, Math.max(groups.length - 1, 0));
+  const activeGroup = groups[activeIndex];
+  // Resync the tracked id when the tracked group dropped off, so later
+  // saves cannot move the person by index drift (render-time adjustment:
+  // React re-renders this component before committing when its own state
+  // is set during render).
+  if (activeGroup && foundIndex < 0 && activeSection.id !== activeGroup.id) {
+    setActiveSection({ id: activeGroup.id, index: activeIndex });
+  }
+  const goToSection = (index: number): void => {
+    const target = groups[index];
+    if (target) {
+      setActiveSection({ id: target.id, index });
+    }
+  };
+  // Focus follows the section (HACK-132 review): after a section change,
+  // keyboard and screen-reader users land on the new section's heading
+  // instead of being stranded on a removed nav button. The first
+  // render does not steal focus.
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const shownGroupIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (
+      shownGroupIdRef.current !== undefined &&
+      shownGroupIdRef.current !== activeGroup?.id
+    ) {
+      headingRef.current?.focus();
+    }
+    shownGroupIdRef.current = activeGroup?.id;
+  }, [activeGroup?.id]);
   // The $580 screen's deterministic match (VAL-WR-008): computed from the
   // already-captured income answers by the documented engine rule — never
   // an LLM, and a FORM ANSWER proposal only (the card lets the person
@@ -753,47 +809,93 @@ export function QuickQuestionsStage(props: {
           </p>
         </details>
       </div>
-      {groups.map((group) => (
-        <section
-          key={group.id}
-          data-qq-group={group.id}
-          aria-labelledby={`qq-group-${group.id}-heading`}
-          aria-describedby={
-            group.note ? `qq-group-${group.id}-note` : undefined
-          }
-          className="flex flex-col gap-3"
-        >
-          <h3 id={`qq-group-${group.id}-heading`} className="text-lg font-semibold">
-            {group.heading}
-          </h3>
-          {group.note ? (
-            <p
-              id={`qq-group-${group.id}-note`}
-              data-qq-group-note={group.id}
-              className="text-sm text-muted"
+      {activeGroup ? (
+        <>
+          <p data-qq-section-progress className="font-mono text-sm text-muted">
+            {`Section ${activeIndex + 1} of ${groups.length}: ${activeGroup.heading}`}
+          </p>
+          {groups.map((group) => (
+            <section
+              key={group.id}
+              data-qq-group={group.id}
+              hidden={group.id !== activeGroup.id}
+              aria-labelledby={`qq-group-${group.id}-heading`}
+              aria-describedby={
+                group.note ? `qq-group-${group.id}-note` : undefined
+              }
+              // The display utility does the hiding, not the hidden
+              // attribute alone: Tailwind's flex utility would override
+              // the UA [hidden] rule in a real browser. The attribute
+              // stays for semantics and test visibility queries.
+              className={
+                group.id === activeGroup.id
+                  ? "flex flex-col gap-3"
+                  : "hidden"
+              }
             >
-              {group.note}
-            </p>
-          ) : null}
-          <ul className="flex flex-col gap-3">
-            {group.questions.map((question) => (
-              <QuestionCard
-                key={question.id}
-                question={question}
-                sensitive={group.sensitive}
-                prefill={
-                  question.id === INCOME_580_QUESTION_ID &&
-                  incomeMatch.proposal !== null
-                    ? incomeMatch.proposal
-                    : undefined
+              <h3
+                id={`qq-group-${group.id}-heading`}
+                ref={group.id === activeGroup.id ? headingRef : undefined}
+                tabIndex={-1}
+                className="text-lg font-semibold"
+              >
+                {group.heading}
+              </h3>
+              {group.note ? (
+                <p
+                  id={`qq-group-${group.id}-note`}
+                  data-qq-group-note={group.id}
+                  className="text-sm text-muted"
+                >
+                  {group.note}
+                </p>
+              ) : null}
+              <ul className="flex flex-col gap-3">
+                {group.questions.map((question) => (
+                  <QuestionCard
+                    key={question.id}
+                    question={question}
+                    sensitive={group.sensitive}
+                    prefill={
+                      question.id === INCOME_580_QUESTION_ID &&
+                      incomeMatch.proposal !== null
+                        ? incomeMatch.proposal
+                        : undefined
+                    }
+                    onNotice={onNotice}
+                    onSaved={onStateChange}
+                  />
+                ))}
+              </ul>
+            </section>
+          ))}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              data-qq-section-back
+              onClick={() => goToSection(Math.max(activeIndex - 1, 0))}
+              disabled={activeIndex === 0}
+              className="min-h-12 rounded-full border border-surface-border bg-surface px-6 py-2.5 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
+            >
+              Back
+            </button>
+            {activeIndex < groups.length - 1 ? (
+              <button
+                type="button"
+                data-qq-section-next
+                onClick={() =>
+                  goToSection(
+                    Math.min(activeIndex + 1, groups.length - 1),
+                  )
                 }
-                onNotice={onNotice}
-                onSaved={onStateChange}
-              />
-            ))}
-          </ul>
-        </section>
-      ))}
+                className="min-h-12 rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal"
+              >
+                Next section
+              </button>
+            ) : null}
+          </div>
+        </>
+      ) : null}
       <div className="flex flex-col gap-2">
         <button
           type="button"
