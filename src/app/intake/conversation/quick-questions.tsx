@@ -697,6 +697,19 @@ export function QuickQuestionsStage(props: {
   const { state, onStateChange, onNotice, onToTalk } = props;
   const groups = groupRemainingQuestions(state);
   const { remainingCount, requiredCount } = state.quickQuestions;
+  // Paginated by section (HACK-132, Civilla's section-per-screen online
+  // templates): one group renders at a time instead of every remaining
+  // card stacked on one page. The index is clamped by derivation, so
+  // when a group empties and drops off (its last card saved), the next
+  // group simply takes its place — no state repair needed. Navigation
+  // never blocks: Back/Continue move between sections, and the talk CTA
+  // below is always available whatever section is showing.
+  const [sectionIndex, setSectionIndex] = useState(0);
+  const activeIndex = Math.min(
+    sectionIndex,
+    Math.max(groups.length - 1, 0),
+  );
+  const activeGroup = groups[activeIndex];
   // The $580 screen's deterministic match (VAL-WR-008): computed from the
   // already-captured income answers by the documented engine rule — never
   // an LLM, and a FORM ANSWER proposal only (the card lets the person
@@ -753,47 +766,86 @@ export function QuickQuestionsStage(props: {
           </p>
         </details>
       </div>
-      {groups.map((group) => (
-        <section
-          key={group.id}
-          data-qq-group={group.id}
-          aria-labelledby={`qq-group-${group.id}-heading`}
-          aria-describedby={
-            group.note ? `qq-group-${group.id}-note` : undefined
-          }
-          className="flex flex-col gap-3"
-        >
-          <h3 id={`qq-group-${group.id}-heading`} className="text-lg font-semibold">
-            {group.heading}
-          </h3>
-          {group.note ? (
-            <p
-              id={`qq-group-${group.id}-note`}
-              data-qq-group-note={group.id}
-              className="text-sm text-muted"
+      {activeGroup ? (
+        <>
+          <p
+            data-qq-section-progress
+            aria-live="polite"
+            className="font-mono text-sm text-muted"
+          >
+            {`Section ${activeIndex + 1} of ${groups.length}: ${activeGroup.heading}`}
+          </p>
+          <section
+            key={activeGroup.id}
+            data-qq-group={activeGroup.id}
+            aria-labelledby={`qq-group-${activeGroup.id}-heading`}
+            aria-describedby={
+              activeGroup.note
+                ? `qq-group-${activeGroup.id}-note`
+                : undefined
+            }
+            className="flex flex-col gap-3"
+          >
+            <h3
+              id={`qq-group-${activeGroup.id}-heading`}
+              className="text-lg font-semibold"
             >
-              {group.note}
-            </p>
-          ) : null}
-          <ul className="flex flex-col gap-3">
-            {group.questions.map((question) => (
-              <QuestionCard
-                key={question.id}
-                question={question}
-                sensitive={group.sensitive}
-                prefill={
-                  question.id === INCOME_580_QUESTION_ID &&
-                  incomeMatch.proposal !== null
-                    ? incomeMatch.proposal
-                    : undefined
+              {activeGroup.heading}
+            </h3>
+            {activeGroup.note ? (
+              <p
+                id={`qq-group-${activeGroup.id}-note`}
+                data-qq-group-note={activeGroup.id}
+                className="text-sm text-muted"
+              >
+                {activeGroup.note}
+              </p>
+            ) : null}
+            <ul className="flex flex-col gap-3">
+              {activeGroup.questions.map((question) => (
+                <QuestionCard
+                  key={question.id}
+                  question={question}
+                  sensitive={activeGroup.sensitive}
+                  prefill={
+                    question.id === INCOME_580_QUESTION_ID &&
+                    incomeMatch.proposal !== null
+                      ? incomeMatch.proposal
+                      : undefined
+                  }
+                  onNotice={onNotice}
+                  onSaved={onStateChange}
+                />
+              ))}
+            </ul>
+          </section>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              data-qq-section-back
+              onClick={() => setSectionIndex(Math.max(activeIndex - 1, 0))}
+              disabled={activeIndex === 0}
+              className="min-h-12 rounded-full border border-surface-border bg-surface px-6 py-2.5 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
+            >
+              Back
+            </button>
+            {activeIndex < groups.length - 1 ? (
+              <button
+                type="button"
+                data-qq-section-next
+                onClick={() =>
+                  setSectionIndex(
+                    Math.min(activeIndex + 1, groups.length - 1),
+                  )
                 }
-                onNotice={onNotice}
-                onSaved={onStateChange}
-              />
-            ))}
-          </ul>
-        </section>
-      ))}
+                className="min-h-12 rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal"
+              >
+                Continue
+              </button>
+            ) : null}
+          </div>
+        </>
+      ) : null}
       <div className="flex flex-col gap-2">
         <button
           type="button"
