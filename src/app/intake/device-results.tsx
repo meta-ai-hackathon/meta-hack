@@ -491,6 +491,13 @@ export function DeviceResults(props: {
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** The pages on screen, for leaving the page to reach without a render. */
   const onScreen = useRef<FilledForm | null>(null);
+  /**
+   * Pages handed to the screen that aren't on it yet. React puts them
+   * there on a later render, and an answer change or leaving the page can
+   * drop them before that, so until they are on screen this is how they
+   * are let go of.
+   */
+  const pending = useRef<FilledForm | null>(null);
   /** How many times the page has been left, so a drawing started before that is never shown. */
   const leaves = useRef(0);
   const previewHeading = useRef<HTMLHeadingElement | null>(null);
@@ -513,6 +520,10 @@ export function DeviceResults(props: {
     if (filled === null) {
       return;
     }
+    if (pending.current === filled) {
+      // On screen now, so this effect lets go of them from here on.
+      pending.current = null;
+    }
     if (focusPreview.current) {
       focusPreview.current = false;
       previewHeading.current?.focus();
@@ -521,10 +532,15 @@ export function DeviceResults(props: {
   }, [filled]);
 
   // Leaving drops the pages too, so a screen the app brings back (React
-  // keeps a page it navigates away from) never shows released ones.
+  // keeps a page it navigates away from) never shows released ones, and
+  // pages still on their way to the screen are let go of with it.
   useEffect(
     () => () => {
       setFilled(null);
+      if (pending.current !== null) {
+        releaseFilled(pending.current);
+        pending.current = null;
+      }
       if (noticeTimer.current) {
         clearTimeout(noticeTimer.current);
       }
@@ -535,14 +551,17 @@ export function DeviceResults(props: {
   // So does leaving for another site or closing the tab. The browser may
   // keep the page to show again on Back, so the canvases are released and
   // the bytes wiped at once, before it is put away, rather than on the next
-  // render.
+  // render, both for the pages on screen and for any on their way there.
   useEffect(() => {
     const leave = () => {
       leaves.current += 1;
-      if (onScreen.current !== null) {
-        releaseFilled(onScreen.current);
-        onScreen.current = null;
+      for (const form of [onScreen.current, pending.current]) {
+        if (form !== null) {
+          releaseFilled(form);
+        }
       }
+      onScreen.current = null;
+      pending.current = null;
       setFilled(null);
     };
     window.addEventListener("pagehide", leave);
@@ -550,11 +569,19 @@ export function DeviceResults(props: {
   }, []);
 
   // Filling stops when the answers it started from change or this screen
-  // goes away: pages drawn from older answers would be stale.
+  // goes away: pages drawn from older answers would be stale. Pages drawn
+  // in time but not yet on screen when the answers changed never get there
+  // (the check above drops them as they render), so they are let go of
+  // here, once the change is on screen.
   const answersSignal = useRef<AbortSignal | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     answersSignal.current = controller.signal;
+    const waiting = pending.current;
+    if (waiting !== null && (waiting.answers !== answers || waiting.typed !== typed)) {
+      pending.current = null;
+      releaseFilled(waiting);
+    }
     return () => controller.abort();
   }, [answers, typed]);
 
@@ -683,14 +710,18 @@ export function DeviceResults(props: {
         return;
       }
       focusPreview.current = true;
-      setFilled({
+      const form: FilledForm = {
         drawn,
         bytes,
         leftBlank: result.outcome.toResolve,
         conflicts: result.outcome.conflicts,
         answers,
         typed,
-      });
+      };
+      // From here on, whatever drops the form lets go of it, whether it
+      // reached the screen or not.
+      pending.current = form;
+      setFilled(form);
       shown = true;
       announce(DEVICE_RESULTS_COPY.ready);
     } catch {

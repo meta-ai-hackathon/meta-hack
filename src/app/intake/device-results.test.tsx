@@ -316,6 +316,7 @@ afterEach(() => {
   vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
   vi.doUnmock("pdfjs-dist/legacy/build/pdf.worker.mjs");
   vi.doUnmock("../../lib/intake/device-fill");
+  vi.doUnmock("../../lib/intake/device-print");
   delete (navigator as { userActivation?: unknown }).userActivation;
   document.body.replaceChildren();
 });
@@ -1595,6 +1596,111 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(view.status()).toBe("");
     expectNothingSaved();
     await view.unmount();
+  }, 60_000);
+
+  it("lets go of pages drawn just as an answer changes or the page is left, though they never reach the screen", async () => {
+    // React puts drawn pages on screen on a later render. A keypress in the
+    // review, or leaving the page, can land after the drawing finishes and
+    // before that render, so the pages are dropped before they ever show.
+    // They are let go of all the same, their canvases released and their
+    // bytes wiped, and on leaving at once, before the browser puts the page
+    // away. React schedules its renders here as it does in a browser.
+    const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    for (const between of ["a keypress in the review", "leaving the page"] as const) {
+      vi.resetModules();
+      mockPdfJs();
+      mockFill();
+      let finishDrawing: ((preview: unknown) => void) | null = null;
+      let releases = 0;
+      vi.doMock("../../lib/intake/device-print", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../lib/intake/device-print")>()),
+        renderPrintPreview: () =>
+          new Promise((resolve) => {
+            finishDrawing = resolve;
+          }),
+      }));
+      const React = await import("react");
+      const { createRoot } = await import("react-dom/client");
+      const { DeviceResults } = await import("./device-results");
+      const { EMPTY_CLIENT_ANSWERS, saveClientAnswer } = await import("../../lib/intake/client-store");
+      const answers = saveClientAnswer(EMPTY_CLIENT_ANSWERS, {
+        questionId: "state",
+        status: "known",
+        provenance: "user_supplied",
+        value: "NC",
+      });
+      function Page() {
+        const [values, setValues] = React.useState<Readonly<Record<string, string>>>({});
+        return React.createElement(DeviceResults, {
+          answers,
+          typedAnswers: {
+            values,
+            onChange: (fieldName: string, value: string) => setValues((previous) => ({ ...previous, [fieldName]: value })),
+          },
+        });
+      }
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      const { act } = React;
+      await act(async () => {
+        root.render(React.createElement(Page));
+      });
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>('[data-action="show-form"]')!.click();
+      });
+      for (let i = 0; i < 400 && finishDrawing === null; i += 1) {
+        await act(async () => {
+          await new Promise((done) => setTimeout(done, 10));
+        });
+      }
+      expect(finishDrawing, `${between}: the drawing started`).not.toBeNull();
+      const input = container.querySelector<HTMLInputElement>("[data-review-fields] input")!;
+      const canvas = document.createElement("canvas");
+      const preview = {
+        pages: [{ pageNumber: 1, pageCount: 1, label: "Page 1 of 1, filled application", canvas }],
+        release: () => {
+          releases += 1;
+        },
+      };
+
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
+      const announced: number[] = [];
+      const timers = vi.spyOn(globalThis, "setTimeout");
+      try {
+        finishDrawing!(preview);
+        // The page hands the pages to React (and announces them, a 30 ms
+        // timer), but React hasn't rendered them yet.
+        for (let i = 0; i < 20; i += 1) {
+          await Promise.resolve();
+        }
+        announced.push(...timers.mock.calls.map((call) => Number(call[1])));
+        expect(announced, `${between}: the pages were handed over`).toContain(30);
+        expect(releases, `${between}: nothing let go of yet`).toBe(0);
+        expect(container.querySelector("[data-print-preview]"), between).toBeNull();
+        if (between === "leaving the page") {
+          window.dispatchEvent(new Event("pagehide"));
+          // At once, with no render.
+          expect(releases, between).toBeGreaterThan(0);
+          expectWiped(filledBytes.at(-1));
+        } else {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "A");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        await new Promise((done) => setTimeout(done, 150));
+      } finally {
+        timers.mockRestore();
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+      }
+      expect(container.querySelector("[data-print-preview]"), between).toBeNull();
+      expect(canvas.isConnected, between).toBe(false);
+      expect(releases, between).toBeGreaterThan(0);
+      expectWiped(filledBytes.at(-1));
+      await act(async () => root.unmount());
+      container.remove();
+      vi.doUnmock("../../lib/intake/device-print");
+    }
+    expectNothingSaved();
   }, 60_000);
 
   it("says how to print when the browser ignores Print, and takes it back if printing starts after all", async () => {
