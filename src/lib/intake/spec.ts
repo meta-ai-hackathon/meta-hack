@@ -15,6 +15,7 @@ export type QuestionType =
   | "date"
   | "roster"
   | "attribution"
+  | "work_activity"
   | "address";
 
 export type SkipOperator =

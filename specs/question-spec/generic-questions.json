@@ -957,6 +957,16 @@
         { "question_id": "wr_student_enrolled", "operator": "in", "value": "full_time,at_least_half_time" }
       ],
       "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_work_rows",
+      "prompt": "For each person, what work activities did they do last month, and about how many hours?",
+      "type": "work_activity",
+      "help": "Add a row for each person and activity. Hours are per person and are never added together across people. Pick 'not sure' for the hours if you do not know - estimating is fine. The state decides how work counts.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
     }
   ]
 }

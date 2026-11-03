@@ -25,6 +25,8 @@ export function specValueFor(
       return question.options![0]!.value;
     case "multi_select":
       return [question.options![0]!.value];
+    case "work_activity":
+      return [{ memberId: "member-1", activity: "job_internship", hours: 20 }];
     case "attribution":
       return [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }];
     case "roster":

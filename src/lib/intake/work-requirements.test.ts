@@ -74,6 +74,7 @@ describe("the no-proof-needed reassurance (HACK-129)", () => {
       "wr_work_activity_hours",
       "wr_work_activity_types",
       "wr_work_activity_who",
+      "wr_work_rows",
     ];
     const actual = Object.keys(QUESTION_BY_ID)
       .filter((id) => isWorkRequirementsQuestionId(id))

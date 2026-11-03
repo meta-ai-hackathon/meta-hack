@@ -37,6 +37,7 @@ import {
   parseAttribution,
 } from "./attribution";
 import { ROSTER_QUESTION_ID } from "./roster";
+import { WORK_ROWS_QUESTION_ID, currentWorkRows, parseWorkRows } from "./work-activities";
 
 // The step-by-step page's on-device intake (HACK-99). Answers live only in
 // this browser: the flow engine runs here over the sealed device store
@@ -360,6 +361,46 @@ async function withReprunedAttribution(next: DeviceIntake, changedId: string): P
 }
 
 /**
+ * Re-prune stored work rows after a roster change (HACK-128): rows for a
+ * removed member drop out; pruned to nothing, the question becomes
+ * unanswered again. Same persisted semantics as the attribution re-prune.
+ */
+async function withReprunedWorkRows(next: DeviceIntake, changedId: string): Promise<DeviceIntake> {
+  if (changedId !== ROSTER_QUESTION_ID) return next;
+  const record = next.answers[WORK_ROWS_QUESTION_ID];
+  if (!record || record.status === "unknown") return next;
+  const pruned = currentWorkRows(toAnswerMap(next.answers));
+  const stored = parseWorkRows(record.value) ?? [];
+  if (JSON.stringify(pruned) === JSON.stringify(stored)) return next;
+  if (pruned.length === 0) {
+    const cleared = deleteClientAnswer(next.answers, WORK_ROWS_QUESTION_ID);
+    if (!keepsAnswers(next) || next.store === null) {
+      return intakeOf(next.store, next.keeping, next.stored, cleared);
+    }
+    try {
+      const removed = await deadline(removeDeviceAnswer(next.store, WORK_ROWS_QUESTION_ID, { expectStored: next.stored }), "saving to device storage");
+      if (removed.status === "saved") return intakeOf(next.store, "kept", true, removed.state);
+      if (removed.status === "purged") return intakeOf(next.store, "kept", false, EMPTY_CLIENT_ANSWERS);
+    } catch {
+      // Fall through to the unpruned state below.
+    }
+    return next;
+  }
+  const prunedRecord: ClientAnswerRecord = { questionId: WORK_ROWS_QUESTION_ID, status: record.status, provenance: record.provenance, value: pruned };
+  if (!keepsAnswers(next) || next.store === null) {
+    return intakeOf(next.store, next.keeping, next.stored, saveClientAnswer(next.answers, prunedRecord));
+  }
+  try {
+    const result = await deadline(recordDeviceAnswer(next.store, prunedRecord, { expectStored: next.stored }), "saving to device storage");
+    if (result.status === "saved") return intakeOf(next.store, "kept", true, result.state);
+    if (result.status === "purged") return intakeOf(next.store, "kept", false, EMPTY_CLIENT_ANSWERS);
+  } catch {
+    // Fall through to the unpruned state below.
+  }
+  return next;
+}
+
+/**
  * Answer one question on the device. The value is checked and canonicalized
  * against the question spec first (as POST /api/intake/answer does), so
  * nothing invalid is kept; an unknown answer keeps no value at all.
@@ -389,7 +430,7 @@ export async function answerOnDevice(
   };
   if (!keepsAnswers(intake) || intake.store === null) {
     const base = intakeOf(intake.store, intake.keeping, intake.stored, saveClientAnswer(intake.answers, record));
-    const next = await withReprunedAttribution(base, questionId);
+    const next = await withReprunedWorkRows(await withReprunedAttribution(base, questionId), questionId);
     return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, next) };
   }
   let result: DeviceAnswerSave;
@@ -421,7 +462,7 @@ export async function answerOnDevice(
   switch (result.status) {
     case "saved": {
       const base = intakeOf(intake.store, "kept", true, result.state);
-      const next = await withReprunedAttribution(base, questionId);
+      const next = await withReprunedWorkRows(await withReprunedAttribution(base, questionId), questionId);
       return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, next) };
     }
     case "purged":

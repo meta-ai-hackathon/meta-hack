@@ -42,6 +42,7 @@ WORK_REQUIREMENTS_IDS = [
     "wr_work_activity_who",
     "wr_work_activity_types",
     "wr_work_activity_hours",
+    "wr_work_rows",
 ]
 
 # The seasonal-work pair (HACK-130, Civilla's dedicated seasonal question):
@@ -97,6 +98,7 @@ SENSITIVE_WORK_REQUIREMENTS_IDS = [
     "wr_work_activity_who",
     "wr_work_activity_types",
     "wr_work_activity_hours",
+    "wr_work_rows",
 ]
 
 # No work-requirements question carries a non-sensitive answer. This list
@@ -170,7 +172,7 @@ class TestQuestionSpec(unittest.TestCase):
 
     def test_text_and_address_questions_are_pii(self):
         for q in self.questions:
-            if q["type"] in ("text", "address", "roster", "attribution"):
+            if q["type"] in ("text", "address", "roster", "attribution", "work_activity"):
                 self.assertTrue(
                     q["pii"],
                     f"{q['id']}: free-text question of type {q['type']} must be pii: true",

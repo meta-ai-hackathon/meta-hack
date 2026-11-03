@@ -254,3 +254,20 @@ describe("QuestionView per-person attribution (HACK-135)", () => {
     expect(renderView(q)).toContain("can only be answered when your answers are saved on this device");
   });
 });
+
+describe("QuestionView per-person work rows (HACK-128)", () => {
+  it("renders the 3-column row editor with members, activities, and hours", () => {
+    const q = QUESTIONS.find((x) => x.id === "wr_work_rows")!;
+    const html = renderView(q, {
+      workContext: {
+        members: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }],
+        suggestions: [],
+      },
+      value: [{ memberId: "member-1", activity: "job_internship", hours: 20 }],
+    });
+    expect(html).toContain("data-work-row=\"0\"");
+    expect(html).toContain("Type of activity");
+    expect(html).toContain("Hours last month");
+    expect(html).toContain("Add a row");
+  });
+});
