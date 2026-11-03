@@ -82,11 +82,13 @@ export const DEVICE_RESULTS_COPY = {
   stillNeededBody: "These are left blank on the prepared form. Nothing is guessed.",
   showFormButton: "Show the filled form",
   showingForm: "Filling in your form…",
+  // Only the filled form: the answers themselves may be saved in this
+  // browser, as the save for later section says.
   showFormNote:
     "This fills in the official form with your answers here in this " +
     "browser and shows it below. None of your answers are sent anywhere, " +
-    "and nothing is saved to this device. Printing the form is how you " +
-    "sign it and send it in.",
+    "and the filled form isn't saved to this device. Printing the form is " +
+    "how you sign it and send it in.",
   ready:
     "Your filled form is ready below. It was filled in this browser, and " +
     "none of your answers were sent anywhere.",

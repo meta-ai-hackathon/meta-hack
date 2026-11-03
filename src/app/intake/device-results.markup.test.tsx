@@ -399,12 +399,16 @@ describe("the device results copy", () => {
     }
   });
 
-  it("says where the form is filled, that nothing leaves or stays on the device, and that printing is how it goes in", () => {
+  it("says where the form is filled, that no answer leaves, that the filled form isn't kept, and that printing is how it goes in", () => {
     const note = DEVICE_RESULTS_COPY.showFormNote;
     expect(note).toContain("in this browser");
     expect(note).toContain("None of your answers are sent anywhere");
-    expect(note).toContain("nothing is saved to this device");
+    expect(note).toContain("the filled form isn't saved to this device");
     expect(note).toContain("Printing the form is how you sign it and send it in");
+    // The answers themselves may be saved in this browser (the save for
+    // later section says so, on the same screen), so the note never says
+    // nothing at all is saved.
+    expect(note).not.toMatch(/\bnothing is saved\b/i);
     // The lists that come with the pages point at the form, not at a file.
     expect(DEVICE_RESULTS_COPY.leftBlankHeading).toBe("Left blank on the form below");
     expect(DEVICE_RESULTS_COPY.conflictsHeading).toBe("Check these on the form below");
