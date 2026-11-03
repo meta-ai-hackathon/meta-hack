@@ -217,6 +217,15 @@ ALLOWED: Final[dict[tuple[str, str, str], str]] = {
         "In \"unknown errors log error_code=internal with zero detail leakage\": the log redactor's fixture, the password and "
         "host of a made-up database URL inside an error, which a log must never carry."
     ),
+    ("kb/entries/nc-medicaid-renewal.json", "phone number", "3097a4e48135fa2ada2824a21affda634cbf62ac5f8bf82065066515441316e8"): (
+        "In the if_coverage_ends items: the NC Medicaid Ombudsman's published number, from ncm_medicaid_is_changing."
+    ),
+    ("src/app/renewal/renewal-view.test.tsx", "phone number", "3097a4e48135fa2ada2824a21affda634cbf62ac5f8bf82065066515441316e8"): (
+        "In the renewal view test of the help box: the NC Medicaid Ombudsman's published number from the kb entry."
+    ),
+    ("src/lib/renewal/renewal-facts.test.ts", "phone number", "3097a4e48135fa2ada2824a21affda634cbf62ac5f8bf82065066515441316e8"): (
+        "In the renewal facts test of the Ombudsman line: the NC Medicaid Ombudsman's published number from the kb entry."
+    ),
 }
 
 

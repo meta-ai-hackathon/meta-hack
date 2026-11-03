@@ -242,6 +242,66 @@ describe("contrast themes", () => {
     expect(css).toContain("border-style: dashed;");
     expect(css).toContain("cursor: not-allowed;");
   });
+
+  it("a zinc background never carries a text color that high contrast leaves alone", () => {
+    // High contrast turns a zinc background into the page background and a
+    // zinc text color into the foreground, but any other text color keeps
+    // its own shade. Paired with a zinc background it can land on itself:
+    // `bg-zinc-900 text-white` renders white on white (HACK-50's Save
+    // button did). So a class list that sets a zinc background takes its
+    // text color from zinc utilities, or from the foreground itself.
+    const css = readFileSync(cssPath, "utf8");
+    const themeColors = new Set(
+      [...css.matchAll(/--color-([a-z-]+):/g)].map((match) => match[1]),
+    );
+    const isTextColor = (token: string): boolean => {
+      const name = token.slice("text-".length);
+      return (
+        token.startsWith("text-") &&
+        (name === "white" || name === "black" || /^[a-z]+-\d{2,3}$/.test(name) || themeColors.has(name))
+      );
+    };
+    const keepsUpInHighContrast = (token: string): boolean =>
+      /^text-zinc-\d+$/.test(token) || token === "text-foreground";
+    /** The text colors in one class list that would vanish on its zinc background. */
+    const offenders = (classList: string): string[] => {
+      // Unprefixed utilities only: a `dark:` or `hover:` class is a
+      // different class name, which the role rules never match.
+      const tokens = classList.split(/\s+/).filter((token) => !token.includes(":"));
+      return tokens.some((token) => /^bg-zinc-\d+$/.test(token))
+        ? tokens.filter((token) => isTextColor(token) && !keepsUpInHighContrast(token))
+        : [];
+    };
+    // The check itself, on the shapes it has to tell apart.
+    expect(offenders("rounded-md bg-zinc-900 text-base text-white dark:bg-zinc-100 dark:text-zinc-900")).toEqual([
+      "text-white",
+    ]);
+    expect(offenders("bg-zinc-900 text-base text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900")).toEqual([]);
+    expect(offenders("border border-zinc-400 text-teal-contrast hover:bg-zinc-100")).toEqual([]);
+    expect(offenders("bg-zinc-100 text-teal-contrast")).toEqual(["text-teal-contrast"]);
+    const srcRoot = fileURLToPath(new URL("..", import.meta.url));
+    const sources: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (/\.(tsx|ts)$/.test(entry.name) && !/\.test\./.test(entry.name)) {
+          sources.push(full);
+        }
+      }
+    };
+    walk(srcRoot);
+    const found: string[] = [];
+    for (const file of sources) {
+      for (const literal of readFileSync(file, "utf8").matchAll(/"([^"\n]*)"|`([^`\n]*)`/g)) {
+        for (const token of offenders(literal[1] ?? literal[2])) {
+          found.push(`${file}: ${token} on a zinc background`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
+  });
 });
 
 describe("high contrast toggle", () => {

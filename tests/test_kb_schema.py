@@ -9,11 +9,14 @@ against kb/schema.json with the draft-07 validator from the pinned
 """
 
 import copy
+import datetime
 import json
 import re
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -25,6 +28,16 @@ SCHEMA_PATH = KB_DIR / "schema.json"
 ENTRIES_DIR = KB_DIR / "entries"
 SAMPLE_PATH = ENTRIES_DIR / "pilot-program-sample.json"
 KB_CODE_PATH = REPO_ROOT / "src" / "lib" / "kb.ts"
+# The renewal tracker's entry (HACK-50 / BN-22): real facts with official
+# sources, in kb/entries/ beside the samples and the application entry (the
+# team's decision, recorded by a reviewer on PR #55 on Oct 31:
+# https://github.com/meta-ai-hackathon/meta-hack/pull/55#discussion_r4431007644).
+# TestRenewalEntry holds it to its own rules on top of the ones every entry
+# meets.
+RENEWAL_ENTRY_PATH = ENTRIES_DIR / "nc-medicaid-renewal.json"
+# The versioned real entries: the only KB files sanctioned to name the pilot
+# program (VAL-KB-003 as amended after the HACK-16 lock).
+REAL_ENTRY_PATHS = (ENTRIES_DIR / "nc-medicaid.json", RENEWAL_ENTRY_PATH)
 
 FACT_GROUPS = ["rules", "required_documents", "official_links", "deadlines"]
 
@@ -85,7 +98,26 @@ def find_program_name(line: str) -> "re.Match[str] | None":
     """Scan one KB-surface line for a blocklisted program name."""
     return PROGRAM_NAME_RE.search(SNAP_EXTENSION_RE.sub(" ", line))
 
+
+def program_names_in(text: str) -> set[str]:
+    """Every blocklisted program name in `text`, lowercased, read exactly as
+    find_program_name reads a line: the .snap token stripped, the same regex."""
+    return {
+        match.group(0).lower()
+        for match in PROGRAM_NAME_RE.finditer(SNAP_EXTENSION_RE.sub(" ", text))
+    }
+
+
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# The decided pilot is NC Medicaid (Mecklenburg County). Its entries may name
+# exactly this program; every other blocklisted name stays banned there too.
+PILOT_PROGRAM_NAMES = {"medicaid"}
+
+# Official sources for the pilot entries: North Carolina government hosts,
+# https only. A host matches when it equals one of these or ends with
+# "." + one of them.
+PILOT_SOURCE_DOMAINS = ("ncdhhs.gov", "nc.gov")
 
 
 def load_schema() -> dict:
@@ -142,6 +174,34 @@ class TestSchemaAndSample(KbSchemaTestCase):
         # explicitly so the property has a named home.
         self.assertTrue(hasattr(self.validator, "iter_errors"))
 
+    def test_nothing_sits_beside_a_ref(self):
+        # Draft-07 ignores every keyword next to a $ref, so a description or
+        # a constraint written there reads as contract but never applies
+        # (HACK-50 third review). Notes about a referenced field go on a
+        # definition object or in kb/README.md instead.
+        def beside_ref(node: object, path: str) -> list[str]:
+            found: list[str] = []
+            if isinstance(node, dict):
+                if "$ref" in node and len(node) > 1:
+                    found.append(f"{path}: {sorted(set(node) - {'$ref'})}")
+                for key, value in node.items():
+                    found += beside_ref(value, f"{path}/{key}")
+            elif isinstance(node, list):
+                for index, value in enumerate(node):
+                    found += beside_ref(value, f"{path}/{index}")
+            return found
+
+        self.assertEqual(beside_ref(self.schema, "#"), [])
+        # The check bites, and the validator really does drop such a
+        # keyword: maxProperties 0 beside a $ref lets any group through.
+        probe = copy.deepcopy(self.schema)
+        target = probe["definitions"]["facts"]["properties"]["steps"]
+        target["maxProperties"] = 0
+        self.assertEqual(beside_ref(probe, "#"), ["#/definitions/facts/properties/steps: ['maxProperties']"])
+        entry = copy.deepcopy(self.sample)
+        entry["facts"]["steps"] = {"items": ["One step."], "source_id": entry["sources"][0]["id"], "retrieved_at": "2026-10-01"}
+        self.assertEqual(list(Draft7Validator(probe).iter_errors(entry)), [])
+
     def test_sample_entry_exists_and_validates(self):
         self.assertTrue(SAMPLE_PATH.is_file(), f"missing {SAMPLE_PATH}")
         self.assertValid(self.sample, "shipped sample entry")
@@ -149,16 +209,18 @@ class TestSchemaAndSample(KbSchemaTestCase):
         self.assertIsInstance(self.sample["version"], int)
         self.assertGreaterEqual(self.sample["version"], 1)
 
-    def test_shipped_entries_are_the_three_samples_plus_the_real_pilot_entry(self):
+    def test_shipped_entries_are_the_three_samples_plus_the_real_pilot_entries(self):
         # Mission v2 M3 added matching fixtures B and C (so matching has
         # something to rank); mission v2.1 M6 added the REAL pilot entry
         # (HACK-16 Done: NC Medicaid) built from official government
-        # sources. All must validate; see also TestOptionalGroups and
-        # TestRealPilotEntry.
+        # sources, and HACK-50 added the renewal tracker's real entry. All
+        # must validate; see also TestOptionalGroups, TestRealPilotEntry and
+        # TestRenewalEntry.
         shipped = sorted(path.name for path in ENTRIES_DIR.glob("*.json"))
         self.assertEqual(
             shipped,
             [
+                "nc-medicaid-renewal.json",
                 "nc-medicaid.json",
                 "pilot-program-sample-b.json",
                 "pilot-program-sample-c.json",
@@ -513,9 +575,116 @@ class TestOptionalGroups(KbSchemaTestCase):
             "retrieved_at": "2026-10-29",
         }
 
+    def cadence_group(self) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "every_6_months",
+                    "interval_months": 6,
+                    "label": "Every 6 months",
+                    "applies_to": "People the official rules name for this schedule",
+                    "starts_on": "2027-01-01",
+                },
+                {
+                    "id": "once_a_year",
+                    "interval_months": 12,
+                    "label": "Once a year",
+                    "applies_to": "Everyone else the official rules name",
+                },
+            ],
+            "source_id": "official_rules_source",
+            "retrieved_at": "2026-10-29",
+        }
+
+    def coverage_ends_group(self) -> dict:
+        return {
+            "items": ["A letter explains the decision and how to appeal it."],
+            "source_id": "official_rules_source",
+            "retrieved_at": "2026-10-29",
+        }
+
     def test_optional_groups_validate_with_provenance(self):
-        for group, value in [("steps", self.steps_group()), ("match_signals", self.signal_group())]:
+        for group, value in [
+            ("steps", self.steps_group()),
+            ("match_signals", self.signal_group()),
+            ("renewal_cadence", self.cadence_group()),
+            ("if_coverage_ends", self.coverage_ends_group()),
+        ]:
             self.assertValid(self.entry_with_group(group, value), f"entry with {group}")
+
+    def test_coverage_ends_needs_provenance_and_text(self):
+        for key in ["items", "source_id", "retrieved_at"]:
+            entry = self.entry_with_group("if_coverage_ends", self.coverage_ends_group())
+            del entry["facts"]["if_coverage_ends"][key]
+            self.assertInvalid(entry, f"if_coverage_ends without {key}")
+        blank = self.entry_with_group("if_coverage_ends", self.coverage_ends_group())
+        blank["facts"]["if_coverage_ends"]["items"] = [""]
+        self.assertInvalid(blank, "if_coverage_ends with a blank item")
+
+    def test_cadence_age_range_validates(self):
+        entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+        entry["facts"]["renewal_cadence"]["items"][0]["ages"] = {"min": 19, "max": 64}
+        self.assertValid(entry, "cadence item with an age range")
+        for ages in [
+            {"min": 19},
+            {"max": 64},
+            {"min": -1, "max": 64},
+            {"min": 19, "max": 131},
+            {"min": 19.5, "max": 64},
+            {"min": "19", "max": 64},
+            {"min": 19, "max": 64, "label": "adults"},
+            [19, 64],
+        ]:
+            bad = self.entry_with_group("renewal_cadence", self.cadence_group())
+            bad["facts"]["renewal_cadence"]["items"][0]["ages"] = ages
+            self.assertInvalid(bad, f"cadence ages {ages!r}")
+
+    def test_cadence_item_may_name_its_own_source(self):
+        # A group can draw its schedules from different pages; each schedule
+        # then renders with the page that states it (HACK-50 review fix).
+        entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+        entry["facts"]["renewal_cadence"]["items"][0]["source_id"] = "official_application_portal"
+        self.assertValid(entry, "cadence item with its own source")
+        for value in ["Not A Source", "", 7, None]:
+            bad = self.entry_with_group("renewal_cadence", self.cadence_group())
+            bad["facts"]["renewal_cadence"]["items"][0]["source_id"] = value
+            self.assertInvalid(bad, f"cadence item source_id {value!r}")
+
+    def test_cadence_missing_any_required_key_fails(self):
+        for key in ["id", "interval_months", "label", "applies_to"]:
+            entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+            del entry["facts"]["renewal_cadence"]["items"][0][key]
+            self.assertInvalid(entry, f"cadence item without {key}")
+
+    def test_cadence_starts_on_stays_optional(self):
+        entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+        del entry["facts"]["renewal_cadence"]["items"][0]["starts_on"]
+        self.assertValid(entry, "cadence item without starts_on")
+
+    def test_cadence_out_of_range_interval_fails(self):
+        for months in [0, 25, -6, 1.5, "6"]:
+            entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+            entry["facts"]["renewal_cadence"]["items"][0]["interval_months"] = months
+            self.assertInvalid(entry, f"cadence interval {months!r}")
+
+    def test_cadence_malformed_fields_fail(self):
+        for key, value in [
+            ("id", "Every Six!"),
+            ("starts_on", "2027/01/01"),
+            ("label", ""),
+            ("applies_to", ""),
+        ]:
+            entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+            entry["facts"]["renewal_cadence"]["items"][0][key] = value
+            self.assertInvalid(entry, f"cadence item with {key}={value!r}")
+
+    def test_cadence_unknown_key_and_empty_items_fail(self):
+        entry = self.entry_with_group("renewal_cadence", self.cadence_group())
+        entry["facts"]["renewal_cadence"]["items"][0]["ends_on"] = "2028-01-01"
+        self.assertInvalid(entry, "cadence item with an unknown key")
+        empty = self.entry_with_group("renewal_cadence", self.cadence_group())
+        empty["facts"]["renewal_cadence"]["items"] = []
+        self.assertInvalid(empty, "cadence group with no items")
 
     def test_optional_groups_stay_optional(self):
         self.assertValid(self.sample, "entry without the optional groups")
@@ -553,12 +722,20 @@ class TestOptionalGroups(KbSchemaTestCase):
         for path in sorted(ENTRIES_DIR.glob("*.json")):
             entry = json.loads(path.read_text(encoding="utf-8"))
             source_ids = {source["id"] for source in entry["sources"]}
-            for group in ["steps", "match_signals"]:
+            for group in ["steps", "match_signals", "renewal_cadence", "if_coverage_ends"]:
                 if group in entry["facts"]:
                     self.assertIn(
                         entry["facts"][group]["source_id"],
                         source_ids,
                         f"{path.name} facts.{group}",
+                    )
+            # A schedule's own source_id must resolve too.
+            for item in entry["facts"].get("renewal_cadence", {}).get("items", []):
+                if "source_id" in item:
+                    self.assertIn(
+                        item["source_id"],
+                        source_ids,
+                        f"{path.name} facts.renewal_cadence schedule {item['id']}",
                     )
 
     def test_signal_question_ids_resolve_in_the_spec(self):
@@ -587,6 +764,16 @@ class TestPilotAgnostic(KbSchemaTestCase):
             files.append(KB_CODE_PATH)
         return files
 
+    def test_surface_scan_still_covers_the_samples_and_schema(self):
+        # No directory is skipped: real entries are sanctioned one file at a
+        # time in the scan below, so a new file anywhere under kb/ is
+        # scanned until it is named there (PR #55 review).
+        names = {path.name for path in self.kb_surface_files()}
+        for expected in ["schema.json", "README.md", "pilot-program-sample.json", "kb.ts"]:
+            self.assertIn(expected, names)
+        on_disk = {path for path in KB_DIR.rglob("*") if path.is_file()}
+        self.assertEqual(set(self.kb_surface_files()) - {KB_CODE_PATH}, on_disk)
+
     def test_sample_uses_pilot_placeholder(self):
         text = SAMPLE_PATH.read_text(encoding="utf-8")
         self.assertIn("{{PILOT_PROGRAM}}", text, "sample must stay a template")
@@ -609,15 +796,18 @@ class TestPilotAgnostic(KbSchemaTestCase):
     def test_no_real_program_names_outside_the_sanctioned_real_entry(self):
         # Post-lock grep check (VAL-KB-003 as amended by VAL-X2-004, Oct 30):
         # HACK-16 is Done, so real program/jurisdiction names are sanctioned
-        # in exactly ONE KB surface — the committed versioned real entry
-        # (nc-medicaid.json) whose official sources + retrieval dates carry
-        # the verification discipline. The samples, the schema, the README,
+        # only in the committed versioned real entries (REAL_ENTRY_PATHS:
+        # nc-medicaid.json, and the renewal entry the team placed beside it
+        # on Oct 31), whose official sources + retrieval dates carry the
+        # verification discipline. The samples, the schema, the README,
         # and the consuming module stay name-free. The kb/forms/ registry
         # entries are the forms surface, governed by test_forms_registry.
-        sanctioned = ENTRIES_DIR / "nc-medicaid.json"
+        # The one real entry kb.ts imports (the renewal entry is imported by
+        # src/lib/renewal/renewal-facts.ts, which is not on the KB surface).
+        imported_entry = ENTRIES_DIR / "nc-medicaid.json"
         forms_dir = (KB_DIR / "forms").resolve()
         for path in self.kb_surface_files():
-            if path == sanctioned or forms_dir in path.resolve().parents:
+            if path in REAL_ENTRY_PATHS or forms_dir in path.resolve().parents:
                 continue
             for line_number, line in enumerate(
                 path.read_text(encoding="utf-8").splitlines(), start=1
@@ -631,7 +821,7 @@ class TestPilotAgnostic(KbSchemaTestCase):
                 if (
                     path == KB_CODE_PATH
                     and "import" in line
-                    and f"kb/entries/{sanctioned.name}" in line
+                    and f"kb/entries/{imported_entry.name}" in line
                 ):
                     continue
                 self.fail(
@@ -639,6 +829,198 @@ class TestPilotAgnostic(KbSchemaTestCase):
                     f"({match.group(0)!r}); only the versioned real pilot "
                     "entry may carry program names on the KB surface"
                 )
+
+
+def is_official_pilot_host(url: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    return parsed.scheme == "https" and any(
+        host == domain or host.endswith("." + domain) for domain in PILOT_SOURCE_DOMAINS
+    )
+
+
+def other_program_names(paths: list[Path]) -> dict[str, set[str]]:
+    """Blocklisted program names other than the pilot's own, by file path.
+
+    Names are read as the VAL-KB-003 scan reads them (program_names_in), so
+    a file the scan sanctions is held to the scan's own matching, minus only
+    the pilot's own name.
+    """
+    found: dict[str, set[str]] = {}
+    for path in paths:
+        named = program_names_in(path.read_text(encoding="utf-8"))
+        extra = named - PILOT_PROGRAM_NAMES
+        if extra:
+            found[str(path)] = extra
+    return found
+
+
+class TestRenewalEntry(KbSchemaTestCase):
+    """HACK-50: the renewal tracker's entry carries real, verified facts.
+
+    It lives in kb/entries/ beside the samples and the application entry
+    (the team's decision on PR #55, Oct 31; see RENEWAL_ENTRY_PATH for where
+    it is recorded) and validates against the same
+    schema. On top of that it must cite only official North Carolina
+    government sources over https, carry no placeholders, and name no real
+    program other than the pilot's own; the VAL-KB-003 scan sanctions the
+    file, so that last rule is checked here. The renewal_cadence group stays
+    optional, as in the schema: an entry is held to unique schedule ids and
+    real start dates only when it carries the group, while the renewal entry
+    must carry it.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.entry = json.loads(RENEWAL_ENTRY_PATH.read_text(encoding="utf-8"))
+
+    def test_ships_beside_the_other_entries(self):
+        self.assertTrue(RENEWAL_ENTRY_PATH.is_file(), f"missing {RENEWAL_ENTRY_PATH}")
+        self.assertEqual(RENEWAL_ENTRY_PATH.parent, ENTRIES_DIR)
+
+    def test_cadence_age_ranges_are_ordered(self):
+        # The schema cannot compare min with max; kb.ts and this check do.
+        for item in self.entry["facts"].get("renewal_cadence", {}).get("items", []):
+            if "ages" in item:
+                self.assertLessEqual(item["ages"]["min"], item["ages"]["max"], item["id"])
+
+    def test_entry_validates(self):
+        self.assertEqual(self.schema_errors(self.entry), [])
+        self.assertEqual(self.entry["status"], "active")
+
+    def test_ids_are_unique_across_the_entries(self):
+        ids = [
+            json.loads(path.read_text(encoding="utf-8"))["id"]
+            for path in sorted(ENTRIES_DIR.glob("*.json"))
+        ]
+        self.assertIn(self.entry["id"], ids)
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_every_group_cites_a_listed_source(self):
+        source_ids = {source["id"] for source in self.entry["sources"]}
+        for group, facts in self.entry["facts"].items():
+            self.assertIn(facts["source_id"], source_ids, f"facts.{group}")
+        for item in self.entry["facts"].get("renewal_cadence", {}).get("items", []):
+            if "source_id" in item:
+                self.assertIn(item["source_id"], source_ids, f"schedule {item['id']}")
+
+    def test_sources_and_links_are_official_nc_https(self):
+        for source in self.entry["sources"]:
+            self.assertTrue(is_official_pilot_host(source["url"]), source["url"])
+        for link in self.entry["facts"]["official_links"]["items"]:
+            self.assertTrue(is_official_pilot_host(link["url"]), link["url"])
+
+    def test_official_host_check_bites(self):
+        for url in [
+            "http://medicaid.ncdhhs.gov/renewals",
+            "https://example.org/medicaid",
+            "https://ncdhhs.gov.example.com/page",
+            "https://fakencdhhs.gov/page",
+        ]:
+            self.assertFalse(is_official_pilot_host(url), url)
+        self.assertTrue(is_official_pilot_host("https://epass.nc.gov/"))
+
+    def test_no_placeholders_survive(self):
+        text = RENEWAL_ENTRY_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("{{", text)
+        self.assertNotIn("example.org", text)
+
+    def test_names_only_the_pilot_program(self):
+        self.assertEqual(other_program_names([RENEWAL_ENTRY_PATH]), {})
+
+    def test_name_check_bites(self):
+        # The probe from the HACK-50 review: the check flags every other
+        # program name, in an entry or in any other file, and lets the
+        # pilot's own name through.
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "README.md").write_text(
+                "SNAP and CHIP renew on other schedules.\n", encoding="utf-8"
+            )
+            (folder / "notes.txt").write_text("SNAP\n", encoding="utf-8")
+            (folder / "entry.json").write_text('{"title": "NC Medicaid"}\n', encoding="utf-8")
+            found = other_program_names(sorted(folder.iterdir()))
+        self.assertEqual(
+            {Path(name).name: sorted(extra) for name, extra in found.items()},
+            {"README.md": ["chip", "snap"], "notes.txt": ["snap"]},
+        )
+
+    @settings(database=None, deadline=None, max_examples=300)
+    @given(
+        st.lists(
+            st.tuples(
+                st.one_of(
+                    st.sampled_from(PROGRAM_NAME_BLOCKLIST).flatmap(
+                        lambda name: st.sampled_from([name, name.lower(), name.upper(), name.title()])
+                    ),
+                    st.sampled_from(
+                        [".snap", "card.test.ts.snap", "snapshot", "snaps", "Section", "8", "food", "NC", "renewal"]
+                    ),
+                ),
+                st.sampled_from([" ", "", ".", "-", "_", "/", ",", "\t"]),
+            ),
+            max_size=8,
+        ).map(lambda parts: "".join(piece + gap for piece, gap in parts))
+    )
+    def test_name_check_reads_names_as_the_scan_does(self, line: str):
+        # The renewal entry is sanctioned on the VAL-KB-003 scan, so its own
+        # name check has to read names exactly as that scan does: a line has
+        # a name for one exactly when it has one for the other, and the
+        # scan's first find is among the check's.
+        found = program_names_in(line)
+        first = find_program_name(line)
+        self.assertEqual(first is None, not found, repr(line))
+        if first is not None:
+            self.assertIn(first.group(0).lower(), found, repr(line))
+
+    def test_dates_are_real_and_never_in_the_future(self):
+        today = datetime.date.today()
+        dates = [source["retrieved_at"] for source in self.entry["sources"]]
+        dates += [facts["retrieved_at"] for facts in self.entry["facts"].values()]
+        for value in dates:
+            self.assertLessEqual(datetime.date.fromisoformat(value), today, value)
+        for item in self.entry["facts"]["deadlines"]["items"]:
+            if ISO_DATE_RE.match(item["due"]):
+                datetime.date.fromisoformat(item["due"])
+
+    def cadence_problems(self, entry: dict) -> list[str]:
+        """What is wrong with an entry's renewal_cadence group: nothing when it has none."""
+        cadence = entry["facts"].get("renewal_cadence")
+        if cadence is None:
+            return []
+        problems = []
+        ids = [item["id"] for item in cadence["items"]]
+        if len(ids) != len(set(ids)):
+            problems.append("schedule ids repeat")
+        for item in cadence["items"]:
+            if "starts_on" in item:
+                try:
+                    datetime.date.fromisoformat(item["starts_on"])
+                except ValueError:
+                    problems.append(f"schedule {item['id']} starts_on is not a real date")
+        return problems
+
+    def test_cadence_schedules_are_unique_and_dated(self):
+        # Checked only where present, as test_optional_group_source_ids_resolve
+        # does (HACK-50 third review: this used to fail any pilot entry
+        # without renewal_cadence with "needs renewal_cadence").
+        for path in sorted(ENTRIES_DIR.glob("*.json")):
+            entry = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(self.cadence_problems(entry), [], path.name)
+        renewal = self.entry
+        self.assertIn("renewal_cadence", renewal["facts"])
+        # An entry without schedules passes; a broken group still fails.
+        without = copy.deepcopy(renewal)
+        del without["facts"]["renewal_cadence"]
+        self.assertEqual(self.cadence_problems(without), [])
+        broken = copy.deepcopy(renewal)
+        items = broken["facts"]["renewal_cadence"]["items"]
+        items.append(copy.deepcopy(items[0]))
+        items[0]["starts_on"] = "2027-02-30"
+        self.assertEqual(
+            self.cadence_problems(broken),
+            ["schedule ids repeat", f"schedule {items[0]['id']} starts_on is not a real date"],
+        )
 
 
 class TestRealPilotEntry(KbSchemaTestCase):

@@ -1,3 +1,4 @@
+import fc from "fast-check";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, expectTypeOf, it } from "vitest";
@@ -92,6 +93,151 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "no-report determination", text: "You don't need to report work activities." },
   { label: "future no-report determination", text: "You won't need to report your work activities." },
   { label: "emphatic no-report determination", text: "You do not need to report your work activities to us." },
+  // Continued-coverage and renewal-outcome promises (HACK-50 renewal
+  // tracker): a renewal reminder must never say the person's coverage
+  // carries on, or that the renewal or application will go through.
+  { label: "stay covered promise", text: "You will stay covered as long as you renew." },
+  { label: "stay eligible promise", text: "You'll stay eligible after this renewal." },
+  { label: "remain enrolled promise", text: "You are going to remain enrolled." },
+  { label: "keep coverage promise", text: "You'll keep your coverage after the renewal." },
+  { label: "continue benefits promise", text: "You will continue to get your benefits." },
+  { label: "never lose coverage promise", text: "You won't lose your health coverage." },
+  { label: "will not lose promise", text: "You will not lose your benefits this year." },
+  { label: "renewal approval promise", text: "Your renewal will be approved." },
+  { label: "coverage continues promise", text: "Your coverage will continue after you renew." },
+  { label: "application goes through promise", text: "Your application is going to go through." },
+  // Every renewal promise from the HACK-50 trust review's probe (30 of
+  // these 35 got through the first version of the two patterns above).
+  { label: "probe: still eligible, contraction", text: "You're still eligible for Medicaid." },
+  { label: "probe: still eligible after renewal", text: "You are still eligible after your renewal." },
+  { label: "probe: still qualify", text: "You still qualify for NC Medicaid." },
+  { label: "probe: remain eligible", text: "You remain eligible." },
+  { label: "probe: remain covered", text: "You remain covered through 2027." },
+  { label: "probe: still covered", text: "You are still covered." },
+  { label: "probe: covered through", text: "You're covered through June 2027." },
+  { label: "probe: stay covered, present", text: "You stay covered as long as you answer the letter." },
+  { label: "probe: keep coverage, present", text: "You keep your coverage." },
+  { label: "probe: keep Medicaid, present", text: "You keep your Medicaid." },
+  { label: "probe: will keep Medicaid", text: "You will keep Medicaid." },
+  { label: "probe: stay on Medicaid", text: "You'll stay on Medicaid." },
+  { label: "probe: remain on NC Medicaid", text: "You'll remain on NC Medicaid." },
+  { label: "probe: will not lose Medicaid", text: "You will not lose Medicaid." },
+  { label: "probe: Medicaid will be renewed", text: "Your Medicaid will be renewed." },
+  { label: "probe: NC Medicaid will continue", text: "Your NC Medicaid will continue." },
+  { label: "probe: Medicaid won't stop", text: "Your Medicaid won't stop." },
+  { label: "probe: coverage won't end", text: "Your coverage won't end." },
+  { label: "probe: coverage will not end", text: "Your coverage will not end." },
+  { label: "probe: coverage is safe", text: "Your coverage is safe." },
+  { label: "probe: renewal is approved", text: "Your renewal is approved." },
+  { label: "probe: renewal was approved", text: "Your renewal was approved." },
+  { label: "probe: renewal has been approved", text: "Your renewal has been approved." },
+  { label: "probe: renewed automatically", text: "You'll be renewed automatically." },
+  { label: "probe: re-approved", text: "You will be re-approved." },
+  {
+    label: "probe: renewal happens automatically",
+    text: "Your renewal happens automatically, so you don't need to do anything.",
+  },
+  { label: "probe: no gap in coverage", text: "There will be no gap in your coverage." },
+  { label: "probe: won't be cut off", text: "You won't be cut off." },
+  { label: "probe: definitely stay covered", text: "You will definitely stay covered." },
+  { label: "probe: going to stay covered", text: "You're going to stay covered." },
+  { label: "probe: continue to receive benefits", text: "You will continue to receive your benefits." },
+  { label: "probe: continue to have Medicaid", text: "You will continue to have Medicaid." },
+  { label: "probe: keep health coverage", text: "You'll keep your health coverage after you renew." },
+  { label: "probe: renewal will go through", text: "Your renewal will go through." },
+  { label: "probe: recertification will be approved", text: "Your recertification will be approved." },
+  // The boundary the "that" rule draws: a reported or negated promise
+  // after "that" stays banned, like "show that you meet" above.
+  { label: "that-clause coverage promise", text: "This means that you will stay covered." },
+  // Promises the second HACK-50 review's probe found getting through: other
+  // negations before "lose", present-tense outcomes, "continue to be",
+  // "still have", "won't be a gap", someone else the renewal is for, and
+  // curly apostrophes.
+  { label: "review 2: will never lose", text: "You will never lose your coverage." },
+  { label: "review 2: 'll never lose", text: "You'll never lose your Medicaid." },
+  { label: "review 2: can't lose", text: "You can't lose your coverage." },
+  { label: "review 2: cannot lose", text: "You cannot lose your Medicaid." },
+  { label: "review 2: won't be dropped", text: "You won't be dropped." },
+  { label: "review 2: coverage continues", text: "Your coverage continues." },
+  { label: "review 2: benefits continue", text: "Your benefits continue." },
+  { label: "review 2: will renew automatically", text: "Your coverage will renew automatically." },
+  { label: "review 2: continue to be covered", text: "You will continue to be covered." },
+  { label: "review 2: still have coverage", text: "You will still have coverage." },
+  { label: "review 2: still have Medicaid", text: "You'll still have Medicaid next year." },
+  { label: "review 2: continue to be eligible", text: "You will continue to be eligible." },
+  { label: "review 2: continue to qualify", text: "You will continue to qualify." },
+  { label: "review 2: won't be a gap", text: "There won't be a gap in your coverage." },
+  { label: "review 2: child will stay covered", text: "Your child will stay covered." },
+  { label: "review 2: they will stay covered", text: "They will stay covered." },
+  { label: "review 2: curly 'll stay covered", text: "You\u2019ll stay covered." },
+  { label: "review 2: curly won't lose", text: "You won\u2019t lose your coverage." },
+  { label: "review 2: curly 're still covered", text: "You\u2019re still covered." },
+  { label: "review 2: curly 're eligible", text: "You\u2019re eligible." },
+  { label: "third person: won't lose their coverage", text: "Your kids won't lose their coverage." },
+  { label: "third person: she will keep her Medicaid", text: "She'll keep her Medicaid after the renewal." },
+  { label: "coverage will never end", text: "Your coverage will never end." },
+  // What the exemptions above still catch: a promise in the main clause
+  // after a condition or a question, and "is renewed" with no schedule.
+  { label: "promise after a condition", text: "Once you answer the letter, you will stay covered." },
+  { label: "promise after a question", text: "Will you stay covered? Yes, you will keep your Medicaid." },
+  { label: "promise after a negated question", text: "Won't you stay covered? Yes, you will keep your Medicaid." },
+  // The present-tense boundary (third review): enrolled and insured count
+  // with "still" or a Medicaid or health coverage object, covered on its
+  // own, and a result clause after "so" is still a promise.
+  { label: "present tense: enrolled in Medicaid", text: "You are enrolled in NC Medicaid." },
+  { label: "present tense: insured under Medicaid", text: "You're insured under Medicaid." },
+  { label: "present tense: enrolled in a health plan", text: "You are enrolled in a health plan." },
+  { label: "present tense: still enrolled", text: "You are still enrolled." },
+  { label: "present tense: still insured", text: "You\u2019re still insured." },
+  { label: "present tense: covered on its own", text: "Good news, you're covered." },
+  { label: "result clause after so", text: "Your renewal went through, so you stay covered." },
+  { label: "promise after how-to", text: "Here is how it works: you keep your coverage." },
+  { label: "is renewed with no schedule", text: "Your Medicaid is renewed." },
+  { label: "is renewed, then a promise", text: "Your coverage is renewed, so nothing changes." },
+  // What the narrowing after the review of 7fbeb3c keeps caught: an
+  // application that is accepted (an outcome, kept on purpose), continuing
+  // with a coverage word as the subject, a renewal that continues
+  // automatically, help as a noun, the past "helped", and a promise in the
+  // main clause after a help clause.
+  { label: "7fbeb3c review: application is accepted", text: "Your application is accepted." },
+  { label: "7fbeb3c review: application has been accepted", text: "Your application has been accepted." },
+  { label: "7fbeb3c review: eligibility continues", text: "Your eligibility continues." },
+  { label: "7fbeb3c review: health coverage is going to continue", text: "Your health coverage is going to continue." },
+  { label: "7fbeb3c review: renewal continues automatically", text: "Your renewal continues automatically." },
+  { label: "7fbeb3c review: application will continue automatically", text: "Your application will continue automatically." },
+  { label: "7fbeb3c review: help as a noun", text: "With our help you will stay covered." },
+  { label: "7fbeb3c review: help as a noun, present", text: "With help you keep your Medicaid." },
+  { label: "7fbeb3c review: helped reports the coverage", text: "Answering that letter helped you stay covered." },
+  {
+    label: "7fbeb3c review: promise after a help clause",
+    text: "To help you stay covered, answer the letter. Then you will keep your Medicaid.",
+  },
+  // What the follow-up review of that narrowing found getting through: a
+  // renewal or recertification that carries the coverage on, with an
+  // object, a no-gap tail, a keep-covered tail, a stretch of time, or a
+  // result clause. A renewal, recertification, or application that
+  // continues is spared only where what follows says where or when the
+  // process goes on.
+  { label: "7fbeb3c follow-up: will continue your benefits", text: "Good news: your renewal will continue your benefits." },
+  { label: "7fbeb3c follow-up: will continue your coverage", text: "Your renewal will continue your coverage for another year." },
+  {
+    label: "7fbeb3c follow-up: continues your coverage after a condition",
+    text: "Once the office has your form, your renewal continues your coverage for another 12 months.",
+  },
+  {
+    label: "7fbeb3c follow-up: will continue without a gap",
+    text: "If you send it in time, your renewal will continue without a gap in coverage.",
+  },
+  {
+    label: "7fbeb3c follow-up: is going to continue your NC Medicaid",
+    text: "Your renewal is going to continue your NC Medicaid for another year.",
+  },
+  { label: "7fbeb3c follow-up: continues your eligibility", text: "Your recertification continues your eligibility." },
+  { label: "7fbeb3c follow-up: will continue to keep you covered", text: "Your renewal will continue to keep you covered." },
+  { label: "7fbeb3c follow-up: continues your current coverage", text: "Your renewal continues your current coverage." },
+  { label: "7fbeb3c follow-up: will continue with no gap", text: "Your renewal will continue with no gap." },
+  { label: "7fbeb3c follow-up: will continue for another year", text: "Your renewal will continue for another year." },
+  { label: "7fbeb3c follow-up: continues, then a result clause", text: "Your renewal continues, so nothing changes." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty
@@ -124,6 +270,102 @@ const HONEST_SENTENCES: string[] = [
   "You may not need to report work activities — the state decides.",
   "You may meet the work requirement rules; the state decides what counts.",
   "The checklist shows whether you meet the work requirement.",
+  // Renewal copy (HACK-50): dates that "may be due", hedged risk, and what
+  // the office decides stay allowed.
+  "Your renewal may be due around March 1, 2027.",
+  "You may lose your coverage if you do not answer the letter.",
+  "The office decides whether your coverage continues.",
+  "If your renewal is approved, you get a letter from the office.",
+  "You will still need to renew on time.",
+  "You'll keep your answers on this device until you remove them.",
+  "You will get a letter if you need to do anything to renew.",
+  "Answer any letter right away so there is no gap in your coverage.",
+  // Open questions about the outcome (the HACK-50 trust review's honest
+  // framings that start with "whether" or "if").
+  "Ask your local DSS whether you will stay covered.",
+  "Only your local DSS can say whether your coverage will continue.",
+  "We can't tell you if your renewal will be approved.",
+  "Your local DSS decides whether your application will go through.",
+  // How to word a negated report under the "that" rule.
+  "No one can promise coverage after a renewal.",
+  // Reported past and conditionals stay allowed.
+  "You told us you were renewed in March.",
+  "If you're covered by another plan, tell the office.",
+  "If you lose your Medicaid, you will get a letter.",
+  "Recertification is how the office decides whether their Medicaid continues.",
+  // Near misses for the second review's patterns: a hedge with "can", a
+  // "never" that is not about coverage, "have" without "still", questions,
+  // and the third-person conditional.
+  "You can lose your coverage if you do not answer the letter.",
+  "You can never be sure which date applies, so check your letter.",
+  "You will have your answers on this device until you remove them.",
+  "Ask the office whether your child will stay covered.",
+  "If they keep their coverage, the office sends a letter.",
+  "Will there be a gap in your coverage? Ask your local DSS.",
+  // Honest framings the second review found flagged: NC Medicaid's own
+  // definition of recertification (verbatim from the work requirement
+  // page), a schedule statement, direct questions, how-to advice,
+  // conditions, and the person's own report.
+  "Recertification is when your NC Medicaid is renewed, which happens every 6 months.",
+  "Your Medicaid is renewed once a year for most people today.",
+  "Will you stay covered? Only your local DSS can say.",
+  "Do you keep your Medicaid if you move? Ask your local DSS.",
+  "How do you keep your coverage? Answer every letter.",
+  "Are you still covered? Check your latest letter.",
+  "Here is how you keep your Medicaid: answer every letter right away.",
+  "Once you are enrolled, you get a Medicaid ID card.",
+  "When you are covered by Medicare too, other rules apply.",
+  "Unless you are covered by other insurance, keep your Medicaid letter.",
+  "Until you are enrolled, keep every letter.",
+  "You told us you are enrolled in NC Medicaid.",
+  "You said your coverage was renewed in July.",
+  // Negated direct questions (third review) are as honest as the positive
+  // ones above, typed with either apostrophe.
+  "Won't you stay covered if you answer the letter?",
+  "Don't you keep your Medicaid if you move?",
+  "Won't you be renewed automatically?",
+  "Won\u2019t you stay covered if you answer the letter?",
+  "Doesn\u2019t your coverage continue after you move?",
+  // Present-tense intake and chat wording (third review): enrolled and
+  // insured with an object that is not Medicaid or health coverage.
+  "You are enrolled in school.",
+  "You are insured through your employer.",
+  "You're enrolled in a training program.",
+  "You\u2019re enrolled in a training program, which counts as an activity.",
+  // Chat wording the review of 7fbeb3c found flagged: a purpose clause
+  // with help as a verb, and a renewal, recertification, or application
+  // that goes on (a form's next page). One per spared shape, for each
+  // pattern that spares it.
+  "to help you stay covered, answer the letter",
+  "To help you stay covered, answer the letter right away.",
+  "Answering the letter on time can help you keep your coverage.",
+  "Answering every letter helps you stay covered.",
+  "It\u2019ll help you keep your Medicaid if you answer every letter.",
+  "Answering the letter on time can help you never lose your coverage.",
+  "Answer the letter to help you get renewed on time.",
+  "Answer every letter to help your coverage continue.",
+  "Your application continues on the next page.",
+  "Your application will continue on the next page.",
+  "Your renewal continues until the office decides.",
+  "Your recertification is going to continue after you send the form.",
+  // Where or when a renewal, recertification, or application goes on, one
+  // per spared shape (follow-up review of the narrowing): the sentence
+  // ends, below or here, a page, step, section, or question, what happens
+  // first, or the office deciding.
+  "Your NC renewal will definitely continue.",
+  "Your application continues below.",
+  "Your application continues here.",
+  "Your application continues on page 2.",
+  "Your application continues to the review step.",
+  "Your application continues in the next section.",
+  "Your application continues at step 3.",
+  "Your application continues with the next question.",
+  "Your application continues once you sign it.",
+  "Your renewal continues when the office gets your form.",
+  "Your application continues where you left off.",
+  "Your renewal continues until the county decides.",
+  // How to say what "is accepted" would have: the office as the subject.
+  "The office accepts applications by mail.",
 ];
 
 // Parsed from the repo's spec and migration files at test time — the literals
@@ -166,6 +408,206 @@ describe("banned-claims detector", () => {
     for (const sentence of HONEST_SENTENCES) {
       expect(findBannedClaims(sentence), sentence).toEqual([]);
     }
+  });
+
+  it("counts enrolled and insured in the present tense only with still or a health coverage object (third review)", () => {
+    const subject = fc.constantFrom("You are", "you are", "You're", "you\u2019re");
+    const word = fc.constantFrom("enrolled", "insured");
+    const preposition = fc.constantFrom("in", "on", "by", "through", "under", "with");
+    const other = fc.constantFrom("school", "a training program", "your employer", "the workshop", "a college course");
+    const health = fc.constantFrom("Medicaid", "NC Medicaid", "the Medicaid program", "a health plan", "your health insurance");
+    fc.assert(
+      fc.property(subject, word, preposition, other, health, (who, what, by, elsewhere, coverage) => {
+        const ordinary = `${who} ${what} ${by} ${elsewhere}.`;
+        expect(findBannedClaims(ordinary), ordinary).toEqual([]);
+        for (const promise of [
+          `${who} ${what} ${by} ${coverage}.`,
+          `${who} still ${what} ${by} ${elsewhere}.`,
+          // "covered" names the coverage itself, so it counts with any object.
+          `${who} covered ${by} ${elsewhere}.`,
+        ]) {
+          expect(findBannedClaims(promise).length, promise).toBeGreaterThan(0);
+        }
+      }),
+    );
+  });
+
+  it("spares a negated direct question the way it spares the positive one (third review)", () => {
+    const negated = fc.constantFrom(
+      "don't",
+      "doesn't",
+      "didn't",
+      "won't",
+      "wouldn't",
+      "can't",
+      "couldn't",
+      "shouldn't",
+      "aren't",
+      "isn't",
+    );
+    const apostrophe = fc.constantFrom("'", "\u2019", "\u2018", "\u201b", "\u02bc");
+    const question = fc.constantFrom(
+      "you stay covered if you answer the letter?",
+      "you keep your Medicaid if you move?",
+      "you be renewed automatically?",
+      "your coverage continue after you move?",
+      "you still have coverage after a move?",
+      "they stay covered if you move?",
+    );
+    fc.assert(
+      fc.property(negated, apostrophe, question, fc.boolean(), (word, mark, rest, capital) => {
+        const auxiliary = (capital ? `${word[0]!.toUpperCase()}${word.slice(1)}` : word).replaceAll("'", mark);
+        const asked = `${auxiliary} ${rest}`;
+        expect(findBannedClaims(asked), asked).toEqual([]);
+        // The lookbehind looks one word back, so a promise after the
+        // question is still caught.
+        const answered = `${asked} Yes, you will keep your Medicaid.`;
+        expect(findBannedClaims(answered).length, answered).toBeGreaterThan(0);
+      }),
+    );
+  });
+
+  it("spares a help clause with help as a verb, and still catches help as a noun, the past, and a promise after it (review of 7fbeb3c, property)", () => {
+    // What leads into the subject: help after to or a modal, or helps or
+    // helping. Each is a purpose or a claim about helping, not a promise.
+    const helpAsVerb = fc.constantFrom(
+      "Answer the letter right away to help",
+      "Answering the letter on time can help",
+      "Answering the letter on time could help",
+      "Answering the letter on time will help",
+      "Answering the letter on time would help",
+      "Answering the letter on time may help",
+      "Answering the letter on time might help",
+      "Answering the letter on time should help",
+      "It'll help",
+      "Answering the letter on time helps",
+      "Answering the letter on time is helping",
+    );
+    // Every promise shape a help clause can lead into, across the patterns
+    // that spare it: continued coverage, never losing it, being renewed,
+    // and the coverage continuing.
+    const promise = fc.constantFrom(
+      "you stay covered",
+      "you remain enrolled",
+      "you keep your coverage",
+      "you keep your Medicaid",
+      "you still have coverage",
+      "you continue to get your benefits",
+      "you be covered",
+      "you never lose your coverage",
+      "you get renewed",
+      "your coverage continue",
+    );
+    const apostrophe = fc.constantFrom("'", "’");
+    fc.assert(
+      fc.property(helpAsVerb, promise, apostrophe, (lead, phrase, mark) => {
+        const helped = `${lead.replaceAll("'", mark)} ${phrase}.`;
+        expect(findBannedClaims(helped), helped).toEqual([]);
+        for (const caught of [
+          // A promise in the main clause after the help clause.
+          `${helped} Then you will keep your Medicaid.`,
+          // Help as a noun, and the past, which reports the coverage.
+          `With our help ${phrase}.`,
+          `Answering the letter on time helped ${phrase}.`,
+        ]) {
+          expect(findBannedClaims(caught).length, caught).toBeGreaterThan(0);
+        }
+      }),
+    );
+  });
+
+  it("counts continuing with a coverage subject whatever follows, and with a renewal or application unless only where or when it goes on follows (review of 7fbeb3c and its follow-up, property)", () => {
+    const processSubject = fc.constantFrom("application", "renewal", "recertification", "NC renewal");
+    const coverageSubject = fc.constantFrom(
+      "coverage",
+      "benefits",
+      "Medicaid",
+      "NC Medicaid",
+      "eligibility",
+      "health coverage",
+      "health insurance",
+      "health care",
+    );
+    const continuing = fc.constantFrom(
+      "continues",
+      "still continues",
+      "will continue",
+      "will still continue",
+      "will definitely continue",
+      "is going to continue",
+    );
+    const accepted = fc.constantFrom("is accepted", "was accepted", "has been accepted", "is already accepted");
+    // Where or when a process goes on: the sentence ends, below or here, a
+    // page, step, section, or question, what happens first, or the office
+    // deciding.
+    const goesOnTail = fc.constantFrom(
+      ".",
+      " on the next page.",
+      " on page 2.",
+      " below.",
+      " here.",
+      " to the review step.",
+      " in the next section.",
+      " at step 3.",
+      " with the next question.",
+      " after you send the form.",
+      " once the office has your form.",
+      " when you are ready.",
+      " where you left off.",
+      " until the office decides.",
+      " until the county decides.",
+    );
+    // What makes it coverage carrying on (follow-up review of the
+    // narrowing): an object, a no-gap or uninterrupted tail, a keep-covered
+    // tail, a stretch of time, or a result clause.
+    const carriesOnTail = fc.constantFrom(
+      " your coverage for another year.",
+      " your benefits.",
+      " your NC Medicaid.",
+      " your eligibility.",
+      " your current coverage.",
+      " the same benefits.",
+      " coverage for your kids.",
+      " without a gap in coverage.",
+      " with no gap.",
+      " uninterrupted.",
+      " to keep you covered.",
+      " to cover you.",
+      " for another 12 months.",
+      " until next year.",
+      " until you turn 65.",
+      " into next year.",
+      ", so nothing changes.",
+    );
+    fc.assert(
+      fc.property(
+        processSubject,
+        coverageSubject,
+        continuing,
+        accepted,
+        goesOnTail,
+        carriesOnTail,
+        (process, coverage, verb, outcome, goesOn, carriesOn) => {
+          // A process going on is not coverage carrying on.
+          const honest = `Your ${process} ${verb}${goesOn}`;
+          expect(findBannedClaims(honest), honest).toEqual([]);
+          for (const caught of [
+            // The same process carrying the coverage on.
+            `Your ${process} ${verb}${carriesOn}`,
+            // Coverage carrying on, in any tense, whatever follows.
+            `Your ${coverage} ${verb}${goesOn}`,
+            `Your ${coverage} ${verb}${carriesOn}`,
+            // Going on by itself is the automatic renewal promise, whatever the subject.
+            `Your ${process} ${verb} automatically${goesOn}`,
+            // Accepted is an outcome whatever the subject (the conservative call).
+            `Your ${process} ${outcome}${goesOn}`,
+            `Your ${coverage} ${outcome}${goesOn}`,
+          ]) {
+            expect(findBannedClaims(caught).length, caught).toBeGreaterThan(0);
+          }
+        },
+      ),
+    );
   });
 
   it("throws BannedClaimError from assertNoBannedClaims", () => {

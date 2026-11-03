@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TRACKER_LINK_HEADING } from "../lib/renewal/copy";
 import { HomeEntryChoice } from "./home-entry-choice";
 import { JourneyNav } from "./journey-nav";
 
@@ -37,12 +38,17 @@ export default function Home() {
         <JourneyNav />
         <HomeEntryChoice />
       </div>
-      <p className="px-5 pb-8 text-sm text-muted min-[761px]:px-9 min-[761px]:pb-10">
+      <p className="px-5 text-sm text-muted min-[761px]:px-9">
         Prefer step-by-step questions?{" "}
         <Link href="/intake" className="text-teal underline hover:opacity-80">
           Use the form instead
         </Link>
         .
+      </p>
+      <p className="mt-2 px-5 pb-8 text-sm min-[761px]:px-9 min-[761px]:pb-10">
+        <Link href="/renewal" className="text-teal underline hover:opacity-80">
+          {TRACKER_LINK_HEADING}
+        </Link>
       </p>
     </div>
   );

@@ -16,6 +16,7 @@ import {
   type DeviceIntake,
 } from "../../lib/intake/device-intake";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
+import { RenewalTrackerLink } from "../../components/renewal-tracker-link";
 import { StatusRegion } from "../../components/status-region";
 import { QuestionView } from "./question-view";
 import { attributionContextFromAnswers } from "../../lib/intake/attribution";
@@ -824,6 +825,7 @@ export function IntakeWizard(props: {
             </ul>
           </section>
         ) : null}
+        <RenewalTrackerLink headingLevel={3} />
         {saveForLaterSection}
       </div>
     );

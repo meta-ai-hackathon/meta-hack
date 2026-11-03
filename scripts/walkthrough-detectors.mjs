@@ -22,9 +22,9 @@
  * Hedged uncertainty ("may be eligible") stays allowed.
  */
 export const BANNED_CLAIM_PATTERNS = [
-  /\byou\s*(?:(?:are|'re|will|'ll|shall|must|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|not)\s+)?(?:going\s+to\s+)?(?:be\s+)?eligible\b/i,
-  /\byou\s*(?:(?:are|'re|will|'ll|shall|must|do|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|not)\s+)?(?:going\s+to\s+)?qualify\b/i,
-  /\byou\s*(?:(?:are|'re|will|'ll|shall|must|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|not)\s+)?(?:going\s+to\s+)?(?:be\s+)?approved\b/i,
+  /\byou\s*(?:(?:are|'re|will|'ll|shall|must|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|not|still)\s+)?(?:going\s+to\s+)?(?:be\s+)?eligible\b/i,
+  /\byou\s*(?:(?:are|'re|will|'ll|shall|must|do|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|not|still)\s+)?(?:going\s+to\s+)?qualify\b/i,
+  /\byou\s*(?:(?:are|'re|will|'ll|shall|must|should)\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|not|still)\s+)?(?:going\s+to\s+)?(?:be\s+)?(?:re-?)?approved\b/i,
   /\bguaranteed\b/i,
   /\bwe\s+(?:can\s+)?(?:guarantee|promise)\b/i,
   /\byou\s*(?:(?:will|'ll|shall|should|are)\s+)?(?:(?:definitely|certainly|absolutely)\s+)?(?:going\s+to\s+)?(?:get|receive|obtain)\s+(?:the\s+|these\s+|those\s+|your\s+)?benefits\b/i,
@@ -48,7 +48,32 @@ export const BANNED_CLAIM_PATTERNS = [
   // is the HEDGED one ("you may not need to report work activities"), so
   // definite do-not / will-not forms bite and may/might hedges pass.
   /\byou\s+(?:do\s+not|don't|don’t|will\s+not|won't|won’t)\s+(?:even\s+|have\s+to\s+)?need\s+to\s+report\b/i,
+  // Renewal-time promises (HACK-50): continued coverage, never losing it,
+  // the same two about someone else the renewal is for, coverage or
+  // renewal outcomes, being renewed, and no gap in coverage. Identical
+  // sources to src/lib/honesty.ts, which explains each one and what it
+  // spares (questions, conditions, help clauses, and a renewal or
+  // application that continues only to a next page or step, or until the
+  // office decides); the drift test pins the two lists together.
+  /(?<!\b(?:if|whether|once|when|until|unless|how|do|does|did|will|would|can|could|should|are|don't|doesn't|didn't|won't|wouldn't|can't|couldn't|shouldn't|aren't|isn't)\s+|\byou\s+(?:told\s+us|said|reported)\s+|\b(?:(?:to|can|could|will|would|may|might|should|'ll)\s+help|helps|helping)\s+)\byou\s*(?:(?:will|'ll|shall|(?:are|'re)\s+going\s+to)\s+)?(?:(?:definitely|certainly|absolutely|still)\s+)?(?:(?:stay|remain)\s+(?:eligible|enrolled|covered|insured|on\s+(?:nc\s+)?medicaid)|(?:keep|continue\s+to\s+(?:have|get|receive)|still\s+have)\s+(?:your\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|continue\s+to\s+(?:be\s+(?:eligible|enrolled|covered|insured)|qualify)|be\s+(?:covered|enrolled|insured)|(?:are|'re)\s+(?:(?:still\s+)?covered|still\s+(?:enrolled|insured)|(?:enrolled|insured)\s+(?:in|on|by|through|under|with)\s+(?:(?:a|an|the|your)\s+)?(?:nc\s+)?(?:medicaid|health\s+(?:coverage|insurance|care|plans?))))\b/i,
+  /(?<!\b(?:if|whether|once|when|until|unless|how|do|does|did|will|would|can|could|should|are|don't|doesn't|didn't|won't|wouldn't|can't|couldn't|shouldn't|aren't|isn't)\s+|\byou\s+(?:told\s+us|said|reported)\s+|\b(?:(?:to|can|could|will|would|may|might|should|'ll)\s+help|helps|helping)\s+)\byou\s*(?:won't|will\s+not|will\s+never|'ll\s+not|'ll\s+never|can't|cannot|can\s+not|can\s+never|never|(?:are|'re)\s+(?:not|never)\s+going\s+to)\s+(?:(?:ever|definitely|certainly)\s+)?(?:lose\s+(?:your\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|be\s+(?:cut\s+off|dropped|disenrolled|kicked\s+off))\b/i,
+  /(?<!\b(?:if|whether|once|when|until|unless|how|do|does|did|will|would|can|could|should|are|don't|doesn't|didn't|won't|wouldn't|can't|couldn't|shouldn't|aren't|isn't)\s+|\byou\s+(?:told\s+us|said|reported)\s+|\b(?:(?:to|can|could|will|would|may|might|should|'ll)\s+help|helps|helping)\s+)\b(?:he|she|they|your\s+(?:child|children|kids?|son|daughter|baby|family|household))\s*(?:(?:will|'ll|(?:is|'s|are|'re)\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?(?:(?:stay|remain)\s+(?:eligible|enrolled|covered|insured|on\s+(?:nc\s+)?medicaid)|(?:keep|continue\s+to\s+(?:have|get|receive)|still\s+have)\s+(?:their\s+|his\s+|her\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|continue\s+to\s+(?:be\s+(?:eligible|enrolled|covered|insured)|qualify)|never\s+lose\s+(?:their\s+|his\s+|her\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care)))|(?:won't|will\s+not|will\s+never|'ll\s+not|'ll\s+never)\s+(?:lose\s+(?:their\s+|his\s+|her\s+)?(?:coverage|benefits|medicaid|nc\s+medicaid|health\s+(?:coverage|insurance|care))|be\s+(?:cut\s+off|dropped|disenrolled|kicked\s+off)))\b/i,
+  /(?<!\b(?:if|whether|once|when|until|unless|how|do|does|did|will|would|can|could|should|are|don't|doesn't|didn't|won't|wouldn't|can't|couldn't|shouldn't|aren't|isn't)\s+|\byou\s+(?:told\s+us|said|reported)\s+|\b(?:(?:to|can|could|will|would|may|might|should|'ll)\s+help|helps|helping)\s+)\byour\s+(?:nc\s+)?(?:coverage|benefits|medicaid|eligibility|renewal|recertification|application|health\s+(?:coverage|insurance|care))\s+(?:(?:will|'ll|is\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?(?:be\s+(?:renewed|approved|re-?approved|continued|extended|accepted)|renew|carry\s+over|go\s+through|(?:happen|continue)\s+automatically)|(?<!\b(?:renewal|recertification|application)\s+)(?:(?:will|'ll|is\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?continue|(?:still\s+)?continues?)|(?:(?:will|'ll|is\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?continue|(?:still\s+)?continues?)(?!\s*(?:[.!?]|$)|\s+(?:below|here)\b|\s+(?:on|onto|to|in|into|at|with|from)\s+(?:(?:the|this|that|your)\s+)?(?:(?:next|following|previous|review|last|first)\s+)?(?:page|screen|step|section|form|question|part)s?\b|\s+(?:after|before|once|when|where)\s+(?:you|we|it|the\s+(?:office|county|state|agency|caseworker|form|letter))\b|\s+until\s+the\s+(?:office|county|state|agency|caseworker)\b)|(?:is|was|has\s+been)\s+(?:(?:already|definitely|certainly)\s+)?(?:approved|re-?approved|accepted|extended|confirmed|safe|automatic)|(?:was|has\s+been)\s+(?:(?:already|definitely|certainly)\s+)?renewed|is\s+(?:(?:already|definitely|certainly)\s+)?renewed(?!,?\s+(?:which\s+happens\s+)?(?:every|once|each|twice)\b)|(?:won't|will\s+not|will\s+never|'ll\s+not|'ll\s+never|isn't\s+going\s+to|is\s+not\s+going\s+to|aren't\s+going\s+to|are\s+not\s+going\s+to)\s+(?:end|stop|lapse|be\s+(?:cut|cancell?ed|terminated|ended|stopped|dropped|taken\s+away))|(?:still\s+)?(?:happens|renews|continues)\s+automatically)\b/i,
+  /(?<!\b(?:if|whether|once|when|until|unless|how|do|does|did|will|would|can|could|should|are|don't|doesn't|didn't|won't|wouldn't|can't|couldn't|shouldn't|aren't|isn't)\s+|\byou\s+(?:told\s+us|said|reported)\s+|\b(?:(?:to|can|could|will|would|may|might|should|'ll)\s+help|helps|helping)\s+)\byou\s*(?:(?:are|'re|will|'ll|shall|must|should)\s+)?(?:(?:definitely|certainly|absolutely|already|automatically|still)\s+)?(?:going\s+to\s+)?(?:be|get|are|'re)\s+(?:automatically\s+)?(?:renewed|recertified|re-?enrolled)\b/i,
+  /\bthere\s+(?:(?:will|'ll)\s+(?:definitely\s+)?be\s+no|(?:won't|will\s+not|'ll\s+not)\s+(?:ever\s+)?be\s+(?:a|any))\s+(?:gap|break|pause)\s+in\s+your\s+(?:nc\s+)?(?:coverage|benefits|medicaid|health\s+(?:coverage|insurance|care))\b/i,
 ];
+
+/**
+ * Typographic apostrophes read as the straight one and zero-width
+ * characters as spaces before matching. Identical to src/lib/honesty.ts
+ * foldForClaimScan; the drift test runs both on the same text.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function foldForClaimScan(text) {
+  return text.replace(/[\u2018\u2019\u201b\u02bc]/g, "'").replace(/[\u200b-\u200d\u2060\ufeff]/g, " ");
+}
 
 /**
  * Plain-language tri-state labels, verbatim from src/lib/honesty.ts. The
@@ -64,8 +89,9 @@ export const ANSWER_STATUS_LABELS = Object.freeze({
 /** Find banned promise language in a string (first match per pattern). */
 export function findBannedClaims(text) {
   const hits = [];
+  const folded = foldForClaimScan(text);
   for (const pattern of BANNED_CLAIM_PATTERNS) {
-    const found = pattern.exec(text);
+    const found = pattern.exec(folded);
     if (found) {
       hits.push({
         patternSource: pattern.source,
