@@ -232,6 +232,22 @@ describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
     });
   });
 
+  it("asks directly when weekly pay straddles the threshold (HACK-126)", () => {
+    // $134/week is $536 in a four-payday month and about $580.67 on
+    // average, so neither a yes nor a no is certain. The total shown is
+    // the average month, which is over the threshold.
+    const match = matchIncome580(
+      merge(
+        amount("benefits_income_amount", 134),
+        frequency("benefits_income_frequency", "weekly"),
+      ),
+    );
+    expect(match.proposal).toBeNull();
+    expect(match.countedSourceIds).toEqual(["benefits_income_amount"]);
+    expect(match.monthlyTotal).toBeCloseTo((134 * 52) / 12);
+    expect(match.monthlyTotal).toBeGreaterThan(INCOME_580_MONTHLY_THRESHOLD);
+  });
+
   it("treats a negative amount as not an income answer (uncountable, ask directly)", () => {
     const answers = merge(
       amount("job_income_amount", -5),
@@ -277,9 +293,16 @@ describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
             }
           }
         } else {
-          // Asked directly: no captured income, or an unconvertible one
-          // keeps the total under the threshold with uncertainty left.
-          expect(match.monthlyTotal === null || match.monthlyTotal < INCOME_580_MONTHLY_THRESHOLD).toBe(true);
+          // Asked directly: the counted sources' certain minimum month stays
+          // under the threshold, or the match would have said yes. The
+          // average-month total it shows can still reach the threshold when
+          // weekly or biweekly pay straddles it (HACK-126).
+          expect(countedFloorTotal(answers, match.countedSourceIds)).toBeLessThan(
+            INCOME_580_MONTHLY_THRESHOLD,
+          );
+          if (match.monthlyTotal === null) {
+            expect(match.countedSourceIds).toEqual([]);
+          }
         }
         // The counted/uncounted lists never overlap or fabricate ids.
         const all = [...match.countedSourceIds, ...match.uncountedSourceIds];
@@ -298,6 +321,31 @@ const SOURCE_IDS = [
   "benefits_income_amount",
   "other_income_amount",
 ];
+
+/** The fewest paydays any month holds per frequency (the rule's floor). */
+const FLOOR_FACTOR: Readonly<Record<string, number>> = {
+  weekly: 4,
+  biweekly: 2,
+  twice_monthly: 2,
+  monthly: 1,
+};
+
+const FREQUENCY_ID: Readonly<Record<string, string | null>> = {
+  job_income_amount: "job_income_frequency",
+  benefits_income_amount: "benefits_income_frequency",
+  other_income_amount: null,
+};
+
+/** The certain minimum month of the sources the match counted. */
+function countedFloorTotal(answers: AnswerMap, counted: readonly string[]): number {
+  let total = 0;
+  for (const id of counted) {
+    const frequencyId = FREQUENCY_ID[id];
+    const factor = frequencyId ? FLOOR_FACTOR[String(answers[frequencyId]?.value)] : 1;
+    total += Number(answers[id]?.value) * factor!;
+  }
+  return total;
+}
 
 const FREQUENCY_VALUES = [
   "weekly",
