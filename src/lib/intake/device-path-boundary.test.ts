@@ -586,6 +586,23 @@ function namesIn(file: string, source = readFileSync(join(SRC, file), "utf8")): 
 }
 
 /**
+ * Every use of the console in a file's code, written as a name or as a
+ * whole string (`console.info(...)`, `globalThis["console"]`). The file is
+ * parsed, so comments and copy don't count.
+ */
+function consoleUses(file: string, source = readFileSync(join(SRC, file), "utf8")): string[] {
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && node.text === "console") {
+      found.push(node.getText());
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parse(file, source));
+  return found;
+}
+
+/**
  * Whether a file loads the download module at runtime, up front or with
  * import(): a local specifier that resolves to it, or that names it in a
  * spelling the bundler may follow and this check can't, such as with a .js
@@ -778,10 +795,25 @@ describe("the on-device intake path", () => {
     expect(page.calls).toBe(1);
   });
 
-  it("logs nothing about the downloaded copy", () => {
-    // Telemetry is a server module the path can't import (above); the
-    // download module doesn't write to the console either.
-    expect(namesIn(DOWNLOAD_MODULE)).not.toContain("console");
+  it("logs nothing anywhere on the path, so nothing about the filled form or a downloaded copy is logged", () => {
+    // Telemetry is a server module the path can't import (above), and no
+    // module on it writes to the console: not the download module, and not
+    // the fill, the print preview, or the page that hold the filled form.
+    for (const file of [...FILLED_FORM_HOLDERS, DOWNLOAD_MODULE]) {
+      expect(files.has(file), `${file} is on the path`).toBe(true);
+    }
+    for (const file of files) {
+      expect(consoleUses(file), `${file} writes to the console`).toEqual([]);
+    }
+    // Non-vacuous: a log line in the page's download handler is found.
+    const page = readFileSync(join(SRC, DOWNLOAD_CALLER), "utf8");
+    const logged = page.replace(
+      "function downloadCopy(): void {",
+      'function downloadCopy(): void {\n    console.info("download-copy", filled?.bytes.length);',
+    );
+    expect(logged).not.toBe(page);
+    expect(consoleUses(DOWNLOAD_CALLER, logged)).toEqual(["console"]);
+    expect(consoleUses(DOWNLOAD_CALLER, 'const log = globalThis["console"];')).toEqual(['"console"']);
   });
 
   it("gives pdf.js nothing that would send it to the network or into a Worker", () => {
