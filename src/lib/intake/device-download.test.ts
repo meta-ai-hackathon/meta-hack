@@ -190,14 +190,21 @@ describe("saving the person's own copy of the filled form", () => {
   });
 
   it("in the browser itself, refuses a call while the person isn't acting on the page, and saves in their press", () => {
-    const { files } = stubObjectUrls();
+    // On a fake clock, so the revoke the save leaves behind runs here and
+    // not after this file's stubs are gone.
+    vi.useFakeTimers();
+    const { files, revoked } = stubObjectUrls();
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     const activation = { isActive: false };
     Object.defineProperty(navigator, "userActivation", { value: activation, configurable: true });
     expect(saveFilledFormToDevice(new Uint8Array([1]), "dhb-5200.pdf")).toBe(false);
     expect(files).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
     activation.isActive = true;
     expect(saveFilledFormToDevice(new Uint8Array([1]), "dhb-5200.pdf")).toBe(true);
     expect(files).toHaveLength(1);
+    vi.advanceTimersByTime(DOWNLOAD_URL_LIFETIME_MS);
+    expect(revoked).toEqual(["blob:filled-form"]);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

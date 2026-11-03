@@ -222,10 +222,13 @@ let device: ReturnType<typeof fakeIndexedDb>;
 let requests: { url: string; init?: RequestInit }[];
 /** Every attempt to hand the browser a file: object URLs and clicked download links. */
 let saves: string[];
-/** Each file a clicked download link handed the browser, by name. */
-let downloads: { name: string; blob: Blob }[];
-/** The file behind the last object URL made. */
-let pendingBlob: Blob | null;
+/** Each file a clicked download link handed the browser, by name, with the object URL it was handed by. */
+let downloads: { name: string; url: string; blob: Blob }[];
+/**
+ * Every object URL made, with the file behind it. Each one is new, so a
+ * test checks that its own URL was revoked rather than counting revokes.
+ */
+let objectUrls: Map<string, Blob>;
 /** Every object URL revoked. */
 let revoked: string[];
 /** The filled bytes of every fill, as the page got them, to see what becomes of them. */
@@ -240,7 +243,7 @@ beforeEach(() => {
   requests = [];
   saves = [];
   downloads = [];
-  pendingBlob = null;
+  objectUrls = new Map();
   revoked = [];
   filledBytes = [];
   printed = 0;
@@ -273,8 +276,9 @@ beforeEach(() => {
     configurable: true,
     value: (blob: Blob) => {
       saves.push("createObjectURL");
-      pendingBlob = blob;
-      return "blob:filled-form";
+      const url = `blob:filled-form-${objectUrls.size + 1}`;
+      objectUrls.set(url, blob);
+      return url;
     },
   });
   Object.defineProperty(URL, "revokeObjectURL", {
@@ -286,8 +290,9 @@ beforeEach(() => {
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
     if (this.hasAttribute("download") || this.href.startsWith("blob:")) {
       saves.push(`download ${this.download}`);
-      if (pendingBlob !== null && this.href === "blob:filled-form") {
-        downloads.push({ name: this.download, blob: pendingBlob });
+      const blob = objectUrls.get(this.href);
+      if (blob !== undefined) {
+        downloads.push({ name: this.download, url: this.href, blob });
       }
     }
   });
@@ -498,7 +503,9 @@ async function visit() {
   }
   /**
    * Press Download a copy, and read the form the browser was handed, with
-   * the object URLs revoked by the end of the press.
+   * the object URLs revoked by the end of the press. It returns once the
+   * page has revoked that URL, so no revoke the page has still to make
+   * lands in a later test.
    */
   async function download() {
     const before = downloads.length;
@@ -512,9 +519,10 @@ async function visit() {
     const revokedAtPress = [...revoked];
     await settle();
     expect(downloads).toHaveLength(before + 1);
-    const { name, blob } = downloads[downloads.length - 1];
+    const { name, url, blob } = downloads[downloads.length - 1];
+    await waitFor(() => revoked.includes(url), "the download URL to be revoked");
     const bytes = await blobBytes(blob);
-    return { name, type: blob.type, bytes, revokedAtPress, form: (await PDFDocument.load(bytes)).getForm() };
+    return { name, url, type: blob.type, bytes, revokedAtPress, form: (await PDFDocument.load(bytes)).getForm() };
   }
   const unmount = async () => {
     await act(async () => root.unmount());
@@ -814,8 +822,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.waitFor(() => page.text().includes(page.copy.downloaded), "the word that the copy is downloading");
     expect(document.querySelectorAll("a[download], a[href^='blob:']")).toHaveLength(0);
     expect(copy.revokedAtPress).toEqual([]);
-    await page.waitFor(() => revoked.length > 0, "the download URL to be revoked");
-    expect(revoked).toEqual(["blob:filled-form"]);
+    expect(revoked).toEqual([copy.url]);
     expect(requests).toHaveLength(requestsBefore);
     expect(browserStorage()).toEqual(storedBefore);
     const downloaded = saves.length;
@@ -1338,7 +1345,8 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(revoked).toEqual([]);
     expect(await blobBytes(downloads[0].blob)).toEqual(pdfjs.documents[0].bytes);
     await view.waitFor(() => view.status() === view.copy.downloaded, "the word that the copy is downloading");
-    await view.waitFor(() => revoked.length === 1, "the download URL to be revoked");
+    await view.waitFor(() => revoked.includes(downloads[0].url), "the download URL to be revoked");
+    expect(revoked).toEqual([downloads[0].url]);
     // Only the blank form was asked for, and leaving takes the bytes too.
     expect(requests.map((request) => request.url)).toEqual(["/forms/dhb-5200.pdf"]);
     await view.unmount();
