@@ -668,9 +668,10 @@ export function DeviceResults(props: {
   }
 
   // The person's own press of Download a copy, and nothing else, saves a
-  // copy: the same filled form the pages show, handed to the browser as a
-  // file by the one module allowed to (device-download.ts). It is called
-  // right here, in the press, never after a wait or from anywhere else.
+  // copy: the same filled form the pages show (or, where they couldn't be
+  // drawn, the form the fill made), handed to the browser as a file by the
+  // one module allowed to (device-download.ts). It is called right here,
+  // in the press, never after a wait or from anywhere else.
   function downloadCopy(): void {
     // Pages let go of on leaving, which a page brought back from the
     // browser's cache may still show for a moment, have nothing to save.
