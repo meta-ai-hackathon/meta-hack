@@ -120,8 +120,6 @@ interface GroupSpec {
   readonly id: string;
   readonly heading: string;
   readonly questionIds: readonly string[];
-  /** Reassurance rendered once under the group heading (HACK-129). */
-  readonly note?: string;
 }
 
 /**
@@ -174,7 +172,6 @@ const GROUP_SPECS: readonly GroupSpec[] = [
     // not here.
     id: "work-requirements",
     heading: "Work requirements",
-    note: NO_PROOF_NEEDED_NOTE,
     questionIds: [
       "wr_exempt_situations",
       "wr_applied_last_month",
@@ -242,6 +239,13 @@ export function groupRemainingQuestions(
   const remainingIds = new Set(state.quickQuestions.remainingIds);
   const claimed = new Set<string>();
   const groups: QuickQuestionGroup[] = [];
+  // HACK-129: the no-proof-needed reassurance is derived here, once: the
+  // first rendered group (in render order) that holds work-requirements
+  // questions carries it, and no other group repeats it on the same page.
+  // Normally that is the work-requirements group; when none of its
+  // questions remain, the sensitive group (whose health/caregiving cards
+  // are exemption screens) carries it instead.
+  let proofNoteAssigned = false;
   const push = (spec: GroupSpec, ids: readonly string[]): void => {
     const questions = ids
       .filter((id) => remainingIds.has(id))
@@ -253,17 +257,16 @@ export function groupRemainingQuestions(
     for (const q of questions) {
       claimed.add(q.id);
     }
+    const carriesProofNote =
+      !proofNoteAssigned &&
+      questions.some((q) => isWorkRequirementsQuestionId(q.id));
+    if (carriesProofNote) {
+      proofNoteAssigned = true;
+    }
     groups.push({
       id: spec.id,
       heading: spec.heading,
-      // HACK-129: the sensitive group also carries the reassurance when
-      // it holds work-requirements questions (its health/caregiving cards
-      // are exemption screens); answering never requires paperwork.
-      note:
-        spec.note ??
-        (questions.some((q) => isWorkRequirementsQuestionId(q.id))
-          ? NO_PROOF_NEEDED_NOTE
-          : undefined),
+      note: carriesProofNote ? NO_PROOF_NEEDED_NOTE : undefined,
       sensitive: spec.id === SENSITIVE_GROUP.id,
       questions,
     });

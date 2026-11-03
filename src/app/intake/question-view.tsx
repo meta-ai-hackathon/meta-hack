@@ -67,6 +67,8 @@ export function QuestionView({
   const choice = isChoiceType(question.type);
   const helpId = `${question.id}-help`;
   const errorId = `${question.id}-error`;
+  const proofNoteId = `${question.id}-proof-note`;
+  const isWorkRequirements = isWorkRequirementsQuestionId(question.id);
 
   const requiredMark = question.required ? (
     <span>
@@ -75,7 +77,11 @@ export function QuestionView({
     </span>
   ) : null;
 
-  const describedBy = [helpId, error ? errorId : undefined]
+  const describedBy = [
+    helpId,
+    isWorkRequirements ? proofNoteId : undefined,
+    error ? errorId : undefined,
+  ]
     .filter(Boolean)
     .join(" ");
 
@@ -184,6 +190,13 @@ export function QuestionView({
         {(controlProps) => (
           <input
             {...controlProps}
+            aria-describedby={
+              isWorkRequirements
+                ? [controlProps["aria-describedby"], proofNoteId]
+                    .filter(Boolean)
+                    .join(" ")
+                : controlProps["aria-describedby"]
+            }
             type={inputType}
             value={
               typeof value === "string" || typeof value === "number"
@@ -231,8 +244,12 @@ export function QuestionView({
           ) : null}
         </>
       ) : null}
-      {isWorkRequirementsQuestionId(question.id) ? (
-        <p data-intake-proof-note className="text-sm text-muted">
+      {isWorkRequirements ? (
+        <p
+          id={proofNoteId}
+          data-intake-proof-note
+          className="text-sm text-muted"
+        >
           {NO_PROOF_NEEDED_NOTE}
         </p>
       ) : null}

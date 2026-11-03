@@ -42,18 +42,43 @@ function sources(...values: string[]): AnswerMap {
 }
 
 describe("the no-proof-needed reassurance (HACK-129)", () => {
-  it("classifies exactly the spec's wr_* questions as work-requirements", () => {
-    // Spec-wide invariant: the predicate must agree with the wr_ prefix
-    // on every question the spec actually defines (no drift either way).
-    const misses = Object.keys(QUESTION_BY_ID).filter(
-      (id) => isWorkRequirementsQuestionId(id) !== id.startsWith("wr_"),
-    );
-    expect(misses).toEqual([]);
-    expect(
-      Object.keys(QUESTION_BY_ID).some((id) =>
-        isWorkRequirementsQuestionId(id),
-      ),
-    ).toBe(true);
+  it("classifies exactly the pinned work-requirements question set", () => {
+    // The expected set is pinned here, independently of the predicate's
+    // implementation: adding a work-requirements question to the spec (or
+    // renaming one) fails this test until the set is updated deliberately,
+    // so a new WR screen can never silently miss the reassurance. The ids
+    // are the Civilla-derived set in specs/question-spec/generic-questions.json
+    // (the exemption screens, the other-situations screens, and the
+    // work-activity reporting section).
+    const EXPECTED_WR_IDS = [
+      "wr_applied_last_month",
+      "wr_applied_last_month_which",
+      "wr_disability_hard_work",
+      "wr_drug_alcohol_disorder",
+      "wr_drug_alcohol_treatment",
+      "wr_exempt_situations",
+      "wr_foster_care_under_26",
+      "wr_hospital_care_24hr",
+      "wr_income_580",
+      "wr_jail_prison_past_4_months",
+      "wr_medical_travel_1hr",
+      "wr_mental_health_hard_work",
+      "wr_pregnant",
+      "wr_serious_health_condition",
+      "wr_student_enrolled",
+      "wr_veteran_100_disabled",
+      "wr_work_activity_hours",
+      "wr_work_activity_types",
+      "wr_work_activity_who",
+    ];
+    const actual = Object.keys(QUESTION_BY_ID)
+      .filter((id) => isWorkRequirementsQuestionId(id))
+      .sort();
+    expect(actual).toEqual(EXPECTED_WR_IDS);
+    // And every pinned id still exists in the spec (no stale pins).
+    for (const id of EXPECTED_WR_IDS) {
+      expect(QUESTION_BY_ID[id], id).toBeDefined();
+    }
   });
 
   it("promises only that answering needs no paperwork; proof may come later", () => {

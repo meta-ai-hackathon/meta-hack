@@ -54,6 +54,26 @@ describe("QuestionView across the whole spec", () => {
     expect(misses).toEqual([]);
   });
 
+  it("announces the proof note with the control on work-requirements screens (HACK-129)", () => {
+    // Choice screens: the fieldset's aria-describedby names the note.
+    const choice = QUESTIONS.find((q) => q.id === "wr_income_580")!;
+    const choiceHtml = renderView(choice).replace(/&#x27;/g, "'");
+    expect(choiceHtml).toContain('id="wr_income_580-proof-note"');
+    expect(choiceHtml).toMatch(
+      /aria-describedby="[^"]*wr_income_580-proof-note/,
+    );
+    // Scalar screens: the input's aria-describedby names the note too.
+    const scalar = QUESTIONS.find((q) => q.id === "wr_work_activity_hours")!;
+    const scalarHtml = renderView(scalar).replace(/&#x27;/g, "'");
+    expect(scalarHtml).toContain('id="wr_work_activity_hours-proof-note"');
+    expect(scalarHtml).toMatch(
+      /aria-describedby="[^"]*wr_work_activity_hours-proof-note/,
+    );
+    // Non-WR screens never reference a proof note.
+    const other = QUESTIONS.find((q) => q.id === "household_size")!;
+    expect(renderView(other)).not.toContain("proof-note");
+  });
+
   it("renders every question with prompt, help, and a not-sure control", () => {
     const misses = collectMisses(
       QUESTIONS.map((question) => {
