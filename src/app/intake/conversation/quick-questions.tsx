@@ -8,6 +8,9 @@ import type {
 import type { AnswerStatus } from "../../../lib/honesty";
 import {
   INCOME_580_QUESTION_ID,
+  NO_PROOF_NEEDED_NOTE,
+  NO_PROOF_NEEDED_NOTE_SENSITIVE,
+  isWorkRequirementsQuestionId,
   matchIncome580,
 } from "../../../lib/intake/work-requirements";
 
@@ -217,6 +220,8 @@ const OTHER_GROUP: GroupSpec = {
 export interface QuickQuestionGroup {
   readonly id: string;
   readonly heading: string;
+  /** Reassurance under the heading, when this group carries one. */
+  readonly note?: string;
   readonly sensitive: boolean;
   /** The remaining, still-unanswered questions of this group, spec order. */
   readonly questions: readonly ClientQuestion[];
@@ -235,6 +240,13 @@ export function groupRemainingQuestions(
   const remainingIds = new Set(state.quickQuestions.remainingIds);
   const claimed = new Set<string>();
   const groups: QuickQuestionGroup[] = [];
+  // HACK-129: the no-proof-needed reassurance is derived here, once: the
+  // first rendered group (in render order) that holds work-requirements
+  // questions carries it, and no other group repeats it on the same page.
+  // Normally that is the work-requirements group; when none of its
+  // questions remain, the sensitive group (whose health/caregiving cards
+  // are exemption screens) carries it instead.
+  let proofNoteAssigned = false;
   const push = (spec: GroupSpec, ids: readonly string[]): void => {
     const questions = ids
       .filter((id) => remainingIds.has(id))
@@ -246,9 +258,20 @@ export function groupRemainingQuestions(
     for (const q of questions) {
       claimed.add(q.id);
     }
+    const carriesProofNote =
+      !proofNoteAssigned &&
+      questions.some((q) => isWorkRequirementsQuestionId(q.id));
+    if (carriesProofNote) {
+      proofNoteAssigned = true;
+    }
     groups.push({
       id: spec.id,
       heading: spec.heading,
+      note: carriesProofNote
+        ? spec.id === SENSITIVE_GROUP.id
+          ? NO_PROOF_NEEDED_NOTE_SENSITIVE
+          : NO_PROOF_NEEDED_NOTE
+        : undefined,
       sensitive: spec.id === SENSITIVE_GROUP.id,
       questions,
     });
@@ -733,11 +756,23 @@ export function QuickQuestionsStage(props: {
           key={group.id}
           data-qq-group={group.id}
           aria-labelledby={`qq-group-${group.id}-heading`}
+          aria-describedby={
+            group.note ? `qq-group-${group.id}-note` : undefined
+          }
           className="flex flex-col gap-3"
         >
           <h3 id={`qq-group-${group.id}-heading`} className="text-lg font-semibold">
             {group.heading}
           </h3>
+          {group.note ? (
+            <p
+              id={`qq-group-${group.id}-note`}
+              data-qq-group-note={group.id}
+              className="text-sm text-muted"
+            >
+              {group.note}
+            </p>
+          ) : null}
           <ul className="flex flex-col gap-3">
             {group.questions.map((question) => (
               <QuestionCard

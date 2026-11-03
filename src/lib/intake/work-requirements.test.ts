@@ -7,6 +7,10 @@ import { QUESTION_BY_ID } from "./spec";
 import {
   INCOME_580_MONTHLY_THRESHOLD,
   INCOME_580_QUESTION_ID,
+  NO_PROOF_NEEDED_NOTE,
+  NO_PROOF_NEEDED_NOTE_SENSITIVE,
+  NO_PROOF_NEEDED_NOTE_SINGLE,
+  isWorkRequirementsQuestionId,
   matchIncome580,
 } from "./work-requirements";
 
@@ -38,6 +42,68 @@ function merge(...maps: readonly AnswerMap[]): AnswerMap {
 function sources(...values: string[]): AnswerMap {
   return { income_sources: { status: "known", value: values } };
 }
+
+describe("the no-proof-needed reassurance (HACK-129)", () => {
+  it("classifies exactly the pinned work-requirements question set", () => {
+    // The expected set is pinned here, independently of the predicate's
+    // implementation: adding a work-requirements question to the spec (or
+    // renaming one) fails this test until the set is updated deliberately,
+    // so a new WR screen can never silently miss the reassurance. The ids
+    // are the Civilla-derived set in specs/question-spec/generic-questions.json
+    // (the exemption screens, the other-situations screens, and the
+    // work-activity reporting section).
+    const EXPECTED_WR_IDS = [
+      "wr_applied_last_month",
+      "wr_applied_last_month_which",
+      "wr_disability_hard_work",
+      "wr_drug_alcohol_disorder",
+      "wr_drug_alcohol_treatment",
+      "wr_exempt_situations",
+      "wr_foster_care_under_26",
+      "wr_hospital_care_24hr",
+      "wr_income_580",
+      "wr_jail_prison_past_4_months",
+      "wr_medical_travel_1hr",
+      "wr_mental_health_hard_work",
+      "wr_pregnant",
+      "wr_serious_health_condition",
+      "wr_student_enrolled",
+      "wr_veteran_100_disabled",
+      "wr_work_activity_hours",
+      "wr_work_activity_types",
+      "wr_work_activity_who",
+    ];
+    const actual = Object.keys(QUESTION_BY_ID)
+      .filter((id) => isWorkRequirementsQuestionId(id))
+      .sort();
+    expect(actual).toEqual(EXPECTED_WR_IDS);
+    // And every pinned id still exists in the spec (no stale pins).
+    for (const id of EXPECTED_WR_IDS) {
+      expect(QUESTION_BY_ID[id], id).toBeDefined();
+    }
+  });
+
+  it("promises only that answering needs no paperwork; proof may come later", () => {
+    for (const note of [
+      NO_PROOF_NEEDED_NOTE,
+      NO_PROOF_NEEDED_NOTE_SENSITIVE,
+      NO_PROOF_NEEDED_NOTE_SINGLE,
+    ]) {
+      expect(note).toContain("doctor's note");
+      expect(note).toContain("may ask for proof later");
+      // Guardrails: never a never-proof promise, never a records-first claim.
+      expect(note).not.toMatch(
+        /never (need|ask)|no proof will|records (will be |are )?checked/i,
+      );
+    }
+    // The sensitive variant scopes itself to the work-requirements cards.
+    expect(NO_PROOF_NEEDED_NOTE_SENSITIVE).toContain(
+      "work-requirements questions below",
+    );
+    // The wizard variant is singular: one question per screen.
+    expect(NO_PROOF_NEEDED_NOTE_SINGLE).toContain("answer this question");
+  });
+});
 
 describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
   it("proposes for the spec question it names — a yes/no screen, asked directly otherwise", () => {

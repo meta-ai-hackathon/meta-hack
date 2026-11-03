@@ -1,6 +1,10 @@
 "use client";
 
 import type { ClientAnswer, ClientQuestion } from "../../lib/intake/serialize";
+import {
+  NO_PROOF_NEEDED_NOTE_SINGLE,
+  isWorkRequirementsQuestionId,
+} from "../../lib/intake/work-requirements";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { Field } from "../../components/field";
 
@@ -63,6 +67,8 @@ export function QuestionView({
   const choice = isChoiceType(question.type);
   const helpId = `${question.id}-help`;
   const errorId = `${question.id}-error`;
+  const proofNoteId = `${question.id}-proof-note`;
+  const isWorkRequirements = isWorkRequirementsQuestionId(question.id);
 
   const requiredMark = question.required ? (
     <span>
@@ -71,7 +77,11 @@ export function QuestionView({
     </span>
   ) : null;
 
-  const describedBy = [helpId, error ? errorId : undefined]
+  const describedBy = [
+    helpId,
+    isWorkRequirements ? proofNoteId : undefined,
+    error ? errorId : undefined,
+  ]
     .filter(Boolean)
     .join(" ");
 
@@ -180,6 +190,13 @@ export function QuestionView({
         {(controlProps) => (
           <input
             {...controlProps}
+            aria-describedby={
+              isWorkRequirements
+                ? [controlProps["aria-describedby"], proofNoteId]
+                    .filter(Boolean)
+                    .join(" ")
+                : controlProps["aria-describedby"]
+            }
             type={inputType}
             value={
               typeof value === "string" || typeof value === "number"
@@ -205,6 +222,15 @@ export function QuestionView({
 
   return (
     <div className="flex flex-col gap-4" data-intake-question={question.id}>
+      {isWorkRequirements ? (
+        <p
+          id={proofNoteId}
+          data-intake-proof-note
+          className="text-sm text-muted"
+        >
+          {NO_PROOF_NEEDED_NOTE_SINGLE}
+        </p>
+      ) : null}
       {control}
       {choice ? (
         <>
