@@ -1354,6 +1354,43 @@ describe("/intake to the review and the filled form, on the device", () => {
     expectNothingSaved(2);
   }, 60_000);
 
+  it("drops the word that a copy should be saving, or didn't save, when the pages go", async () => {
+    // A line about a download, or one that says to press Download a copy
+    // again, never outlasts the pages and the button.
+    const view = await results();
+    await view.show();
+    await view.waitFor(() => view.canvases().length === 21, "the pages");
+    await view.act(async () => {
+      view.downloadButton()!.click();
+    });
+    await view.waitFor(() => view.status() === view.copy.downloaded, "the word that the browser should save the copy");
+    await view.waitFor(() => revoked.includes(downloads[0].url), "the download URL to be revoked");
+    await view.act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(view.downloadButton()).toBeNull();
+    expect(view.status()).toBe("");
+
+    // Back from the browser's cache, a press the browser says no one made
+    // saves nothing, and the line that says to press again goes with the
+    // pages too.
+    window.dispatchEvent(new Event("pageshow"));
+    await view.show();
+    await view.waitFor(() => view.canvases().length === 21, "the pages again");
+    Object.defineProperty(navigator, "userActivation", { value: { isActive: false }, configurable: true });
+    await view.act(async () => {
+      view.downloadButton()!.click();
+    });
+    await view.waitFor(() => view.status() === view.copy.downloadNotStarted, "the notice that nothing was saved");
+    await view.act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(view.downloadButton()).toBeNull();
+    expect(view.status()).toBe("");
+    expect(downloads).toHaveLength(1);
+    await view.unmount();
+  }, 60_000);
+
   it("prints only the filled pages, one to a sheet, each sized to fit its sheet both ways, with or without :has()", async () => {
     // Print puts the filled pages on paper and nothing else, so the
     // review's typed answers and the rest of the screen never print, and a

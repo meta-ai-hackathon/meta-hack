@@ -568,14 +568,17 @@ export function DeviceResults(props: {
     noticeTimer.current = setTimeout(() => setNotice(message), 30);
   }, []);
 
-  // Word that the form is being filled in, or is ready below, lasts only
-  // while that is true: the pages can go without a new announcement (an
-  // answer changed, or the page was left), and so can the work on them.
+  // Word that the form is being filled in, is ready below, or that a copy
+  // of it is downloading or didn't download, lasts only while that is
+  // true: the pages can go without a new announcement (an answer changed,
+  // or the page was left), and so can the work on them. A line that says
+  // to press Download a copy again never outlasts the button.
+  const aboutTheForm =
+    notice === DEVICE_RESULTS_COPY.ready ||
+    notice === DEVICE_RESULTS_COPY.downloaded ||
+    notice === DEVICE_RESULTS_COPY.downloadNotStarted;
   const status =
-    (notice === DEVICE_RESULTS_COPY.ready && filled === null) ||
-    (notice === DEVICE_RESULTS_COPY.showingForm && !busy)
-      ? ""
-      : notice;
+    (aboutTheForm && filled === null) || (notice === DEVICE_RESULTS_COPY.showingForm && !busy) ? "" : notice;
 
   // A browser that prints fires beforeprint as it starts. One that ignores
   // window.print() (some in-app browsers do) never does, and a print press
