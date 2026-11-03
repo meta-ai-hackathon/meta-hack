@@ -463,6 +463,19 @@ describe("honest copy", () => {
       expect(line).not.toMatch(/locked|never leaves this browser|any time/i);
     }
   });
+
+  it("says in every delete and purge message that a downloaded copy of the filled form stays on the device", () => {
+    // The person may download a copy of the filled form at the end of
+    // /intake (HACK-115), or save it as a PDF from the print window. That
+    // file is outside this browser's storage, so no delete here reaches it,
+    // and the rules (.github/claude-review/rules.md) require the delete and
+    // purge copy to say a downloaded copy stays until the person deletes it.
+    for (const key of ["deleteConfirm", "deleted", "clearedNothingStored", "deleteUnconfirmed", "purgedElsewhere"] as const) {
+      expect(DEVICE_INTAKE_COPY[key], key).toContain(
+        "If you downloaded a copy of the filled form, or saved it as a PDF when printing, that file stays on this device until you delete it.",
+      );
+    }
+  });
 });
 
 // Asking the browser to keep this site's storage can show a permission

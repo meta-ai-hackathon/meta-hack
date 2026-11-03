@@ -64,6 +64,16 @@ import { WORK_ROWS_QUESTION_ID, currentWorkRows, parseWorkRows } from "./work-ac
  */
 export type DeviceKeeping = "kept" | "unsupported" | "unavailable" | "stopped";
 
+/**
+ * A copy of the filled form the person downloads from the end of /intake
+ * (HACK-115), or saves as a PDF from its print window, is an ordinary file
+ * outside this browser's storage, so no delete here reaches it. Every
+ * delete and purge message says so (rules.md, Real data rules).
+ */
+const DOWNLOADED_COPY_STAYS =
+  "If you downloaded a copy of the filled form, or saved it as a PDF when " +
+  "printing, that file stays on this device until you delete it.";
+
 export const DEVICE_INTAKE_COPY = {
   pageIntro:
     "A few plain-language questions, one at a time. You can stop at any " +
@@ -110,7 +120,7 @@ export const DEVICE_INTAKE_COPY = {
     "kept. Answers from now on last only until you close this page.",
   purgedElsewhere:
     "Your answers were deleted from this browser in another tab or window, " +
-    "so the questions start fresh.",
+    `so the questions start fresh. ${DOWNLOADED_COPY_STAYS}`,
   updatedElsewhere: "Updated with changes made in another tab or window.",
   busy:
     "Your answers are being changed in another tab right now, so this one " +
@@ -128,20 +138,18 @@ export const DEVICE_INTAKE_COPY = {
   deleteButton: "Delete my answers from this device",
   deleteConfirm:
     "This deletes every answer saved in this browser for this form. It " +
-    "can't be undone.",
+    `can't be undone. ${DOWNLOADED_COPY_STAYS}`,
   deleteYes: "Yes, delete them",
   deleteNo: "Keep them",
-  // The delete reaches this browser's storage, so that is what it claims.
-  // The end of /intake never saves the filled form (HACK-115): it shows the
-  // pages to print and lets go of them with the answers, so there is no
-  // file to mention.
-  deleted: "Deleted. None of your answers are left in this browser.",
+  // The delete reaches this browser's storage, so that is all it claims,
+  // and it says a downloaded copy of the filled form is still on the device.
+  deleted: `Deleted. None of your answers are left in this browser. ${DOWNLOADED_COPY_STAYS}`,
   clearedNothingStored:
     "Cleared from this page. This browser can't save answers, so none were " +
-    "kept in it.",
+    `kept in it. ${DOWNLOADED_COPY_STAYS}`,
   deleteUnconfirmed:
     "We couldn't confirm your answers were deleted from this device. To be " +
-    "sure, clear this site's data in your browser settings.",
+    `sure, clear this site's data in your browser settings. ${DOWNLOADED_COPY_STAYS}`,
   privateKept: "Saved privately — not shown again.",
   privateNotKept: "Noted privately for this visit — not shown again.",
 } as const;

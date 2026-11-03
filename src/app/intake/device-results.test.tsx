@@ -699,11 +699,14 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(page.container.querySelector("[data-device-results]")).toBeNull();
     expect(page.text()).not.toContain(TYPED_NAME);
     expectReleased(filled.pages.map(({ canvases }) => canvases[0]));
-    // Nothing was ever saved to the device, so the confirmation has no
-    // file to warn about, and it claims only this browser.
+    // The confirmation claims only this browser. A copy of the filled form
+    // downloaded or saved as a PDF is a file outside the delete, so it says
+    // such a file stays on the device until the person deletes it.
     expectNothingSaved();
-    expect(DEVICE_INTAKE_COPY.deleted).not.toMatch(/download|file/i);
     expect(DEVICE_INTAKE_COPY.deleted).toContain("in this browser");
+    expect(DEVICE_INTAKE_COPY.deleted).toContain(
+      "If you downloaded a copy of the filled form, or saved it as a PDF when printing, that file stays on this device until you delete it.",
+    );
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
     await page.unmount();
   }, 60_000);
@@ -729,12 +732,14 @@ describe("/intake to the review and the filled form, on the device", () => {
     expectReleased(filled.pages.map(({ canvases }) => canvases[0]));
     expectNothingSaved();
     // The clear claims only this browser, as the delete does: answers are
-    // kept per browser, and a Save as PDF from the print window would be a
-    // file on the device the clear can't see, so it never says there was
-    // nothing on the device.
-    expect(DEVICE_INTAKE_COPY.clearedNothingStored).not.toMatch(/download|file/i);
+    // kept per browser, and a downloaded copy or a Save as PDF from the
+    // print window is a file on the device the clear can't reach, so it
+    // says that file stays and never says there was nothing on the device.
     expect(DEVICE_INTAKE_COPY.clearedNothingStored).toContain(
       "This browser can't save answers, so none were kept in it",
+    );
+    expect(DEVICE_INTAKE_COPY.clearedNothingStored).toContain(
+      "If you downloaded a copy of the filled form, or saved it as a PDF when printing, that file stays on this device until you delete it.",
     );
     expect(page.text()).not.toContain("nothing on the device");
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
