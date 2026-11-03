@@ -259,6 +259,76 @@ describe("grouping the remaining questions", () => {
   });
 });
 
+type StageAct = (fn: () => Promise<void> | void) => Promise<void>;
+
+/**
+ * The one section walk (HACK-132): visit the visible section, then click
+ * Continue, until Continue is gone or the visit returns false. Every
+ * section-walking helper below is built on this loop.
+ */
+async function walkSections(
+  container: HTMLElement,
+  act: StageAct,
+  visit: () => boolean,
+): Promise<void> {
+  for (let step = 0; step < 12; step += 1) {
+    if (!visit()) {
+      return;
+    }
+    const next = container.querySelector("[data-qq-section-next]");
+    if (!next) {
+      return;
+    }
+    await act(async () => {
+      next.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+}
+
+/** Advance the paginated stage (HACK-132) until the named group is visible. */
+async function goToGroup(
+  container: HTMLElement,
+  act: StageAct,
+  groupId: string,
+): Promise<void> {
+  const visible = () =>
+    container.querySelector(`[data-qq-group="${groupId}"]:not([hidden])`);
+  await walkSections(container, act, () => !visible());
+  if (visible()) {
+    return;
+  }
+  for (let step = 0; step < 12; step += 1) {
+    if (visible()) {
+      return;
+    }
+    const back = container.querySelector(
+      "[data-qq-section-back]:not([disabled])",
+    );
+    if (!back) {
+      break;
+    }
+    await act(async () => {
+      back.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+  throw new Error(`section ${groupId} never rendered`);
+}
+
+/** Every rendered card id, walking the sections in order (HACK-132). */
+async function cardIdsAcrossSections(
+  container: HTMLElement,
+  act: StageAct,
+): Promise<(string | null)[]> {
+  const ids: (string | null)[] = [];
+  await walkSections(container, act, () => {
+    container
+      .querySelectorAll("[data-qq-group]:not([hidden]) [data-qq-card]")
+      .forEach((card) => ids.push(card.getAttribute("data-qq-card")));
+    return true;
+  });
+  return ids;
+}
+
 describe("the quick-questions stage component", () => {
   let posts: { body: string }[] = [];
   let onStateChange: ReturnType<typeof vi.fn>;
@@ -290,7 +360,7 @@ describe("the quick-questions stage component", () => {
 
   async function renderStage(state: IntakeClientState = stageState()): Promise<{
     container: HTMLElement;
-    act: (fn: () => Promise<void> | void) => Promise<void>;
+    act: StageAct;
   }> {
     const React = await import("react");
     const { createRoot } = await import("react-dom/client");
@@ -323,22 +393,87 @@ describe("the quick-questions stage component", () => {
     container.querySelector(`[data-${attr}]`);
 
   it("renders one card per remaining question, grouped, with the engine's counter live (VAL-QQ-004, VAL-QQ-012)", async () => {
-    const { container } = await renderStage();
+    const { container, act } = await renderStage();
     expect(q(container, "quick-questions-stage")).not.toBeNull();
     expect(q(container, "qq-counter")).not.toBeNull();
     expect(q(container, "qq-counter")?.getAttribute("aria-live")).toBe("polite");
     expect(q(container, "qq-counter")?.textContent).toContain(
       "5 questions instead of 5",
     );
-    const cards = container.querySelectorAll("[data-qq-card]");
-    expect(cards).toHaveLength(5);
+    // Paginated (HACK-132): exactly one group is visible at a time
+    // (inactive sections stay mounted but hidden, so drafts survive
+    // navigation), with a section progress line; walking the sections
+    // surfaces every card.
+    expect(
+      container.querySelectorAll("[data-qq-group]:not([hidden])"),
+    ).toHaveLength(1);
+    // Hiding is carried by the display utility, not the attribute alone
+    // (Tailwind's flex would override the UA [hidden] rule in a browser).
+    expect(
+      container
+        .querySelector("[data-qq-group]:not([hidden])")
+        ?.className,
+    ).toContain("flex");
+    expect(
+      container.querySelector('[data-qq-group="sensitive"]')?.className,
+    ).toContain("hidden");
+    expect(q(container, "qq-section-progress")?.textContent).toContain(
+      "Section 1 of",
+    );
+    const ids = await cardIdsAcrossSections(container, act);
+    expect(ids).toHaveLength(5);
+    expect(new Set(ids).size).toBe(5);
     // The heading is an H2 — the page's single H1 stays the page's.
     expect(container.querySelectorAll("h1")).toHaveLength(0);
     expect(q(container, "qq-heading")?.tagName).toBe("H2");
   });
 
-  it("renders the multi-select card as a checkbox group with 44px rows (VAL-QQ-005, VAL-QQ-012)", async () => {
+  it("keeps an unsaved draft when navigating between sections (HACK-132)", async () => {
+    const { container, act } = await renderStage();
+    await act(async () => {
+      (
+        q(container, 'qq-card="main_goal"')!.querySelector(
+          'input[value="food"]',
+        ) as HTMLInputElement
+      ).click();
+    });
+    await goToGroup(container, act, "household");
+    // Back to the first section: the typed-but-unsaved pick is still there.
+    await act(async () => {
+      q(container, "qq-section-back")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    const food = q(container, 'qq-card="main_goal"')!.querySelector(
+      'input[value="food"]',
+    ) as HTMLInputElement;
+    expect(food.checked).toBe(true);
+    expect(posts).toHaveLength(0);
+  });
+
+  it("names section navigation so it never reads as saving (HACK-132)", async () => {
     const { container } = await renderStage();
+    // "Next section" moves between sections; saving stays on each card's
+    // own Save button, so the nav label must not imply a save.
+    expect(q(container, "qq-section-next")?.textContent?.trim()).toBe(
+      "Next section",
+    );
+  });
+
+  it("moves focus to the new section's heading on section change (HACK-132)", async () => {
+    const { container, act } = await renderStage();
+    await act(async () => {
+      q(container, "qq-section-next")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(document.activeElement?.tagName).toBe("H3");
+    expect(document.activeElement?.id).toBe("qq-group-household-heading");
+  });
+
+  it("renders the multi-select card as a checkbox group with 44px rows (VAL-QQ-005, VAL-QQ-012)", async () => {
+    const { container, act } = await renderStage();
+    await goToGroup(container, act, "income");
     const card = q(container, 'qq-card="income_sources"');
     expect(card).not.toBeNull();
     const checkboxes = card?.querySelectorAll('input[type="checkbox"]');
@@ -351,6 +486,7 @@ describe("the quick-questions stage component", () => {
 
   it("enforces None-of-these exclusion in the UI before submission (VAL-QQ-005)", async () => {
     const { container, act } = await renderStage();
+    await goToGroup(container, act, "income");
     const card = q(container, 'qq-card="income_sources"')!;
     const checkbox = (value: string): HTMLInputElement =>
       card.querySelector(`input[value="${value}"]`) as HTMLInputElement;
@@ -377,6 +513,7 @@ describe("the quick-questions stage component", () => {
 
   it("submits a multi-value selection as ONE multi_select answer through the existing tri-state path (VAL-QQ-005)", async () => {
     const { container, act } = await renderStage();
+    await goToGroup(container, act, "income");
     const card = q(container, 'qq-card="income_sources"')!;
     await act(async () => {
       (card.querySelector('input[value="job"]') as HTMLInputElement).click();
@@ -419,6 +556,7 @@ describe("the quick-questions stage component", () => {
       status: "known",
       value: "food",
     });
+    await goToGroup(container, act, "household");
     await act(async () => {
       const input = q(container, 'qq-card="household_size"')!.querySelector(
         "input",
@@ -457,10 +595,15 @@ describe("the quick-questions stage component", () => {
 
   it("renders sensitive questions LAST with a why-we-ask note, optional, and skippable — and skipping never blocks (VAL-QQ-006)", async () => {
     const { container, act } = await renderStage();
-    const cards = Array.from(container.querySelectorAll("[data-qq-card]"));
-    const ids = cards.map((card) => card.getAttribute("data-qq-card"));
-    // Sensitive cards render after every non-sensitive card.
+    // Sensitive cards render after every non-sensitive card: walking the
+    // sections in order (HACK-132) ends on them.
+    const ids = await cardIdsAcrossSections(container, act);
     expect(ids.slice(-2)).toEqual(["citizenship_status", "disability_status"]);
+    // The walk ends on the sensitive section, which is the last one.
+    expect(q(container, "qq-section-progress")?.textContent).toContain(
+      "A few private questions",
+    );
+    expect(q(container, "qq-section-next")).toBeNull();
     // Each sensitive card carries a visible why-we-ask note and the
     // optional mark.
     for (const id of ["citizenship_status", "disability_status"]) {
@@ -491,12 +634,164 @@ describe("the quick-questions stage component", () => {
   });
 
   it("offers the skip affordance on every optional card but never on a required one (VAL-QQ-006)", async () => {
-    const { container } = await renderStage();
+    const { container, act } = await renderStage();
+    // Required cards (first sections): no skip affordance — needed.
+    expect(q(container, 'qq-skip="main_goal"')).toBeNull();
+    await goToGroup(container, act, "income");
+    expect(q(container, 'qq-skip="income_sources"')).toBeNull();
+    await goToGroup(container, act, "sensitive");
     expect(q(container, 'qq-skip="citizenship_status"')).not.toBeNull();
     expect(q(container, 'qq-skip="disability_status"')).not.toBeNull();
-    // Required cards: no skip affordance — the spec marks them needed.
-    expect(q(container, 'qq-skip="main_goal"')).toBeNull();
-    expect(q(container, 'qq-skip="income_sources"')).toBeNull();
+  });
+
+  async function renderStatefulStage(
+    initial: IntakeClientState,
+  ): Promise<{
+    container: HTMLElement;
+    act: StageAct;
+  }> {
+    const React = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const act: StageAct = async (fn) => {
+      await React.act(async () => {
+        await fn();
+        for (let i = 0; i < 6; i += 1) {
+          await new Promise((done) => setTimeout(done, 0));
+        }
+      });
+    };
+    function StatefulStage(): React.ReactNode {
+      const [state, setState] = React.useState(initial);
+      return React.createElement(QuickQuestionsStage, {
+        state,
+        onStateChange: (next: IntakeClientState) => setState(next),
+        onNotice: () => undefined,
+        onToTalk: () => undefined,
+      });
+    }
+    await act(async () => {
+      root.render(React.createElement(StatefulStage));
+    });
+    await act(async () => undefined);
+    return { container, act };
+  }
+
+  function stubSaveStates(states: IntakeClientState[]): void {
+    const queue = [...states];
+    let last: IntakeClientState | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        last = queue.shift() ?? last;
+        return new Response(JSON.stringify(last), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+  }
+
+  function stateWithout(answeredId: string, value: unknown): IntakeClientState {
+    const remaining = ALL_QUESTIONS.map((question) => question.id).filter(
+      (id) => id !== answeredId,
+    );
+    return stageState({
+      answers: { [answeredId]: { status: "known", value } },
+      progress: { answered: 1, remaining: remaining.length, total: 5 },
+      currentIndex: 1,
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: ALL_QUESTIONS.map((question) => question.id),
+        requiredCount: 5,
+        remainingIds: remaining,
+        remainingCount: remaining.length,
+        complete: false,
+      },
+    });
+  }
+
+  it("shows the next section when the active section empties (HACK-132 clamp)", async () => {
+    stubSaveStates([stateWithout("household_size", 3)]);
+    const { container, act } = await renderStatefulStage(stageState());
+    await goToGroup(container, act, "household");
+    await act(async () => {
+      const input = q(container, 'qq-card="household_size"')!.querySelector(
+        "input",
+      ) as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "3");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      q(container, 'qq-save="household_size"')?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    // The household section is gone; the income section takes its place
+    // at the same index — no stale section, no skipped section.
+    expect(
+      container.querySelector("[data-qq-group]:not([hidden])")?.getAttribute("data-qq-group"),
+    ).toBe("income");
+    expect(q(container, "qq-section-progress")?.textContent).toContain(
+      "Section 2 of 3",
+    );
+  });
+
+  it("clamps back when the last section empties (HACK-132 clamp)", async () => {
+    const afterCitizenship = stateWithout("citizenship_status", "us_citizen");
+    const afterBoth = stageState({
+      answers: {
+        citizenship_status: { status: "known", value: "us_citizen" },
+        disability_status: { status: "known", value: "no" },
+      },
+      progress: { answered: 2, remaining: 3, total: 5 },
+      currentIndex: 1,
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: ALL_QUESTIONS.map((question) => question.id),
+        requiredCount: 5,
+        remainingIds: ["income_sources", "main_goal", "household_size"],
+        remainingCount: 3,
+        complete: false,
+      },
+    });
+    stubSaveStates([afterCitizenship, afterBoth]);
+    const { container, act } = await renderStatefulStage(stageState());
+    await goToGroup(container, act, "sensitive");
+    await act(async () => {
+      (
+        container.querySelector("#citizenship_status-us_citizen") as HTMLInputElement
+      ).click();
+    });
+    await act(async () => {
+      q(container, 'qq-save="citizenship_status"')?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await act(async () => {
+      (
+        container.querySelector("#disability_status-no") as HTMLInputElement
+      ).click();
+    });
+    await act(async () => {
+      q(container, 'qq-save="disability_status"')?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    // The sensitive section emptied and dropped off; the stage clamps
+    // back to the new last section instead of pointing past the end.
+    expect(
+      container.querySelector("[data-qq-group]:not([hidden])")?.getAttribute("data-qq-group"),
+    ).toBe("income");
+    expect(q(container, "qq-section-progress")?.textContent).toContain(
+      "Section 3 of 3",
+    );
   });
 
   it("shows a card error on an empty required save — never a fake save", async () => {
@@ -653,7 +948,7 @@ describe("the quick-questions stage properties (fast-check)", () => {
 });
 
 describe("the quick-questions stage static markup", () => {
-  it("renders SSR-clean with the engine's numbers and the sensitive group last", () => {
+  it("renders SSR-clean with the engine's numbers and only the first section", () => {
     const html = renderToStaticMarkup(
       <QuickQuestionsStage
         state={stageState()}
@@ -664,7 +959,19 @@ describe("the quick-questions stage static markup", () => {
     );
     expect(html).toContain("data-quick-questions-stage");
     expect(html).toContain("5 questions instead of 5");
+    // Paginated (HACK-132): SSR carries every section mounted, with only
+    // the first visible and the rest hidden, sensitive last in markup.
+    expect(html).toContain("Section 1 of");
+    expect(html).toContain('data-qq-group="sensitive" hidden');
     expect(html).toContain("Why we ask");
+    const groupOrder = [
+      "application",
+      "household",
+      "income",
+      "sensitive",
+    ].map((id) => html.indexOf(`data-qq-group="${id}"`));
+    expect(groupOrder.every((index) => index >= 0)).toBe(true);
+    expect(groupOrder).toEqual([...groupOrder].sort((a, b) => a - b));
     expect(findBannedClaims(html)).toEqual([]);
   });
 });
@@ -878,7 +1185,7 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
 
   async function renderWrState(
     state: IntakeClientState,
-  ): Promise<{ container: HTMLElement; act: (fn: () => Promise<void> | void) => Promise<void> }> {
+  ): Promise<{ container: HTMLElement; act: StageAct }> {
     const React = await import("react");
     const { createRoot } = await import("react-dom/client");
     const container = document.createElement("div");
@@ -910,7 +1217,8 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
     container.querySelector(`[data-${attr}]`);
 
   it("shows the no-proof-needed note once, under the first work-requirements-bearing group (HACK-129)", async () => {
-    const { container } = await renderWrState(wrStageState());
+    const { container, act } = await renderWrState(wrStageState());
+    await goToGroup(container, act, "work-requirements");
     // The work-requirements group renders first, so it carries the note;
     // the sensitive group does not repeat the same sentence on this page.
     const note = container.querySelector('[data-qq-group-note="work-requirements"]');
@@ -953,13 +1261,29 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
   });
 
   it("renders the work-requirements group BEFORE the sensitive group, whose cards carry why-we-ask notes, optional marks, and skips (VAL-WR-006)", async () => {
-    const { container } = await renderWrState(wrStageState());
-    const groupIds = [...container.querySelectorAll("[data-qq-group]")].map(
-      (group) => group.getAttribute("data-qq-group"),
-    );
-    // The work-requirements group sits with the topical groups (after
-    // income, before the trailing buckets); the sensitive group (carrying
-    // the sensitive wr items) is LAST.
+    const { container, act } = await renderWrState(wrStageState());
+    // Paginated (HACK-132): walk the sections in order, collecting each
+    // section's cards. The work-requirements group sits with the topical
+    // groups (after income, before the trailing buckets); the sensitive
+    // group (carrying the sensitive wr items) is LAST.
+    const groupIds: (string | null)[] = [];
+    const cardsByGroup = new Map<string, (string | null)[]>();
+    await walkSections(container, act, () => {
+      const section = container.querySelector(
+        "[data-qq-group]:not([hidden])",
+      );
+      const groupId = section?.getAttribute("data-qq-group") ?? null;
+      groupIds.push(groupId);
+      if (groupId) {
+        cardsByGroup.set(
+          groupId,
+          [...section!.querySelectorAll("[data-qq-card]")].map((card) =>
+            card.getAttribute("data-qq-card"),
+          ),
+        );
+      }
+      return true;
+    });
     expect(groupIds).toEqual([
       "application",
       "household",
@@ -967,22 +1291,14 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
       "work-requirements",
       "sensitive",
     ]);
-    const wrGroup = container.querySelector('[data-qq-group="work-requirements"]')!;
-    const wrCards = [...wrGroup.querySelectorAll("[data-qq-card]")].map((card) =>
-      card.getAttribute("data-qq-card"),
-    );
+    const wrCards = cardsByGroup.get("work-requirements")!;
     expect(wrCards).toEqual(["wr_exempt_situations", "wr_income_580", "wr_work_activity_who"]);
 
-    const sensitiveGroup = container.querySelector('[data-qq-group="sensitive"]')!;
-    const sensitiveCards = [...sensitiveGroup.querySelectorAll("[data-qq-card]")].map(
-      (card) => card.getAttribute("data-qq-card"),
-    );
+    const sensitiveCards = cardsByGroup.get("sensitive")!;
     // Sensitive LAST: the wr sensitive items render after every
     // non-sensitive card (citizenship_status/disability_status are not in
     // this fixture's remaining set).
-    const allCards = [...container.querySelectorAll("[data-qq-card]")].map((card) =>
-      card.getAttribute("data-qq-card"),
-    );
+    const allCards = [...cardsByGroup.values()].flat();
     expect(allCards.slice(-sensitiveCards.length)).toEqual(sensitiveCards);
     // The fixture's remaining set includes citizenship_status and
     // disability_status (the original sensitive pair) — the wr sensitive
@@ -1057,6 +1373,7 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
     const { container, act } = await renderWrState(
       wrStageState({ answers: CAPTURED_INCOME_ANSWERS }),
     );
+    await goToGroup(container, act, "work-requirements");
     // The deterministic match (150/week floor ×4 = 600 ≥ 580) is adopted:
     // the card shows the Matched-for-you note with the proposal pre-picked.
     const matched = q(container, 'qq-matched="wr_income_580"');
@@ -1088,6 +1405,7 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
     const { container, act } = await renderWrState(
       wrStageState({ answers: CAPTURED_INCOME_ANSWERS }),
     );
+    await goToGroup(container, act, "work-requirements");
     await act(async () => {
       (container.querySelector("#wr_income_580-no") as HTMLInputElement).click();
     });
@@ -1108,7 +1426,8 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
   });
 
   it("without captured income the $580 screen is asked directly (VAL-WR-008)", async () => {
-    const { container } = await renderWrState(wrStageState());
+    const { container, act } = await renderWrState(wrStageState());
+    await goToGroup(container, act, "work-requirements");
     expect(container.querySelector('[data-qq-matched="wr_income_580"]')).toBeNull();
     const yes = container.querySelector("#wr_income_580-yes") as HTMLInputElement;
     expect(yes.checked).toBe(false);
