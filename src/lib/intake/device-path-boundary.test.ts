@@ -13,13 +13,17 @@ import { describe, expect, it } from "vitest";
 // none of it may make a network request. A regression here would either
 // break the page's bundle or open a path for answers to leave the device.
 //
-// The path includes the match, the form review, the fill, and the print
-// preview the page computes once the questions are done (HACK-115). The one
-// request on it is the GET for the blank public form, in
-// device-template.ts. The filled form itself is never saved to the device:
-// every module on the path is checked below for the ways this check knows
-// to save something, and only the two sealed answer stores may touch the
-// browser's storage, each only its own.
+// The path includes the match, the form review, the fill, the print
+// preview, and the download the page offers once the questions are done
+// (HACK-115). The one request on it is the GET for the blank public form, in
+// device-template.ts. The filled form reaches the device only as the
+// person's own downloaded copy, which the owner sanctioned on HACK-115
+// (.github/claude-review/rules.md): every module on the path is checked
+// below for the ways this check knows to save something, the one download
+// module may use only the object URL, Blob, and download link a download
+// needs, the page may call it only from its download button's click
+// handler, and only the two sealed answer stores may touch the browser's
+// storage, each only its own.
 
 const SRC = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -31,6 +35,7 @@ const DEVICE_PATH_ENTRIES = [
   "lib/intake/device-form.ts",
   "lib/intake/device-fill.ts",
   "lib/intake/device-print.ts",
+  "lib/intake/device-download.ts",
   "lib/intake/device-template.ts",
 ];
 
@@ -200,11 +205,32 @@ function loadsPrintUpFront(file: string, source: string): boolean {
 
 /**
  * The modules that hold the filled form (HACK-115): the fill that makes it,
- * the print preview that draws it, and the page that shows it. The owner
- * decided on HACK-115 (Nov 3) that the filled form leaves the page only on
- * paper, so none of them may save it to the device.
+ * the print preview that draws it, and the page that shows it. None of them
+ * may save it to the device themselves: the person's downloaded copy goes
+ * only through the download module below.
  */
 const FILLED_FORM_HOLDERS = ["lib/intake/device-fill.ts", PRINT_MODULE, "app/intake/device-results.tsx"];
+
+/**
+ * The one module on the path allowed to hand the browser a file: the
+ * person's own downloaded copy of the filled form, which the owner decided
+ * on HACK-115 is a vital part of the journey (.github/claude-review/rules.md,
+ * Real data rules).
+ */
+const DOWNLOAD_MODULE = "lib/intake/device-download.ts";
+
+/** What a download needs, and all the download module may use: an object URL, the Blob behind it, and a download link. */
+const DOWNLOAD_NAMES = ["createObjectURL", "Blob", "download"];
+
+/** The download module's one function the page calls. */
+const DOWNLOAD_FUNCTION = "saveFilledFormToDevice";
+
+/**
+ * The data-action of the page's download button. It isn't the bare word
+ * "download", which the save check reads as a download attribute wherever
+ * it is written as a string, the page included.
+ */
+const DOWNLOAD_BUTTON_ACTION = "download-copy";
 
 /**
  * Names in code that save something to the device or hand the browser a
@@ -318,6 +344,208 @@ function savingConstructs(file: string, source = readFileSync(join(SRC, file), "
   return found;
 }
 
+/** A file's code, parsed the way the bundler reads it. */
+function parse(file: string, source: string): ts.SourceFile {
+  return ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+}
+
+/** The function a node's code runs in, or null at the top of the module. */
+function enclosingFunction(node: ts.Node): ts.SignatureDeclaration | null {
+  for (let current = node.parent; current !== undefined; current = current.parent) {
+    if (ts.isFunctionLike(current)) {
+      return current;
+    }
+  }
+  return null;
+}
+
+/** Whether a JSX attribute is the onClick of the download button, a <button data-action="download-copy">. */
+function isDownloadButtonClick(attribute: ts.Node): boolean {
+  if (!ts.isJsxAttribute(attribute) || !ts.isIdentifier(attribute.name) || attribute.name.text !== "onClick") {
+    return false;
+  }
+  const element = attribute.parent.parent;
+  if (!(ts.isJsxOpeningElement(element) || ts.isJsxSelfClosingElement(element))) {
+    return false;
+  }
+  const isButton = ts.isIdentifier(element.tagName) && element.tagName.text === "button";
+  const isDownload = element.attributes.properties.some(
+    (property) =>
+      ts.isJsxAttribute(property) &&
+      ts.isIdentifier(property.name) &&
+      property.name.text === "data-action" &&
+      property.initializer !== undefined &&
+      ts.isStringLiteral(property.initializer) &&
+      property.initializer.text === DOWNLOAD_BUTTON_ACTION,
+  );
+  return isButton && isDownload;
+}
+
+/** Whether `node` is the value written in a download button's onClick: `onClick={node}`. */
+function isDownloadButtonClickValue(node: ts.Node): boolean {
+  return ts.isJsxExpression(node.parent) && node.parent.expression === node && isDownloadButtonClick(node.parent.parent);
+}
+
+/** Whether a function is async, so what it runs after an await is no longer in the press. */
+function isAsync(handler: ts.SignatureDeclaration): boolean {
+  const modifiers = ts.canHaveModifiers(handler) ? (ts.getModifiers(handler) ?? []) : [];
+  return modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword);
+}
+
+/** Whether a function runs in the press itself: not async, and written right in a download button's onClick. */
+function isInlineDownloadHandler(handler: ts.SignatureDeclaration): boolean {
+  return (
+    (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler)) &&
+    !isAsync(handler) &&
+    isDownloadButtonClickValue(handler)
+  );
+}
+
+/** The name a function is declared under, as `function name() {}` or `const name = () => {}`, or null. */
+function declaredName(handler: ts.SignatureDeclaration): ts.Identifier | null {
+  if (ts.isFunctionDeclaration(handler) && handler.name !== undefined) {
+    return handler.name;
+  }
+  if (
+    (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler)) &&
+    ts.isVariableDeclaration(handler.parent) &&
+    handler.parent.initializer === handler &&
+    ts.isIdentifier(handler.parent.name)
+  ) {
+    return handler.parent.name;
+  }
+  return null;
+}
+
+/**
+ * Every call of the download function in a file, and every way the file
+ * could save a copy without the person's own press of its download button,
+ * each by what it is. The download module may be imported only for its one
+ * function, by name. That function may only be called, and each call must
+ * run in the press itself: in a function that isn't async, written right
+ * in the download button's onClick, or declared on its
+ * own and used only that way, as `onClick={handler}` or as a call from such
+ * an onClick. So a call from an effect, a timer, a promise callback, the
+ * fill's own handler, or a press of any other button counts, and so does
+ * the function passed or stored anywhere. The file is parsed, so comments
+ * and copy don't count. The browser's own check (device-download.ts)
+ * covers what this reading can't, such as a click made by script.
+ */
+function downloadCalls(file: string, source = readFileSync(join(SRC, file), "utf8")): {
+  readonly calls: number;
+  readonly problems: readonly string[];
+} {
+  const parsed = parse(file, source);
+  const problems: string[] = [];
+  const isDownloadModule = (specifier: ts.Expression | undefined) =>
+    specifier !== undefined &&
+    ts.isStringLiteralLike(specifier) &&
+    isLocal(specifier.text) &&
+    resolveLocal(file, specifier.text) === DOWNLOAD_MODULE;
+  // The names the download function is imported under, and the identifiers that import it.
+  const names = new Set<string>();
+  const importBindings = new Set<ts.Node>();
+  for (const statement of parsed.statements) {
+    if (ts.isImportDeclaration(statement) && isDownloadModule(statement.moduleSpecifier)) {
+      const clause = statement.importClause;
+      if (clause === undefined) {
+        problems.push("imports the download module for what it does when it loads");
+        continue;
+      }
+      if (clause.isTypeOnly) {
+        continue;
+      }
+      if (clause.name !== undefined) {
+        problems.push("imports the download module's default export");
+      }
+      const bindings = clause.namedBindings;
+      if (bindings !== undefined && ts.isNamespaceImport(bindings)) {
+        problems.push("imports the whole download module");
+      } else if (bindings !== undefined) {
+        for (const element of bindings.elements) {
+          if (element.isTypeOnly) {
+            continue;
+          }
+          const imported = (element.propertyName ?? element.name).text;
+          if (imported !== DOWNLOAD_FUNCTION) {
+            problems.push(`imports ${imported} from the download module`);
+            continue;
+          }
+          names.add(element.name.text);
+          importBindings.add(element.name);
+        }
+      }
+    }
+    if (ts.isExportDeclaration(statement) && isDownloadModule(statement.moduleSpecifier)) {
+      problems.push("re-exports the download module");
+    }
+  }
+  let calls = 0;
+  const handlerProblems = (handler: ts.SignatureDeclaration, what: string): string[] => {
+    if (isInlineDownloadHandler(handler)) {
+      return [];
+    }
+    const name = declaredName(handler);
+    if (name === null || isAsync(handler)) {
+      return [`${what} outside a press of the download button`];
+    }
+    const uses: ts.Identifier[] = [];
+    const findUses = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && node.text === name.text && node !== name) {
+        uses.push(node);
+      }
+      ts.forEachChild(node, findUses);
+    };
+    findUses(parsed);
+    const pressOnly = uses.every((use) => {
+      if (isDownloadButtonClickValue(use)) {
+        return true;
+      }
+      const caller = enclosingFunction(use);
+      return (
+        ts.isCallExpression(use.parent) &&
+        use.parent.expression === use &&
+        caller !== null &&
+        isInlineDownloadHandler(caller)
+      );
+    });
+    return uses.length > 0 && pressOnly
+      ? []
+      : [`${what} in ${name.text}, which runs other than in a press of the download button`];
+  };
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      isDownloadModule(node.arguments[0])
+    ) {
+      problems.push("loads the download module with import()");
+    }
+    if (ts.isIdentifier(node) && names.has(node.text) && !importBindings.has(node)) {
+      if (!(ts.isCallExpression(node.parent) && node.parent.expression === node)) {
+        problems.push(`uses ${node.text} other than by calling it`);
+      } else {
+        calls += 1;
+        const handler = enclosingFunction(node);
+        problems.push(
+          ...(handler === null
+            ? [`calls ${node.text} when the module loads`]
+            : handlerProblems(handler, `calls ${node.text}`)),
+        );
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return { calls, problems };
+}
+
 /**
  * Names in the print preview's code that would send pdf.js to the network
  * or into a Worker: a document URL, a worker or its script, and the
@@ -382,6 +610,7 @@ describe("the on-device intake path", () => {
       "lib/intake/device-form.ts",
       "lib/intake/device-fill.ts",
       "lib/intake/device-print.ts",
+      "lib/intake/device-download.ts",
       "lib/intake/device-template.ts",
       "lib/match-core.ts",
       "lib/kb.ts",
@@ -443,23 +672,24 @@ describe("the on-device intake path", () => {
     }
   });
 
-  it("never saves the filled form to the device", () => {
+  it("never saves the filled form to the device from the fill, the print preview, or the page", () => {
     // No object URL, Blob, File, or download attribute, no share sheet,
     // nothing that embeds the PDF in the page, no image file made from a
-    // page, no file system, and none of the browser's storage. Printing to
-    // paper is the one way out.
+    // page, no file system, and none of the browser's storage. The person's
+    // downloaded copy goes only through the download module.
     for (const file of FILLED_FORM_HOLDERS) {
       expect(files.has(file), `${file} is on the path`).toBe(true);
       expect(savingConstructs(file), `${file} could save the filled form`).toEqual([]);
     }
   });
 
-  it("saves nothing anywhere on the path but the sealed answers, each in its own store", () => {
+  it("saves nothing anywhere on the path but the sealed answers in their own stores and a download through its own module", () => {
     // A helper module the page loads could save the form as well as the
     // page itself could, so every module on the path is read. The two
-    // sealed stores may use their own storage and nothing else.
+    // sealed stores may use their own storage and nothing else, and the
+    // download module only what a download needs.
     for (const file of files) {
-      const allowed = SEALED_STORES.get(file) ?? [];
+      const allowed = SEALED_STORES.get(file) ?? (file === DOWNLOAD_MODULE ? DOWNLOAD_NAMES : []);
       const found = savingConstructs(file).filter((name) => !allowed.includes(name));
       expect(found, `${file} could save something to the device`).toEqual([]);
     }
@@ -468,6 +698,15 @@ describe("the on-device intake path", () => {
       expect(files.has(store), `${store} is on the path`).toBe(true);
       expect(new Set(savingConstructs(store)), store).toEqual(new Set(names));
     }
+    // Likewise the download module: on the path, using exactly what a download needs.
+    expect(files.has(DOWNLOAD_MODULE), `${DOWNLOAD_MODULE} is on the path`).toBe(true);
+    expect(new Set(savingConstructs(DOWNLOAD_MODULE)), DOWNLOAD_MODULE).toEqual(new Set(DOWNLOAD_NAMES));
+  });
+
+  it("logs nothing about the downloaded copy", () => {
+    // Telemetry is a server module the path can't import (above); the
+    // download module doesn't write to the console either.
+    expect(namesIn(DOWNLOAD_MODULE)).not.toContain("console");
   });
 
   it("gives pdf.js nothing that would send it to the network or into a Worker", () => {
@@ -718,6 +957,150 @@ describe("the boundary check's reading of what saves to the device", () => {
           expect(namesIn(PRINT_MODULE, write(name))).toContain(name);
         },
       ),
+    );
+  });
+});
+
+describe("the boundary check's reading of the download button", () => {
+  // The page may save a copy only in a press of Download a copy, so the
+  // reading must take each way of writing that handler, and catch every
+  // other way of reaching the download, wherever it sits among ordinary
+  // code and copy.
+  const DOWNLOAD_IMPORT = 'import { saveFilledFormToDevice } from "../../lib/intake/device-download";';
+
+  interface PageParts {
+    readonly imports?: readonly string[];
+    /** Statements in the page's body, before it returns. */
+    readonly body: readonly string[];
+    /** What the download button's onClick is written as. */
+    readonly handler: string;
+    /** More elements beside the buttons. */
+    readonly jsx?: readonly string[];
+  }
+
+  /** A page with a print button and a download button, built from `parts`, with `filler` among its statements. */
+  function page(parts: PageParts, filler: readonly string[] = []): string {
+    const middle = Math.floor(filler.length / 2);
+    return [
+      ...(parts.imports ?? [DOWNLOAD_IMPORT]),
+      "export function Page(props: { readonly bytes: Uint8Array; readonly announce: (saved: boolean) => void }) {",
+      "  const { bytes, announce } = props;",
+      ...filler.slice(0, middle),
+      ...parts.body,
+      ...filler.slice(middle),
+      "  return (",
+      "    <div>",
+      '      <button type="button" data-action="print" onClick={() => window.print()}>Print the form</button>',
+      `      <button type="button" data-action="download-copy" onClick={${parts.handler}}>Download a copy</button>`,
+      ...(parts.jsx ?? []),
+      "    </div>",
+      "  );",
+      "}",
+    ].join("\n");
+  }
+
+  const filler = fc.array(
+    fc.constantFrom(
+      "  const pages = 21;",
+      "  // Nothing here saves a copy until the person presses Download a copy.",
+      '  const note = "Download a copy to keep, print, or send in.";',
+      "  function label(page: number): string { return `Page ${page}`; }",
+      "  useEffect(() => { document.title = label(1); }, []);",
+      "  const later = () => setTimeout(() => announce(false), 0);",
+    ),
+    { maxLength: 4 },
+  );
+
+  const SAVE = 'saveFilledFormToDevice(bytes, "dhb-5200.pdf")';
+  const NAMED = ["  function downloadCopy(): void {", `    ${SAVE};`, "  }"];
+  const PRINT = "() => window.print()";
+
+  it("takes every way of saving a copy in the press itself", () => {
+    const accepted: readonly PageParts[] = [
+      { body: ["  function downloadCopy(): void {", `    announce(${SAVE});`, "  }"], handler: "downloadCopy" },
+      { body: ["  const downloadCopy = () => {", `    const saved = ${SAVE};`, "    announce(saved);", "  };"], handler: "downloadCopy" },
+      { body: NAMED, handler: "() => downloadCopy()" },
+      { body: [], handler: `() => announce(${SAVE})` },
+      { body: [], handler: `function () { ${SAVE}; }` },
+      {
+        imports: [
+          'import { saveFilledFormToDevice as save, type DownloadEnvironment } from "@/lib/intake/device-download";',
+          'import type * as Download from "../../lib/intake/device-download";',
+        ],
+        body: [],
+        handler: '() => announce(save(bytes, "dhb-5200.pdf"))',
+      },
+    ];
+    fc.assert(
+      fc.property(filler, (statements) => {
+        for (const parts of accepted) {
+          const source = page(parts, statements);
+          const read = downloadCalls("app/intake/probe.tsx", source);
+          expect(read.problems, source).toEqual([]);
+          expect(read.calls, source).toBe(1);
+        }
+      }),
+      { numRuns: 30 },
+    );
+  });
+
+  it("catches every other way of reaching the download, wherever it sits", () => {
+    const rejected: readonly PageParts[] = [
+      // An effect, as the page loads or as the pages appear.
+      { body: [`  useEffect(() => { ${SAVE}; }, [bytes]);`], handler: PRINT },
+      // A timer or a promise callback started by the press, which runs after it.
+      { body: [], handler: `() => { setTimeout(() => ${SAVE}, 0); }` },
+      { body: [], handler: `() => { void Promise.resolve().then(() => ${SAVE}); }` },
+      // An async handler, which saves after an await.
+      { body: [], handler: `async () => { await Promise.resolve(); ${SAVE}; }` },
+      {
+        body: ["  async function downloadLater(): Promise<void> {", "    await Promise.resolve();", `    ${SAVE};`, "  }"],
+        handler: "() => void downloadLater()",
+      },
+      // The handler run from somewhere else as well: the fill finishing, or an effect.
+      {
+        body: [...NAMED, "  async function showFilledForm(): Promise<void> {", "    await Promise.resolve();", "    downloadCopy();", "  }"],
+        handler: "downloadCopy",
+      },
+      { body: [...NAMED, "  useEffect(() => downloadCopy(), []);"], handler: "downloadCopy" },
+      // The handler on another button, on something that isn't a button, or on another event.
+      { body: NAMED, handler: PRINT, jsx: ['      <button type="button" data-action="print" onClick={downloadCopy}>Print</button>'] },
+      { body: NAMED, handler: PRINT, jsx: ['      <div data-action="download-copy" onClick={downloadCopy}>Download a copy</div>'] },
+      {
+        body: NAMED,
+        handler: PRINT,
+        jsx: ['      <button type="button" data-action="download-copy" onMouseEnter={downloadCopy}>Download a copy</button>'],
+      },
+      // The function itself handed on or kept.
+      { body: ["  const save = saveFilledFormToDevice;"], handler: '() => save(bytes, "dhb-5200.pdf")' },
+      { body: [], handler: PRINT, jsx: ["      <Child onSave={saveFilledFormToDevice} />"] },
+      // A call as the module loads.
+      { imports: [DOWNLOAD_IMPORT, 'saveFilledFormToDevice(new Uint8Array(1), "dhb-5200.pdf");'], body: [], handler: PRINT },
+      // The module reached some other way.
+      {
+        imports: ['import * as download from "../../lib/intake/device-download";'],
+        body: [],
+        handler: '() => download.saveFilledFormToDevice(bytes, "dhb-5200.pdf")',
+      },
+      { imports: ['import download from "../../lib/intake/device-download";'], body: [], handler: PRINT },
+      { imports: ['import { DOWNLOAD_URL_LIFETIME_MS } from "../../lib/intake/device-download";'], body: [], handler: PRINT },
+      { imports: ['import "../../lib/intake/device-download";'], body: [], handler: PRINT },
+      { imports: ['export { saveFilledFormToDevice } from "@/lib/intake/device-download";'], body: [], handler: PRINT },
+      {
+        imports: [],
+        body: [],
+        handler:
+          'async () => { const { saveFilledFormToDevice: save } = await import("../../lib/intake/device-download"); save(bytes, "dhb-5200.pdf"); }',
+      },
+    ];
+    fc.assert(
+      fc.property(filler, (statements) => {
+        for (const parts of rejected) {
+          const source = page(parts, statements);
+          expect(downloadCalls("app/intake/probe.tsx", source).problems.length, source).toBeGreaterThan(0);
+        }
+      }),
+      { numRuns: 30 },
     );
   });
 });
