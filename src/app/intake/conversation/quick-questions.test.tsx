@@ -407,6 +407,16 @@ describe("the quick-questions stage component", () => {
     expect(
       container.querySelectorAll("[data-qq-group]:not([hidden])"),
     ).toHaveLength(1);
+    // Hiding is carried by the display utility, not the attribute alone
+    // (Tailwind's flex would override the UA [hidden] rule in a browser).
+    expect(
+      container
+        .querySelector("[data-qq-group]:not([hidden])")
+        ?.className,
+    ).toContain("flex");
+    expect(
+      container.querySelector('[data-qq-group="sensitive"]')?.className,
+    ).toContain("hidden");
     expect(q(container, "qq-section-progress")?.textContent).toContain(
       "Section 1 of",
     );
@@ -940,10 +950,18 @@ describe("the quick-questions stage static markup", () => {
     expect(html).toContain("data-quick-questions-stage");
     expect(html).toContain("5 questions instead of 5");
     // Paginated (HACK-132): SSR carries every section mounted, with only
-    // the first visible and the rest hidden (the grouping order itself
-    // is pinned by the pure-function tests).
+    // the first visible and the rest hidden, sensitive last in markup.
     expect(html).toContain("Section 1 of");
     expect(html).toContain('data-qq-group="sensitive" hidden');
+    expect(html).toContain("Why we ask");
+    const groupOrder = [
+      "application",
+      "household",
+      "income",
+      "sensitive",
+    ].map((id) => html.indexOf(`data-qq-group="${id}"`));
+    expect(groupOrder.every((index) => index >= 0)).toBe(true);
+    expect(groupOrder).toEqual([...groupOrder].sort((a, b) => a - b));
     expect(findBannedClaims(html)).toEqual([]);
   });
 });

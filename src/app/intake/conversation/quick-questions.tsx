@@ -801,7 +801,15 @@ export function QuickQuestionsStage(props: {
               aria-describedby={
                 group.note ? `qq-group-${group.id}-note` : undefined
               }
-              className="flex flex-col gap-3"
+              // The display utility does the hiding, not the hidden
+              // attribute alone: Tailwind's flex utility would override
+              // the UA [hidden] rule in a real browser. The attribute
+              // stays for semantics and test visibility queries.
+              className={
+                group.id === activeGroup.id
+                  ? "flex flex-col gap-3"
+                  : "hidden"
+              }
             >
               <h3
                 id={`qq-group-${group.id}-heading`}
