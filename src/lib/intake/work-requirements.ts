@@ -74,7 +74,9 @@ import type { AnswerMap } from "./flow";
 //    counted (no double count). Seasonal "yes" without a known total is
 //    UNCOUNTABLE, like rule 3: converting the in-season paycheck as if
 //    it arrived all year would misstate the average, so the question is
-//    ASKED DIRECTLY. Any other seasonal answer ("no", "not_sure", or
+//    ASKED DIRECTLY. A seasonal "yes" stored unverified (not known) is
+//    treated the same way — never as a license to convert the paycheck.
+//    Any other seasonal answer ("no", "not_sure", or
 //    absent) leaves rules 1-5 untouched.
 //
 // Pure and browser-safe: imports only the flow engine's answer-map type.
@@ -321,6 +323,16 @@ export function matchIncome580(answers: AnswerMap): Income580Match {
   const seasonalStored = answers[SEASONAL_WORK_QUESTION_ID];
   const seasonalYes =
     seasonalStored?.status === "known" && seasonalStored.value === "yes";
+  // A seasonal "yes" that is not KNOWN (e.g. stored unverified from the
+  // conversation) must never fall back to converting the in-season
+  // paycheck as if it arrived all year — that is exactly the misstatement
+  // rule 6 exists to prevent. It marks the captured job amount uncounted
+  // instead, so the screen is asked directly.
+  const seasonalYesUncertain =
+    !seasonalYes &&
+    seasonalStored !== undefined &&
+    seasonalStored.status !== "known" &&
+    seasonalStored.value === "yes";
   for (const source of INCOME_SOURCES) {
     if (seasonalYes && source.amountId === "job_income_amount") {
       // Rule 6: the job source converts only from the 6-month seasonal
@@ -339,6 +351,12 @@ export function matchIncome580(answers: AnswerMap): Income580Match {
         const monthly = seasonalTotal / SEASONAL_AVERAGING_MONTHS;
         floorTotal += monthly;
         ceilingTotal += monthly;
+      }
+      continue;
+    }
+    if (seasonalYesUncertain && source.amountId === "job_income_amount") {
+      if (knownAmount(answers, source.amountId) !== null) {
+        uncountedSourceIds.push(source.amountId);
       }
       continue;
     }

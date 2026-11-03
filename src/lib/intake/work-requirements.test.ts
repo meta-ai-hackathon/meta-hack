@@ -664,6 +664,21 @@ describe("the seasonal-work capture (HACK-130, rule 6)", () => {
     expect(match.monthlyTotal).toBeCloseTo((100 * 52) / 12, 10);
   });
 
+  it("never converts the paycheck under an unverified seasonal 'yes'", () => {
+    const answers: AnswerMap = {
+      ...merge(
+        sources("job"),
+        amount("job_income_amount", 800),
+        frequency("job_income_frequency", "weekly"),
+      ),
+      job_income_seasonal: { status: "unverified", value: "yes" },
+    };
+    const match = matchIncome580(answers);
+    expect(match.proposal).toBeNull();
+    expect(match.countedSourceIds).toEqual([]);
+    expect(match.uncountedSourceIds).toEqual(["job_income_amount"]);
+  });
+
   it("leaves non-seasonal answers on the old path (a stale total is ignored)", () => {
     const match = matchIncome580(
       merge(
