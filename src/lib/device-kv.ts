@@ -14,7 +14,8 @@
  * pattern in the same database and store, so the two can share this module
  * once both land. Until they do, src/lib/renewal/shared-device-store.test.ts
  * pins both openers to the same name, version, and stores, so a version
- * bump or a new store goes into both modules in the same change.
+ * bump or a new store goes into both modules in the same change, and to
+ * closing their connection when a newer version asks.
  */
 
 export const DEVICE_DB_NAME = "benefits-navigator-device";

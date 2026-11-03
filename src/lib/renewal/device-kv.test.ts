@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import fc from "fast-check";
+import { describe, expect, it, vi } from "vitest";
 import {
   DEVICE_DB_NAME,
   DEVICE_DB_STORE,
@@ -8,12 +9,14 @@ import {
   requestPersistentStorage,
   withDeadline,
 } from "./device-kv";
+import { REMINDER_ENVELOPE_KEY, type ReminderStoreDeps } from "./reminder-store";
 
 // The IndexedDB wrapper (HACK-50), driven through a small fake that follows
 // the IndexedDB event contract: requests settle asynchronously and fire
 // their success handlers, requests issued from a success handler join the
 // same transaction, a transaction completes only once no request is left,
-// upgrades run before success, and values are structured clones.
+// upgrades run before success, values are structured clones, and a closed
+// connection throws InvalidStateError on a transaction.
 
 interface FakeDatabase {
   version: number;
@@ -25,8 +28,17 @@ interface FakeDatabase {
 
 type Handler = ((event: unknown) => void) | null;
 
+/** One connection, with the handlers the adapter sets on it. */
+interface FakeConnection {
+  onversionchange?: Handler;
+  onclose?: Handler;
+  /** The browser drops the connection with no event, as a storage process restart can. */
+  dropQuietly: () => void;
+}
+
 function fakeIndexedDb(options: { failOpen?: boolean; neverOpen?: boolean; openAfterMs?: number } = {}) {
   const databases = new Map<string, FakeDatabase>();
+  const connections: FakeConnection[] = [];
   const factory = {
     open(name: string, version = 1) {
       const request: Record<string, unknown> & {
@@ -64,15 +76,23 @@ function fakeIndexedDb(options: { failOpen?: boolean; neverOpen?: boolean; openA
   };
 
   function handle(db: FakeDatabase) {
-    return {
+    let open = true;
+    const connection = {
+      dropQuietly: () => {
+        open = false;
+      },
       objectStoreNames: { contains: (store: string) => db.stores.has(store) },
       createObjectStore: (store: string) => {
         db.stores.set(store, new Map());
       },
       close: () => {
+        open = false;
         db.closed += 1;
       },
       transaction: (storeName: string, mode: string) => {
+        if (!open) {
+          throw new DOMException("the connection is closed", "InvalidStateError");
+        }
         db.transactions += 1;
         const transaction: Record<string, unknown> & { oncomplete: Handler; onerror: Handler; onabort: Handler } = {
           error: null,
@@ -131,9 +151,11 @@ function fakeIndexedDb(options: { failOpen?: boolean; neverOpen?: boolean; openA
         return transaction;
       },
     };
+    connections.push(connection);
+    return connection;
   }
 
-  return { factory: factory as unknown as IDBFactory, databases };
+  return { factory: factory as unknown as IDBFactory, databases, connections };
 }
 
 describe("openIndexedDbKv", () => {
@@ -275,5 +297,70 @@ describe("openDeviceReminderStore", () => {
   it("reports no store where the runtime has no IndexedDB (the calendar file still works)", async () => {
     expect(globalThis.indexedDB).toBeUndefined();
     expect(await openDeviceReminderStore()).toBeNull();
+  });
+
+  it("keeps one connection until the browser closes it, a newer version asks for it, or it is dropped, then opens a fresh one (review of the pin, property)", async () => {
+    // What can happen between the page's calls, as the answers' adapter
+    // (src/lib/device-kv.ts) handles it too. A newer version is the one
+    // case where the adapter itself must close, or that version is
+    // blocked for as long as this page stays open.
+    const event = fc.constantFrom(
+      "open",
+      "browser closes it",
+      "newer version asks",
+      "dropped quietly",
+      "an older connection closes late",
+    );
+    await fc.assert(
+      fc.asyncProperty(fc.array(event, { maxLength: 10 }), async (events) => {
+        const device = fakeIndexedDb();
+        vi.resetModules();
+        vi.stubGlobal("indexedDB", device.factory);
+        try {
+          const { openDeviceReminderStore: open } = await import("./device-kv");
+          // The store the last open returned, while its connection lasts.
+          let live: ReminderStoreDeps | null = null;
+          let fresh = 0;
+          for (const next of events) {
+            const latest = device.connections.at(-1);
+            if (next === "open") {
+              const deps = await open();
+              expect(deps).not.toBeNull();
+              if (live === null) {
+                fresh += 1;
+              } else {
+                expect(deps).toBe(live);
+              }
+              live = deps;
+            } else if (next === "an older connection closes late") {
+              // Never drops the live connection: the next open still returns it.
+              const older = device.connections.length > 1 ? device.connections[0] : undefined;
+              older?.onclose?.({});
+            } else if (live !== null && latest !== undefined) {
+              const db = device.databases.get(DEVICE_DB_NAME)!;
+              const closedBefore = db.closed;
+              if (next === "browser closes it") {
+                latest.dropQuietly();
+                latest.onclose?.({});
+              } else if (next === "newer version asks") {
+                latest.onversionchange?.({});
+                expect(db.closed, "the adapter closes its connection for the newer version").toBe(closedBefore + 1);
+              } else {
+                latest.dropQuietly();
+                // The next call on the old store fails, which is how the adapter learns.
+                await expect(live.kv.getMany([REMINDER_ENVELOPE_KEY])).rejects.toThrow();
+              }
+              live = null;
+            }
+          }
+          // One connection per stretch between losses.
+          expect(device.connections).toHaveLength(fresh);
+        } finally {
+          vi.unstubAllGlobals();
+          vi.resetModules();
+        }
+      }),
+      { numRuns: 40 },
+    );
   });
 });

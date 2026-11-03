@@ -205,29 +205,62 @@ describe("the reminder and the step-by-step answers share one device store", () 
 
 type Handler = ((event: unknown) => void) | null;
 
+interface FakeConnection {
+  onversionchange: Handler;
+  readonly isOpen: () => boolean;
+  readonly close: () => void;
+}
+
 interface VersionedDatabase {
   version: number;
   readonly stores: Map<string, Map<string, unknown>>;
+  /** Connections not closed yet. */
+  readonly connections: Set<FakeConnection>;
+  /** Newer opens waiting for every older connection to close. */
+  readonly waiting: (() => void)[];
 }
 
 /**
  * An IndexedDB stand-in that keeps the rules two openers of one database
  * can trip over: opening below the stored version fails with a
  * VersionError, opening above it runs that opener's upgrade first, and a
- * transaction on a store no upgrade made throws NotFoundError. It records
- * each open as name@version.
+ * transaction on a store no upgrade made throws NotFoundError. Opening
+ * above the stored version first fires versionchange at every open
+ * connection; while any of them stays open, the newer open is blocked
+ * and waits until the last one closes (review of the pin: a connection
+ * that never closes holds back every later version). A closed connection
+ * throws InvalidStateError on a transaction. It records each open as
+ * name@version, and each blocked one too.
  */
 function versionedIndexedDb() {
   const databases = new Map<string, VersionedDatabase>();
   const opens: string[] = [];
-  function connection(db: VersionedDatabase) {
-    return {
+  const blocked: string[] = [];
+  function connection(db: VersionedDatabase): FakeConnection & Record<string, unknown> {
+    let open = true;
+    const handle: FakeConnection & Record<string, unknown> = {
+      onversionchange: null,
+      isOpen: () => open,
       objectStoreNames: { contains: (name: string) => db.stores.has(name) },
       createObjectStore: (name: string) => {
         db.stores.set(name, new Map());
       },
-      close: () => undefined,
+      close: () => {
+        if (!open) {
+          return;
+        }
+        open = false;
+        db.connections.delete(handle);
+        if (db.connections.size === 0) {
+          for (const proceed of db.waiting.splice(0)) {
+            proceed();
+          }
+        }
+      },
       transaction: (name: string) => {
+        if (!open) {
+          throw new DOMException("the connection is closed", "InvalidStateError");
+        }
         const store = db.stores.get(name);
         if (store === undefined) {
           throw new DOMException(`no object store named ${name}`, "NotFoundError");
@@ -269,6 +302,8 @@ function versionedIndexedDb() {
         return transaction;
       },
     };
+    db.connections.add(handle);
+    return handle;
   }
   const factory = {
     open(name: string, version?: number) {
@@ -280,7 +315,12 @@ function versionedIndexedDb() {
         onblocked: Handler;
       } = { result: undefined, error: null, onsuccess: null, onerror: null, onupgradeneeded: null, onblocked: null };
       queueMicrotask(() => {
-        const db = databases.get(name) ?? { version: 0, stores: new Map() };
+        const db: VersionedDatabase = databases.get(name) ?? {
+          version: 0,
+          stores: new Map(),
+          connections: new Set(),
+          waiting: [],
+        };
         const wanted = version ?? Math.max(db.version, 1);
         if (wanted < db.version) {
           request.error = new DOMException(`${name} is at version ${db.version}, above ${wanted}`, "VersionError");
@@ -288,19 +328,53 @@ function versionedIndexedDb() {
           return;
         }
         databases.set(name, db);
-        request.result = connection(db);
-        if (wanted > db.version) {
-          db.version = wanted;
-          request.onupgradeneeded?.({});
+        const proceed = () => {
+          request.result = connection(db);
+          if (wanted > db.version) {
+            db.version = wanted;
+            request.onupgradeneeded?.({});
+          }
+          request.onsuccess?.({});
+        };
+        if (wanted > db.version && db.connections.size > 0) {
+          // A newer version asks every open connection to close first.
+          for (const older of [...db.connections]) {
+            older.onversionchange?.({ oldVersion: db.version, newVersion: wanted });
+          }
+          if (db.connections.size > 0) {
+            blocked.push(`${name}@${wanted}`);
+            request.onblocked?.({});
+            db.waiting.push(proceed);
+            return;
+          }
         }
-        request.onsuccess?.({});
+        proceed();
       });
       return request;
     },
   };
+  /**
+   * Open the way a newer build's opener would, with no adapter: resolves
+   * with the connection once it opens, and whether it was blocked first.
+   */
+  function openDirectly(name: string, version: number): Promise<{ connection: FakeConnection; wasBlocked: boolean }> {
+    return new Promise((resolve, reject) => {
+      const request = factory.open(name, version);
+      let wasBlocked = false;
+      request.onblocked = () => {
+        wasBlocked = true;
+      };
+      request.onsuccess = () => resolve({ connection: request.result as FakeConnection, wasBlocked });
+      request.onerror = () => reject(request.error);
+    });
+  }
+  const openConnections = () => databases.get(answersDevice.DEVICE_DB_NAME)?.connections.size ?? 0;
   const storeNames = () => [...(databases.get(answersDevice.DEVICE_DB_NAME)?.stores.keys() ?? [])].sort();
-  return { factory: factory as unknown as IDBFactory, opens, storeNames };
+  return { factory: factory as unknown as IDBFactory, opens, blocked, openDirectly, openConnections, storeNames };
 }
+
+/** Let every queued microtask, and so every pending fake request, run. */
+const settled = () => new Promise<void>((done) => setTimeout(done, 0));
 
 describe("both adapters open the one device database the same way (review of 7fbeb3c)", () => {
   // The answers' adapter (src/lib/device-kv.ts) and the reminder's
@@ -352,6 +426,55 @@ describe("both adapters open the one device database the same way (review of 7fb
           }
           expect(new Set(device.opens)).toEqual(new Set([SHARED_OPEN]));
           expect(device.storeNames()).toEqual(freshStores);
+        },
+      ),
+    );
+  });
+
+  // A version bump only lands if every tab still on the old build lets go
+  // of its connection when the newer build asks (review of the pin). The
+  // first check shows the fake holds a newer version back while a
+  // connection ignores the request, so the property after it can fail.
+  const NEWER_VERSION = answersDevice.DEVICE_DB_VERSION + 1;
+
+  it("hold a newer version back in the fake while a connection that ignores it stays open", async () => {
+    const device = versionedIndexedDb();
+    const ignoring = await device.openDirectly(answersDevice.DEVICE_DB_NAME, answersDevice.DEVICE_DB_VERSION);
+    let opened = false;
+    const newer = device.openDirectly(answersDevice.DEVICE_DB_NAME, NEWER_VERSION).then((result) => {
+      opened = true;
+      return result;
+    });
+    await settled();
+    expect(device.blocked).toEqual([`${answersDevice.DEVICE_DB_NAME}@${NEWER_VERSION}`]);
+    expect(opened).toBe(false);
+    ignoring.connection.close();
+    expect((await newer).wasBlocked).toBe(true);
+    expect(device.openConnections()).toBe(1);
+  });
+
+  it("opened in any order on one device, each closes its connection when a newer version asks, so the newer open is never blocked (property)", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.constantFrom("answers" as const, "reminder" as const), { minLength: 1, maxLength: 6 }),
+        async (order) => {
+          const device = versionedIndexedDb();
+          const kvs: DeviceKv[] = [];
+          for (const side of order) {
+            kvs.push(await adapters[side](device.factory));
+          }
+          expect(device.openConnections()).toBe(order.length);
+          // A newer build, in another tab, opens the next version.
+          const newer = device.openDirectly(answersDevice.DEVICE_DB_NAME, NEWER_VERSION);
+          await settled();
+          expect(device.blocked).toEqual([]);
+          expect((await newer).wasBlocked).toBe(false);
+          // Only the newer build's connection is left, and the old ones
+          // neither read nor write any more.
+          expect(device.openConnections()).toBe(1);
+          for (const kv of kvs) {
+            await expect(kv.getMany([REMINDER_ENVELOPE_KEY])).rejects.toThrow();
+          }
         },
       ),
     );
