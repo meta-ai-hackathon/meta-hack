@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import type {
   ClientQuestion,
   IntakeClientState,
@@ -698,18 +698,35 @@ export function QuickQuestionsStage(props: {
   const groups = groupRemainingQuestions(state);
   const { remainingCount, requiredCount } = state.quickQuestions;
   // Paginated by section (HACK-132, Civilla's section-per-screen online
-  // templates): one group renders at a time instead of every remaining
-  // card stacked on one page. The index is clamped by derivation, so
-  // when a group empties and drops off (its last card saved), the next
-  // group simply takes its place — no state repair needed. Navigation
-  // never blocks: Back/Continue move between sections, and the talk CTA
-  // below is always available whatever section is showing.
+  // templates): one group is visible at a time instead of every remaining
+  // card stacked on one page. Inactive sections stay MOUNTED but hidden,
+  // so an unsaved draft or skip mark survives Back/Continue exactly as it
+  // survived scrolling before pagination. The index is clamped by
+  // derivation, so when a group empties and drops off (its last card
+  // saved), the next group simply takes its place — no state repair
+  // needed. Navigation never blocks: Back/Continue move between sections,
+  // and the talk CTA below is always available whatever section shows.
   const [sectionIndex, setSectionIndex] = useState(0);
   const activeIndex = Math.min(
     sectionIndex,
     Math.max(groups.length - 1, 0),
   );
   const activeGroup = groups[activeIndex];
+  // Focus follows the section (HACK-132 review): after a section change,
+  // keyboard and screen-reader users land on the new section's heading
+  // instead of being stranded on a removed Continue button. The first
+  // render does not steal focus.
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const shownGroupIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (
+      shownGroupIdRef.current !== undefined &&
+      shownGroupIdRef.current !== activeGroup?.id
+    ) {
+      headingRef.current?.focus();
+    }
+    shownGroupIdRef.current = activeGroup?.id;
+  }, [activeGroup?.id]);
   // The $580 screen's deterministic match (VAL-WR-008): computed from the
   // already-captured income answers by the documented engine rule — never
   // an LLM, and a FORM ANSWER proposal only (the card lets the person
@@ -775,50 +792,53 @@ export function QuickQuestionsStage(props: {
           >
             {`Section ${activeIndex + 1} of ${groups.length}: ${activeGroup.heading}`}
           </p>
-          <section
-            key={activeGroup.id}
-            data-qq-group={activeGroup.id}
-            aria-labelledby={`qq-group-${activeGroup.id}-heading`}
-            aria-describedby={
-              activeGroup.note
-                ? `qq-group-${activeGroup.id}-note`
-                : undefined
-            }
-            className="flex flex-col gap-3"
-          >
-            <h3
-              id={`qq-group-${activeGroup.id}-heading`}
-              className="text-lg font-semibold"
+          {groups.map((group) => (
+            <section
+              key={group.id}
+              data-qq-group={group.id}
+              hidden={group.id !== activeGroup.id}
+              aria-labelledby={`qq-group-${group.id}-heading`}
+              aria-describedby={
+                group.note ? `qq-group-${group.id}-note` : undefined
+              }
+              className="flex flex-col gap-3"
             >
-              {activeGroup.heading}
-            </h3>
-            {activeGroup.note ? (
-              <p
-                id={`qq-group-${activeGroup.id}-note`}
-                data-qq-group-note={activeGroup.id}
-                className="text-sm text-muted"
+              <h3
+                id={`qq-group-${group.id}-heading`}
+                ref={group.id === activeGroup.id ? headingRef : undefined}
+                tabIndex={-1}
+                className="text-lg font-semibold"
               >
-                {activeGroup.note}
-              </p>
-            ) : null}
-            <ul className="flex flex-col gap-3">
-              {activeGroup.questions.map((question) => (
-                <QuestionCard
-                  key={question.id}
-                  question={question}
-                  sensitive={activeGroup.sensitive}
-                  prefill={
-                    question.id === INCOME_580_QUESTION_ID &&
-                    incomeMatch.proposal !== null
-                      ? incomeMatch.proposal
-                      : undefined
-                  }
-                  onNotice={onNotice}
-                  onSaved={onStateChange}
-                />
-              ))}
-            </ul>
-          </section>
+                {group.heading}
+              </h3>
+              {group.note ? (
+                <p
+                  id={`qq-group-${group.id}-note`}
+                  data-qq-group-note={group.id}
+                  className="text-sm text-muted"
+                >
+                  {group.note}
+                </p>
+              ) : null}
+              <ul className="flex flex-col gap-3">
+                {group.questions.map((question) => (
+                  <QuestionCard
+                    key={question.id}
+                    question={question}
+                    sensitive={group.sensitive}
+                    prefill={
+                      question.id === INCOME_580_QUESTION_ID &&
+                      incomeMatch.proposal !== null
+                        ? incomeMatch.proposal
+                        : undefined
+                    }
+                    onNotice={onNotice}
+                    onSaved={onStateChange}
+                  />
+                ))}
+              </ul>
+            </section>
+          ))}
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
