@@ -6,6 +6,21 @@ import {
   isWorkRequirementsQuestionId,
 } from "../../lib/intake/work-requirements";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
+import {
+  AGE_BAND_LABELS,
+  MAX_ROSTER_MEMBERS,
+  MAX_MEMBER_NAME_LENGTH,
+  AGE_BAND_VALUES,
+  RELATIONSHIP_LABELS,
+  RELATIONSHIP_VALUES,
+  addMember,
+  draftMembers,
+  emptyMember,
+  nextMemberId,
+  removeMember,
+  updateMember,
+  type HouseholdMember,
+} from "../../lib/intake/roster";
 import { Field } from "../../components/field";
 
 // One intake question per screen (BN-09): the plain-language prompt, help
@@ -144,6 +159,83 @@ export function QuestionView({
             {option.label}
           </label>
         ))}
+      </fieldset>
+    );
+  } else if (question.type === "roster") {
+    const members: HouseholdMember[] = draftMembers(value);
+    const setMembers = (next: HouseholdMember[]) => onValueChange(next);
+    control = (
+      <fieldset aria-describedby={describedBy} className="flex flex-col gap-3">
+        <legend className="mb-1 text-base font-medium">
+          {question.prompt} {requiredMark}
+        </legend>
+        {question.help ? (
+          <p id={helpId} className="text-sm text-muted">{question.help}</p>
+        ) : null}
+        {members.map((member, index) => (
+          <div key={member.id} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3" data-roster-member={member.id}>
+            <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-name`}>
+              Person {index + 1}: first name or nickname
+              <input
+                id={`${question.id}-${member.id}-name`}
+                type="text"
+                maxLength={MAX_MEMBER_NAME_LENGTH}
+                value={member.displayName}
+                disabled={busy}
+                onChange={(e) => setMembers(updateMember(members, member.id, { displayName: e.target.value }))}
+                aria-describedby={member.displayName.trim() === "" ? `${question.id}-${member.id}-name-hint` : undefined}
+                className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+              />
+            </label>
+            {member.displayName.trim() === "" ? (
+              <p id={`${question.id}-${member.id}-name-hint`} className="text-sm text-muted">Enter a first name or nickname for this person.</p>
+            ) : null}
+            <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-relationship`}>
+              Relationship
+              <select
+                id={`${question.id}-${member.id}-relationship`}
+                value={member.relationship}
+                disabled={busy}
+                onChange={(e) => setMembers(updateMember(members, member.id, { relationship: e.target.value as HouseholdMember["relationship"] }))}
+                className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+              >
+                {RELATIONSHIP_VALUES.map((v) => (
+                  <option key={v} value={v} disabled={v === "self" && member.relationship !== "self" && members.some((m) => m.relationship === "self")}>{RELATIONSHIP_LABELS[v]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-age`}>
+              Age range
+              <select
+                id={`${question.id}-${member.id}-age`}
+                value={member.ageBand}
+                disabled={busy}
+                onChange={(e) => setMembers(updateMember(members, member.id, { ageBand: e.target.value as HouseholdMember["ageBand"] }))}
+                className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+              >
+                {AGE_BAND_VALUES.map((v) => (
+                  <option key={v} value={v}>{AGE_BAND_LABELS[v]}</option>
+                ))}
+              </select>
+            </label>
+            {members.length > 1 ? (
+              <button type="button" aria-label={`Remove this person (person ${index + 1}${member.displayName ? `: ${member.displayName}` : ""})`} disabled={busy} onClick={() => setMembers(removeMember(members, member.id))} className="self-start text-sm text-muted underline">
+                Remove this person
+              </button>
+            ) : null}
+          </div>
+        ))}
+        <button
+          type="button"
+          disabled={busy || members.length >= MAX_ROSTER_MEMBERS}
+          onClick={() => setMembers(addMember(members, emptyMember(nextMemberId(members))))}
+          className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
+        >
+          Add another person
+        </button>
+        {members.length >= MAX_ROSTER_MEMBERS ? (
+          <p className="text-sm text-muted">That is everyone we can list here. You can change or remove a person above.</p>
+        ) : null}
       </fieldset>
     );
   } else if (question.type === "multi_select") {

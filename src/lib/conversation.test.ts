@@ -23,6 +23,8 @@ import {
   answerToSave,
   assertNoBannedClaimsEverySentence,
   buildCombinedTurnPrompt,
+  EXTRACTION_SCHEMA,
+  talkPathSavesQuestion,
   findBannedClaimsEverySentence,
   findPiiEchoes,
   followupGateProblem,
@@ -1111,5 +1113,19 @@ describe("spoken_reply envelope parsing and gate (HACK-107)", () => {
     expect(spokenGateProblem("You are eligible.", [])).toBe("banned_claim");
     expect(spokenGateProblem("Please confirm Jane Doe.", ["Jane Doe"])).toBe("pii_echo");
     expect(spokenGateProblem("   ", [])).toBe("empty");
+  });
+});
+
+describe("household roster on the talk path (HACK-134)", () => {
+  it("never puts the roster question in the model prompt", () => {
+    const roster = QUESTION_BY_ID["household_roster"];
+    expect(roster).toBeDefined();
+    const prompt = buildCombinedTurnPrompt(QUESTION_BY_ID["household_size"]);
+    expect(prompt).not.toContain("household_roster");
+    expect(prompt).not.toContain(roster.prompt);
+    const enumIds = (EXTRACTION_SCHEMA.properties.answers.items.properties.question_id as { enum: string[] }).enum;
+    expect(enumIds).not.toContain("household_roster");
+    expect(talkPathSavesQuestion("household_roster")).toBe(false);
+    expect(talkPathSavesQuestion("household_size")).toBe(true);
   });
 });

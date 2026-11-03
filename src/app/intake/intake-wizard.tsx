@@ -90,6 +90,9 @@ function displayValue(question: ClientQuestion, value: unknown): string {
   if (question.type === "boolean") {
     return value === true ? "Yes" : "No";
   }
+  if (question.type === "roster" && Array.isArray(value)) {
+    return value.map((m) => (m && typeof m === "object" && "displayName" in m ? String((m as {displayName: unknown}).displayName) : "")).filter(Boolean).join(", ");
+  }
   if (Array.isArray(value)) {
     return value
       .map(

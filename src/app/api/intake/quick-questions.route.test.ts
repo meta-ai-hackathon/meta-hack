@@ -149,7 +149,7 @@ async function vaultRow(
  * encoding ever drifts from this mirror, the decrypt round-trip assertion
  * in the round-trip test fails loudly rather than silently passing.
  */
-function vaultTextFor(value: string | number | boolean | string[]): string {
+function vaultTextFor(value: import("../../../lib/intake/answer-input").CanonicalAnswerValue): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 

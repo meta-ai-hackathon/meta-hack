@@ -1,4 +1,5 @@
 import type { Question } from "../../../lib/intake/spec";
+import type { CanonicalAnswerValue } from "../../../lib/intake/answer-input";
 
 // Test fixture shared by the intake and conversation route suites (the
 // quick-questions proof files): ONE spec-valid known value per question
@@ -9,7 +10,7 @@ import type { Question } from "../../../lib/intake/spec";
 /** A spec-valid known value for each question type (test fixture only). */
 export function specValueFor(
   question: Question,
-): string | number | boolean | string[] {
+): CanonicalAnswerValue {
   switch (question.type) {
     case "text":
     case "address":
@@ -24,5 +25,7 @@ export function specValueFor(
       return question.options![0]!.value;
     case "multi_select":
       return [question.options![0]!.value];
+    case "roster":
+      return [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }];
   }
 }

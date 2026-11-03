@@ -1,4 +1,5 @@
 import type { Question } from "./spec";
+import { parseRoster, type HouseholdMember } from "./roster";
 
 // Answer-value canonicalization (BN-09), shared by the server store and the
 // on-device intake (HACK-99). Pure and browser-safe: it imports only the
@@ -10,7 +11,7 @@ import type { Question } from "./spec";
 export const MAX_ANSWER_TEXT_LENGTH = 2000;
 
 /** What a valid known or unverified answer is stored as. */
-export type CanonicalAnswerValue = string | number | boolean | string[];
+export type CanonicalAnswerValue = string | number | boolean | string[] | HouseholdMember[];
 
 /**
  * The canonical stored value of `value` for `question`, or null when the
@@ -79,6 +80,21 @@ export function canonicalAnswerValue(
         return null;
       }
       return value;
+    }
+    case "roster": {
+      // A completely untouched editor row (blank name, both fields still
+      // "not sure") is an artifact of clicking Add, not an answer: drop
+      // such rows before the strict canonical check. A row the user has
+      // touched in any way is validated strictly by parseRoster.
+      const rows = Array.isArray(value)
+        ? value.filter((row) => {
+            if (!row || typeof row !== "object" || Array.isArray(row)) return true;
+            const m = row as Record<string, unknown>;
+            const blankName = typeof m.displayName !== "string" || m.displayName.trim() === "";
+            return !(blankName && m.relationship === "not_sure" && m.ageBand === "not_sure");
+          })
+        : value;
+      return parseRoster(rows);
     }
     case "multi_select": {
       if (!Array.isArray(value) || value.length === 0) {

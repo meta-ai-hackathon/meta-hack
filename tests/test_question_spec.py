@@ -51,6 +51,9 @@ SEASONAL_IDS = [
     "job_income_seasonal_total",
 ]
 
+# HACK-134: the household roster, pinned separately like the seasonal pair.
+ROSTER_IDS = ["household_roster"]
+
 # The reporting section of the Civilla two-section design: these three ask
 # who did work activities, what kinds, and how many hours last month —
 # and are hidden by the spec whenever an exemption, income, or student
@@ -165,7 +168,7 @@ class TestQuestionSpec(unittest.TestCase):
 
     def test_text_and_address_questions_are_pii(self):
         for q in self.questions:
-            if q["type"] in ("text", "address"):
+            if q["type"] in ("text", "address", "roster"):
                 self.assertTrue(
                     q["pii"],
                     f"{q['id']}: free-text question of type {q['type']} must be pii: true",
@@ -257,6 +260,7 @@ class TestWorkRequirementsQuestions(unittest.TestCase):
             for qid in ids
             if qid not in set(WORK_REQUIREMENTS_IDS)
             and qid not in set(SEASONAL_IDS)
+            and qid not in set(ROSTER_IDS)
         ]
         self.assertEqual(
             len(preexisting), 37, "pre-existing question ids changed"
@@ -266,6 +270,17 @@ class TestWorkRequirementsQuestions(unittest.TestCase):
             WORK_REQUIREMENTS_IDS,
             "work-requirements questions were not appended at the end",
         )
+
+    def test_roster_sits_in_the_household_section(self):
+        # HACK-134: the roster directly follows the household counts it
+        # names, is the structured roster type, and is pii (names).
+        ids = [q["id"] for q in self.questions]
+        seniors_at = ids.index("household_seniors")
+        self.assertEqual(ids[seniors_at + 1], "household_roster")
+        roster = self.by_id["household_roster"]
+        self.assertEqual(roster["type"], "roster")
+        self.assertTrue(roster["pii"])
+        self.assertFalse(roster["required"])
 
     def test_seasonal_pair_sits_in_the_income_section(self):
         # HACK-130: the seasonal questions directly follow the job-income

@@ -536,6 +536,11 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
     };
     const answerRouteFixtures: AnswerRouteFixture[] = [
       {
+        questionId: "household_roster",
+        value: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }],
+        vaultValue: JSON.stringify([{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }]),
+      },
+      {
         // "None of these apply" — any other selection would hide the
         // reporting section (the two-section design), and the who fixture
         // below needs it visible.
