@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   allSituationIds,
   applicableSituations,
+  currentAttribution,
   draftAttribution,
   pruneAttribution,
   entriesForMember,
@@ -62,6 +63,18 @@ describe("per-person attribution (HACK-135)", () => {
     };
     expect(pruneAttribution(entries, context)).toEqual([entries[0]]);
     expect(draftAttribution(entries, context)).toEqual([entries[0]]);
+  });
+  it("currentAttribution re-prunes against the current roster and situations on read", () => {
+    const answers: AnswerMap = {
+      household_roster: { status: "known", value: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }] },
+      wr_income_580: { status: "known", value: "yes" },
+      wr_who_months: { status: "known", value: [
+        { memberId: "member-1", situationId: "wr_income_580", months: "both" },
+        { memberId: "member-9", situationId: "wr_income_580", months: "both" },
+        { memberId: "member-1", situationId: "wr_pregnant", months: "both" },
+      ] },
+    };
+    expect(currentAttribution(answers)).toEqual([{ memberId: "member-1", situationId: "wr_income_580", months: "both" }]);
   });
   it("applicable situations come only from yes answers and selected situations", () => {
     const answers: AnswerMap = {

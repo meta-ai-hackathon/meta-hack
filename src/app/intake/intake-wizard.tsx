@@ -92,6 +92,9 @@ function displayValue(question: ClientQuestion, value: unknown): string {
   if (question.type === "boolean") {
     return value === true ? "Yes" : "No";
   }
+  if (question.type === "attribution" && Array.isArray(value)) {
+    return value.map((e) => (e && typeof e === "object" ? `${String((e as {memberId: unknown}).memberId)}: ${String((e as {situationId: unknown}).situationId)} (${String((e as {months: unknown}).months)})` : "")).filter(Boolean).join(", ");
+  }
   if (question.type === "roster" && Array.isArray(value)) {
     return value.map((m) => (m && typeof m === "object" && "displayName" in m ? String((m as {displayName: unknown}).displayName) : "")).filter(Boolean).join(", ");
   }

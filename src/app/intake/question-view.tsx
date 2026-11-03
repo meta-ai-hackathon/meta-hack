@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 import type { ClientAnswer, ClientQuestion } from "../../lib/intake/serialize";
 import {
   NO_PROOF_NEEDED_NOTE_SINGLE,
@@ -10,6 +12,7 @@ import {
   MONTH_LABELS,
   MONTH_VALUES,
   draftAttribution,
+  parseAttribution,
   setAttribution,
   type Months,
 } from "../../lib/intake/attribution";
@@ -89,6 +92,19 @@ export function QuestionView({
   busy,
   error,
 }: QuestionViewProps) {
+  // When the attribution editor is shown, sync the draft to the pruned
+  // entries so a removed member or withdrawn situation is not re-saved.
+  useEffect(() => {
+    if (question.type !== "attribution" || !attributionContext) return;
+    const pruned = draftAttribution(value, attributionContext);
+    const stored = parseAttribution(value);
+    if (JSON.stringify(pruned) !== JSON.stringify(stored ?? [])) {
+      onValueChange(pruned.length === 0 ? undefined : pruned);
+    }
+    // Runs when the editor for this question is (re)shown with a context.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question.id, attributionContext]);
+
   const choice = isChoiceType(question.type);
   const helpId = `${question.id}-help`;
   const errorId = `${question.id}-error`;
@@ -181,14 +197,18 @@ export function QuestionView({
           {question.prompt} {requiredMark}
         </legend>
         {question.help ? <p id={helpId} className="text-sm text-muted">{question.help}</p> : null}
-        {members.length === 0 || situations.length === 0 ? (
+        {attributionContext === undefined ? (
+          <p className="text-sm text-muted">
+            This question is filled in from your household list in the step-by-step questions. You can skip it here - it never blocks your application.
+          </p>
+        ) : members.length === 0 || situations.length === 0 ? (
           <p className="text-sm text-muted">
             There is no household list or situation to attach yet. You can skip this question - it never blocks your application.
           </p>
         ) : (
           situations.map((situation) => (
-            <div key={situation.id} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3">
-              <p className="text-base font-medium">{situation.label}</p>
+            <fieldset key={situation.id} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3">
+              <legend className="text-base font-medium">{situation.label}</legend>
               {members.map((member) => {
                 const entry = entries.find((e) => e.memberId === member.id && e.situationId === situation.id);
                 return (
@@ -209,7 +229,7 @@ export function QuestionView({
                   </label>
                 );
               })}
-            </div>
+            </fieldset>
           ))
         )}
       </fieldset>

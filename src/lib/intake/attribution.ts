@@ -148,6 +148,20 @@ export function setAttribution(entries: readonly AttributionEntry[], memberId: s
   return months === null ? rest : [...rest, { memberId, situationId, months }];
 }
 
+/**
+ * The stored attribution as it should be read today: parsed, then pruned
+ * against the CURRENT roster and applicable situations from the same
+ * answers. Review and form paths should read through this, so a removed
+ * member or withdrawn situation never keeps an attribution.
+ */
+export function currentAttribution(answers: AnswerMap): AttributionEntry[] {
+  const stored = answers[ATTRIBUTION_QUESTION_ID];
+  if (!stored || stored.status === "unknown") return [];
+  const parsed = parseAttribution(stored.value);
+  if (!parsed) return [];
+  return pruneAttribution(parsed, attributionContextFromAnswers(answers));
+}
+
 export function entriesForMember(entries: readonly AttributionEntry[], memberId: string): AttributionEntry[] {
   return entries.filter((e) => e.memberId === memberId);
 }
