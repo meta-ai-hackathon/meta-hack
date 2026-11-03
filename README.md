@@ -136,6 +136,21 @@ drives three surfaces:
   real NC DHB-5200; the per-field inventory is in
   `docs/dhb5200-field-inventory.md`.
 
+### Two applications from one interview
+
+One interview now prepares both applications from the same answers: the
+Medicaid DHB-5200 and the SNAP application, North Carolina's official
+DSS-8207 (Food and Nutrition Services) — every answered question carries
+over to both form registries, and no answered question is asked twice. On
+the results surface, an honest "Also prepare your SNAP application" entry
+point opens the DSS-8207 review, where the same coverage arithmetic,
+provenance labels, and to-resolve list apply. SNAP is decided solely by
+the county DSS office, and the framing stays honest: whether it may be
+worth pursuing is for the person to judge — the app prepares, the person
+reviews, signs under their own name, and submits. The question set behind
+the interview, including the work-requirements items, is credited where it
+came from in [Work-requirements questions (Civilla-adapted)](#work-requirements-questions-civilla-adapted).
+
 ### Benefit match
 
 After a few answers, the conversation page shows the ranked match
