@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   DEVICE_ANSWERS_CRYPTO_KEY_KEY,
   DEVICE_ANSWERS_ENVELOPE_KEY,
+  DEVICE_SESSION_ENVELOPE_KEY,
   loadDeviceAnswers,
   purgeDeviceAnswers,
   recordDeviceAnswer,
   type DeviceAnswerStoreDeps,
 } from "../intake/device-answer-store";
 import { serializeClientAnswers } from "../intake/client-store";
+import { loadRampartSession, saveRampartSession } from "../intake/rampart-session-store";
 import { QUESTIONS } from "../intake/spec";
 import { formatIsoDate, fromEpochDay, parseIsoDate, toEpochDay } from "./calendar-date";
 import { REPORTED_DATE_MAX, REPORTED_DATE_MIN, RENEWAL_REMINDER_VERSION, type RenewalReminder } from "./reminder";
@@ -25,8 +27,10 @@ import {
 // The step-by-step page's answers (HACK-99) and the renewal reminder
 // (HACK-50) live in the same IndexedDB object store on the device, the
 // "kv" store of the benefits-navigator-device database, written through two
-// adapters. Each side must read and write only its own keys, so removing
-// the reminder never takes an answer with it, and deleting the answers
+// adapters. The answers' side also holds the sealed Rampart session table
+// (HACK-107), sealed under the answers' key and deleted with them. Each
+// side must read and write only its own keys, so removing the reminder
+// never takes an answer or the session with it, and deleting the answers
 // never takes the reminder. The in-memory store below is that one object
 // store: it structured-clones like IndexedDB and records every key a call
 // reads or writes.
@@ -34,7 +38,11 @@ import {
 const ENTRY_ID = "nc_medicaid_renewal";
 const CALENDAR_ID = "0123456789abcdef0123456789abcdef";
 const REMINDER_KEYS = new Set([REMINDER_ENVELOPE_KEY, REMINDER_CRYPTO_KEY_KEY]);
-const ANSWER_KEYS = new Set([DEVICE_ANSWERS_ENVELOPE_KEY, DEVICE_ANSWERS_CRYPTO_KEY_KEY]);
+const ANSWER_KEYS = new Set([
+  DEVICE_ANSWERS_ENVELOPE_KEY,
+  DEVICE_SESSION_ENVELOPE_KEY,
+  DEVICE_ANSWERS_CRYPTO_KEY_KEY,
+]);
 
 function sharedObjectStore() {
   const entries = new Map<string, unknown>();
@@ -88,6 +96,7 @@ type Step =
   | { readonly kind: "save reminder"; readonly day: number; readonly revision: number }
   | { readonly kind: "remove reminder" }
   | { readonly kind: "answer"; readonly question: number }
+  | { readonly kind: "save session"; readonly table: number }
   | { readonly kind: "delete answers" };
 
 const step: fc.Arbitrary<Step> = fc.oneof(
@@ -98,6 +107,7 @@ const step: fc.Arbitrary<Step> = fc.oneof(
   }),
   fc.constant<Step>({ kind: "remove reminder" }),
   fc.record({ kind: fc.constant("answer" as const), question: fc.nat({ max: QUESTIONS.length - 1 }) }),
+  fc.record({ kind: fc.constant("save session" as const), table: fc.nat({ max: 50 }) }),
   fc.constant<Step>({ kind: "delete answers" }),
 );
 
@@ -117,10 +127,12 @@ describe("the reminder and the step-by-step answers share one device store", () 
           const loaded = await loadDeviceAnswers(answerDeps);
           return { status: loaded.status, answers: serializeClientAnswers(loaded.state) };
         };
+        const sessionNow = () => loadRampartSession(answerDeps);
         for (const next of steps) {
           // What the other side holds before this step, to compare after it.
           const reminderBefore = await reminderNow();
           const answersBefore = await answersNow();
+          const sessionBefore = await sessionNow();
           let touched: ReadonlySet<string>;
           switch (next.kind) {
             case "save reminder": {
@@ -151,6 +163,14 @@ describe("the reminder and the step-by-step answers share one device store", () 
               );
               break;
             }
+            case "save session": {
+              // The store keeps the serialized table as an opaque string, so
+              // a synthetic stand-in is enough here.
+              const serialized = `synthetic-session-table-${next.table}`;
+              touched = await device.keysTouchedBy(() => saveRampartSession(answerDeps, serialized));
+              expect(await sessionNow()).toEqual({ status: "ok", serialized });
+              break;
+            }
             case "delete answers":
               touched = await device.keysTouchedBy(() => purgeDeviceAnswers(answerDeps));
               expect((await answersNow()).status).toBe("none");
@@ -162,6 +182,7 @@ describe("the reminder and the step-by-step answers share one device store", () 
           // The other side is exactly as it was.
           if (reminderStep) {
             expect(await answersNow()).toEqual(answersBefore);
+            expect(await sessionNow()).toEqual(sessionBefore);
           } else {
             expect(await reminderNow()).toEqual(reminderBefore);
           }
@@ -169,6 +190,7 @@ describe("the reminder and the step-by-step answers share one device store", () 
         // Reading back never strays either.
         expect([...(await device.keysTouchedBy(reminderNow))].filter((key) => !REMINDER_KEYS.has(key))).toEqual([]);
         expect([...(await device.keysTouchedBy(answersNow))].filter((key) => !ANSWER_KEYS.has(key))).toEqual([]);
+        expect([...(await device.keysTouchedBy(sessionNow))].filter((key) => !ANSWER_KEYS.has(key))).toEqual([]);
         // Nothing else was ever stored in the shared store.
         for (const key of device.entries.keys()) {
           expect(REMINDER_KEYS.has(key) || ANSWER_KEYS.has(key)).toBe(true);
