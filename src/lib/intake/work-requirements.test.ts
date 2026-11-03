@@ -646,6 +646,9 @@ describe("the seasonal-work capture (HACK-130, rule 6)", () => {
       ),
     );
     expect(match.proposal).toBe("yes");
+    // On a "yes" the reported total is the FLOOR total (rule 5: the
+    // certain minimum month), so $200 weekly reports $800 (200 x 4),
+    // not the 52/12 average-month figure the "no" direction uses.
     expect(match.monthlyTotal).toBe(800);
     expect(match.countedSourceIds).toEqual(["job_income_amount"]);
   });
