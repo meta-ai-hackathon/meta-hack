@@ -252,6 +252,36 @@ const pagesArb = fc.array(pageSizeArb, { minLength: 1, maxLength: 8 });
 
 const bytesArb = fc.uint8Array({ minLength: 1, maxLength: 64 });
 
+/**
+ * A drawing run on a fake clock, so how busy the machine is can't move the
+ * watchdog. Every task due now runs, round after round, until nothing but
+ * the watchdog is left waiting (or nothing at all, once the drawing is
+ * done), and only then does the clock move on by `ms`. pdf.js must already
+ * be loaded: loading it isn't timed, and it doesn't run on this clock.
+ */
+async function drawOnFakeClock(
+  draw: () => Promise<DevicePrint.PrintPreview>,
+  ms: number,
+): Promise<{ readonly preview: DevicePrint.PrintPreview | null; readonly failure: unknown }> {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const outcome = draw().then(
+      (preview) => ({ preview, failure: null }),
+      (failure: unknown) => ({ preview: null, failure }),
+    );
+    for (let round = 0; round < 100; round += 1) {
+      await vi.advanceTimersByTimeAsync(0);
+      if (vi.getTimerCount() <= 1) {
+        break;
+      }
+    }
+    await vi.advanceTimersByTimeAsync(ms);
+    return await outcome;
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
 beforeEach(() => {
   resetEngine();
 });
@@ -420,6 +450,8 @@ describe("when the drawing can't finish", () => {
     // The watchdog turns that into a failure, so the person isn't left
     // waiting on a button that never comes back.
     const { renderPrintPreview } = await freshModule();
+    // pdf.js loads first, on the real clock.
+    await renderPrintPreview(new Uint8Array([1]), canvasMaker().make);
     const stallArb = pageOfArb.chain(([count, page]) =>
       fc.tuple(
         fc.constant(count),
@@ -431,9 +463,9 @@ describe("when the drawing can't finish", () => {
         resetEngine(Array.from({ length: count }, () => LETTER));
         engine.stall = stall;
         const canvases = canvasMaker();
-        const failure = await renderPrintPreview(new Uint8Array([1]), canvases.make, undefined, 20).then(
-          () => null,
-          (reason: unknown) => reason,
+        const { failure } = await drawOnFakeClock(
+          () => renderPrintPreview(new Uint8Array([1]), canvases.make, undefined, 20),
+          20,
         );
         expect((failure as DOMException | null)?.name).toBe("TimeoutError");
         // Every page started was drawn up to the stall, and nothing after it.
@@ -453,12 +485,20 @@ describe("when the drawing can't finish", () => {
 
   it("hands back the drawn pages when only the teardown stops answering", async () => {
     const { renderPrintPreview } = await freshModule();
+    await renderPrintPreview(new Uint8Array([1]), canvasMaker().make);
     await fc.assert(
       fc.asyncProperty(fc.integer({ min: 1, max: 6 }), async (count) => {
         resetEngine(Array.from({ length: count }, () => LETTER));
         engine.stall = { at: "destroy" };
         const canvases = canvasMaker();
-        const preview = await renderPrintPreview(new Uint8Array([1]), canvases.make, undefined, 20);
+        const { preview, failure } = await drawOnFakeClock(
+          () => renderPrintPreview(new Uint8Array([1]), canvases.make, undefined, 20),
+          20,
+        );
+        expect(failure).toBeNull();
+        if (preview === null) {
+          throw new Error("no pages");
+        }
         expect(preview.pages).toHaveLength(count);
         expect(engine.documents[0].destroyed).toBe(1);
         for (const canvas of canvases.made) {
@@ -475,15 +515,19 @@ describe("when the drawing can't finish", () => {
     const { DRAW_TIMEOUT_MS, renderPrintPreview } = await freshModule();
     // A minute, many times what the DHB-5200 takes on a slow phone.
     expect(DRAW_TIMEOUT_MS).toBe(60_000);
+    await renderPrintPreview(new Uint8Array([1]), canvasMaker().make);
     await fc.assert(
       fc.asyncProperty(fc.integer({ min: 1, max: 8 }), async (count) => {
         resetEngine(Array.from({ length: count }, () => LETTER));
         const canvases = canvasMaker();
-        const preview = await renderPrintPreview(new Uint8Array([1]), canvases.make, undefined, 250);
-        expect(preview.pages).toHaveLength(count);
         // Past the watchdog's time, the pages are still whole: it stopped
         // when the drawing finished.
-        await new Promise((done) => setTimeout(done, 300));
+        const { preview, failure } = await drawOnFakeClock(
+          () => renderPrintPreview(new Uint8Array([1]), canvases.make, undefined, 250),
+          300,
+        );
+        expect(failure).toBeNull();
+        expect(preview?.pages).toHaveLength(count);
         expect(canvases.made.every((canvas) => canvas.width > 0 && canvas.removed === 0)).toBe(true);
         expect(engine.renders.every((render) => render.cancelled === 0)).toBe(true);
       }),
