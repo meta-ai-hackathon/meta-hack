@@ -706,12 +706,29 @@ export function QuickQuestionsStage(props: {
   // saved), the next group simply takes its place — no state repair
   // needed. Navigation never blocks: Back/Continue move between sections,
   // and the talk CTA below is always available whatever section shows.
-  const [sectionIndex, setSectionIndex] = useState(0);
-  const activeIndex = Math.min(
-    sectionIndex,
-    Math.max(groups.length - 1, 0),
-  );
+  // The active section is tracked by group ID, not raw index: when a
+  // save re-derives the group list, an earlier-inserted group cannot
+  // silently move the person to a different section. When the active
+  // group itself drops off, the last index (clamped) takes over, so the
+  // next group in line takes its place.
+  const [activeSection, setActiveSection] = useState<{
+    readonly id?: string;
+    readonly index: number;
+  }>({ index: 0 });
+  const foundIndex = activeSection.id
+    ? groups.findIndex((group) => group.id === activeSection.id)
+    : -1;
+  const activeIndex =
+    foundIndex >= 0
+      ? foundIndex
+      : Math.min(activeSection.index, Math.max(groups.length - 1, 0));
   const activeGroup = groups[activeIndex];
+  const goToSection = (index: number): void => {
+    const target = groups[index];
+    if (target) {
+      setActiveSection({ id: target.id, index });
+    }
+  };
   // Focus follows the section (HACK-132 review): after a section change,
   // keyboard and screen-reader users land on the new section's heading
   // instead of being stranded on a removed Continue button. The first
@@ -851,7 +868,7 @@ export function QuickQuestionsStage(props: {
             <button
               type="button"
               data-qq-section-back
-              onClick={() => setSectionIndex(Math.max(activeIndex - 1, 0))}
+              onClick={() => goToSection(Math.max(activeIndex - 1, 0))}
               disabled={activeIndex === 0}
               className="min-h-12 rounded-full border border-surface-border bg-surface px-6 py-2.5 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
             >
@@ -862,7 +879,7 @@ export function QuickQuestionsStage(props: {
                 type="button"
                 data-qq-section-next
                 onClick={() =>
-                  setSectionIndex(
+                  goToSection(
                     Math.min(activeIndex + 1, groups.length - 1),
                   )
                 }

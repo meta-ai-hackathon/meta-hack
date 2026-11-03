@@ -672,11 +672,12 @@ describe("the quick-questions stage component", () => {
 
   function stubSaveStates(states: IntakeClientState[]): void {
     const queue = [...states];
+    let last: IntakeClientState | undefined;
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
-        const next = queue.shift() ?? queue[queue.length - 1]!;
-        return new Response(JSON.stringify(next), {
+        last = queue.shift() ?? last;
+        return new Response(JSON.stringify(last), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
