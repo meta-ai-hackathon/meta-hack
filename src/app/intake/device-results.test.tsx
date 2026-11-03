@@ -1547,11 +1547,20 @@ describe("/intake to the review and the filled form, on the device", () => {
     await view.show();
     await view.waitFor(() => view.canvases().length === 21, "the pages");
     const shown = view.canvases();
+    const saveButton = view.downloadButton()!;
     await view.act(async () => {
       window.dispatchEvent(new Event("pagehide"));
       expectReleased(shown);
       expectWiped(filledBytes[0]);
+      // A page brought back from that cache can still show its old screen
+      // for a moment before React renders again. A press of Download a
+      // copy then has nothing to save: the bytes are wiped, so it saves no
+      // file of zeros and says nothing about a copy.
+      expect(saveButton.isConnected).toBe(true);
+      saveButton.click();
     });
+    expectNothingSaved();
+    expect(view.status()).not.toContain(view.copy.downloaded);
     expect(view.container.querySelector("[data-print-preview]")).toBeNull();
     expect(view.status()).not.toContain(view.copy.ready);
     expectNoPrintMarks();
