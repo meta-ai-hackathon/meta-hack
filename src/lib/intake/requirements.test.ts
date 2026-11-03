@@ -360,17 +360,18 @@ describe("the grown universe with the work-requirements questions (VAL-WR-011)",
     expect(after.remainingIds.length).toBe(after.remainingCount);
     // The exemption screen is the bigger honest recompute: answering it
     // with a selection ALSO hides the work-activity reporting section
-    // (the spec's skip conditions — VAL-WR-004), so N drops by four, the
+    // (the spec's skip conditions — VAL-WR-004), so N drops by five, the
     // counter recomputing over the grown universe in one save.
     const exempted = remainingQuickQuestions({
       wr_exempt_situations: { status: "known", value: ["parent_child_under_18"] },
     });
     expect(exempted.requiredCount).toBe(before.requiredCount);
-    expect(exempted.remainingCount).toBe(before.remainingCount - 4);
+    expect(exempted.remainingCount).toBe(before.remainingCount - 5);
     for (const id of [
       "wr_work_activity_who",
       "wr_work_activity_types",
       "wr_work_activity_hours",
+      "wr_work_rows",
     ]) {
       expect(exempted.remainingIds).not.toContain(id);
     }
@@ -388,6 +389,7 @@ describe("work-requirements skip chains (VAL-WR-004/005)", () => {
     "wr_work_activity_who",
     "wr_work_activity_types",
     "wr_work_activity_hours",
+    "wr_work_rows",
   ];
 
   const known = (id: string, value: unknown): AnswerMap => ({

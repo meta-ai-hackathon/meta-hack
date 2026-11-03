@@ -64,6 +64,7 @@ WORK_ACTIVITY_IDS = [
     "wr_work_activity_who",
     "wr_work_activity_types",
     "wr_work_activity_hours",
+    "wr_work_rows",
 ]
 
 # Health/disability/drug-alcohol/mental-health/pregnancy/incarceration/

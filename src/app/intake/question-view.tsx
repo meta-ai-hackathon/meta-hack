@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import type { ClientAnswer, ClientQuestion } from "../../lib/intake/serialize";
 import {
@@ -104,13 +104,18 @@ export function QuestionView({
 }: QuestionViewProps) {
   // When the attribution editor is shown, sync the draft to the pruned
   // entries so a removed member or withdrawn situation is not re-saved.
+  const prefilledForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (question.type === "work_activity" && value === undefined && workContext && workContext.suggestions.length > 0) {
-      // Income-section prefill (HACK-128): the suggested rows become the
-      // draft so Continue saves them for confirmation, editable as shown.
-      onValueChange([...workContext.suggestions]);
-      return;
-    }
+    if (question.type !== "work_activity" || value !== undefined || !workContext || workContext.suggestions.length === 0) return;
+    if (prefilledForRef.current === question.id) return;
+    prefilledForRef.current = question.id;
+    // Income-section prefill (HACK-128), applied once per question: the
+    // suggested rows become the draft so Continue saves them for
+    // confirmation. Removing every row afterwards stays removed.
+    onValueChange([...workContext.suggestions]);
+  }, [question.id, question.type, value, workContext]);
+
+  useEffect(() => {
     if (question.type !== "attribution" || !attributionContext) return;
     const pruned = draftAttribution(value, attributionContext);
     const stored = parseAttribution(value);
@@ -119,7 +124,7 @@ export function QuestionView({
     }
     // Runs when the editor for this question is (re)shown with a context.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [question.id, attributionContext, workContext, value]);
+  }, [question.id, attributionContext]);
 
   const choice = isChoiceType(question.type);
   const helpId = `${question.id}-help`;
@@ -303,13 +308,13 @@ export function QuestionView({
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${index}-hours`}>
-                  Hours last month (leave blank and tick Not sure if you do not know)
+                  Hours last month
                   <input
                     id={`${question.id}-${index}-hours`}
                     type="number"
                     min="0"
                     value={row.hours === null ? "" : row.hours}
-                    disabled={busy || row.hours === null}
+                    disabled={busy}
                     onChange={(e) => setRows(setWorkRow(rows, index, { hours: e.target.value === "" ? null : Number(e.target.value) }))}
                     className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
                   />
@@ -332,7 +337,11 @@ export function QuestionView({
             <button
               type="button"
               disabled={busy}
-              onClick={() => setRows([...rows, { memberId: members[0].id, activity: activityTypes()[0]?.value ?? "job_internship", hours: null }])}
+              onClick={() => {
+                const used = new Set(rows.map((r) => `${r.memberId}|${r.activity}`));
+                const pair = members.flatMap((m) => activityTypes().map((a) => ({ memberId: m.id, activity: a.value }))).find((c) => !used.has(`${c.memberId}|${c.activity}`));
+                if (pair) setRows([...rows, { ...pair, hours: null }]);
+              }}
               className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
             >
               Add a row
