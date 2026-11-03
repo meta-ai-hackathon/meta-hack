@@ -1567,9 +1567,14 @@ describe("/intake to the review and the filled form, on the device", () => {
     // The browser gets a moment to start printing first.
     expect(view.status()).not.toBe(view.copy.printUnavailable);
     await view.waitFor(() => view.status() === view.copy.printUnavailable, "the print notice");
-    expect(view.copy.printUnavailable).toContain("download a copy and print it from another app");
     expect(view.copy.printUnavailable).toContain("open this page in a browser such as Safari or Chrome");
     expect(view.copy.printUnavailable).toContain("Answers saved in this browser don't move to another one");
+    expect(view.copy.printUnavailable).toContain("Or try Download a copy, and print the file from another app");
+    // A browser that ignores Print may drop a downloaded file too, so the
+    // way that works in any case comes first.
+    expect(view.copy.printUnavailable.indexOf("Safari or Chrome")).toBeLessThan(
+      view.copy.printUnavailable.indexOf("Download a copy"),
+    );
     // Printing that starts late takes the notice back.
     await view.act(async () => {
       window.dispatchEvent(new Event("beforeprint"));

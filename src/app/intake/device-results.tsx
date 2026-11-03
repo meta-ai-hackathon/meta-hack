@@ -123,7 +123,8 @@ export const DEVICE_RESULTS_COPY = {
     "This fills in the official form with your answers here in this " +
     "browser and shows it below, so you can print it or download a copy. " +
     "None of your answers are sent anywhere, and the filled form is saved " +
-    "to this device only if you download a copy.",
+    "to this device only if you download a copy or save it as a PDF when " +
+    "printing.",
   ready:
     "Your filled form is ready below. It was filled in this browser, and " +
     "none of your answers were sent anywhere.",
@@ -152,20 +153,28 @@ export const DEVICE_RESULTS_COPY = {
   printNote:
     "When the print window opens, choose a printer. Saving the form as a " +
     `PDF there instead saves a file to this device. ${FILE_DISCLOSURE}`,
+  // A browser that ignores Print may not save files from a page either, so
+  // the way that works in any case comes first.
   printUnavailable:
-    "This browser didn't open a print window. To print your form, download " +
-    "a copy and print it from another app, or open this page in a browser " +
-    "such as Safari or Chrome. Answers saved in this browser don't move to " +
-    "another one, so you'll answer the questions again there.",
+    "This browser didn't open a print window. To print your form, open " +
+    "this page in a browser such as Safari or Chrome. Answers saved in " +
+    "this browser don't move to another one, so you'll answer the " +
+    "questions again there. Or try Download a copy, and print the file " +
+    "from another app.",
   fileDisclosure: FILE_DISCLOSURE,
   downloadButton: "Download a copy",
   downloadNote:
     "A copy saves to this device as a PDF file, to keep, print, or send in. " +
     `${FILE_DISCLOSURE} The copy is made here in this browser, and none of ` +
     "your answers are sent anywhere.",
+  // The page hands the browser the file but can't see what the browser
+  // does with it (some in-app browsers drop it), so this says what should
+  // happen and what to do if it doesn't.
   downloaded:
-    "Your copy of the filled form is downloading. It was made in this " +
-    "browser, and none of your answers were sent anywhere.",
+    "Your browser should now save the copy, or ask you where to save it. " +
+    "It was made in this browser, and none of your answers were sent " +
+    "anywhere. If no file appears, open this page in a browser such as " +
+    "Safari or Chrome, where you'll answer the questions again.",
   downloadNotStarted:
     "The download didn't start, so no copy was saved. Press Download a copy " +
     "to try again.",

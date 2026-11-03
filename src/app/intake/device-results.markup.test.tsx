@@ -413,12 +413,16 @@ describe("the device results copy", () => {
     }
   });
 
-  it("says where the form is filled, that no answer leaves, and that the filled form is saved only as a copy the person downloads", () => {
+  it("says where the form is filled, that no answer leaves, and that the filled form is saved only as a copy the person downloads or saves when printing", () => {
     const note = DEVICE_RESULTS_COPY.showFormNote;
     expect(note).toContain("in this browser");
     expect(note).toContain("None of your answers are sent anywhere");
     expect(note).toContain("so you can print it or download a copy");
-    expect(note).toContain("the filled form is saved to this device only if you download a copy");
+    // Both ways the filled form becomes a file, as the notes by Print and
+    // Download a copy say.
+    expect(note).toContain(
+      "the filled form is saved to this device only if you download a copy or save it as a PDF when printing",
+    );
     // The answers themselves may be saved in this browser (the save for
     // later section says so, on the same screen), so the note never says
     // nothing at all is saved.
@@ -446,5 +450,14 @@ describe("the device results copy", () => {
     for (const text of [DEVICE_RESULTS_COPY.downloadNote, DEVICE_RESULTS_COPY.downloaded]) {
       expect(text).not.toMatch(/\bsubmitted\b|\bwe (?:send|sent|keep|kept)\b/i);
     }
+  });
+
+  it("after a press of Download a copy, says what should happen rather than that the file is saving, and what to do if it doesn't", () => {
+    // The page hands the browser the file but can't see whether it saved
+    // it, and some in-app browsers drop it.
+    const said = DEVICE_RESULTS_COPY.downloaded;
+    expect(said).toContain("Your browser should now save the copy, or ask you where to save it");
+    expect(said).toContain("If no file appears, open this page in a browser such as Safari or Chrome");
+    expect(said).not.toMatch(/\b(?:is|are) (?:downloading|saving|saved|downloaded)\b/i);
   });
 });
