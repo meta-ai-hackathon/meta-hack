@@ -17,7 +17,9 @@ import { describe, expect, it } from "vitest";
 // preview the page computes once the questions are done (HACK-115). The one
 // request on it is the GET for the blank public form, in
 // device-template.ts. The filled form itself is never saved to the device:
-// the modules that hold it are checked for every way to save it below.
+// every module on the path is checked below for the ways this check knows
+// to save something, and only the two sealed answer stores may touch the
+// browser's storage, each only its own.
 
 const SRC = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -206,22 +208,53 @@ const FILLED_FORM_HOLDERS = ["lib/intake/device-fill.ts", PRINT_MODULE, "app/int
 
 /**
  * Names in code that save something to the device or hand the browser a
- * file to save: an object URL and the Blob behind it, a download attribute,
- * the save file picker, a canvas turned into an image file, the browser's
- * storage, and a service worker, which can keep what passes through it.
+ * file to save: an object URL and the Blob or File behind it, a Blob read
+ * out of a response or a canvas, a download attribute, the share sheet
+ * (which offers Save to Files), the save and directory pickers, the
+ * origin's private file system and the old file system API, a canvas
+ * turned into an image file, the browser's storage (cookies and the old
+ * WebSQL included), and a service worker, which can keep what passes
+ * through it.
  */
 const SAVING_NAMES = new Set([
   "createObjectURL",
   "Blob",
+  "File",
+  "blob",
+  "convertToBlob",
   "download",
+  "share",
+  "canShare",
   "showSaveFilePicker",
+  "showDirectoryPicker",
+  "getDirectory",
+  "getFileHandle",
+  "createWritable",
+  "createSyncAccessHandle",
+  "requestFileSystem",
+  "webkitRequestFileSystem",
   "toBlob",
   "toDataURL",
   "localStorage",
   "sessionStorage",
   "indexedDB",
   "caches",
+  "cookie",
+  "cookieStore",
+  "openDatabase",
   "serviceWorker",
+]);
+
+/**
+ * The device's two sealed answer stores, the only modules on the path that
+ * may touch the browser's storage, each only through its own: device-kv.ts
+ * is the IndexedDB store that holds the sealed answers and the
+ * non-extractable key that seals them, and client-store.ts keeps only its
+ * AES-GCM sealed envelope in localStorage. Neither sees the filled form.
+ */
+const SEALED_STORES: ReadonlyMap<string, readonly string[]> = new Map([
+  ["lib/device-kv.ts", ["indexedDB"]],
+  ["lib/intake/client-store.ts", ["localStorage"]],
 ]);
 
 /**
@@ -234,7 +267,12 @@ const EMBEDDING_ELEMENTS = new Set(["iframe", "frame", "embed", "object"]);
 /**
  * What in a file's code could save the filled form, each by what it is.
  * The file is parsed, so comments and copy that talk about downloads or
- * storage don't count: only code does.
+ * storage don't count: only code does. A name counts written as a name
+ * (`localStorage`, `anchor.download`, `<a download>`) or as a whole string
+ * (`window["localStorage"]`, `{ ["cookie"]: ... }`,
+ * `setAttribute("download", ...)`). A name pieced together at run time
+ * would get past this, which is why the page's DOM test also watches
+ * what the page does (device-results.test.tsx).
  */
 function savingConstructs(file: string, source = readFileSync(join(SRC, file), "utf8")): string[] {
   const parsed = ts.createSourceFile(
@@ -254,8 +292,8 @@ function savingConstructs(file: string, source = readFileSync(join(SRC, file), "
         found.push(isTag ? `<${node.text}>` : node.text);
       }
     }
-    if (ts.isStringLiteralLike(node) && node.text.toLowerCase() === "download") {
-      // setAttribute("download", ...), element["download"], a JSX value.
+    if (ts.isStringLiteralLike(node) && (SAVING_NAMES.has(node.text) || node.text.toLowerCase() === "download")) {
+      // setAttribute("download", ...), window["localStorage"], a JSX value.
       found.push(JSON.stringify(node.text));
     }
     if (ts.isCallExpression(node)) {
@@ -298,12 +336,16 @@ const PDFJS_REQUEST_OPTIONS = new Set([
   "docBaseUrl",
 ]);
 
-/** Every identifier in a file's code. */
-function identifiersIn(file: string, source = readFileSync(join(SRC, file), "utf8")): string[] {
+/**
+ * Every name in a file's code, written as a name or as a whole string (an
+ * option key in quotes, a computed key, a bracketed member), so an option
+ * counts however it is spelled.
+ */
+function namesIn(file: string, source = readFileSync(join(SRC, file), "utf8")): string[] {
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const names: string[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isIdentifier(node)) {
+    if (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) {
       names.push(node.text);
     }
     ts.forEachChild(node, visit);
@@ -402,19 +444,36 @@ describe("the on-device intake path", () => {
   });
 
   it("never saves the filled form to the device", () => {
-    // No object URL, Blob, or download attribute, nothing that embeds the
-    // PDF in the page, no image file made from a page, and none of the
-    // browser's storage. Printing to paper is the one way out.
+    // No object URL, Blob, File, or download attribute, no share sheet,
+    // nothing that embeds the PDF in the page, no image file made from a
+    // page, no file system, and none of the browser's storage. Printing to
+    // paper is the one way out.
     for (const file of FILLED_FORM_HOLDERS) {
       expect(files.has(file), `${file} is on the path`).toBe(true);
       expect(savingConstructs(file), `${file} could save the filled form`).toEqual([]);
     }
   });
 
+  it("saves nothing anywhere on the path but the sealed answers, each in its own store", () => {
+    // A helper module the page loads could save the form as well as the
+    // page itself could, so every module on the path is read. The two
+    // sealed stores may use their own storage and nothing else.
+    for (const file of files) {
+      const allowed = SEALED_STORES.get(file) ?? [];
+      const found = savingConstructs(file).filter((name) => !allowed.includes(name));
+      expect(found, `${file} could save something to the device`).toEqual([]);
+    }
+    for (const [store, names] of SEALED_STORES) {
+      // Non-vacuous: the stores are on the path, and use what they're allowed.
+      expect(files.has(store), `${store} is on the path`).toBe(true);
+      expect(new Set(savingConstructs(store)), store).toEqual(new Set(names));
+    }
+  });
+
   it("gives pdf.js nothing that would send it to the network or into a Worker", () => {
     // The print preview hands pdf.js the filled bytes and nothing else; the
     // worker hook keeps it on the page's thread (device-print.test.ts).
-    const names = identifiersIn(PRINT_MODULE);
+    const names = namesIn(PRINT_MODULE);
     expect(names, "the print preview opens its document with getDocument").toContain("getDocument");
     for (const name of names) {
       expect(PDFJS_REQUEST_OPTIONS.has(name), `the print preview uses ${name}`).toBe(false);
@@ -546,9 +605,10 @@ describe("the boundary check's reading of imports", () => {
 });
 
 describe("the boundary check's reading of what saves to the device", () => {
-  // The save check reads code, so it must catch each way the filled form
-  // could reach the device wherever it sits among ordinary statements, and
-  // never mistake a comment or a sentence of copy for code.
+  // The save check reads code, so it must catch each way it knows to save
+  // the filled form wherever it sits among ordinary statements, however
+  // the name is spelled, and never mistake a comment or a sentence of copy
+  // for code.
   const statement = fc.constantFrom(
     "const pages = 21;",
     "function label(page) { return `Page ${page}`; }",
@@ -556,19 +616,26 @@ describe("the boundary check's reading of what saves to the device", () => {
     "// Nothing here keeps a download, a Blob, or localStorage.",
     "/* An iframe or an object URL would save the form. */",
     'const note = "Nothing is saved to this device, and there is no download.";',
+    'const hint = "Share it, file it, or keep it as a blob in a cookie jar.";',
     "const frame = <div role=\"img\" aria-label={label(1)} />;",
   );
   const surrounding = fc.array(statement, { maxLength: 4 });
 
-  it("flags every way to save the filled form, wherever it sits in the code", () => {
+  it("flags each way it knows to save the filled form, wherever it sits and however it is spelled", () => {
     const saves = fc.constantFrom(
       "const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))",
+      "const url = URL['createObjectURL'](form)",
       "const file = new Blob([bytes])",
+      "const file = new File([bytes], 'dhb-5200.pdf', { type: 'application/pdf' })",
+      "const image = await new Response(bytes).blob()",
+      "const image = await offscreen.convertToBlob()",
       "anchor.download = name",
       "anchor.setAttribute('download', name)",
       'anchor["download"] = name',
       "const link = <a href={url} download={name}>Save</a>",
       "const link = <a href={url} download>Save</a>",
+      "await navigator.share({ files: [form] })",
+      "if (navigator.canShare?.({ files })) { offer(); }",
       "const frame = <iframe src={url} />",
       "const frame = <IFRAME src={url}></IFRAME>",
       "const frame = <embed src={url} type=\"application/pdf\" />",
@@ -577,13 +644,25 @@ describe("the boundary check's reading of what saves to the device", () => {
       'const frame = document.createElement("embed")',
       "const frame = document.createElementNS(ns, `object`)",
       "await window.showSaveFilePicker()",
+      "const folder = await window.showDirectoryPicker()",
+      "const root = await navigator.storage.getDirectory()",
+      "const handle = await root.getFileHandle('form.pdf', { create: true })",
+      "const writer = await handle.createWritable()",
+      "const access = await handle.createSyncAccessHandle()",
+      "window.webkitRequestFileSystem(kind, size, keep)",
       "canvas.toBlob((image) => keep(image))",
       "const image = canvas.toDataURL()",
       "localStorage.setItem('form', text)",
+      "window['localStorage'].setItem('form', text)",
       "window.sessionStorage.setItem('form', text)",
       "const request = indexedDB.open('forms')",
+      "const request = Reflect.get(globalThis, 'indexedDB').open('forms')",
       "const cache = await caches.open('forms')",
+      "document.cookie = `form=${text}`",
+      "await cookieStore.set('form', text)",
+      "const db = openDatabase('forms', '1', 'forms', 1024)",
       "await navigator.serviceWorker.register('/sw.js')",
+      "const { ['serviceWorker']: worker } = navigator",
     );
     fc.assert(
       fc.property(surrounding, saves, surrounding, (before, save, after) => {
@@ -627,12 +706,16 @@ describe("the boundary check's reading of what saves to the device", () => {
         fc.constantFrom(...PDFJS_REQUEST_OPTIONS),
         fc.constantFrom(
           (name: string) => `engine.getDocument({ data, ${name}: value });`,
+          (name: string) => `engine.getDocument({ data, "${name}": value });`,
+          (name: string) => `engine.getDocument({ data, ["${name}"]: value });`,
           (name: string) => `const options = { data }; options.${name} = value;`,
+          (name: string) => `const options = { data }; options['${name}'] = value;`,
           (name: string) => `engine.GlobalWorkerOptions.${name} = value;`,
+          (name: string) => `engine.GlobalWorkerOptions[\`${name}\`] = value;`,
           (name: string) => `const { ${name} } = settings;`,
         ),
         (name, write) => {
-          expect(identifiersIn(PRINT_MODULE, write(name))).toContain(name);
+          expect(namesIn(PRINT_MODULE, write(name))).toContain(name);
         },
       ),
     );
