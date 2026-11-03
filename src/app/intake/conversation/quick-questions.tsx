@@ -157,6 +157,8 @@ const GROUP_SPECS: readonly GroupSpec[] = [
       "prior_employer_last_month",
       "job_income_amount",
       "job_income_frequency",
+      "job_income_seasonal",
+      "job_income_seasonal_total",
       "benefits_income_amount",
       "benefits_income_frequency",
       "other_income_amount",

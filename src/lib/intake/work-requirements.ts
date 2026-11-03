@@ -59,6 +59,19 @@ import type { AnswerMap } from "./flow";
 //    - anything else (no captured income at all, an uncountable source,
 //      or an unread source named in income_sources) → no proposal: the
 //      question is ASKED DIRECTLY.
+// 6. Seasonal job work (HACK-130, from Civilla's dedicated seasonal
+//    question: seasonal workers fail standard per-paycheck questions).
+//    When job_income_seasonal is known "yes", the job source converts
+//    ONLY from job_income_seasonal_total — what the person made from
+//    that seasonal work in the last 6 months — averaged exactly across
+//    those 6 months (total / 6 is both the floor and the ceiling: a
+//    fixed division of a captured number, never an estimate and never
+//    rounded). The per-paycheck amount and its frequency are NOT also
+//    counted (no double count). Seasonal "yes" without a known total is
+//    UNCOUNTABLE, like rule 3: converting the in-season paycheck as if
+//    it arrived all year would misstate the average, so the question is
+//    ASKED DIRECTLY. Any other seasonal answer ("no", "not_sure", or
+//    absent) leaves rules 1-5 untouched.
 //
 // Pure and browser-safe: imports only the flow engine's answer-map type.
 // The import-boundary test (work-requirements.test.ts, per the
@@ -109,6 +122,15 @@ export const INCOME_580_QUESTION_ID = "wr_income_580";
 
 /** The screen's threshold, as printed on the Civilla insert ($580/month). */
 export const INCOME_580_MONTHLY_THRESHOLD = 580;
+
+/** The seasonal-work screen (HACK-130): known "yes" switches the job source to the 6-month average. */
+export const SEASONAL_WORK_QUESTION_ID = "job_income_seasonal";
+
+/** The captured last-6-months seasonal total the match averages (HACK-130). */
+export const SEASONAL_TOTAL_QUESTION_ID = "job_income_seasonal_total";
+
+/** Seasonal income is averaged across exactly this many months (the screen's own rule). */
+export const SEASONAL_AVERAGING_MONTHS = 6;
 
 /**
  * The fixed monthly factors per frequency option value. A frequency
@@ -172,7 +194,10 @@ export interface Income580Match {
   readonly proposal: "yes" | "no" | null;
   /** The monthly total the counted sources sum to; null with none counted. */
   readonly monthlyTotal: number | null;
-  /** The amount questions that fed the total, in the rule's source order. */
+  /**
+   * The amount questions that fed the total, in the rule's source order.
+   * A seasonal job source feeds it as SEASONAL_TOTAL_QUESTION_ID (rule 6).
+   */
   readonly countedSourceIds: readonly string[];
   /**
    * Captured amount questions that could NOT be converted deterministically
@@ -264,7 +289,13 @@ function namesUnaccountedSource(
           : named === "benefits"
             ? "benefits_income_amount"
             : "other_income_amount";
-      if (!countedSourceIds.includes(amountId)) {
+      // A seasonal job source is accounted by its 6-month total (rule 6)
+      // exactly as if its per-paycheck amount had been counted.
+      const accounted =
+        countedSourceIds.includes(amountId) ||
+        (named === "job" &&
+          countedSourceIds.includes(SEASONAL_TOTAL_QUESTION_ID));
+      if (!accounted) {
         return true;
       }
     }
@@ -281,7 +312,30 @@ export function matchIncome580(answers: AnswerMap): Income580Match {
   const uncountedSourceIds: string[] = [];
   let floorTotal = 0;
   let ceilingTotal = 0;
+  const seasonalStored = answers[SEASONAL_WORK_QUESTION_ID];
+  const seasonalYes =
+    seasonalStored?.status === "known" && seasonalStored.value === "yes";
   for (const source of INCOME_SOURCES) {
+    if (seasonalYes && source.amountId === "job_income_amount") {
+      // Rule 6: the job source converts only from the 6-month seasonal
+      // total, averaged exactly; without a known total it is uncountable
+      // (the in-season paycheck must not be read as year-round income).
+      const seasonalTotal = knownAmount(answers, SEASONAL_TOTAL_QUESTION_ID);
+      if (seasonalTotal === null) {
+        // Uncountable only when a job amount was actually captured (the
+        // rule-3 semantics); an uncaptured source is simply not counted,
+        // and rule 4 still withholds any "no" for a named job source.
+        if (knownAmount(answers, source.amountId) !== null) {
+          uncountedSourceIds.push(source.amountId);
+        }
+      } else {
+        countedSourceIds.push(SEASONAL_TOTAL_QUESTION_ID);
+        const monthly = seasonalTotal / SEASONAL_AVERAGING_MONTHS;
+        floorTotal += monthly;
+        ceilingTotal += monthly;
+      }
+      continue;
+    }
     const amount = knownAmount(answers, source.amountId);
     if (amount === null) {
       continue;

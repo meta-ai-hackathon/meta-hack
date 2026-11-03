@@ -21,6 +21,14 @@ VALID_OPERATORS = {"equals", "not_equals", "in", "not_in", "gt"}
 # retrieved 2026-11-01) for the CMS interim final rule of June 1, 2026
 # (work requirements effective 2027-01-01). The canonical id list, in the
 # order the questions appear in the spec.
+# The seasonal-work pair (HACK-130, Civilla's dedicated seasonal question):
+# income questions, so they live in the income section right after
+# job_income_frequency rather than in the appended work-requirements block.
+SEASONAL_IDS = [
+    "job_income_seasonal",
+    "job_income_seasonal_total",
+]
+
 WORK_REQUIREMENTS_IDS = [
     "wr_exempt_situations",
     "wr_pregnant",
@@ -241,9 +249,14 @@ class TestWorkRequirementsQuestions(unittest.TestCase):
     def test_spec_addition_is_purely_additive(self):
         # The 37 pre-existing questions are untouched: same ids, same
         # order — the work-requirements questions were appended after them.
+        # The HACK-130 seasonal pair is excluded here: it is an income
+        # addition, pinned separately below.
         ids = [q["id"] for q in self.questions]
         preexisting = [
-            qid for qid in ids if qid not in set(WORK_REQUIREMENTS_IDS)
+            qid
+            for qid in ids
+            if qid not in set(WORK_REQUIREMENTS_IDS)
+            and qid not in set(SEASONAL_IDS)
         ]
         self.assertEqual(
             len(preexisting), 37, "pre-existing question ids changed"
@@ -252,6 +265,25 @@ class TestWorkRequirementsQuestions(unittest.TestCase):
             ids[-len(WORK_REQUIREMENTS_IDS):],
             WORK_REQUIREMENTS_IDS,
             "work-requirements questions were not appended at the end",
+        )
+
+    def test_seasonal_pair_sits_in_the_income_section(self):
+        # HACK-130: the seasonal questions directly follow the job-income
+        # frequency they qualify, and the total is only asked after a
+        # seasonal "yes" (its skip condition reads the seasonal answer).
+        ids = [q["id"] for q in self.questions]
+        frequency_at = ids.index("job_income_frequency")
+        self.assertEqual(ids[frequency_at + 1 : frequency_at + 3], SEASONAL_IDS)
+        total = self.by_id["job_income_seasonal_total"]
+        self.assertEqual(
+            total["skip_conditions"],
+            [
+                {
+                    "question_id": "job_income_seasonal",
+                    "operator": "not_equals",
+                    "value": "yes",
+                }
+            ],
         )
 
     def test_sensitive_work_requirements_questions_are_pii(self):

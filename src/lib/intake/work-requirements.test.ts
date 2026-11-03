@@ -10,6 +10,7 @@ import {
   NO_PROOF_NEEDED_NOTE,
   NO_PROOF_NEEDED_NOTE_SENSITIVE,
   NO_PROOF_NEEDED_NOTE_SINGLE,
+  SEASONAL_TOTAL_QUESTION_ID,
   isWorkRequirementsQuestionId,
   matchIncome580,
 } from "./work-requirements";
@@ -530,6 +531,102 @@ function importClosure(entryFile: string): string[] {
 
 afterEach(() => {
   rmSync(FIXTURE_DIR, { recursive: true, force: true });
+});
+
+describe("the seasonal-work capture (HACK-130, rule 6)", () => {
+  const seasonalYes = () =>
+    frequency("job_income_seasonal", "yes") as AnswerMap;
+
+  it("counts a seasonal job from its 6-month total, averaged exactly", () => {
+    const match = matchIncome580(
+      merge(
+        sources("job"),
+        seasonalYes(),
+        amount(SEASONAL_TOTAL_QUESTION_ID, 3600),
+      ),
+    );
+    expect(match.proposal).toBe("yes");
+    expect(match.monthlyTotal).toBe(600);
+    expect(match.countedSourceIds).toEqual([SEASONAL_TOTAL_QUESTION_ID]);
+    expect(match.uncountedSourceIds).toEqual([]);
+  });
+
+  it("proposes 'no' when the 6-month average is certainly under $580", () => {
+    const match = matchIncome580(
+      merge(
+        sources("job"),
+        seasonalYes(),
+        amount(SEASONAL_TOTAL_QUESTION_ID, 3000),
+      ),
+    );
+    expect(match.proposal).toBe("no");
+    expect(match.monthlyTotal).toBe(500);
+  });
+
+  it("never double-counts the in-season paycheck alongside the total", () => {
+    const match = matchIncome580(
+      merge(
+        sources("job"),
+        seasonalYes(),
+        amount(SEASONAL_TOTAL_QUESTION_ID, 3600),
+        amount("job_income_amount", 800),
+        frequency("job_income_frequency", "weekly"),
+      ),
+    );
+    // 3600 / 6 = 600 exactly; the $800 weekly paycheck adds nothing.
+    expect(match.monthlyTotal).toBe(600);
+    expect(match.proposal).toBe("yes");
+  });
+
+  it("asks directly when seasonal work has no captured total", () => {
+    const match = matchIncome580(
+      merge(
+        sources("job"),
+        seasonalYes(),
+        amount("job_income_amount", 800),
+        frequency("job_income_frequency", "weekly"),
+      ),
+    );
+    expect(match.proposal).toBeNull();
+    expect(match.uncountedSourceIds).toEqual(["job_income_amount"]);
+  });
+
+  it("leaves non-seasonal answers on the old path (a stale total is ignored)", () => {
+    const match = matchIncome580(
+      merge(
+        sources("job"),
+        frequency("job_income_seasonal", "no"),
+        amount(SEASONAL_TOTAL_QUESTION_ID, 99999),
+        amount("job_income_amount", 100),
+        frequency("job_income_frequency", "weekly"),
+      ),
+    );
+    expect(match.countedSourceIds).toEqual(["job_income_amount"]);
+    expect(match.monthlyTotal).toBeCloseTo((100 * 52) / 12, 10);
+    expect(match.proposal).toBe("no");
+  });
+
+  it("property: the seasonal contribution is always exactly total / 6", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 120000 }),
+        fc.integer({ min: 0, max: 5000 }),
+        (total, paycheck) => {
+          const match = matchIncome580(
+            merge(
+              sources("job"),
+              seasonalYes(),
+              amount(SEASONAL_TOTAL_QUESTION_ID, total),
+              amount("job_income_amount", paycheck),
+              frequency("job_income_frequency", "weekly"),
+            ),
+          );
+          expect(match.monthlyTotal).toBe(total / 6);
+          expect(match.proposal).toBe(total / 6 >= 580 ? "yes" : "no");
+        },
+      ),
+    );
+  });
 });
 
 describe("the income-screen match's import boundary (VAL-WR-008)", () => {

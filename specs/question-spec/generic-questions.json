@@ -266,6 +266,35 @@
       "provenance": "user-supplied"
     },
     {
+      "id": "job_income_seasonal",
+      "prompt": "Is that job work seasonal \u2014 do you only work it part of the year?",
+      "type": "single_select",
+      "help": "Seasonal work only happens part of the year, like harvest, holiday, or summer work. Pick 'not sure' if you do not know.",
+      "options": [
+        { "value": "yes", "label": "Yes" },
+        { "value": "no", "label": "No" },
+        { "value": "not_sure", "label": "Not sure" }
+      ],
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "income_sources", "operator": "not_in", "value": "job,self_employed" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "job_income_seasonal_total",
+      "prompt": "About how much did you make from that seasonal work in the last 6 months, in total?",
+      "type": "number",
+      "help": "Add up the last 6 months as best you can. Income from seasonal work can be averaged across 6 months, and this total is what gets averaged.",
+      "pii": false,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "job_income_seasonal", "operator": "not_equals", "value": "yes" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
       "id": "benefits_income_amount",
       "prompt": "About how much comes in from benefits each month?",
       "type": "number",
