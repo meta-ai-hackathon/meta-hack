@@ -578,7 +578,6 @@ export function buildCombinedTurnPrompt(
   return lines.join("\n");
 }
 
-/** The strict per-turn extraction schema (BN-32), inside the envelope schema. */
 /** Whether the talk path may save an extracted answer for a question. The roster is wizard-only (HACK-134). */
 export function talkPathSavesQuestion(questionId: string): boolean {
   return questionId !== ROSTER_QUESTION_ID;
