@@ -29,7 +29,7 @@ import { POST as postIntakeAnswer } from "../../intake/answer/route";
 import { POST } from "./route";
 
 // Conversation turn route tests (Mission v2 M1, VAL-CONV-001..007, 009):
-// every model call is scripted — no live network calls. The scratch Postgres
+// every model call is scripted â€” no live network calls. The scratch Postgres
 // proves persistence (conversation_turn rows, vault routing, tri-state
 // answers) exactly as the running app would write it.
 
@@ -77,7 +77,7 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Scripted model transport: each queued ChatCallScript serves one turn —
+// Scripted model transport: each queued ChatCallScript serves one turn â€”
 // ONE combined call per turn (VAL-VLAT-003): the helper wraps the script's
 // extraction half and reply half into the single envelope the model now
 // returns. Extraction-half raw text is allowed ONLY in that call.
@@ -259,7 +259,7 @@ async function countOf(table: "person" | "session"): Promise<number> {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("POST /api/conversation/turn — grounded flow (VAL-CONV-001)", () => {
+describe("POST /api/conversation/turn â€” grounded flow (VAL-CONV-001)", () => {
   it("pairs the typed text with the server-chosen next spec question", async () => {
     installScript([
       {
@@ -343,7 +343,7 @@ describe("POST /api/conversation/turn — grounded flow (VAL-CONV-001)", () => {
   });
 });
 
-describe("POST /api/conversation/turn — extraction persistence (VAL-CONV-003)", () => {
+describe("POST /api/conversation/turn â€” extraction persistence (VAL-CONV-003)", () => {
   it("saves a stated answer as known + user_supplied and reads back identical", async () => {
     installScript([
       {
@@ -389,7 +389,7 @@ describe("POST /api/conversation/turn — extraction persistence (VAL-CONV-003)"
           ],
         }),
         // The prompt's reply rules forbid restating a specific answer value
-        // as settled — the app marks this save unverified, so a "got it, ONE
+        // as settled â€” the app marks this save unverified, so a "got it, ONE
         // senior" ack would overstate. The generic ack stands.
         reply: "Thanks for the detail.",
         nextQuestionId: "application_role",
@@ -488,7 +488,7 @@ describe("POST /api/conversation/turn — extraction persistence (VAL-CONV-003)"
   });
 });
 
-describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () => {
+describe("POST /api/conversation/turn â€” PII vault routing (VAL-CONV-004)", () => {
   it("routes every pii:true spec question to the vault with a NULL answer value", async () => {
     type PiiFixture = {
       questionId: string;
@@ -518,14 +518,14 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       { questionId: "phone_contact", text: "You can call me at 555-0143", value: "555-0143", verbatim: "555-0143", vaultValue: "555-0143", wholeBodyCheck: true },
       { questionId: "email_contact", text: "My email is person@example.com", value: "person@example.com", verbatim: "person@example.com", vaultValue: "person@example.com", wholeBodyCheck: true },
       // NB: the value must not be the spec help text's own example ("March
-      // 2025") — that ships to the client as public help, so it can never
+      // 2025") â€” that ships to the client as public help, so it can never
       // satisfy the whole-body check. "June 2024" appears nowhere in the spec.
       { questionId: "prior_employer_last_month", text: "I last got paid by that employer in June 2024", value: "June 2024", verbatim: "June 2024", vaultValue: "June 2024", wholeBodyCheck: true },
     ];
 
     // The work-questions' capture path: the quick-questions stage's own
-    // endpoint, POST /api/intake/answer — a server endpoint with no model
-    // in the loop — never a typed turn to the model: sensitive select
+    // endpoint, POST /api/intake/answer â€” a server endpoint with no model
+    // in the loop â€” never a typed turn to the model: sensitive select
     // answers do not ride the LLM extraction path (claude-review P1).
     // Their fixtures drive that answer route and assert the same vault
     // invariants.
@@ -537,11 +537,11 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
     const answerRouteFixtures: AnswerRouteFixture[] = [
       {
         questionId: "household_roster",
-        value: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_49" }],
+        value: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }],
         vaultValue: "Sam",
       },
       {
-        // "None of these apply" — any other selection would hide the
+        // "None of these apply" â€” any other selection would hide the
         // reporting section (the two-section design), and the who fixture
         // below needs it visible.
         questionId: "wr_exempt_situations",
@@ -594,7 +594,7 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       },
     ];
 
-    // The full population: exactly every pii:true question in the spec —
+    // The full population: exactly every pii:true question in the spec â€”
     // the talk path's fixtures plus the answer route's.
     expect(
       [
@@ -630,7 +630,7 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       const data = (await response.json()) as TurnResponse;
       const bodyText = JSON.stringify(data);
 
-      // 1. The client state carries the status alone — structurally no value.
+      // 1. The client state carries the status alone â€” structurally no value.
       expect(data.state.answers[fixture.questionId]).toEqual({
         status: "known",
       });
@@ -648,7 +648,7 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       expect(answerRows[0].status).toBe("known");
       expect(answerRows[0].provenance).toBe("user_supplied");
 
-      // 3. The vault holds the value — encrypted at rest (VAL-VAULTENC-001):
+      // 3. The vault holds the value â€” encrypted at rest (VAL-VAULTENC-001):
       // an AES-GCM envelope, never the plaintext (round-trip identity is
       // proven in vault.test.ts through the sanctioned read paths).
       const vaultRows = await testDb`
@@ -675,7 +675,7 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       // combined prompt legitimately carries the spec's PUBLIC choice
       // vocabulary for every question (the same vocab the wizard ships), so
       // where a fixture's value/verbatim is itself spec vocabulary (the
-      // wholeBodyCheck=false cases — "shelter", "yes") the message scan is
+      // wholeBodyCheck=false cases â€” "shelter", "yes") the message scan is
       // vacuous and skipped; private free-text values and the person's own
       // words are always scanned.
       const combinedCall = calls.find((call) => call.kind === "combined");
@@ -705,7 +705,7 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
     }
 
     // The answer route's own vault routing for the work-requirements
-    // questions: same invariants, the capture path with no model — the
+    // questions: same invariants, the capture path with no model â€” the
     // quick-questions stage's endpoint, never the model.
     let answerCookie: string | undefined = cookie;
     for (const fixture of answerRouteFixtures) {
@@ -731,7 +731,7 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       // The intake answer route responds with the client state itself.
       const data = (await response.json()) as IntakeClientState;
 
-      // The served state carries the status alone — structurally no value.
+      // The served state carries the status alone â€” structurally no value.
       expect(data.answers[fixture.questionId]).toEqual({
         status: "known",
       });
@@ -749,7 +749,7 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       expect(answerRows[0].status).toBe("known");
       expect(answerRows[0].provenance).toBe("user_supplied");
 
-      // The vault holds the value — the same encrypted envelope.
+      // The vault holds the value â€” the same encrypted envelope.
       const vaultRows = await testDb`
         SELECT value FROM vault_entry WHERE field = ${fixture.questionId}
       `;
@@ -768,7 +768,7 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
   });
 });
 
-describe("POST /api/conversation/turn — prompt-injection as data (VAL-CONV-005)", () => {
+describe("POST /api/conversation/turn â€” prompt-injection as data (VAL-CONV-005)", () => {
   it("keeps the next question unchanged and stores the injection as data only", async () => {
     installScript([
       { extraction: JSON.stringify({ answers: [] }), reply: "Who is this application for?" },
@@ -800,7 +800,7 @@ describe("POST /api/conversation/turn — prompt-injection as data (VAL-CONV-005
   });
 });
 
-describe("POST /api/conversation/turn — ungrounded topic refusal (VAL-CONV-006)", () => {
+describe("POST /api/conversation/turn â€” ungrounded topic refusal (VAL-CONV-006)", () => {
   it("returns the committed refusal phrase for an uncovered topic", async () => {
     const calls = installScript([
       {
@@ -821,7 +821,7 @@ describe("POST /api/conversation/turn — ungrounded topic refusal (VAL-CONV-006
   });
 });
 
-describe("POST /api/conversation/turn — banned claims (VAL-CONV-002)", () => {
+describe("POST /api/conversation/turn â€” banned claims (VAL-CONV-002)", () => {
   it("never returns or persists an assistant reply carrying an eligibility promise", async () => {
     installScript([
       {
@@ -845,7 +845,7 @@ describe("POST /api/conversation/turn — banned claims (VAL-CONV-002)", () => {
   });
 });
 
-describe("POST /api/conversation/turn — reply privacy backstop (single call, claude-review P1)", () => {
+describe("POST /api/conversation/turn â€” reply privacy backstop (single call, claude-review P1)", () => {
   it("sweeps a private value the reply echoed that extraction never saved, before render or persist", async () => {
     // The single call's reply is written by a model that saw the raw words;
     // if extraction MISSES a private detail, nothing reaches the echo gate's
@@ -870,7 +870,7 @@ describe("POST /api/conversation/turn — reply privacy backstop (single call, c
   });
 });
 
-describe("POST /api/conversation/turn — honest degradation (VAL-CONV-007)", () => {
+describe("POST /api/conversation/turn â€” honest degradation (VAL-CONV-007)", () => {
   it("returns the model_unavailable taxonomy error with a wizard fallback link and persists nothing", async () => {
     setModelTransport(failingChat(503));
     const response = await POST(turnRequest("Hello?"));
@@ -892,8 +892,8 @@ describe("POST /api/conversation/turn — honest degradation (VAL-CONV-007)", ()
   });
 
   it("answers the deterministic re-ask when the model returns no usable envelope, and persists both turns", async () => {
-    // Content with no JSON object (no braces) → parseCombinedEnvelope null
-    // → the session still exists, NOTHING is saved, and the honest re-ask
+    // Content with no JSON object (no braces) â†’ parseCombinedEnvelope null
+    // â†’ the session still exists, NOTHING is saved, and the honest re-ask
     // is both returned and persisted with the redacted user turn.
     setModelTransport(async () =>
       new Response(
@@ -919,7 +919,7 @@ describe("POST /api/conversation/turn — honest degradation (VAL-CONV-007)", ()
   });
 });
 
-describe("POST /api/conversation/turn — one model call per turn (VAL-VLAT-003)", () => {
+describe("POST /api/conversation/turn â€” one model call per turn (VAL-VLAT-003)", () => {
   it("fires exactly one chat-completion call per successful typed turn", async () => {
     const calls = installScript([
       {
@@ -972,7 +972,7 @@ describe("POST /api/conversation/turn — one model call per turn (VAL-VLAT-003)
   it("sends the combined envelope at the full conversation completion budget", async () => {
     // The envelope carries BOTH halves (answers array + JSON-escaped reply)
     // on top of the reasoning burst: it needs MORE completion tokens, not
-    // fewer — MIN_CHAT_MAX_TOKENS's floor still applies underneath.
+    // fewer â€” MIN_CHAT_MAX_TOKENS's floor still applies underneath.
     const calls = installScript([
       {
         extraction: JSON.stringify({ answers: [] }),
@@ -985,7 +985,7 @@ describe("POST /api/conversation/turn — one model call per turn (VAL-VLAT-003)
   });
 });
 
-describe("POST /api/conversation/turn — usage logging (VAL-CONV-009)", () => {
+describe("POST /api/conversation/turn â€” usage logging (VAL-CONV-009)", () => {
   it("logs usage per model call with no key material and no private content", async () => {
     const logs: LogLine[] = [];
     setLogSink((line) => logs.push(JSON.parse(line) as LogLine));
@@ -1023,7 +1023,7 @@ describe("POST /api/conversation/turn — usage logging (VAL-CONV-009)", () => {
   });
 });
 
-describe("POST /api/conversation/turn — per-segment turn timing (VAL-FIX-004)", () => {
+describe("POST /api/conversation/turn â€” per-segment turn timing (VAL-FIX-004)", () => {
   it("logs the engine's segment timing with numeric fields only, on the typed path", async () => {
     const logs: LogLine[] = [];
     setLogSink((line) => logs.push(JSON.parse(line) as LogLine));
@@ -1063,7 +1063,7 @@ describe("POST /api/conversation/turn — per-segment turn timing (VAL-FIX-004)"
     expect(serialized).not.toContain("It's for me");
   });
 
-  it("logs the route's segment timing — STT for voice, engine, client state — with a mode", async () => {
+  it("logs the route's segment timing â€” STT for voice, engine, client state â€” with a mode", async () => {
     const logs: LogLine[] = [];
     setLogSink((line) => logs.push(JSON.parse(line) as LogLine));
     installVoiceScript(
@@ -1114,7 +1114,7 @@ describe("POST /api/conversation/turn — per-segment turn timing (VAL-FIX-004)"
   });
 });
 
-describe("POST /api/conversation/turn — validation hygiene", () => {
+describe("POST /api/conversation/turn â€” validation hygiene", () => {
   it("rejects unusable text without creating a session", async () => {
     const peopleBefore = await countOf("person");
     const sessionsBefore = await countOf("session");
@@ -1206,7 +1206,7 @@ describe("conversation resume over HTTP (VAL-CONV-007 persistence legs)", () => 
 // cap, and honest choice-question handling.
 // ---------------------------------------------------------------------------
 
-describe("POST /api/conversation/turn — choice canonicalization (hardening 6)", () => {
+describe("POST /api/conversation/turn â€” choice canonicalization (hardening 6)", () => {
   it("saves a free-text phrasing onto its spec option (VAL-VOICE parity with spoken phrasing)", async () => {
     installScript([
       {
@@ -1238,7 +1238,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
 
   it("saves a mapped choice answer as user_supplied even when the extractor calls it an inference (live parity break)", async () => {
     // Live-verified Oct 29: the spoken "It's for myself" was extracted with
-    // inferred: true → ai_drafted/unverified, while typing the same words
+    // inferred: true â†’ ai_drafted/unverified, while typing the same words
     // saved known/user_supplied. A mapped choice answer is the person's own
     // statement; the parity must hold either way.
     installScript([
@@ -1341,7 +1341,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
   it("never rescues an unmapped NON-current question from the raw turn text (claude-review P2-2)", async () => {
     // Turn 2 answers main_goal, but the extractor also emits garbage for the
     // already-answered application_role. The raw text "I need food." must
-    // not be cascaded onto application_role — that would overwrite a known
+    // not be cascaded onto application_role â€” that would overwrite a known
     // answer with words meant for a different question.
     installScript([
       {
@@ -1363,7 +1363,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
             { question_id: "main_goal", status: "known", value: "food" },
           ],
         }),
-        reply: "Got it — food. What is your zip code?",
+        reply: "Got it â€” food. What is your zip code?",
         nextQuestionId: "state",
       },
     ]);
@@ -1374,11 +1374,11 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     const second = await POST(turnRequest("I need food.", cookie));
     expect(second.status).toBe(200);
     const data = (await second.json()) as TurnResponse;
-    // The grounded model reply ran (the current answer saved) — with the
+    // The grounded model reply ran (the current answer saved) â€” with the
     // honest loss prefix ahead of it, because the garbage extraction for
     // the NON-current question was dropped, not saved.
     expect(data.assistantReply).toBe(
-      `${PARTIAL_SAVE_FALLBACK_PREFIX} Got it — food. What is your zip code?`,
+      `${PARTIAL_SAVE_FALLBACK_PREFIX} Got it â€” food. What is your zip code?`,
     );
     const rows = await testDb`
       SELECT question_id, value FROM answer ORDER BY question_id
@@ -1395,7 +1395,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
   it("prefixes the model reply with honest loss copy when part of the extraction did not save (claude-review P2)", async () => {
     // The current question's answer fails to map, but another answer in the
     // same turn saves. The model wrote its reply before the server knew,
-    // so its acknowledgment may claim the dropped answer — the honest loss
+    // so its acknowledgment may claim the dropped answer â€” the honest loss
     // prefix goes ahead of it (and the "haven't saved anything yet" copy
     // would be false when something DID save).
     installScript([
@@ -1443,14 +1443,14 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
   it("never hands a token-bearing reply to the client or TTS (HACK-107 review)", async () => {
     // Typed transcripts now carry Rampart tokens, so a model echoing a
     // history token ("Thanks [GIVEN_NAME_1]") could previously pass every
-    // reply gate and be persisted — and then be TTS-served by the speak
+    // reply gate and be persisted â€” and then be TTS-served by the speak
     // route. The token gate replaces such a reply with the honest fallback
     // BEFORE persist, keeping the no-raw-token-to-TTS invariant for /
     // api/conversation/speak as well as the display path.
     installScript([
       {
         extraction: JSON.stringify({ answers: [] }),
-        reply: "Thanks [GIVEN_NAME_1] — what is your home ZIP code?",
+        reply: "Thanks [GIVEN_NAME_1] â€” what is your home ZIP code?",
         nextQuestionId: "application_role",
       },
     ]);
@@ -1473,7 +1473,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
     // so speaking it would silently drop the honest loss disclosure the
     // subtitle carries. The route must strip the spokenReply entirely; the
     // client then renders the display text's tokens deterministically or
-    // fails closed to subtitles — the disclosure is heard either way.
+    // fails closed to subtitles â€” the disclosure is heard either way.
     installVoiceScript(
       [
         { transcript: "It is for myself." },
@@ -1516,13 +1516,13 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
       `${PARTIAL_SAVE_FALLBACK_PREFIX} One answer saved. What kind of help are you looking for right now?`,
     );
     // The envelope carried a gate-clean spoken_reply, but the display reply
-    // is the loss-disclosure-prefixed variant — the rendition is stripped.
+    // is the loss-disclosure-prefixed variant â€” the rendition is stripped.
     expect(data.spokenReply).toBeUndefined();
   });
 
   it("replaces the model reply with the honest re-ask when a skipped malformed answer left nothing saved", async () => {
     // A malformed value (validation_error skip) with no other save: the
-    // model's reply cannot know the save was dropped — the deterministic
+    // model's reply cannot know the save was dropped â€” the deterministic
     // re-ask replaces it.
     installScript([
       {
@@ -1557,7 +1557,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
   it("replaces the spoken question when a volunteered answer closes it (claude-review round-3 P2)", async () => {
     // Turn 2 answers the CURRENT question (main_goal) AND volunteers a
     // later answer (income_sources = none) that flips income_kind's skip
-    // condition. The model — writing from the turn-start list — declared
+    // condition. The model â€” writing from the turn-start list â€” declared
     // income_kind as its next question; the server's post-save flow state
     // says "state". The server owns flow control: the spoken question is
     // replaced with the server's.
@@ -1606,7 +1606,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
 
   it("replaces the spoken question when the envelope omits the declaration (fail-closed, round-4 P2)", async () => {
     // An absent or invalid declaration leaves the spoken question
-    // UNVERIFIABLE — it may acknowledge an answer extraction returned
+    // UNVERIFIABLE â€” it may acknowledge an answer extraction returned
     // nothing for. The server's deterministic question replaces it.
     installScript([
       {
@@ -1632,9 +1632,9 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
   });
 });
 
-describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () => {
+describe("POST /api/conversation/turn â€” atomic persistence (hardening 1)", () => {
   // With ONE combined call per turn, a MODEL failure now always happens
-  // BEFORE the session exists (deferred creation) — the failure window the
+  // BEFORE the session exists (deferred creation) â€” the failure window the
   // old two-call design had between the saves and the reply is closed.
   // The atomicity guarantee is exercised through the remaining post-creation
   // failure surface: a persistence-layer failure after the model call
@@ -1653,7 +1653,7 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
     expect(first.status).toBe(200);
     const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0].trim();
 
-    // Turn 2: the combined call SUCCEEDS — its scripted transport hides the
+    // Turn 2: the combined call SUCCEEDS â€” its scripted transport hides the
     // turn table as it serves the envelope, so the failure lands AFTER the
     // model call, in the persistence layer (with one call per turn, that is
     // the only post-save failure window left).
@@ -1671,7 +1671,7 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
                     { question_id: "main_goal", status: "known", value: "food" },
                   ],
                 }),
-                reply: "Got it — food. What is your zip code?",
+                reply: "Got it â€” food. What is your zip code?",
               }),
             ),
           ),
@@ -1692,7 +1692,7 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
         SELECT value FROM answer WHERE question_id = 'main_goal'
       `;
       expect(goalRows).toHaveLength(1);
-      // NO transcript persisted for the failed turn — a retry cannot
+      // NO transcript persisted for the failed turn â€” a retry cannot
       // duplicate it (the rows live in the hidden table).
       const hidden = await testDb`
         SELECT role, redacted_transcript FROM conversation_turn_hidden
@@ -1760,7 +1760,7 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
     const combinedCall = calls.find((call) => call.kind === "combined");
     expect(combinedCall).toBeDefined();
     const messages = combinedCall?.body.messages ?? [];
-    // The final message is THIS turn's RAW words inside the data markers —
+    // The final message is THIS turn's RAW words inside the data markers â€”
     // the extraction input, and the ONLY place the raw value appears (the
     // reply is built from the system grounding plus redacted history).
     const finalMessage = messages[messages.length - 1];
@@ -1768,7 +1768,7 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
     expect(finalMessage?.content).toContain("<<<DATA>>>");
     expect(finalMessage?.content).toContain("555-0143");
     // Exactly one copy of the raw value across the whole call, and it is
-    // the wrapped data message — never the system prompt.
+    // the wrapped data message â€” never the system prompt.
     const occurrences = messages.filter((message) =>
       message.content.includes("555-0143"),
     );
@@ -1778,7 +1778,7 @@ describe("POST /api/conversation/turn — atomic persistence (hardening 1)", () 
   });
 });
 
-describe("POST /api/conversation/turn — deferred session creation (hardening 2)", () => {
+describe("POST /api/conversation/turn â€” deferred session creation (hardening 2)", () => {
   it("creates no person/session rows when the model fails", async () => {
     setModelTransport(failingChat(503));
     const peopleBefore = await countOf("person");
@@ -1815,7 +1815,7 @@ describe("POST /api/conversation/turn — deferred session creation (hardening 2
     // The combined call succeeds (answers saved) but the persistence layer
     // fails BEFORE any turn row is written. The fresh visitor still gets
     // the session cookie via the turnSessionContext path on the AppError
-    // cause — the data stays reachable, and a retry resumes the session.
+    // cause â€” the data stays reachable, and a retry resumes the session.
     installScript([
       {
         extraction: JSON.stringify({
@@ -1831,7 +1831,7 @@ describe("POST /api/conversation/turn — deferred session creation (hardening 2
     try {
       failed = await POST(turnRequest("It's for me."));
       // A persistence-layer failure maps to the internal error code (the
-      // taxonomy stays honest — model_unavailable is for model failures).
+      // taxonomy stays honest â€” model_unavailable is for model failures).
       expect(failed.status).toBe(500);
       const data = (await failed.json()) as ErrorResponse;
       expect(data.error.code).toBe("internal");
@@ -1859,7 +1859,7 @@ describe("POST /api/conversation/turn — deferred session creation (hardening 2
   });
 });
 
-describe("POST /api/conversation/turn — per-session turn-rate cap (hardening 3)", () => {
+describe("POST /api/conversation/turn â€” per-session turn-rate cap (hardening 3)", () => {
   it("rejects a turn past the per-session cap with rate_limited before any model call", async () => {
     installScript([
       {
@@ -1909,7 +1909,7 @@ describe("POST /api/conversation/turn — per-session turn-rate cap (hardening 3
 });
 
 // ---------------------------------------------------------------------------
-// Voice mode (Mission v2 M2): multipart audio → STT → the SAME
+// Voice mode (Mission v2 M2): multipart audio â†’ STT â†’ the SAME
 // extraction/persistence path as typed input (VAL-VOICE-001..006).
 // ---------------------------------------------------------------------------
 
@@ -1997,7 +1997,7 @@ const SIXTEEN_K_MONO_WAV = new Uint8Array(
   encodeWavPcm16Mono(new Float32Array(16000), 16000),
 );
 
-describe("POST /api/conversation/turn — voice mode (VAL-VOICE-001/004)", () => {
+describe("POST /api/conversation/turn â€” voice mode (VAL-VOICE-001/004)", () => {
   it("drives a spoken WAV through the same extraction/persistence path as typed input", async () => {
     installVoiceScript(
       [{ transcript: "It's for myself." }],
@@ -2122,7 +2122,7 @@ describe("POST /api/conversation/turn — voice mode (VAL-VOICE-001/004)", () =>
   });
 });
 
-describe("POST /api/conversation/turn — voice failure modes (VAL-VOICE-006)", () => {
+describe("POST /api/conversation/turn â€” voice failure modes (VAL-VOICE-006)", () => {
   it("rejects a wrong-format upload with validation_error before any model call", async () => {
     const { calls } = installVoiceScript(
       [{ transcript: "never reached" }],
@@ -2199,7 +2199,7 @@ describe("POST /api/conversation/turn — voice failure modes (VAL-VOICE-006)", 
 // carrying user content, at the network level.
 // ---------------------------------------------------------------------------
 
-describe("POST /api/conversation/turn — consent gate (VAL-CONSENT-001/003)", () => {
+describe("POST /api/conversation/turn â€” consent gate (VAL-CONSENT-001/003)", () => {
   it("refuses a typed turn with no receipt before any model call", async () => {
     const { calls } = installVoiceScript([], []);
     const response = await POST(turnRequest("I am 34 years old.", undefined, null));
@@ -2213,7 +2213,7 @@ describe("POST /api/conversation/turn — consent gate (VAL-CONSENT-001/003)", (
     expect(await countOf("session")).toBe(0);
   });
 
-  it("refuses a declined receipt the same way — declining never reaches a provider", async () => {
+  it("refuses a declined receipt the same way â€” declining never reaches a provider", async () => {
     const { calls } = installVoiceScript([], []);
     const response = await POST(turnRequest("I am 34 years old.", undefined, DECLINED));
     expect(response.status).toBe(403);

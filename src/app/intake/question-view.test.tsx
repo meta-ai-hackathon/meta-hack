@@ -227,10 +227,10 @@ describe("stored answers and the honest badge", () => {
 describe("QuestionView household roster (HACK-134)", () => {
   it("renders add/remove roster controls with nickname guidance", () => {
     const q = QUESTIONS.find((x) => x.id === "household_roster")!;
-    const html = renderView(q, { value: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_49" }, { id: "member-2", displayName: "Jo", relationship: "child", ageBand: "5_to_12" }] });
+    const html = renderView(q, { value: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }, { id: "member-2", displayName: "Jo", relationship: "child", ageBand: "under_14" }] });
     expect(html).toContain("data-roster-member=\"member-1\"");
     expect(html).toContain("Add another person");
     expect(html).toContain("Remove this person");
-    expect(html).toContain("first name or nickname");
+    expect(html).toContain("Person 1: first name or nickname");
   });
 });

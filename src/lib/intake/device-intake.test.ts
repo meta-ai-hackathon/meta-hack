@@ -83,7 +83,7 @@ function validDraft(question: Question): unknown {
     case "multi_select":
       return [question.options![0].value];
     case "roster":
-      return [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_49" }];
+      return [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }];
   }
 }
 

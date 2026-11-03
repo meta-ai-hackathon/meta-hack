@@ -326,7 +326,7 @@ describe("the frozen cases", PROPERTY_BUDGET, () => {
     // expected list is built in spec order.
     answers.household_roster = {
       status: "known",
-      value: [{ id: "member-1", displayName: "Fictional", relationship: "self", ageBand: "18_to_49" }],
+      value: [{ id: "member-1", displayName: "Fictional", relationship: "self", ageBand: "18_to_54" }],
     };
     const visible = visibleQuestions(QUESTIONS, answers).map((question) => question.id);
     const specOrder = new Map(QUESTIONS.map((q, i) => [q.id, i]));

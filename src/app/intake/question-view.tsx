@@ -23,8 +23,8 @@ import { Field } from "../../components/field";
 
 // One intake question per screen (BN-09): the plain-language prompt, help
 // text, and options come from the question spec; every question carries an
-// explicit "I'm not sure" path (→ unknown) and a best-guess marking
-// (→ unverified), so the tri-state honesty spine is representable on every
+// explicit "I'm not sure" path (â†’ unknown) and a best-guess marking
+// (â†’ unverified), so the tri-state honesty spine is representable on every
 // screen. Stored answers render the honest status badge; pii answers never
 // render a value.
 
@@ -173,7 +173,7 @@ export function QuestionView({
         {members.map((member, index) => (
           <div key={member.id} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3" data-roster-member={member.id}>
             <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-name`}>
-              Person {index + 1} � first name or nickname
+              Person {index + 1}: first name or nickname
               <input
                 id={`${question.id}-${member.id}-name`}
                 type="text"
@@ -182,6 +182,9 @@ export function QuestionView({
                 onChange={(e) => setMembers(updateMember(members, member.id, { displayName: e.target.value }))}
                 className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
               />
+              {member.displayName.trim() === "" ? (
+                <span className="text-sm text-muted">Enter a first name or nickname for this person.</span>
+              ) : null}
             </label>
             <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-relationship`}>
               Relationship
@@ -193,7 +196,7 @@ export function QuestionView({
                 className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
               >
                 {RELATIONSHIP_VALUES.map((v) => (
-                  <option key={v} value={v}>{RELATIONSHIP_LABELS[v]}</option>
+                  <option key={v} value={v} disabled={v === "self" && member.relationship !== "self" && members.some((m) => m.relationship === "self")}>{RELATIONSHIP_LABELS[v]}</option>
                 ))}
               </select>
             </label>
@@ -356,7 +359,7 @@ export function QuestionView({
           onChange={(event) => onBestGuessChange(event.target.checked)}
           disabled={busy}
         />
-        This is my best guess — I have not verified it
+        This is my best guess â€” I have not verified it
       </label>
       <div className="flex flex-wrap items-center gap-3">
         <button

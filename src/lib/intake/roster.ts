@@ -1,7 +1,7 @@
 // Household roster (HACK-134, Civilla): the named members later
 // per-person attribution (HACK-135) and work reporting (HACK-128)
 // attach to. Pure and browser-safe: no storage, no network, no
-// eligibility logic — the state decides eligibility; this module
+// eligibility logic â€” the state decides eligibility; this module
 // only records who the user says is in the household.
 
 export const ROSTER_QUESTION_ID = "household_roster";
@@ -22,12 +22,13 @@ export const RELATIONSHIP_VALUES = [
 ] as const;
 export type Relationship = (typeof RELATIONSHIP_VALUES)[number];
 
+// Band edges align to the thresholds later attribution must not guess
+// across: under 14 (caregiver), 18 (adult), 55, and 60 (senior counts).
 export const AGE_BAND_VALUES = [
-  "under_5",
-  "5_to_12",
-  "13_to_17",
-  "18_to_49",
-  "50_to_59",
+  "under_14",
+  "14_to_17",
+  "18_to_54",
+  "55_to_59",
   "60_plus",
 ] as const;
 export type AgeBand = (typeof AGE_BAND_VALUES)[number];
@@ -43,11 +44,10 @@ export const RELATIONSHIP_LABELS: Readonly<Record<Relationship, string>> = {
 };
 
 export const AGE_BAND_LABELS: Readonly<Record<AgeBand, string>> = {
-  under_5: "Under 5",
-  "5_to_12": "5 to 12",
-  "13_to_17": "13 to 17",
-  "18_to_49": "18 to 49",
-  "50_to_59": "50 to 59",
+  under_14: "Under 14",
+  "14_to_17": "14 to 17",
+  "18_to_54": "18 to 54",
+  "55_to_59": "55 to 59",
   "60_plus": "60 or older",
 };
 
@@ -79,7 +79,7 @@ export function parseRoster(value: unknown): HouseholdMember[] | null {
   for (const raw of value) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
     const m = raw as Record<string, unknown>;
-    if (typeof m.id !== "string" || m.id.trim() === "" || seen.has(m.id)) return null;
+    if (typeof m.id !== "string" || !/^[A-Za-z0-9_-]{1,32}$/.test(m.id) || seen.has(m.id)) return null;
     if (typeof m.displayName !== "string") return null;
     const name = m.displayName.trim();
     if (name === "" || name.length > MAX_MEMBER_NAME_LENGTH) return null;
@@ -99,7 +99,7 @@ export function nextMemberId(roster: readonly HouseholdMember[]): string {
 }
 
 export function emptyMember(id: string, relationship: Relationship = "other_family"): HouseholdMember {
-  return { id, displayName: "", relationship, ageBand: "18_to_49" };
+  return { id, displayName: "", relationship, ageBand: "18_to_54" };
 }
 
 /**
@@ -117,7 +117,7 @@ export function draftMembers(value: unknown): HouseholdMember[] {
       id: typeof m.id === "string" && m.id !== "" ? m.id : `member-${i + 1}`,
       displayName: typeof m.displayName === "string" ? m.displayName : "",
       relationship: isRelationship(m.relationship) ? m.relationship : i === 0 ? "self" : "other_family",
-      ageBand: isAgeBand(m.ageBand) ? m.ageBand : "18_to_49",
+      ageBand: isAgeBand(m.ageBand) ? m.ageBand : "18_to_54",
     });
   });
   return out;

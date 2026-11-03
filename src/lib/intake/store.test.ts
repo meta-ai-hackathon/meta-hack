@@ -718,7 +718,7 @@ function piiValueArbitrary(question: Question): fc.Arbitrary<unknown> {
         .map((mask) => values.filter((_, index) => mask[index]));
     }
     case "roster":
-      return fc.constant([{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_49" }]);
+      return fc.constant([{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }]);
     case "boolean":
       return fc.boolean();
     case "date":
