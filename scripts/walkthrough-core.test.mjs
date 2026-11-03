@@ -2437,10 +2437,13 @@ describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout:
     // household roster, every name on it is a private value the walk
     // checked every later body for.
     const logic = await intakeLogic();
-    // The flow's opening question is never held, so every journey keeps
-    // one question to ask: the conversation journey rightly demands at
-    // least one stored exchange. No question skips on it, so leaving it
-    // out of the held set narrows no branch.
+    const journeys = Object.keys(PLAN_SERVED_JOURNEYS);
+    // Every journey but the conversation one draws its held set from the
+    // whole plan, so a session that is already complete when it opens is
+    // among them. The conversation journey rightly demands at least one
+    // stored exchange in its history, so its session never holds the
+    // flow's opening question and always has one question left to type.
+    // No question skips on that one, so leaving it out narrows no branch.
     const opening = logic.QUESTIONS[0].id;
     expect(JOURNEY_PLAN[0].id).toBe(opening);
     expect(
@@ -2448,16 +2451,18 @@ describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout:
         (condition) => condition.question_id,
       ),
     ).not.toContain(opening);
-    const holdable = JOURNEY_PLAN.filter((step) => step.id !== opening);
+    const holdable = (journey) =>
+      journey === "conversation" ? JOURNEY_PLAN.filter((step) => step.id !== opening) : JOURNEY_PLAN;
     // Each walk prints a full transcript; a failure reports the error
     // that stopped it, which names the question the plan does not cover.
     const quiet = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       await fc.assert(
         fc.asyncProperty(
-          fc.constantFrom(...Object.keys(PLAN_SERVED_JOURNEYS)),
-          fc.subarray(holdable),
-          async (journey, held) => {
+          fc.oneof(
+            ...journeys.map((journey) => fc.tuple(fc.constant(journey), fc.subarray(holdable(journey)))),
+          ),
+          async ([journey, held]) => {
             const app = flowBackedApp(logic, { held });
             const walk = new Walkthrough("http://fake.test", 1000, app.transport, noPause);
             await expect(PLAN_SERVED_JOURNEYS[journey](walk)).resolves.toBe(true);
@@ -2468,8 +2473,15 @@ describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout:
           },
         ),
         {
-          // Every journey from a fresh session, the way the CLI runs it.
-          examples: Object.keys(PLAN_SERVED_JOURNEYS).map((journey) => [journey, []]),
+          // About 33 held sets per journey, what each of the first three
+          // journeys got when they alone shared the default 100 runs.
+          numRuns: 200,
+          // Every journey from a fresh session, the way the CLI runs it,
+          // and from a session that already holds all it may hold.
+          examples: journeys.flatMap((journey) => [
+            [[journey, []]],
+            [[journey, [...holdable(journey)]]],
+          ]),
         },
       );
     } finally {
