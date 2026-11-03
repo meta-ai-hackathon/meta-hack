@@ -72,6 +72,20 @@ function valueFor(question: Question): fc.Arbitrary<unknown> {
     case "text":
     case "address":
       return privateText;
+    case "roster":
+      // The household's members (HACK-134), each by a private name.
+      return fc.uniqueArray(privateText, { minLength: 1, maxLength: 3 }).map((names) =>
+        names.map((displayName, index) => ({
+          id: `member-${index + 1}`,
+          displayName,
+          relationship: index === 0 ? "self" : "other_family",
+          ageBand: "18_to_54",
+        })),
+      );
+    case "attribution":
+      return fc.constant([{ memberId: "member-1", situationId: "wr_income_580", months: "both" }]);
+    case "work_activity":
+      return fc.constant([{ memberId: "member-1", activity: "job_internship", hours: 20 }]);
   }
 }
 
@@ -132,6 +146,10 @@ function privateValuesIn(state: ClientAnswerState): string[] {
   const values: string[] = [];
   for (const question of QUESTIONS) {
     const value = state[question.id]?.value;
+    if (question.pii && question.type === "roster" && Array.isArray(value)) {
+      values.push(...value.map((member) => String((member as { displayName: unknown }).displayName)));
+      continue;
+    }
     if (!question.pii || typeof value !== "string") {
       continue;
     }

@@ -60,6 +60,14 @@ function valueFor(question: Question): fc.Arbitrary<unknown> {
         fc.stringMatching(/^[A-Za-z0-9][A-Za-z0-9 .,'#-]{0,30}$/),
         fc.constantFrom("Nguyễn Văn An", "李小龍", "Zoë Ñúñez"),
       );
+    // The household roster and the per-person answers (HACK-134, 135, 128),
+    // which no registry entry maps: one valid value each.
+    case "roster":
+      return fc.constant([{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }]);
+    case "attribution":
+      return fc.constant([{ memberId: "member-1", situationId: "wr_income_580", months: "both" }]);
+    case "work_activity":
+      return fc.constant([{ memberId: "member-1", activity: "job_internship", hours: 20 }]);
   }
 }
 

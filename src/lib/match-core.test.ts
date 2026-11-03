@@ -46,6 +46,14 @@ function valueFor(question: Question): fc.Arbitrary<unknown> {
         fc.stringMatching(/^[A-Za-z][A-Za-z0-9 .'-]{2,20}$/),
         fc.constantFrom("application", "Mecklenburg", "555-0100", "person@example.com"),
       );
+    // The household roster and the per-person answers (HACK-134, 135, 128):
+    // one valid value each.
+    case "roster":
+      return fc.constant([{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }]);
+    case "attribution":
+      return fc.constant([{ memberId: "member-1", situationId: "wr_income_580", months: "both" }]);
+    case "work_activity":
+      return fc.constant([{ memberId: "member-1", activity: "job_internship", hours: 20 }]);
   }
 }
 

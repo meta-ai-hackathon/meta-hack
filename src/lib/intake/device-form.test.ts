@@ -144,6 +144,14 @@ function valueFor(question: Question): fc.Arbitrary<CanonicalAnswerValue> {
     case "text":
     case "address":
       return textArb;
+    // The household roster and the per-person answers (HACK-134, 135, 128),
+    // which the DHB-5200 registry doesn't map: one valid value each.
+    case "roster":
+      return fc.constant([{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }]);
+    case "attribution":
+      return fc.constant([{ memberId: "member-1", situationId: "wr_income_580", months: "both" }]);
+    case "work_activity":
+      return fc.constant([{ memberId: "member-1", activity: "job_internship", hours: 20 }]);
   }
 }
 
