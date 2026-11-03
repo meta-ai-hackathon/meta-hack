@@ -120,7 +120,7 @@ export function draftMembers(value: unknown): HouseholdMember[] {
   value.forEach((raw, i) => {
     const m = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
     out.push({
-      id: typeof m.id === "string" && m.id !== "" ? m.id : `member-${i + 1}`,
+      id: typeof m.id === "string" && m.id !== "" && !out.some((x) => x.id === m.id) ? m.id : nextMemberId(out),
       displayName: typeof m.displayName === "string" ? m.displayName : "",
       relationship: isRelationship(m.relationship) ? m.relationship : "not_sure",
       ageBand: isAgeBand(m.ageBand) ? m.ageBand : "not_sure",

@@ -182,12 +182,13 @@ export function QuestionView({
                 value={member.displayName}
                 disabled={busy}
                 onChange={(e) => setMembers(updateMember(members, member.id, { displayName: e.target.value }))}
+                aria-describedby={member.displayName.trim() === "" ? `${question.id}-${member.id}-name-hint` : undefined}
                 className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
               />
-              {member.displayName.trim() === "" ? (
-                <span className="text-sm text-muted">Enter a first name or nickname for this person.</span>
-              ) : null}
             </label>
+            {member.displayName.trim() === "" ? (
+              <p id={`${question.id}-${member.id}-name-hint`} className="text-sm text-muted">Enter a first name or nickname for this person.</p>
+            ) : null}
             <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-relationship`}>
               Relationship
               <select
