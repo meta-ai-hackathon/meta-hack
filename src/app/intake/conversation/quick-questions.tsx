@@ -723,6 +723,13 @@ export function QuickQuestionsStage(props: {
       ? foundIndex
       : Math.min(activeSection.index, Math.max(groups.length - 1, 0));
   const activeGroup = groups[activeIndex];
+  // Resync the tracked id when the tracked group dropped off, so later
+  // saves cannot move the person by index drift (render-time adjustment:
+  // React re-renders this component before committing when its own state
+  // is set during render).
+  if (activeGroup && foundIndex < 0 && activeSection.id !== activeGroup.id) {
+    setActiveSection({ id: activeGroup.id, index: activeIndex });
+  }
   const goToSection = (index: number): void => {
     const target = groups[index];
     if (target) {
