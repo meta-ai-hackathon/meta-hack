@@ -579,7 +579,13 @@ export function buildCombinedTurnPrompt(
 }
 
 /** The strict per-turn extraction schema (BN-32), inside the envelope schema. */
-const EXTRACTION_SCHEMA = {
+/** Whether the talk path may save an extracted answer for a question. The roster is wizard-only (HACK-134). */
+export function talkPathSavesQuestion(questionId: string): boolean {
+  return questionId !== ROSTER_QUESTION_ID;
+}
+
+/** The strict per-turn extraction schema (BN-32), inside the envelope schema. */
+export const EXTRACTION_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["answers"],
@@ -591,7 +597,7 @@ const EXTRACTION_SCHEMA = {
         additionalProperties: false,
         required: ["question_id", "status"],
         properties: {
-          question_id: { type: "string", enum: QUESTIONS.filter((q) => q.id !== ROSTER_QUESTION_ID).map((q) => q.id) },
+          question_id: { type: "string", enum: QUESTIONS.filter((q) => talkPathSavesQuestion(q.id)).map((q) => q.id) },
           status: { type: "string", enum: ["known", "unknown"] },
           value: { type: ["string", "number", "boolean", "array"] },
           verbatim: { type: "string" },
@@ -1464,7 +1470,7 @@ export async function processUserTurn(
       }
       // The roster is wizard-only (HACK-134): a model extraction for it is
       // never saved, however well-formed it looks.
-      if (planned.questionId === ROSTER_QUESTION_ID) {
+      if (!talkPathSavesQuestion(planned.questionId)) {
         logWarn("conversation_extraction_answer_skipped");
         skippedAnswerCount += 1;
         continue;

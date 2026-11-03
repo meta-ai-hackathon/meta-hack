@@ -23,6 +23,8 @@ import {
   answerToSave,
   assertNoBannedClaimsEverySentence,
   buildCombinedTurnPrompt,
+  EXTRACTION_SCHEMA,
+  talkPathSavesQuestion,
   findBannedClaimsEverySentence,
   findPiiEchoes,
   followupGateProblem,
@@ -1121,5 +1123,9 @@ describe("household roster on the talk path (HACK-134)", () => {
     const prompt = buildCombinedTurnPrompt(QUESTION_BY_ID["household_size"]);
     expect(prompt).not.toContain("household_roster");
     expect(prompt).not.toContain(roster.prompt);
+    const enumIds = (EXTRACTION_SCHEMA.properties.answers.items.properties.question_id as { enum: string[] }).enum;
+    expect(enumIds).not.toContain("household_roster");
+    expect(talkPathSavesQuestion("household_roster")).toBe(false);
+    expect(talkPathSavesQuestion("household_size")).toBe(true);
   });
 });

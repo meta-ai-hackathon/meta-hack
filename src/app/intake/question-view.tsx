@@ -8,6 +8,7 @@ import {
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import {
   AGE_BAND_LABELS,
+  MAX_ROSTER_MEMBERS,
   MAX_MEMBER_NAME_LENGTH,
   AGE_BAND_VALUES,
   RELATIONSHIP_LABELS,
@@ -226,12 +227,15 @@ export function QuestionView({
         ))}
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || members.length >= MAX_ROSTER_MEMBERS}
           onClick={() => setMembers(addMember(members, emptyMember(nextMemberId(members))))}
           className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
         >
           Add another person
         </button>
+        {members.length >= MAX_ROSTER_MEMBERS ? (
+          <p className="text-sm text-muted">That is everyone we can list here. You can change or remove a person above.</p>
+        ) : null}
       </fieldset>
     );
   } else if (question.type === "multi_select") {
