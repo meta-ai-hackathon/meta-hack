@@ -146,7 +146,9 @@ export function removeMember(roster: readonly HouseholdMember[], id: string): Ho
 /** Roster stored under the roster question in an answer map, or []. */
 export function rosterFromAnswers(answers: Readonly<Record<string, { readonly status?: string; readonly value?: unknown } | undefined>>): HouseholdMember[] {
   const stored = answers[ROSTER_QUESTION_ID];
-  if (!stored || stored.status !== "known") return [];
+  // Unknown carries no roster; a best-guess (unverified) roster is still
+  // the person's list for attribution purposes.
+  if (!stored || stored.status === "unknown") return [];
   return parseRoster(stored.value) ?? [];
 }
 

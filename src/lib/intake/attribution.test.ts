@@ -89,6 +89,7 @@ describe("per-person attribution (HACK-135)", () => {
     expect(ids).toContain("parent_child_under_18");
     expect(ids).not.toContain("wr_disability_hard_work");
     expect(ids).not.toContain("none");
+    expect(applicableSituations({ wr_pregnant: { status: "unverified", value: "yes" } }).map((s) => s.id)).toContain("wr_pregnant");
     expect(applicableSituations({})).toEqual([]);
     expect(draftAttribution("junk")).toEqual([]);
   });

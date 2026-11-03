@@ -90,7 +90,7 @@ export function applicableSituations(answers: AnswerMap): AttributionSituation[]
   const out: AttributionSituation[] = [];
   const labelFor = (id: string): string => QUESTION_BY_ID[id]?.prompt ?? id;
   const exempt = answers["wr_exempt_situations"];
-  if (exempt?.status === "known" && Array.isArray(exempt.value)) {
+  if (exempt && exempt.status !== "unknown" && Array.isArray(exempt.value)) {
     const options = QUESTION_BY_ID["wr_exempt_situations"]?.options ?? [];
     for (const option of options) {
       if (option.value !== "none" && exempt.value.map(String).includes(option.value)) {
@@ -100,12 +100,15 @@ export function applicableSituations(answers: AnswerMap): AttributionSituation[]
   }
   for (const id of EXEMPTION_QUESTION_IDS) {
     const stored = answers[id];
-    if (stored?.status === "known" && stored.value === "yes") {
+    // A best-guess ("unverified") yes is still the person's answer: the
+    // situation is attributable, and its entries are never pruned as if
+    // the answer had been "no". Only known-or-absent "no" withdraws it.
+    if (stored && stored.status !== "unknown" && stored.value === "yes") {
       out.push({ id, label: labelFor(id) });
     }
   }
   const income = answers[INCOME_580_SITUATION_ID];
-  if (income?.status === "known" && income.value === "yes") {
+  if (income && income.status !== "unknown" && income.value === "yes") {
     out.push({ id: INCOME_580_SITUATION_ID, label: labelFor(INCOME_580_SITUATION_ID) });
   }
   return out;

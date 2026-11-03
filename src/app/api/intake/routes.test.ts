@@ -367,7 +367,7 @@ function sentinelValueFor(
     case "number":
       return 1;
     case "attribution":
-      return [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }];
+      return [{ memberId: "SENTINEL-ID", situationId: "wr_income_580", months: "both" }];
     case "roster":
       return [{ id: "member-1", displayName: "SENTINEL-NAME", relationship: "self", ageBand: "18_to_54" }];
     default:
