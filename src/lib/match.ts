@@ -692,7 +692,7 @@ export async function buildMatchResponse(
     }
     let card = buildCard(rankedEntry, explanation);
     if (
-      explanation.source === "model" &&
+      isModelExplanation(explanation) &&
       piiValues.length > 0 &&
       piiValues.some(
         (value) =>
@@ -850,6 +850,15 @@ interface PrivateValueMatcher {
   readonly carriedByModelText: (text: string) => boolean;
   /** The excusal: matches a public copy the value is part of. */
   readonly inStatic: RegExp;
+}
+
+/**
+ * Every explanation except the entry's own fact copy is read as model text,
+ * so a source added later gets the wider trigger in the degrade step and
+ * the gate alike.
+ */
+function isModelExplanation(explanation: MatchExplanation): boolean {
+  return explanation.source !== "facts";
 }
 
 /**
@@ -1055,7 +1064,7 @@ export function assertNoPiiValuesInMatch(
   const numberScan = responseNumberScan(response).join("\n");
   const staticCopy = responseStaticCopy(response);
   const modelText = response.matches
-    .filter((card) => card.explanation.source === "model")
+    .filter((card) => isModelExplanation(card.explanation))
     .map((card) => card.explanation.text);
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     const stored = answers[questionId];
