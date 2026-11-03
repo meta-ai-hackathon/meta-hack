@@ -16,7 +16,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Nothing is saved to the device: no object URL, no download, nothing that
 // embeds the PDF, and nothing new in the browser's storage. A reload resumes
 // from IndexedDB, straight back to the review, and the form fills again
-// from the answers kept on the device.
+// from the answers kept on the device. Leaving the page, by any route,
+// takes the filled pages off the screen.
 //
 // pdf.js itself is a stand-in here (jsdom has no canvas): it reads the page
 // count and sizes of the bytes it is given with pdf-lib, records them, and
@@ -147,6 +148,13 @@ const PRIVATE_VALUES = [
   "704-555-0142",
 ];
 
+/**
+ * The end of /intake's status line, which announces what the show and
+ * print buttons did. Each answer's status badge is a status too, so the
+ * line is found by where it sits: right in the review section.
+ */
+const STATUS_LINE = "[data-review-section] > [role='status']";
+
 /** What the stand-in pdf.js was given and made, and how it is set to behave. */
 const pdfjs = {
   /** Whether importing pdf.js fails, as a dropped connection would make it. */
@@ -210,6 +218,8 @@ let requests: { url: string; init?: RequestInit }[];
 /** Every attempt to hand the browser a file: object URLs and clicked download links. */
 let saves: string[];
 let printed: number;
+/** Whether window.print() starts printing, as a browser does, or is ignored, as some in-app browsers do. */
+let printOpens: boolean;
 
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -217,6 +227,7 @@ beforeEach(() => {
   requests = [];
   saves = [];
   printed = 0;
+  printOpens = true;
   pdfjs.failLoad = false;
   pdfjs.drawGate = null;
   pdfjs.documents = [];
@@ -253,8 +264,14 @@ beforeEach(() => {
       saves.push(`download ${this.download}`);
     }
   });
+  // A browser that prints fires beforeprint as its print window opens, and
+  // afterprint once it closes.
   vi.stubGlobal("print", () => {
     printed += 1;
+    if (printOpens) {
+      window.dispatchEvent(new Event("beforeprint"));
+      window.dispatchEvent(new Event("afterprint"));
+    }
   });
   window.localStorage.clear();
   window.sessionStorage.clear();
@@ -513,6 +530,8 @@ describe("/intake to the review and the filled form, on the device", () => {
       expect(canvases).toHaveLength(1);
       expect([canvases[0].width, canvases[0].height]).toEqual([1275, 1650]);
     });
+    // Focus went to the pages' heading, so a screen reader lands on them.
+    expect(document.activeElement).toBe(preview?.querySelector("h2"));
     expect(first.pages.map(({ canvases }) => canvases[0])).toEqual(pdfjs.drawnOn);
     // The heading outline still never skips a level.
     const levels = [...page.container.querySelectorAll("[data-device-results] :is(h2, h3, h4)")].map((heading) =>
@@ -527,12 +546,14 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(browserStorage()).toEqual(storedBefore);
     expect(storedBefore.indexedDB).toEqual(["kv/intake-answers", "kv/intake-answers-key"]);
 
-    // A change to a typed answer drops the pages: they no longer match.
+    // A change to a typed answer drops the pages: they no longer match,
+    // and the word that they are ready goes with them.
     const shown = first.pages.map(({ canvases }) => canvases[0]);
     await page.type(nameInput!, `${TYPED_NAME} Jr.`);
     expect(page.pages()).toEqual([]);
     expect(page.container.querySelector("[data-print-preview]")).toBeNull();
     expectReleased(shown);
+    expect(page.text()).not.toContain(page.copy.ready);
 
     // The only requests: the cookie-only check, then the blank form, bodiless and cookieless.
     expect(requests.map((request) => request.url)).toEqual(["/api/intake/state", "/forms/dhb-5200.pdf"]);
@@ -851,7 +872,11 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(pdfjs.documents).toEqual([]);
     expect(page.pages()).toEqual([]);
     expect(page.container.querySelector("[data-print-preview]")).toBeNull();
-    expect(page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')?.disabled).toBe(false);
+    // The button is back, ready for another try, and nothing says the form is still being filled in.
+    const button = page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]');
+    expect(button?.getAttribute("aria-disabled")).toBeNull();
+    expect(button?.textContent).toBe(page.copy.showFormButton);
+    expect(page.text()).not.toContain(page.copy.showingForm);
     expectNothingSaved();
 
     // A dropped connection isn't kept: the next press loads pdf.js and shows the form.
@@ -871,8 +896,19 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.type(nameInput, TYPED_NAME);
     const gate = Promise.withResolvers<void>();
     pdfjs.drawGate = gate.promise;
-    await page.click(page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')!);
+    const show = page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')!;
+    show.focus();
+    await page.click(show);
     await page.waitFor(() => pdfjs.drawnOn.length > 0, "the first page to start drawing");
+    // While the form is prepared the button is busy, not disabled, so it
+    // keeps focus, and the status line says what is happening.
+    expect(show.getAttribute("aria-disabled")).toBe("true");
+    expect(show.disabled).toBe(false);
+    expect(document.activeElement).toBe(show);
+    expect(page.container.querySelector(STATUS_LINE)?.textContent).toBe(page.copy.showingForm);
+    // A second press meanwhile starts nothing.
+    await page.click(show);
+    expect(pdfjs.documents).toHaveLength(1);
 
     // The name changes while the first page draws, and then the drawing finishes.
     await page.type(nameInput, `${TYPED_NAME} Jr.`);
@@ -880,16 +916,15 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.act(async () => {
       gate.resolve();
     });
-    await page.waitFor(
-      () => !page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')?.disabled,
-      "the drawing to stop",
-    );
+    await page.waitFor(() => show.getAttribute("aria-disabled") === null, "the drawing to stop");
     expect(page.pages()).toEqual([]);
     expect(pdfjs.drawnOn).toHaveLength(1);
     expectReleased(pdfjs.drawnOn);
-    // Nothing failed: the person changed an answer.
+    // Nothing failed: the person changed an answer. Nothing says the form
+    // is being filled in or is ready, either.
     expect(page.text()).not.toContain(page.copy.failed);
     expect(page.text()).not.toContain(page.copy.ready);
+    expect(page.container.querySelector(STATUS_LINE)?.textContent).toBe("");
 
     // Shown again, the form has the new name.
     const filled = await page.showForm();
@@ -948,4 +983,143 @@ describe("/intake to the review and the filled form, on the device", () => {
     await act(async () => root.unmount());
     container.remove();
   }, 60_000);
+
+  it("lets go of the pages the moment the page is left for another site, so Back never shows them", async () => {
+    // A browser can keep a page it leaves and show it again on Back, for
+    // the next person at a shared computer. pagehide comes just before
+    // that, and React may not render again until the page comes back, so
+    // the canvases go at once.
+    const view = await results();
+    await view.show();
+    await view.waitFor(() => view.canvases().length === 21, "the pages");
+    const shown = view.canvases();
+    await view.act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+      expectReleased(shown);
+    });
+    expect(view.container.querySelector("[data-print-preview]")).toBeNull();
+    expect(view.status()).not.toContain(view.copy.ready);
+
+    // Back from that cache, the form can be shown again.
+    window.dispatchEvent(new Event("pageshow"));
+    await view.show();
+    await view.waitFor(() => view.canvases().length === 21, "the pages again");
+    expectNothingSaved();
+    await view.unmount();
+  }, 60_000);
+
+  it("never shows pages from a drawing still running when the page was left", async () => {
+    const view = await results();
+    const gate = Promise.withResolvers<void>();
+    pdfjs.drawGate = gate.promise;
+    await view.show();
+    await view.waitFor(() => pdfjs.drawnOn.length > 0, "the drawing to start");
+    await view.act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    // The page comes back from the cache and the drawing carries on to the end.
+    pdfjs.drawGate = null;
+    await view.act(async () => {
+      gate.resolve();
+    });
+    await view.waitFor(() => view.showButton().getAttribute("aria-disabled") === null, "the drawing to end");
+    expect(pdfjs.drawnOn).toHaveLength(21);
+    expect(view.container.querySelector("[data-print-preview]")).toBeNull();
+    expectReleased(pdfjs.drawnOn);
+    expect(view.status()).toBe("");
+    expectNothingSaved();
+    await view.unmount();
+  }, 60_000);
+
+  it("says how to print when the browser ignores Print, and takes it back if printing starts after all", async () => {
+    // Some in-app browsers ignore window.print(). With the download gone,
+    // a button that silently did nothing would leave the person no way out.
+    printOpens = false;
+    const view = await results();
+    await view.show();
+    await view.waitFor(() => view.canvases().length === 21, "the pages");
+    const print = view.container.querySelector<HTMLButtonElement>('[data-action="print"]')!;
+    await view.act(async () => {
+      print.click();
+    });
+    expect(printed).toBe(1);
+    // The browser gets a moment to start printing first.
+    expect(view.status()).not.toBe(view.copy.printUnavailable);
+    await view.waitFor(() => view.status() === view.copy.printUnavailable, "the print notice");
+    expect(view.copy.printUnavailable).toContain("open this page in a browser such as Safari or Chrome");
+    expect(view.copy.printUnavailable).toContain("Answers saved in this browser don't move to another one");
+    // Printing that starts late takes the notice back.
+    await view.act(async () => {
+      window.dispatchEvent(new Event("beforeprint"));
+    });
+    expect(view.status()).toBe("");
+
+    // A browser that prints never shows it.
+    printOpens = true;
+    await view.act(async () => {
+      print.click();
+      await new Promise((done) => setTimeout(done, view.printCheckMs + 200));
+    });
+    expect(printed).toBe(2);
+    expect(view.status()).not.toBe(view.copy.printUnavailable);
+    expectNothingSaved();
+    await view.unmount();
+  }, 60_000);
 });
+
+/**
+ * The end of /intake on its own, for a synthetic person who has answered
+ * one question, with ways to show the filled form and read the screen.
+ */
+async function results() {
+  vi.resetModules();
+  mockPdfJs();
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { DEVICE_RESULTS_COPY, DeviceResults, PRINT_CHECK_MS } = await import("./device-results");
+  const { EMPTY_CLIENT_ANSWERS, saveClientAnswer } = await import("../../lib/intake/client-store");
+  const answers = saveClientAnswer(EMPTY_CLIENT_ANSWERS, {
+    questionId: "state",
+    status: "known",
+    provenance: "user_supplied",
+    value: "NC",
+  });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const { act } = React;
+  await act(async () => {
+    root.render(
+      React.createElement(DeviceResults, { answers, typedAnswers: { values: {}, onChange: () => undefined } }),
+    );
+  });
+  const showButton = () => container.querySelector<HTMLButtonElement>('[data-action="show-form"]')!;
+  return {
+    container,
+    act,
+    copy: DEVICE_RESULTS_COPY,
+    printCheckMs: PRINT_CHECK_MS,
+    showButton,
+    async show() {
+      await act(async () => {
+        showButton().click();
+      });
+    },
+    async waitFor(check: () => boolean, what: string) {
+      for (let i = 0; i < 400 && !check(); i += 1) {
+        await act(async () => {
+          await new Promise((done) => setTimeout(done, 10));
+        });
+      }
+      if (!check()) {
+        throw new Error(`timed out waiting for ${what}`);
+      }
+    },
+    canvases: () => [...container.querySelectorAll<HTMLCanvasElement>("[data-print-page] canvas")],
+    status: () => container.querySelector(STATUS_LINE)?.textContent ?? "",
+    async unmount() {
+      await act(async () => root.unmount());
+      container.remove();
+    },
+  };
+}

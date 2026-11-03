@@ -40,17 +40,25 @@ import type { MatchCard, MatchSourceCitation } from "../../lib/match-core";
 // (lib/intake/device-print.ts), both kept out of the page's first load,
 // fills the form here, and draws its pages on this page so the person can
 // check them and print them to sign and send in. No answer is sent
-// anywhere, and nothing is saved to the device: no file, no download, and
-// nothing in the browser's storage. The owner chose printing over a
-// download on HACK-115 (Nov 3), because a downloaded PDF is an unencrypted
-// copy of every answer that deleting the answers can't reach. The pages
-// last only while they match the answers: a change to any answer, typed
-// ones included, drops them, and so does leaving the page, and a drop
+// anywhere, and the filled form is never saved to the device: no file, no
+// download, and nothing in the browser's storage. The owner chose printing
+// over a download on HACK-115 (Nov 3), because a downloaded PDF is an
+// unencrypted copy of every answer that deleting the answers can't reach.
+// The pages last only while they match the answers: a change to any
+// answer, typed ones included, drops them, and so does leaving the page,
+// whether for another screen of the app or another site (pagehide, so a
+// page the browser keeps for Back comes back without them), and a drop
 // releases their canvases. Answers typed here for the form's other fields
 // live only in this page's memory, held by the wizard so going back to a
 // question doesn't lose them. With the pages, the page lists what the form
 // left blank and any question the person checked more than one box for,
 // which the fill prints as given and flags.
+//
+// The show button keeps focus while the form is prepared (it is marked
+// busy rather than disabled), the status line says what is happening, and
+// focus moves to the pages' heading once they are drawn. Some in-app
+// browsers ignore window.print(), so a print press the browser never acts
+// on says how to print instead.
 //
 // Private answers never appear on this screen as text: the review shows
 // their status and provenance, and the match never carries them. The
@@ -118,6 +126,11 @@ export const DEVICE_RESULTS_COPY = {
     "When the print window opens, choose a printer. Saving the form as a " +
     "PDF there would leave a copy of every answer on this device as an " +
     "ordinary file.",
+  printUnavailable:
+    "This browser didn't open a print window. To print your form, open " +
+    "this page in a browser such as Safari or Chrome. Answers saved in " +
+    "this browser don't move to another one, so you'll answer the " +
+    "questions again there.",
   leftBlankHeading: "Left blank on the form below",
   coverageHeading: "Every field, accounted for",
   coverageDetails: "Why each blank field stays blank",
@@ -309,6 +322,13 @@ function MatchCardView({ card }: { card: MatchCard }) {
   );
 }
 
+/**
+ * How long after a print press the browser has to start printing before
+ * the page says it didn't. Every browser that prints fires beforeprint as
+ * it starts, well inside this.
+ */
+export const PRINT_CHECK_MS = 2_000;
+
 /** A canvas for one page of the filled form. It lives only on this page. */
 function createPrintCanvas(width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
@@ -371,6 +391,13 @@ export function DeviceResults(props: {
   const [filled, setFilled] = useState<FilledForm | null>(null);
   const [notice, setNotice] = useState("");
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The pages on screen, for leaving the page to reach without a render. */
+  const onScreen = useRef<FilledForm | null>(null);
+  /** How many times the page has been left, so a drawing started before that is never shown. */
+  const leaves = useRef(0);
+  const previewHeading = useRef<HTMLHeadingElement | null>(null);
+  /** Set when the person's press brings the pages up, so focus follows them. */
+  const focusPreview = useRef(false);
 
   // The pages show the form their answers fill, so a change to any answer,
   // typed ones included, drops them in the same render: they never show
@@ -380,10 +407,16 @@ export function DeviceResults(props: {
   }
 
   // Pages that leave the screen are released at once: replaced, dropped
-  // for a change, or gone with this screen.
+  // for a change, or gone with this screen. Pages the person just asked for
+  // take focus to their heading, so a screen reader lands on them.
   useEffect(() => {
+    onScreen.current = filled;
     if (filled === null) {
       return;
+    }
+    if (focusPreview.current) {
+      focusPreview.current = false;
+      previewHeading.current?.focus();
     }
     return () => filled.drawn.release();
   }, [filled]);
@@ -399,6 +432,19 @@ export function DeviceResults(props: {
     },
     [],
   );
+
+  // So does leaving for another site or closing the tab. The browser may
+  // keep the page to show again on Back, so the canvases are released at
+  // once, before it is put away, rather than on the next render.
+  useEffect(() => {
+    const leave = () => {
+      leaves.current += 1;
+      onScreen.current?.drawn.release();
+      setFilled(null);
+    };
+    window.addEventListener("pagehide", leave);
+    return () => window.removeEventListener("pagehide", leave);
+  }, []);
 
   // Filling stops when the answers it started from change or this screen
   // goes away: pages drawn from older answers would be stale.
@@ -419,6 +465,50 @@ export function DeviceResults(props: {
     noticeTimer.current = setTimeout(() => setNotice(message), 30);
   }, []);
 
+  // Word that the form is being filled in, or is ready below, lasts only
+  // while that is true: the pages can go without a new announcement (an
+  // answer changed, or the page was left), and so can the work on them.
+  const status =
+    (notice === DEVICE_RESULTS_COPY.ready && filled === null) ||
+    (notice === DEVICE_RESULTS_COPY.showingForm && !busy)
+      ? ""
+      : notice;
+
+  // A browser that prints fires beforeprint as it starts. One that ignores
+  // window.print() (some in-app browsers do) never does, and a print press
+  // there says how to print instead of doing nothing. A print that starts
+  // late takes that back.
+  const printStarted = useRef(false);
+  const printCheck = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const started = () => {
+      printStarted.current = true;
+      setNotice((current) => (current === DEVICE_RESULTS_COPY.printUnavailable ? "" : current));
+    };
+    window.addEventListener("beforeprint", started);
+    window.addEventListener("afterprint", started);
+    return () => {
+      window.removeEventListener("beforeprint", started);
+      window.removeEventListener("afterprint", started);
+      if (printCheck.current) {
+        clearTimeout(printCheck.current);
+      }
+    };
+  }, []);
+
+  function printForm(): void {
+    printStarted.current = false;
+    if (printCheck.current) {
+      clearTimeout(printCheck.current);
+    }
+    window.print();
+    printCheck.current = setTimeout(() => {
+      if (!printStarted.current) {
+        announce(DEVICE_RESULTS_COPY.printUnavailable);
+      }
+    }, PRINT_CHECK_MS);
+  }
+
   async function showFilledForm(): Promise<void> {
     if (busy) {
       return;
@@ -429,9 +519,11 @@ export function DeviceResults(props: {
       return;
     }
     const signal = answersSignal.current ?? new AbortController().signal;
+    const leavesBefore = leaves.current;
     // Pages already on screen go first: the form is drawn again from scratch.
     setFilled(null);
     setBusy(true);
+    announce(DEVICE_RESULTS_COPY.showingForm);
     try {
       const [template, { fillFormOnDevice }, { renderPrintPreview }] = await Promise.all([
         loadDeviceTemplate(DEVICE_FORM_ENTRY),
@@ -452,10 +544,13 @@ export function DeviceResults(props: {
         return;
       }
       const drawn = await renderPrintPreview(result.outcome.bytes, createPrintCanvas, signal);
-      if (signal.aborted) {
+      // Pages drawn from answers that have since changed, or for a page the
+      // person has left, are never shown.
+      if (signal.aborted || leaves.current !== leavesBefore) {
         drawn.release();
         return;
       }
+      focusPreview.current = true;
       setFilled({
         drawn,
         leftBlank: result.outcome.toResolve,
@@ -467,6 +562,7 @@ export function DeviceResults(props: {
     } catch {
       // An answer changed or the screen went away while the form was being
       // drawn: nothing failed, and the person sees the change they made.
+      // Anything else, a pdf.js that stopped answering included, failed.
       if (!signal.aborted) {
         announce(DEVICE_RESULTS_COPY.failed);
       }
@@ -640,12 +736,14 @@ export function DeviceResults(props: {
         ) : null}
         <div className="flex flex-col gap-2">
           <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.showFormNote}</p>
+          {/* Busy, not disabled, while the form is prepared: a disabled
+          button would drop the focus it has. A press meanwhile does nothing. */}
           <button
             type="button"
-            disabled={busy}
+            aria-disabled={busy || undefined}
             onClick={() => void showFilledForm()}
             data-action="show-form"
-            className="self-start rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
+            className="self-start rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal aria-disabled:opacity-50"
           >
             {busy ? DEVICE_RESULTS_COPY.showingForm : DEVICE_RESULTS_COPY.showFormButton}
           </button>
@@ -663,12 +761,17 @@ export function DeviceResults(props: {
             </ul>
           </div>
         ) : null}
-        <StatusRegion message={notice} className="text-sm text-muted" />
+        <StatusRegion message={status} className="text-sm text-muted" />
       </section>
 
       {filled !== null ? (
         <section aria-labelledby="device-print-heading" data-print-preview className="flex flex-col gap-3">
-          <h2 id="device-print-heading" className="font-display text-2xl font-bold">
+          <h2
+            id="device-print-heading"
+            ref={previewHeading}
+            tabIndex={-1}
+            className="font-display text-2xl font-bold"
+          >
             {DEVICE_RESULTS_COPY.previewHeading}
           </h2>
           <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.previewBody}</p>
@@ -676,7 +779,7 @@ export function DeviceResults(props: {
             <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.printNote}</p>
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={printForm}
               data-action="print"
               className="self-start rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal"
             >
