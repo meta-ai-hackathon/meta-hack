@@ -2122,6 +2122,11 @@ async function intakeLogic() {
   };
 }
 
+/** The persona's household names, from the plan itself. */
+const ROSTER_NAMES = JOURNEY_PLAN.find((step) => step.id === "household_roster").value.map(
+  (member) => member.displayName,
+);
+
 /**
  * An in-memory app whose intake routes run that logic. The answer route
  * validates with canonicalAnswerValue, the rules validateAnswerInput
@@ -2309,6 +2314,44 @@ describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout:
     );
   });
 
+  it("the persona's household list matches its counts, and every who-and-which-months entry names a member and a situation the persona reported", async () => {
+    const logic = await intakeLogic();
+    const { rosterFromAnswers } = await import("../src/lib/intake/roster");
+    const { applicableSituations, currentAttribution, parseAttribution } = await import(
+      "../src/lib/intake/attribution"
+    );
+    const app = flowBackedApp(logic);
+    const walk = new Walkthrough("http://fake.test", 1000, app.transport);
+    await expect(walk.run()).resolves.toBe(true);
+    const answers = app.answers();
+    const planned = (id) => JOURNEY_PLAN.find((step) => step.id === id).value;
+    // The roster the store keeps tells the same story as the counts.
+    const roster = rosterFromAnswers(answers);
+    expect(roster).toHaveLength(planned("household_size"));
+    expect(
+      roster.filter((member) => ["under_14", "14_to_17"].includes(member.ageBand)),
+    ).toHaveLength(planned("household_children"));
+    expect(
+      roster.filter((member) => ["60_to_64", "65_plus"].includes(member.ageBand)),
+    ).toHaveLength(planned("household_seniors"));
+    expect(roster.filter((member) => member.relationship === "self")).toHaveLength(1);
+    // Read back the way the review reads it, against the current roster
+    // and the situations the persona's own answers make applicable, the
+    // attribution loses nothing, and every reported situation has someone.
+    const attribution = currentAttribution(answers);
+    expect(attribution).toEqual(parseAttribution(planned("wr_who_months")));
+    const attributed = new Set(attribution.map((entry) => entry.situationId));
+    expect(applicableSituations(answers).map((situation) => situation.id).sort()).toEqual(
+      [...attributed].sort(),
+    );
+    // The parent of a child under 18 with $580 a month: the reporting
+    // section, per-person work rows included, stays hidden.
+    expect(app.answeredIds).not.toContain("wr_work_rows");
+    // Every name reached the store as a private value the walk tracked,
+    // and none of them came back in a body (the walk passed).
+    expect(walk.privateValues).toEqual(expect.arrayContaining(ROSTER_NAMES));
+  });
+
   it("PROPERTY: every plan-served journey completes on the real flow, whatever share of the persona's answers its session already holds", async () => {
     // The journeys reach the flow from different points: the wizard from
     // a fresh session, the sprint and typed journeys after their quick-
@@ -2316,7 +2359,9 @@ describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout:
     // already holds any subset of the persona's own answers covers both,
     // and any stage a later change runs first, so the plan's coverage can
     // never hinge on which stage saved what. The held set shrinks toward
-    // the fresh session the CLI starts from.
+    // the fresh session the CLI starts from. Whichever journey saved the
+    // household roster, every name on it is a private value the walk
+    // checked every later body for.
     const logic = await intakeLogic();
     // Each walk prints a full transcript; a failure reports the error
     // that stopped it, which names the question the plan does not cover.
@@ -2331,6 +2376,9 @@ describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout:
             const walk = new Walkthrough("http://fake.test", 1000, app.transport);
             await expect(PLAN_SERVED_JOURNEYS[journey](walk)).resolves.toBe(true);
             expect(walk.violations).toEqual([]);
+            if (app.answeredIds.includes("household_roster")) {
+              expect(walk.privateValues).toEqual(expect.arrayContaining(ROSTER_NAMES));
+            }
           },
         ),
         {
@@ -2343,3 +2391,85 @@ describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout:
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// The household roster's names are private values (HACK-133). Since #142
+// (HACK-134) a person types the first name or nickname of everyone in the
+// household, so the walkthrough tracks each name it saves, the way it
+// tracks a typed text answer, and checks every later body for them.
+// ---------------------------------------------------------------------------
+
+describe("the household roster's names are private values (HACK-133)", () => {
+  it("a roster name that comes back in a later body stops the walk without repeating it", async () => {
+    const rosterQ = v2Question("household_roster", { pii: true, type: "roster" });
+    const sourcesQ = v2Question("income_sources", { type: "multi_select" });
+    const echoed = {
+      ...clientState([rosterQ, sourcesQ], { household_roster: { status: "known" } }, 1),
+      greeting: `Welcome back, ${ROSTER_NAMES[1]}`,
+    };
+    const transport = fakeTransport([
+      { method: "POST", path: "/api/intake/answer", respondNext: queue([jsonResponse(200, echoed)]) },
+    ]);
+    const walk = new Walkthrough("http://fake.test", 1000, transport);
+    walk.state = clientState([rosterQ, sourcesQ], {}, 0);
+    const { stopped } = await walk.answerFlowLocally();
+    expect(stopped).toBe(true);
+    expect(walk.violations.map((violation) => violation.kind)).toEqual(["pii_value_exposure"]);
+    const transcript = walk.lines.join("\n");
+    for (const name of ROSTER_NAMES) {
+      expect(transcript).not.toContain(name);
+    }
+  });
+
+  it("PROPERTY: the names a roster answer tracks are exactly the names the store keeps", async () => {
+    const { parseRoster, RELATIONSHIP_VALUES, AGE_BAND_VALUES } = await import(
+      "../src/lib/intake/roster"
+    );
+    const rosterQ = v2Question("household_roster", { pii: true, type: "roster" });
+    // A name as a person types it: a letter, then anything, with stray
+    // spaces around it, which the store trims away.
+    const padding = fc.constantFrom("", " ", "  ", "\t");
+    const name = fc
+      .tuple(padding, fc.constantFrom(..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"), fc.string({ maxLength: 30 }), padding)
+      .map((parts) => parts.join(""));
+    const others = RELATIONSHIP_VALUES.filter((relationship) => relationship !== "self");
+    const member = fc.record({
+      displayName: name,
+      relationship: fc.constantFrom(...others),
+      ageBand: fc.constantFrom(...AGE_BAND_VALUES),
+    });
+    // At most one member is the person themselves, as the store requires.
+    const roster = fc
+      .tuple(fc.array(member, { minLength: 1, maxLength: 6 }), fc.boolean())
+      .map(([members, firstIsSelf]) =>
+        members.map((item, index) => ({
+          id: `member-${index + 1}`,
+          ...item,
+          ...(firstIsSelf && index === 0 ? { relationship: "self" } : {}),
+        })),
+      );
+    fc.assert(
+      fc.property(roster, fc.constantFrom("known", "unverified", "unknown"), (value, status) => {
+        const stored = parseRoster(value);
+        expect(stored).not.toBeNull();
+        const tracked = Walkthrough.privateStringsOf(rosterQ, { id: rosterQ.id, status, value });
+        expect(tracked).toEqual(status === "unknown" ? [] : stored.map((item) => item.displayName));
+      }),
+    );
+  });
+
+  it("attribution entries, work rows and select answers carry no names to track", () => {
+    for (const id of ["wr_who_months", "wr_work_rows", "wr_exempt_situations"]) {
+      const step = JOURNEY_PLAN.find((item) => item.id === id);
+      const type = { wr_who_months: "attribution", wr_work_rows: "work_activity" }[id] ?? "multi_select";
+      expect(Walkthrough.privateStringsOf(v2Question(id, { pii: true, type }), step), id).toEqual([]);
+    }
+    // Text and date answers are tracked as before; a non-private one never.
+    const text = { id: "county", status: "known", value: "Contra Costa County" };
+    expect(Walkthrough.privateStringsOf(v2Question("county", { pii: true, type: "text" }), text)).toEqual([
+      "Contra Costa County",
+    ]);
+    expect(Walkthrough.privateStringsOf(v2Question("county", { type: "text" }), text)).toEqual([]);
+  });
+});
+

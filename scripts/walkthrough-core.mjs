@@ -86,6 +86,9 @@ export function exitCodeForRun(completed) {
 //   - known answers that trigger follow-ups (household_children=2 keeps
 //     childcare_cost; housing_status=rental_or_own keeps housing_cost and
 //     utilities_cost; contact_preference=email asks email_contact),
+//   - the household's named members and who each work-requirements
+//     situation applies to (HACK-134/135), consistent with the counts and
+//     the situations above,
 //   - honest "not sure" answers with no value, and unverified best guesses.
 // No question classification is duplicated here: which questions are pii
 // comes from the served state payload (the serialization boundary relays
@@ -103,6 +106,20 @@ export const JOURNEY_PLAN = [
   { id: "household_size", status: "known", value: 3 },
   { id: "household_children", status: "known", value: 2 },
   { id: "household_seniors", status: "known", value: 0 },
+  // HACK-134 (#142) asks next who lives in the household, by first name or
+  // nickname. The roster matches the counts above: the persona, an adult
+  // born in 1990, and the two children under 18, with nobody 60 or older.
+  // The names are fictional, like the rest of the persona, and every one
+  // is tracked as a private value: none may reappear in any client body.
+  {
+    id: "household_roster",
+    status: "known",
+    value: [
+      { id: "member-1", displayName: "Jamie", relationship: "self", ageBand: "18_to_54" },
+      { id: "member-2", displayName: "Milo", relationship: "child", ageBand: "under_14" },
+      { id: "member-3", displayName: "Juno", relationship: "child", ageBand: "14_to_17" },
+    ],
+  },
   { id: "income_sources", status: "known", value: ["job", "benefits"] },
   { id: "income_kind", status: "known", value: "both" },
   { id: "self_employment_statements_offer", status: "known", value: "will_share" },
@@ -136,12 +153,12 @@ export const JOURNEY_PLAN = [
   // The work-requirements questions (milestone work-requirements), in spec
   // order. The persona is a parent of a child under 18 whose household
   // makes at least $580 a month — so the Civilla two-section design's
-  // reporting section (wr_work_activity_who/types/hours) is never asked
-  // (the exemption and income paths hide it), and neither is the
-  // which-situations follow-up (wr_applied_last_month = no). The four
-  // branch-covered ids below are still plan entries — the coverage check
-  // demands the plan can answer anything the flow could ask if an answer
-  // landed differently than intended.
+  // reporting section (wr_work_activity_who/types/hours and the per-person
+  // wr_work_rows) is never asked (the exemption and income paths hide it),
+  // and neither is the which-situations follow-up (wr_applied_last_month =
+  // no). The five branch-covered ids below are still plan entries — the
+  // coverage check demands the plan can answer anything the flow could ask
+  // if an answer landed differently than intended.
   { id: "wr_exempt_situations", status: "known", value: ["parent_child_under_18"] },
   { id: "wr_pregnant", status: "known", value: "no" },
   { id: "wr_drug_alcohol_treatment", status: "known", value: "no" },
@@ -159,6 +176,19 @@ export const JOURNEY_PLAN = [
   { id: "wr_hospital_care_24hr", status: "known", value: "no" },
   { id: "wr_student_enrolled", status: "known", value: "not_enrolled" },
   { id: "wr_income_580", status: "known", value: "yes" },
+  // HACK-135 (#143) asks next, for each situation answered above, who it
+  // applies to and in which months. The persona is the parent of the two
+  // children and earns the household's paycheck, in both months. Each
+  // entry names a roster member and a situation the persona reported, so
+  // reading the answer back prunes nothing.
+  {
+    id: "wr_who_months",
+    status: "known",
+    value: [
+      { memberId: "member-1", situationId: "parent_child_under_18", months: "both" },
+      { memberId: "member-1", situationId: "wr_income_580", months: "both" },
+    ],
+  },
   // Branch coverage: the work-activity reporting section, asked only when
   // no exemption/income/student path applies (the persona's answers hide
   // it). The who is free-form private content; the hours number is NOT
@@ -168,6 +198,15 @@ export const JOURNEY_PLAN = [
   { id: "wr_work_activity_who", status: "known", value: "Me and my sister", privateValue: "Me and my sister" },
   { id: "wr_work_activity_types", status: "known", value: ["job_internship", "caregiving"] },
   { id: "wr_work_activity_hours", status: "known", value: 30 },
+  // Branch coverage too: the per-person work rows (HACK-128, #144), one
+  // row per person and activity with that person's hours last month,
+  // never summed across people. The row is the one the editor offers from
+  // the persona's job income: the persona's own year-round job.
+  {
+    id: "wr_work_rows",
+    status: "known",
+    value: [{ memberId: "member-1", activity: "job_internship", hours: 160 }],
+  },
 ];
 
 const PLAN_BY_ID = new Map(JOURNEY_PLAN.map((step) => [step.id, step]));
@@ -1917,6 +1956,35 @@ export class Walkthrough {
   }
 
   /**
+   * The private free-form strings one planned answer to a pii question
+   * carries, which every later body is checked for: a text or date answer
+   * is the person's own words, and so is each name on a household roster
+   * (the first names or nicknames the person types, HACK-134). Select
+   * options, attribution entries and work rows are spec vocabulary, member
+   * ids and hours: vocabulary legitimately appears in every payload's
+   * option lists and digits over-match, so the structural check in
+   * scanResponse (no `value` key under a pii question, ever) carries the
+   * boundary for those.
+   */
+  static privateStringsOf(question, step) {
+    if (question.pii !== true || step.status === "unknown") {
+      return [];
+    }
+    if (question.type === "text" || question.type === "date") {
+      return [String(step.value)];
+    }
+    if (question.type === "roster" && Array.isArray(step.value)) {
+      // Trimmed, the way the store keeps each name (parseRoster).
+      return step.value
+        .map((member) =>
+          typeof member?.displayName === "string" ? member.displayName.trim() : "",
+        )
+        .filter((name) => name !== "");
+    }
+    return [];
+  }
+
+  /**
    * The wizard's answer loop: answer whatever question the flow shows
    * next through the local answer route (POST /api/intake/answer — no
    * model in the loop), observing the skip behavior, tracking private
@@ -1946,7 +2014,6 @@ export class Walkthrough {
         );
       }
       const isPii = question.pii === true;
-      const isFreeForm = question.type === "text" || question.type === "date";
 
       const beforeIds = new Set(state.questions.map((item) => item.id));
       const answer = await this.transport(
@@ -1967,14 +2034,13 @@ export class Walkthrough {
       }
       answerNumber += 1;
 
-      if (isPii && step.status !== "unknown" && isFreeForm) {
-        // Track private free-form content (text/date answers) so every
-        // later body is scanned for it. Select-option values are spec
-        // vocabulary — they legitimately appear in every payload's option
-        // list — so the PII boundary for those rests on the structural
-        // check in scanResponse (no `value` key under a pii question, ever).
-        this.privateValues.push(String(step.value));
-      }
+      // Track private free-form content (text/date answers, and the names
+      // on a household roster) so every later body is scanned for it.
+      // Select-option values are spec vocabulary — they legitimately
+      // appear in every payload's option list — so the PII boundary for
+      // those rests on the structural check in scanResponse (no `value`
+      // key under a pii question, ever); privateStringsOf says which.
+      this.privateValues.push(...Walkthrough.privateStringsOf(question, step));
       this.noteSavedAnswer(step.id, isPii && step.status !== "unknown");
       this.log(
         `ANSWER ${String(answerNumber).padStart(2, "0")}  ${step.id} = ` +
