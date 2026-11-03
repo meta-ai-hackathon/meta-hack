@@ -740,12 +740,31 @@ const PLAIN_NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
  * of these separators (2026-10-30, 10/08/2026, 10:30, 1.5, 1,000). A letter
  * or a word after it is a unit (0hrs, 20-hour, 20/week), so the number
  * still stands as its own number there. These are the trigger's edges, and
- * the excusal's are stricter (standaloneNumberPattern).
+ * the excusal's are stricter (standaloneNumberPattern). An answer inside a
+ * range, ratio, or id ("20-30 hours", "20–30 hours" with an en dash, "v30")
+ * is not caught yet, and public copy that glues the answer to a letter or
+ * number outside ASCII ("1½ hours") still fails the match (HACK-124).
+ *
+ * The trigger keeps ASCII letters and digits, so a leak glued to a letter
+ * outside ASCII, behind a bidi mark, or before a superscript still shows
+ * the number. Between two digits it reads every joiner the excusal does,
+ * so a range or date printed with an en dash is one token to both, and
+ * public copy never trips the trigger where the excusal would refuse it.
+ *
+ * The excusal reads every script: any letter, mark, or number character is
+ * part of a token. Each separator also joins in its Unicode look-alikes,
+ * which copy pasted from an official page often prints: hyphens, the en
+ * dash and the minus sign; the fraction and division slashes; the one-dot
+ * leader; and the small and fullwidth forms. An invisible format character
+ * such as a soft hyphen or a zero-width space joins too, and a run of
+ * joiners counts as one. An em dash ends a clause rather than joining a
+ * word, so it does not join.
  */
-const TOKEN_CHAR = "[a-z0-9]";
-const TOKEN_JOINER = "[-./:,_]";
+const TOKEN_CHAR = "[a-zA-Z0-9]";
 const JOINER_AFTER_TOKEN_CHAR = "[-./_]";
-const JOINER_AFTER_DIGIT = "[:,]";
+const UNICODE_TOKEN_CHAR = "[\\p{L}\\p{M}\\p{N}]";
+const UNICODE_TOKEN_JOINER =
+  "[\\-./_:,\\u2010-\\u2013\\u2212\\ufe63\\uff0d\\u2024\\ufe52\\uff0e\\u2044\\u2215\\uff0f\\uff3f\\ufe55\\uff1a\\ufe50\\uff0c\\p{Cf}]+";
 
 /**
  * A plain number answer's digits. Trailing zeros after a decimal point are
@@ -763,9 +782,9 @@ function numberValuePattern(raw: string): string {
  */
 function ownNumberPattern(raw: string): RegExp {
   return new RegExp(
-    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${JOINER_AFTER_TOKEN_CHAR})(?<!\\d${JOINER_AFTER_DIGIT})` +
-      `${numberValuePattern(raw)}(?!\\d)(?!${TOKEN_JOINER}\\d)`,
-    "i",
+    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${JOINER_AFTER_TOKEN_CHAR})(?<!\\d${UNICODE_TOKEN_JOINER})` +
+      `${numberValuePattern(raw)}(?!\\d)(?!${UNICODE_TOKEN_JOINER}\\d)`,
+    "u",
   );
 }
 
@@ -775,13 +794,15 @@ function ownNumberPattern(raw: string): RegExp {
  * either side. A unit or label glued on still shows the answer in a leak,
  * but in the public copy that shape is a longer token, so a "1st", "20h",
  * "24-hour" or "hours:3" there never excuses a leaked 1, 20, 24 or 3
- * (security review on PR #132). "page 1" still excuses 1.
+ * (security review on PR #132), whatever script or hyphen the copy prints
+ * it in. "page 1" still excuses 1.
  */
 function standaloneNumberPattern(raw: string): RegExp {
   return new RegExp(
-    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${TOKEN_JOINER})` +
-      `${numberValuePattern(raw)}(?!${TOKEN_CHAR})(?!${TOKEN_JOINER}${TOKEN_CHAR})`,
-    "i",
+    `(?<!${UNICODE_TOKEN_CHAR})(?<!${UNICODE_TOKEN_CHAR}${UNICODE_TOKEN_JOINER})` +
+      `${numberValuePattern(raw)}` +
+      `(?!${UNICODE_TOKEN_CHAR})(?!${UNICODE_TOKEN_JOINER}${UNICODE_TOKEN_CHAR})`,
+    "iu",
   );
 }
 
