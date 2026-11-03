@@ -451,6 +451,15 @@ describe("the quick-questions stage component", () => {
     expect(posts).toHaveLength(0);
   });
 
+  it("names section navigation so it never reads as saving (HACK-132)", async () => {
+    const { container } = await renderStage();
+    // "Next section" moves between sections; saving stays on each card's
+    // own Save button, so the nav label must not imply a save.
+    expect(q(container, "qq-section-next")?.textContent?.trim()).toBe(
+      "Next section",
+    );
+  });
+
   it("moves focus to the new section's heading on section change (HACK-132)", async () => {
     const { container, act } = await renderStage();
     await act(async () => {

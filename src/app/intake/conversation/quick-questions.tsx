@@ -700,12 +700,14 @@ export function QuickQuestionsStage(props: {
   // Paginated by section (HACK-132, Civilla's section-per-screen online
   // templates): one group is visible at a time instead of every remaining
   // card stacked on one page. Inactive sections stay MOUNTED but hidden,
-  // so an unsaved draft or skip mark survives Back/Continue exactly as it
+  // so an unsaved draft or skip mark survives Back / Next section exactly as it
   // survived scrolling before pagination. The index is clamped by
   // derivation, so when a group empties and drops off (its last card
   // saved), the next group simply takes its place — no state repair
-  // needed. Navigation never blocks: Back/Continue move between sections,
-  // and the talk CTA below is always available whatever section shows.
+  // needed. Navigation never blocks: Back / Next section move between
+  // sections (they never save — each card keeps its own Save button, and
+  // the button is named so it cannot be read as saving), and the talk
+  // CTA below is always available whatever section shows.
   // The active section is tracked by group ID, not raw index: when a
   // save re-derives the group list, an earlier-inserted group cannot
   // silently move the person to a different section. When the active
@@ -738,7 +740,7 @@ export function QuickQuestionsStage(props: {
   };
   // Focus follows the section (HACK-132 review): after a section change,
   // keyboard and screen-reader users land on the new section's heading
-  // instead of being stranded on a removed Continue button. The first
+  // instead of being stranded on a removed nav button. The first
   // render does not steal focus.
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const shownGroupIdRef = useRef<string | undefined>(undefined);
@@ -809,11 +811,7 @@ export function QuickQuestionsStage(props: {
       </div>
       {activeGroup ? (
         <>
-          <p
-            data-qq-section-progress
-            aria-live="polite"
-            className="font-mono text-sm text-muted"
-          >
+          <p data-qq-section-progress className="font-mono text-sm text-muted">
             {`Section ${activeIndex + 1} of ${groups.length}: ${activeGroup.heading}`}
           </p>
           {groups.map((group) => (
@@ -892,7 +890,7 @@ export function QuickQuestionsStage(props: {
                 }
                 className="min-h-12 rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal"
               >
-                Continue
+                Next section
               </button>
             ) : null}
           </div>
