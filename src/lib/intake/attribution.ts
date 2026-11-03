@@ -121,9 +121,9 @@ export function attributionContextFromAnswers(answers: AnswerMap): AttributionCo
 }
 
 /** Loose draft entries for the editor: malformed rows are dropped, never repaired into data. */
-export function draftAttribution(value: unknown): AttributionEntry[] {
+export function draftAttribution(value: unknown, context?: AttributionContext): AttributionEntry[] {
   const parsed = parseAttribution(value);
-  if (parsed) return parsed;
+  if (parsed) return context ? pruneAttribution(parsed, context) : parsed;
   if (!Array.isArray(value)) return [];
   const out: AttributionEntry[] = [];
   for (const raw of value) {
@@ -134,6 +134,13 @@ export function draftAttribution(value: unknown): AttributionEntry[] {
     }
   }
   return out;
+}
+
+/** Drop entries naming a removed member or a no-longer-applicable situation. */
+export function pruneAttribution(entries: readonly AttributionEntry[], context: AttributionContext): AttributionEntry[] {
+  const memberIds = new Set(context.members.map((m) => m.id));
+  const situationIds = new Set(context.situations.map((s) => s.id));
+  return entries.filter((e) => memberIds.has(e.memberId) && situationIds.has(e.situationId));
 }
 
 export function setAttribution(entries: readonly AttributionEntry[], memberId: string, situationId: string, months: Months | null): AttributionEntry[] {

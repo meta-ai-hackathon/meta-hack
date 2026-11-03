@@ -34,11 +34,11 @@ WORK_REQUIREMENTS_IDS = [
     "wr_veteran_100_disabled",
     "wr_applied_last_month",
     "wr_applied_last_month_which",
-    "wr_who_months",
     "wr_medical_travel_1hr",
     "wr_hospital_care_24hr",
     "wr_student_enrolled",
     "wr_income_580",
+    "wr_who_months",
     "wr_work_activity_who",
     "wr_work_activity_types",
     "wr_work_activity_hours",
@@ -89,11 +89,11 @@ SENSITIVE_WORK_REQUIREMENTS_IDS = [
     "wr_veteran_100_disabled",
     "wr_applied_last_month",
     "wr_applied_last_month_which",
-    "wr_who_months",
     "wr_medical_travel_1hr",
     "wr_hospital_care_24hr",
     "wr_student_enrolled",
     "wr_income_580",
+    "wr_who_months",
     "wr_work_activity_who",
     "wr_work_activity_types",
     "wr_work_activity_hours",
@@ -272,6 +272,21 @@ class TestWorkRequirementsQuestions(unittest.TestCase):
             WORK_REQUIREMENTS_IDS,
             "work-requirements questions were not appended at the end",
         )
+
+    def test_attribution_sits_after_every_situation_it_attributes(self):
+        # HACK-135: wr_who_months must follow every question whose answer
+        # can create a situation (exempt list, exemption yeses, $580).
+        ids = [q["id"] for q in self.questions]
+        at = ids.index("wr_who_months")
+        for creator in [
+            "wr_exempt_situations", "wr_pregnant", "wr_drug_alcohol_treatment",
+            "wr_drug_alcohol_disorder", "wr_disability_hard_work",
+            "wr_mental_health_hard_work", "wr_serious_health_condition",
+            "wr_jail_prison_past_4_months", "wr_foster_care_under_26",
+            "wr_veteran_100_disabled", "wr_medical_travel_1hr",
+            "wr_hospital_care_24hr", "wr_income_580",
+        ]:
+            self.assertLess(ids.index(creator), at, creator)
 
     def test_roster_sits_in_the_household_section(self):
         # HACK-134: the roster directly follows the household counts it

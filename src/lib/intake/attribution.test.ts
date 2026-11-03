@@ -4,6 +4,7 @@ import {
   allSituationIds,
   applicableSituations,
   draftAttribution,
+  pruneAttribution,
   entriesForMember,
   parseAttribution,
   setAttribution,
@@ -48,6 +49,19 @@ describe("per-person attribution (HACK-135)", () => {
       expect(entriesForMember(next, "member-2")).toEqual(entriesForMember(entries, "member-2"));
       expect(setAttribution(next, "member-1", "wr_income_580", null).some((x) => x.situationId === "wr_income_580" && x.memberId === "member-1")).toBe(false);
     }));
+  });
+  it("prunes entries for removed members or withdrawn situations", () => {
+    const entries = [
+      { memberId: "member-1", situationId: "wr_income_580", months: "both" as const },
+      { memberId: "member-9", situationId: "wr_income_580", months: "both" as const },
+      { memberId: "member-1", situationId: "wr_pregnant", months: "both" as const },
+    ];
+    const context = {
+      members: [{ id: "member-1", displayName: "Sam", relationship: "self" as const, ageBand: "18_to_54" as const }],
+      situations: [{ id: "wr_income_580", label: "x" }],
+    };
+    expect(pruneAttribution(entries, context)).toEqual([entries[0]]);
+    expect(draftAttribution(entries, context)).toEqual([entries[0]]);
   });
   it("applicable situations come only from yes answers and selected situations", () => {
     const answers: AnswerMap = {

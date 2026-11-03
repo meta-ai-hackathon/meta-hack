@@ -172,7 +172,7 @@ export function QuestionView({
       </fieldset>
     );
   } else if (question.type === "attribution") {
-    const entries = draftAttribution(value);
+    const entries = draftAttribution(value, attributionContext);
     const members = attributionContext?.members ?? [];
     const situations = attributionContext?.situations ?? [];
     control = (
@@ -198,7 +198,7 @@ export function QuestionView({
                       id={`${question.id}-${situation.id}-${member.id}`}
                       value={entry?.months ?? ""}
                       disabled={busy}
-                      onChange={(e) => onValueChange(setAttribution(entries, member.id, situation.id, e.target.value === "" ? null : (e.target.value as Months)))}
+                      onChange={(e) => { const next = setAttribution(entries, member.id, situation.id, e.target.value === "" ? null : (e.target.value as Months)); onValueChange(next.length === 0 ? undefined : next); }}
                       className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
                     >
                       <option value="">Does not apply / not picked yet</option>

@@ -103,11 +103,11 @@ export const QQ_PHASE_ANSWERS = Object.freeze([
   { questionId: "wr_foster_care_under_26", intendedStatus: "known", value: "no" },
   { questionId: "wr_veteran_100_disabled", intendedStatus: "known", value: "no" },
   { questionId: "wr_applied_last_month", intendedStatus: "known", value: "no" },
-  { questionId: "wr_who_months", intendedStatus: "known", value: [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }] },
   { questionId: "wr_medical_travel_1hr", intendedStatus: "known", value: "no" },
   { questionId: "wr_hospital_care_24hr", intendedStatus: "known", value: "no" },
   { questionId: "wr_student_enrolled", intendedStatus: "known", value: "not_enrolled" },
   { questionId: "wr_income_580", intendedStatus: "known", value: "yes" },
+  { questionId: "wr_who_months", intendedStatus: "known", value: [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }] },
 ]);
 
 /**

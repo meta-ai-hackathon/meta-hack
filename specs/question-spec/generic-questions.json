@@ -803,16 +803,7 @@
       ],
       "provenance": "user-supplied"
     },
-    {
-      "id": "wr_who_months",
-      "prompt": "For each situation you told us about, who does it apply to, and which months?",
-      "type": "attribution",
-      "help": "Pick the person or people for each situation, then this month, last month, or both. Pick 'not sure' if you do not know. You can skip this - skipping never blocks your application.",
-      "pii": true,
-      "required": false,
-      "skip_conditions": [],
-      "provenance": "user-supplied"
-    },
+
     {
       "id": "wr_medical_travel_1hr",
       "prompt": "Does anyone applying travel an hour or more to get medical care for themselves or a dependent with a serious health condition (including travel coordination that makes it hard to work)?",
@@ -869,6 +860,16 @@
       ],
       "pii": true,
       "required": true,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_who_months",
+      "prompt": "For each situation you told us about, who does it apply to, and which months?",
+      "type": "attribution",
+      "help": "Pick the person or people for each situation, then this month, last month, or both. Pick 'not sure' if you do not know. You can skip this - skipping never blocks your application.",
+      "pii": true,
+      "required": false,
       "skip_conditions": [],
       "provenance": "user-supplied"
     },
