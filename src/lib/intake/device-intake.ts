@@ -294,11 +294,6 @@ export type DeviceAnswerResult =
   /** Other tabs kept changing the answers; nothing changed. */
   | { readonly kind: "busy"; readonly message: string };
 
-/**
- * Answer one question on the device. The value is checked and canonicalized
- * against the question spec first (as POST /api/intake/answer does), so
- * nothing invalid is kept; an unknown answer keeps no value at all.
- */
 const ATTRIBUTION_TRIGGER_IDS: ReadonlySet<string> = new Set([
   ROSTER_QUESTION_ID,
   "wr_exempt_situations",
@@ -320,6 +315,10 @@ async function withReprunedAttribution(next: DeviceIntake, changedId: string): P
   const pruned = currentAttribution(toAnswerMap(next.answers));
   const stored = parseAttribution(record.value) ?? [];
   if (JSON.stringify(pruned) === JSON.stringify(stored)) return next;
+  // Pruning to empty records "unknown" (the tri-state "not sure"): the
+  // question is optional and stays changeable from the review screen, and
+  // the device store has no delete-one-record operation - an absent record
+  // could not be persisted without one.
   const prunedRecord: ClientAnswerRecord = pruned.length === 0
     ? { questionId: ATTRIBUTION_QUESTION_ID, status: "unknown", provenance: record.provenance, value: null }
     : { questionId: ATTRIBUTION_QUESTION_ID, status: record.status, provenance: record.provenance, value: pruned };
@@ -339,6 +338,11 @@ async function withReprunedAttribution(next: DeviceIntake, changedId: string): P
   return intakeOf(next.store, next.keeping, next.stored, state);
 }
 
+/**
+ * Answer one question on the device. The value is checked and canonicalized
+ * against the question spec first (as POST /api/intake/answer does), so
+ * nothing invalid is kept; an unknown answer keeps no value at all.
+ */
 export async function answerOnDevice(
   intake: DeviceIntake,
   questionId: string,

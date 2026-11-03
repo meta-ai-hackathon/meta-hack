@@ -106,7 +106,7 @@ export function applicableSituations(answers: AnswerMap): AttributionSituation[]
   }
   const income = answers[INCOME_580_SITUATION_ID];
   if (income?.status === "known" && income.value === "yes") {
-    out.push({ id: INCOME_580_SITUATION_ID, label: "Household makes at least $580 a month" });
+    out.push({ id: INCOME_580_SITUATION_ID, label: labelFor(INCOME_580_SITUATION_ID) });
   }
   return out;
 }
