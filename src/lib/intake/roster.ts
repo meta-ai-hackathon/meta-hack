@@ -12,6 +12,7 @@ export const MAX_MEMBER_NAME_LENGTH = 60;
 export const MAX_ROSTER_MEMBERS = 20;
 
 export const RELATIONSHIP_VALUES = [
+  "not_sure",
   "self",
   "spouse_or_partner",
   "child",
@@ -25,15 +26,18 @@ export type Relationship = (typeof RELATIONSHIP_VALUES)[number];
 // Band edges align to the thresholds later attribution must not guess
 // across: under 14 (caregiver), 18 (adult), 55, and 60 (senior counts).
 export const AGE_BAND_VALUES = [
+  "not_sure",
   "under_14",
   "14_to_17",
   "18_to_54",
   "55_to_59",
-  "60_plus",
+  "60_to_64",
+  "65_plus",
 ] as const;
 export type AgeBand = (typeof AGE_BAND_VALUES)[number];
 
 export const RELATIONSHIP_LABELS: Readonly<Record<Relationship, string>> = {
+  not_sure: "Not sure",
   self: "Me",
   spouse_or_partner: "Spouse or partner",
   child: "Child",
@@ -44,11 +48,13 @@ export const RELATIONSHIP_LABELS: Readonly<Record<Relationship, string>> = {
 };
 
 export const AGE_BAND_LABELS: Readonly<Record<AgeBand, string>> = {
+  not_sure: "Not sure",
   under_14: "Under 14",
   "14_to_17": "14 to 17",
   "18_to_54": "18 to 54",
   "55_to_59": "55 to 59",
-  "60_plus": "60 or older",
+  "60_to_64": "60 to 64",
+  "65_plus": "65 or older",
 };
 
 export interface HouseholdMember {
@@ -98,8 +104,8 @@ export function nextMemberId(roster: readonly HouseholdMember[]): string {
   return `member-${n}`;
 }
 
-export function emptyMember(id: string, relationship: Relationship = "other_family"): HouseholdMember {
-  return { id, displayName: "", relationship, ageBand: "18_to_54" };
+export function emptyMember(id: string, relationship: Relationship = "not_sure"): HouseholdMember {
+  return { id, displayName: "", relationship, ageBand: "not_sure" };
 }
 
 /**
@@ -109,15 +115,15 @@ export function emptyMember(id: string, relationship: Relationship = "other_fami
  * At most one member may be "self": a second one invalidates the value.
  */
 export function draftMembers(value: unknown): HouseholdMember[] {
-  if (!Array.isArray(value) || value.length === 0) return [emptyMember("member-1", "self")];
+  if (!Array.isArray(value) || value.length === 0) return [emptyMember("member-1")];
   const out: HouseholdMember[] = [];
   value.forEach((raw, i) => {
     const m = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
     out.push({
       id: typeof m.id === "string" && m.id !== "" ? m.id : `member-${i + 1}`,
       displayName: typeof m.displayName === "string" ? m.displayName : "",
-      relationship: isRelationship(m.relationship) ? m.relationship : i === 0 ? "self" : "other_family",
-      ageBand: isAgeBand(m.ageBand) ? m.ageBand : "18_to_54",
+      relationship: isRelationship(m.relationship) ? m.relationship : "not_sure",
+      ageBand: isAgeBand(m.ageBand) ? m.ageBand : "not_sure",
     });
   });
   return out;

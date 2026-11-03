@@ -62,7 +62,8 @@ describe("household roster (HACK-134)", () => {
   it("keeps blank and untrimmed draft names for the editor, and rejects two self members", () => {
     expect(draftMembers([{ id: "member-1", displayName: "Mary ", relationship: "self", ageBand: "18_to_54" }])[0].displayName).toBe("Mary ");
     expect(draftMembers([{ id: "member-1", displayName: "", relationship: "self", ageBand: "18_to_54" }])).toHaveLength(1);
-    expect(draftMembers(undefined)).toEqual([emptyMember("member-1", "self")]);
+    expect(draftMembers(undefined)).toEqual([emptyMember("member-1")]);
+    expect(emptyMember("member-9").ageBand).toBe("not_sure");
     const twoSelf = [{ ...emptyMember("member-1", "self"), displayName: "A" }, { ...emptyMember("member-2", "self"), displayName: "B" }];
     expect(parseRoster(twoSelf)).toBeNull();
   });
