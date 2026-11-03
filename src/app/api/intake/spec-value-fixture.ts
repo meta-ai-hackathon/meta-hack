@@ -4,7 +4,7 @@ import type { CanonicalAnswerValue } from "../../../lib/intake/answer-input";
 // Test fixture shared by the intake and conversation route suites (the
 // quick-questions proof files): ONE spec-valid known value per question
 // type, so the two suites can never drift apart on what counts as a
-// valid answer shape. Not a route, not runtime code â€” imported only by
+// valid answer shape. Not a route, not runtime code — imported only by
 // *.test.ts files.
 
 /** A spec-valid known value for each question type (test fixture only). */

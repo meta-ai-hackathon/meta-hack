@@ -1113,3 +1113,13 @@ describe("spoken_reply envelope parsing and gate (HACK-107)", () => {
     expect(spokenGateProblem("   ", [])).toBe("empty");
   });
 });
+
+describe("household roster on the talk path (HACK-134)", () => {
+  it("never puts the roster question in the model prompt", () => {
+    const roster = QUESTION_BY_ID["household_roster"];
+    expect(roster).toBeDefined();
+    const prompt = buildCombinedTurnPrompt(QUESTION_BY_ID["household_size"]);
+    expect(prompt).not.toContain("household_roster");
+    expect(prompt).not.toContain(roster.prompt);
+  });
+});

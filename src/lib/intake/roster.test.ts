@@ -36,10 +36,12 @@ describe("household roster (HACK-134)", () => {
     }));
   });
   it("rejects duplicate ids, blank names, unknown bands, and non-arrays", () => {
-    const m = emptyMember("member-1");
+    const m = { ...emptyMember("member-1"), displayName: "Ada" };
     expect(parseRoster([m, m])).toBeNull();
     expect(parseRoster([{ ...m, displayName: "  " }])).toBeNull();
     expect(parseRoster([{ ...m, ageBand: "old" }])).toBeNull();
+    expect(parseRoster([{ ...m, relationship: "cousin" }])).toBeNull();
+    expect(parseRoster([{ ...m, id: "x".repeat(33) }])).toBeNull();
     expect(parseRoster("Ada")).toBeNull();
     expect(parseRoster([])).toBeNull();
   });

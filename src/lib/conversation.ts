@@ -16,6 +16,7 @@ import {
   type Question,
   type SkipCondition,
 } from "./intake/spec";
+import { ROSTER_QUESTION_ID } from "./intake/roster";
 import {
   ensureSession,
   loadAnswers,
@@ -393,7 +394,12 @@ export function buildCombinedTurnPrompt(
     "The official question list, in order (each question's stored-answer state " +
       "is marked):",
   );
-  const visible = visibleQuestions(questions, answers);
+  // The household roster (HACK-134) is a structured wizard question: it
+  // never enters the model prompt, so member names are never asked for
+  // or extracted on the talk path.
+  const visible = visibleQuestions(questions, answers).filter(
+    (question) => question.id !== ROSTER_QUESTION_ID,
+  );
   for (const question of visible) {
     const parts: string[] = [];
     if (question.id === currentQuestion?.id) {
@@ -585,7 +591,7 @@ const EXTRACTION_SCHEMA = {
         additionalProperties: false,
         required: ["question_id", "status"],
         properties: {
-          question_id: { type: "string", enum: QUESTIONS.map((q) => q.id) },
+          question_id: { type: "string", enum: QUESTIONS.filter((q) => q.id !== ROSTER_QUESTION_ID).map((q) => q.id) },
           status: { type: "string", enum: ["known", "unknown"] },
           value: { type: ["string", "number", "boolean", "array"] },
           verbatim: { type: "string" },
@@ -1246,7 +1252,9 @@ async function runCombinedTurn(
 // ---------------------------------------------------------------------------
 
 function nextUnansweredQuestion(answers: AnswerMap): Question | null {
-  const visible = visibleQuestions(QUESTIONS, answers);
+  const visible = visibleQuestions(QUESTIONS, answers).filter(
+    (question) => question.id !== ROSTER_QUESTION_ID,
+  );
   const index = firstUnansweredIndex(visible, answers);
   return index === -1 ? null : visible[index];
 }
@@ -1452,6 +1460,13 @@ export async function processUserTurn(
     for (const item of envelope?.answers ?? []) {
       let planned = answerToSave(item);
       if (!planned) {
+        continue;
+      }
+      // The roster is wizard-only (HACK-134): a model extraction for it is
+      // never saved, however well-formed it looks.
+      if (planned.questionId === ROSTER_QUESTION_ID) {
+        logWarn("conversation_extraction_answer_skipped");
+        skippedAnswerCount += 1;
         continue;
       }
       // A token must never reach a saved answer (HACK-107 review): the

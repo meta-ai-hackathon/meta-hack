@@ -1,7 +1,7 @@
 // Household roster (HACK-134, Civilla): the named members later
 // per-person attribution (HACK-135) and work reporting (HACK-128)
 // attach to. Pure and browser-safe: no storage, no network, no
-// eligibility logic â€” the state decides eligibility; this module
+// eligibility logic — the state decides eligibility; this module
 // only records who the user says is in the household.
 
 export const ROSTER_QUESTION_ID = "household_roster";

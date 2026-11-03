@@ -8,6 +8,7 @@ import {
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import {
   AGE_BAND_LABELS,
+  MAX_MEMBER_NAME_LENGTH,
   AGE_BAND_VALUES,
   RELATIONSHIP_LABELS,
   RELATIONSHIP_VALUES,
@@ -177,6 +178,7 @@ export function QuestionView({
               <input
                 id={`${question.id}-${member.id}-name`}
                 type="text"
+                maxLength={MAX_MEMBER_NAME_LENGTH}
                 value={member.displayName}
                 disabled={busy}
                 onChange={(e) => setMembers(updateMember(members, member.id, { displayName: e.target.value }))}
@@ -359,7 +361,7 @@ export function QuestionView({
           onChange={(event) => onBestGuessChange(event.target.checked)}
           disabled={busy}
         />
-        This is my best guess â€” I have not verified it
+        This is my best guess — I have not verified it
       </label>
       <div className="flex flex-wrap items-center gap-3">
         <button

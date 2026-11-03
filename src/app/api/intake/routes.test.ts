@@ -323,11 +323,11 @@ describe("full pii population never reaches the client payload (VAL-INTAKE-004)"
         clean = false;
       }
       // The exact answer shape for a pii question: status alone, no value
-      // key â€” UNLESS an earlier answer in this loop legitimately skipped
+      // key — UNLESS an earlier answer in this loop legitimately skipped
       // the question (the work-requirements two-section design: a "yes"
       // on the exemption screen hides the work-activity questions). A
       // skipped question's stored answer is omitted from the served state
-      // entirely â€” pii-safe in the strictest sense (no status, no value).
+      // entirely — pii-safe in the strictest sense (no status, no value).
       const state = JSON.parse(text) as {
         questions: readonly { id: string }[];
         answers: Record<string, Record<string, unknown>>;
