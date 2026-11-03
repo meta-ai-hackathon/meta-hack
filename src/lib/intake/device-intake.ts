@@ -9,6 +9,7 @@ import { canonicalAnswerValue } from "./answer-input";
 import {
   EMPTY_CLIENT_ANSWERS,
   hasAnyAnswer,
+  deleteClientAnswer,
   saveClientAnswer,
   serializeClientAnswers,
   toAnswerMap,
@@ -21,6 +22,7 @@ import {
   openDeviceAnswerStore,
   purgeDeviceAnswers,
   recordDeviceAnswer,
+  removeDeviceAnswer,
   type DeviceAnswerSave,
   type DeviceAnswerStoreDeps,
   type DeviceAnswerStoreOpen,
@@ -305,8 +307,9 @@ const ATTRIBUTION_TRIGGER_IDS: ReadonlySet<string> = new Set([
  * Re-prune the stored attribution after a roster or situation answer
  * changes (HACK-135): entries for a removed member or a withdrawn
  * situation are dropped from the stored answer itself, not just hidden
- * in the editor. Best effort on the persisted path - the in-memory
- * state is always pruned.
+ * in the editor. On a failed or conflicting persisted write, memory keeps the
+ * unpruned state to match the device; stale entries are dropped on
+ * read (currentAttribution) and by the next successful re-prune.
  */
 async function withReprunedAttribution(next: DeviceIntake, changedId: string): Promise<DeviceIntake> {
   if (!ATTRIBUTION_TRIGGER_IDS.has(changedId)) return next;
@@ -315,13 +318,23 @@ async function withReprunedAttribution(next: DeviceIntake, changedId: string): P
   const pruned = currentAttribution(toAnswerMap(next.answers));
   const stored = parseAttribution(record.value) ?? [];
   if (JSON.stringify(pruned) === JSON.stringify(stored)) return next;
-  // Pruning to empty records "unknown" (the tri-state "not sure"): the
-  // question is optional and stays changeable from the review screen, and
-  // the device store has no delete-one-record operation - an absent record
-  // could not be persisted without one.
-  const prunedRecord: ClientAnswerRecord = pruned.length === 0
-    ? { questionId: ATTRIBUTION_QUESTION_ID, status: "unknown", provenance: record.provenance, value: null }
-    : { questionId: ATTRIBUTION_QUESTION_ID, status: record.status, provenance: record.provenance, value: pruned };
+  if (pruned.length === 0) {
+    // Pruned to nothing: the question becomes unanswered again (never a
+    // synthesized "unknown" the user did not choose).
+    const cleared = deleteClientAnswer(next.answers, ATTRIBUTION_QUESTION_ID);
+    if (!keepsAnswers(next) || next.store === null) {
+      return intakeOf(next.store, next.keeping, next.stored, cleared);
+    }
+    try {
+      const removed = await deadline(removeDeviceAnswer(next.store, ATTRIBUTION_QUESTION_ID, { expectStored: next.stored }), "saving to device storage");
+      if (removed.status === "saved") return intakeOf(next.store, "kept", true, removed.state);
+      if (removed.status === "purged") return intakeOf(next.store, "kept", false, EMPTY_CLIENT_ANSWERS);
+    } catch {
+      // Fall through to the unpruned state below.
+    }
+    return next;
+  }
+  const prunedRecord: ClientAnswerRecord = { questionId: ATTRIBUTION_QUESTION_ID, status: record.status, provenance: record.provenance, value: pruned };
   const state = saveClientAnswer(next.answers, prunedRecord);
   if (!keepsAnswers(next) || next.store === null) {
     return intakeOf(next.store, next.keeping, next.stored, state);

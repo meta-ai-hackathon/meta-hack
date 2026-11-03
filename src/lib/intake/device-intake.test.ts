@@ -587,6 +587,28 @@ describe("per-person attribution re-pruning (HACK-135)", () => {
     ]);
   });
 
+  it("makes the attribution unanswered again when re-pruning removes every entry", async () => {
+    const { kv } = memoryKv();
+    let intake = (await loadDeviceIntake(opener(kv))).intake;
+    const save = async (id: string, value: unknown) => {
+      const r = await answerOnDevice(intake, id, "known", value);
+      expect(r.kind).toBe("saved");
+      if (r.kind === "saved") intake = r.intake;
+    };
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+      { id: "member-2", displayName: "Jo", relationship: "child", ageBand: "under_14" },
+    ]);
+    await save("wr_income_580", "yes");
+    await save("wr_who_months", [
+      { memberId: "member-2", situationId: "wr_income_580", months: "last_month" },
+    ]);
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+    ]);
+    expect(intake.answers["wr_who_months"]).toBeUndefined();
+  });
+
   it("keeps the stored attribution when the persisted re-prune cannot be written", async () => {
     const base = memoryKv();
     let sets = 0;
