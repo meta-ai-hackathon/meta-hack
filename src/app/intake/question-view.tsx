@@ -24,8 +24,8 @@ import { Field } from "../../components/field";
 
 // One intake question per screen (BN-09): the plain-language prompt, help
 // text, and options come from the question spec; every question carries an
-// explicit "I'm not sure" path (â†’ unknown) and a best-guess marking
-// (â†’ unverified), so the tri-state honesty spine is representable on every
+// explicit "I'm not sure" path (→ unknown) and a best-guess marking
+// (→ unverified), so the tri-state honesty spine is representable on every
 // screen. Stored answers render the honest status badge; pii answers never
 // render a value.
 
@@ -217,7 +217,7 @@ export function QuestionView({
               </select>
             </label>
             {members.length > 1 ? (
-              <button type="button" aria-label={`Remove person ${index + 1}${member.displayName ? `: ${member.displayName}` : ""}`} disabled={busy} onClick={() => setMembers(removeMember(members, member.id))} className="self-start text-sm text-muted underline">
+              <button type="button" aria-label={`Remove this person (person ${index + 1}${member.displayName ? `: ${member.displayName}` : ""})`} disabled={busy} onClick={() => setMembers(removeMember(members, member.id))} className="self-start text-sm text-muted underline">
                 Remove this person
               </button>
             ) : null}

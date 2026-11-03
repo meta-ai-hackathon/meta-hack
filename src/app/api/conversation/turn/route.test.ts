@@ -538,7 +538,7 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       {
         questionId: "household_roster",
         value: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }],
-        vaultValue: "Sam",
+        vaultValue: JSON.stringify([{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }]),
       },
       {
         // "None of these apply" — any other selection would hide the
@@ -892,8 +892,8 @@ describe("POST /api/conversation/turn — honest degradation (VAL-CONV-007)", ()
   });
 
   it("answers the deterministic re-ask when the model returns no usable envelope, and persists both turns", async () => {
-    // Content with no JSON object (no braces) â†’ parseCombinedEnvelope null
-    // â†’ the session still exists, NOTHING is saved, and the honest re-ask
+    // Content with no JSON object (no braces) → parseCombinedEnvelope null
+    // → the session still exists, NOTHING is saved, and the honest re-ask
     // is both returned and persisted with the redacted user turn.
     setModelTransport(async () =>
       new Response(
@@ -1238,7 +1238,7 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
 
   it("saves a mapped choice answer as user_supplied even when the extractor calls it an inference (live parity break)", async () => {
     // Live-verified Oct 29: the spoken "It's for myself" was extracted with
-    // inferred: true â†’ ai_drafted/unverified, while typing the same words
+    // inferred: true → ai_drafted/unverified, while typing the same words
     // saved known/user_supplied. A mapped choice answer is the person's own
     // statement; the parity must hold either way.
     installScript([
@@ -1909,7 +1909,7 @@ describe("POST /api/conversation/turn — per-session turn-rate cap (hardening 3
 });
 
 // ---------------------------------------------------------------------------
-// Voice mode (Mission v2 M2): multipart audio â†’ STT â†’ the SAME
+// Voice mode (Mission v2 M2): multipart audio → STT → the SAME
 // extraction/persistence path as typed input (VAL-VOICE-001..006).
 // ---------------------------------------------------------------------------
 
