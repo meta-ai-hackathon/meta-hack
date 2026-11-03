@@ -65,6 +65,45 @@ import type { AnswerMap } from "./flow";
 // VAL-INC-005 pattern) proves no model/LLM client is reachable from this
 // path.
 
+/**
+ * The no-proof-needed reassurance shown on the work-requirements screens
+ * (HACK-129, from Civilla's user testing: applicants abandoned forms when
+ * they believed a doctor's note or paperwork was needed before they could
+ * answer). Honesty guardrail: it promises only that ANSWERING needs no
+ * paperwork — the state may still ask for proof later — and it makes
+ * no eligibility or outcome claim.
+ */
+export const NO_PROOF_NEEDED_NOTE =
+  "You don't need any paperwork or a doctor's note to answer these " +
+  "questions. Answer with what you know now \u2014 the state may ask for " +
+  "proof later.";
+
+/**
+ * Singular variant for the step-by-step wizard (HACK-129 review): it shows
+ * one question per screen, so "these questions" would have no referent.
+ * Same honesty guardrail as above.
+ */
+export const NO_PROOF_NEEDED_NOTE_SINGLE =
+  "You don't need any paperwork or a doctor's note to answer this " +
+  "question. Answer with what you know now \u2014 the state may ask for " +
+  "proof later.";
+
+/**
+ * Scoped variant for the sensitive group (HACK-129 review): that group can
+ * also hold non-work-requirements cards, so this wording names the
+ * work-requirements questions it applies to instead of saying "these
+ * questions" over the whole group. Same honesty guardrail as above.
+ */
+export const NO_PROOF_NEEDED_NOTE_SENSITIVE =
+  "For the work-requirements questions below, you don't need any " +
+  "paperwork or a doctor's note to answer. Answer with what you know " +
+  "now \u2014 the state may ask for proof later.";
+
+/** True iff the question id belongs to the work-requirements (wr_*) set. */
+export function isWorkRequirementsQuestionId(id: string): boolean {
+  return id.startsWith("wr_");
+}
+
 /** The spec question the match proposes an answer for. */
 export const INCOME_580_QUESTION_ID = "wr_income_580";
 

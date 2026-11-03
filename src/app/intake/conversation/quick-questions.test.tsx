@@ -909,6 +909,49 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
   const q = (container: HTMLElement, attr: string): Element | null =>
     container.querySelector(`[data-${attr}]`);
 
+  it("shows the no-proof-needed note once, under the first work-requirements-bearing group (HACK-129)", async () => {
+    const { container } = await renderWrState(wrStageState());
+    // The work-requirements group renders first, so it carries the note;
+    // the sensitive group does not repeat the same sentence on this page.
+    const note = container.querySelector('[data-qq-group-note="work-requirements"]');
+    expect(note).not.toBeNull();
+    expect(note?.textContent).toContain("doctor's note");
+    expect(note?.textContent).toContain("may ask for proof later");
+    expect(container.querySelectorAll("[data-qq-group-note]")).toHaveLength(1);
+    // The note is programmatically tied to its group for screen readers.
+    const wrSection = container.querySelector('[data-qq-group="work-requirements"]');
+    expect(wrSection?.getAttribute("aria-describedby")).toBe(
+      "qq-group-work-requirements-note",
+    );
+    expect(note?.id).toBe("qq-group-work-requirements-note");
+    expect(
+      container.querySelector('[data-qq-group-note="sensitive"]'),
+    ).toBeNull();
+  });
+
+  it("carries the no-proof-needed note on the sensitive group when no work-requirements group remains (HACK-129)", async () => {
+    const sensitiveOnly = wrStageState({
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: [...WR_REMAINING],
+        requiredCount: WR_REMAINING.length,
+        remainingIds: ["wr_pregnant", "wr_jail_prison_past_4_months"],
+        remainingCount: 2,
+        complete: false,
+      },
+    });
+    const { container } = await renderWrState(sensitiveOnly);
+    expect(
+      container.querySelector('[data-qq-group-note="work-requirements"]'),
+    ).toBeNull();
+    const note = container.querySelector('[data-qq-group-note="sensitive"]');
+    expect(note).not.toBeNull();
+    // Scoped wording: it names the work-requirements questions, because
+    // the sensitive group can also hold non-work-requirements cards.
+    expect(note?.textContent).toContain("work-requirements questions below");
+    expect(note?.textContent).toContain("doctor's note");
+  });
+
   it("renders the work-requirements group BEFORE the sensitive group, whose cards carry why-we-ask notes, optional marks, and skips (VAL-WR-006)", async () => {
     const { container } = await renderWrState(wrStageState());
     const groupIds = [...container.querySelectorAll("[data-qq-group]")].map(
