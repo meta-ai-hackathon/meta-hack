@@ -85,8 +85,14 @@ describe("per-person attribution (HACK-135)", () => {
     expect(currentAttribution(base)).toHaveLength(1);
     const withdrawn: AnswerMap = { ...base, wr_income_580: { status: "known", value: "no" } };
     expect(currentAttribution(withdrawn)).toEqual([]);
-    // An unknown exempt list retains only its own options, not the $580 id.
-    const unknownExempt: AnswerMap = { ...base, wr_exempt_situations: { status: "unknown", value: null } };
+    // An unknown exempt list retains only its own options: a separate
+    // exemption question answered "no" still withdraws its entries.
+    const unknownExempt: AnswerMap = {
+      household_roster: base.household_roster,
+      wr_exempt_situations: { status: "unknown", value: null },
+      wr_pregnant: { status: "known", value: "no" },
+      wr_who_months: { status: "known", value: [{ memberId: "member-1", situationId: "wr_pregnant", months: "both" }] },
+    };
     expect(currentAttribution(unknownExempt)).toEqual([]);
   });
   it("applicable situations come only from yes answers and selected situations", () => {
