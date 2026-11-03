@@ -1373,6 +1373,15 @@ describe("/intake to the review and the filled form, on the device", () => {
       ),
       "a rule without :has() hides the screen",
     ).toBe(true);
+    // Exactly two rules hide the screen, the one without :has() and the
+    // one with it, and each is important, so nothing the page sets on its
+    // own elements can show them on paper.
+    const hide = all.filter((rule) => rule.style.getPropertyValue("display") === "none");
+    expect(hide).toHaveLength(2);
+    expect(hide.filter((rule) => rule.selectorText.includes(":has(")), "one hide rule uses :has()").toHaveLength(1);
+    for (const rule of hide) {
+      expect(rule.style.getPropertyPriority("display"), rule.selectorText).toBe("important");
+    }
     const view = await results();
     // The app's own header and footer, around the page.
     const header = document.createElement("header");
