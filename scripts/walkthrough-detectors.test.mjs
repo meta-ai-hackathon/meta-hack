@@ -91,6 +91,12 @@ const BANNED_FIXTURES = [
   "You are still enrolled.",
   "Good news, you're covered.",
   "Your renewal went through, so you stay covered.",
+  // Review of 7fbeb3c: what the narrowing keeps caught.
+  "Your application is accepted.",
+  "Your eligibility continues.",
+  "With our help you will stay covered.",
+  "Answering that letter helped you stay covered.",
+  "To help you stay covered, answer the letter. Then you will keep your Medicaid.",
 ];
 
 // Honest sentences that must pass untouched. Hedged uncertainty stays
@@ -131,6 +137,13 @@ const CLEAN_TEXT_FIXTURES = [
   "You are enrolled in school.",
   "You are insured through your employer.",
   "You're enrolled in a training program.",
+  // Review of 7fbeb3c: chat wording that used to fall back.
+  "to help you stay covered, answer the letter",
+  "Answering every letter helps you stay covered.",
+  "Answer the letter to help you get renewed on time.",
+  "Your application continues on the next page.",
+  "Your application will continue on the next page.",
+  "The office accepts applications by mail.",
 ];
 
 // A client-state fixture: the shape /api/intake/* and /api/session return.

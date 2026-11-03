@@ -194,6 +194,21 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "promise after how-to", text: "Here is how it works: you keep your coverage." },
   { label: "is renewed with no schedule", text: "Your Medicaid is renewed." },
   { label: "is renewed, then a promise", text: "Your coverage is renewed, so nothing changes." },
+  // What the narrowing after the review of 7fbeb3c keeps caught: an
+  // application that is accepted (an outcome, kept on purpose), continuing
+  // with a coverage word as the subject, help as a noun, the past
+  // "helped", and a promise in the main clause after a help clause.
+  { label: "7fbeb3c review: application is accepted", text: "Your application is accepted." },
+  { label: "7fbeb3c review: application has been accepted", text: "Your application has been accepted." },
+  { label: "7fbeb3c review: eligibility continues", text: "Your eligibility continues." },
+  { label: "7fbeb3c review: health coverage is going to continue", text: "Your health coverage is going to continue." },
+  { label: "7fbeb3c review: help as a noun", text: "With our help you will stay covered." },
+  { label: "7fbeb3c review: help as a noun, present", text: "With help you keep your Medicaid." },
+  { label: "7fbeb3c review: helped reports the coverage", text: "Answering that letter helped you stay covered." },
+  {
+    label: "7fbeb3c review: promise after a help clause",
+    text: "To help you stay covered, answer the letter. Then you will keep your Medicaid.",
+  },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty
@@ -288,6 +303,24 @@ const HONEST_SENTENCES: string[] = [
   "You are insured through your employer.",
   "You're enrolled in a training program.",
   "You\u2019re enrolled in a training program, which counts as an activity.",
+  // Chat wording the review of 7fbeb3c found flagged: a purpose clause
+  // with help as a verb, and a renewal, recertification, or application
+  // that goes on (a form's next page). One per spared shape, for each
+  // pattern that spares it.
+  "to help you stay covered, answer the letter",
+  "To help you stay covered, answer the letter right away.",
+  "Answering the letter on time can help you keep your coverage.",
+  "Answering every letter helps you stay covered.",
+  "It\u2019ll help you keep your Medicaid if you answer every letter.",
+  "Answering the letter on time can help you never lose your coverage.",
+  "Answer the letter to help you get renewed on time.",
+  "Answer every letter to help your coverage continue.",
+  "Your application continues on the next page.",
+  "Your application will continue on the next page.",
+  "Your renewal continues until the office decides.",
+  "Your recertification is going to continue after you send the form.",
+  // How to say what "is accepted" would have: the office as the subject.
+  "The office accepts applications by mail.",
 ];
 
 // Parsed from the repo's spec and migration files at test time — the literals
@@ -385,6 +418,95 @@ describe("banned-claims detector", () => {
         // question is still caught.
         const answered = `${asked} Yes, you will keep your Medicaid.`;
         expect(findBannedClaims(answered).length, answered).toBeGreaterThan(0);
+      }),
+    );
+  });
+
+  it("spares a help clause with help as a verb, and still catches help as a noun, the past, and a promise after it (review of 7fbeb3c, property)", () => {
+    // What leads into the subject: help after to or a modal, or helps or
+    // helping. Each is a purpose or a claim about helping, not a promise.
+    const helpAsVerb = fc.constantFrom(
+      "Answer the letter right away to help",
+      "Answering the letter on time can help",
+      "Answering the letter on time could help",
+      "Answering the letter on time will help",
+      "Answering the letter on time would help",
+      "Answering the letter on time may help",
+      "Answering the letter on time might help",
+      "Answering the letter on time should help",
+      "It'll help",
+      "Answering the letter on time helps",
+      "Answering the letter on time is helping",
+    );
+    // Every promise shape a help clause can lead into, across the patterns
+    // that spare it: continued coverage, never losing it, being renewed,
+    // and the coverage continuing.
+    const promise = fc.constantFrom(
+      "you stay covered",
+      "you remain enrolled",
+      "you keep your coverage",
+      "you keep your Medicaid",
+      "you still have coverage",
+      "you continue to get your benefits",
+      "you be covered",
+      "you never lose your coverage",
+      "you get renewed",
+      "your coverage continue",
+    );
+    const apostrophe = fc.constantFrom("'", "’");
+    fc.assert(
+      fc.property(helpAsVerb, promise, apostrophe, (lead, phrase, mark) => {
+        const helped = `${lead.replaceAll("'", mark)} ${phrase}.`;
+        expect(findBannedClaims(helped), helped).toEqual([]);
+        for (const caught of [
+          // A promise in the main clause after the help clause.
+          `${helped} Then you will keep your Medicaid.`,
+          // Help as a noun, and the past, which reports the coverage.
+          `With our help ${phrase}.`,
+          `Answering the letter on time helped ${phrase}.`,
+        ]) {
+          expect(findBannedClaims(caught).length, caught).toBeGreaterThan(0);
+        }
+      }),
+    );
+  });
+
+  it("counts continuing only with a coverage word as the subject, and accepted with any subject (review of 7fbeb3c, property)", () => {
+    const processSubject = fc.constantFrom("application", "renewal", "recertification", "NC renewal");
+    const coverageSubject = fc.constantFrom(
+      "coverage",
+      "benefits",
+      "Medicaid",
+      "NC Medicaid",
+      "eligibility",
+      "health coverage",
+      "health insurance",
+      "health care",
+    );
+    const continuing = fc.constantFrom(
+      "continues",
+      "still continues",
+      "will continue",
+      "will still continue",
+      "will definitely continue",
+      "is going to continue",
+    );
+    const accepted = fc.constantFrom("is accepted", "was accepted", "has been accepted", "is already accepted");
+    const tail = fc.constantFrom(" on the next page.", " until the office decides.", ".");
+    fc.assert(
+      fc.property(processSubject, coverageSubject, continuing, accepted, tail, (process, coverage, verb, outcome, end) => {
+        // A process going on is not coverage carrying on.
+        const goesOn = `Your ${process} ${verb}${end}`;
+        expect(findBannedClaims(goesOn), goesOn).toEqual([]);
+        for (const caught of [
+          // Coverage carrying on, in any tense.
+          `Your ${coverage} ${verb}${end}`,
+          // Accepted is an outcome whatever the subject (the conservative call).
+          `Your ${process} ${outcome}${end}`,
+          `Your ${coverage} ${outcome}${end}`,
+        ]) {
+          expect(findBannedClaims(caught).length, caught).toBeGreaterThan(0);
+        }
       }),
     );
   });
