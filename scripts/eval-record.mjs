@@ -44,13 +44,14 @@ import {
   TURN_ATTEMPTS,
   TURN_RETRY_WAIT_MS,
   V2_TIMEOUT_MS,
+  Walkthrough,
   consentHeaderValue,
   http,
   parseJsonBody,
   sessionCookieFrom,
 } from "./walkthrough-core.mjs";
 import { CONVERSATION_PLAN } from "./walkthrough-plans.mjs";
-import { EVAL_CASES, QQ_PHASE_ANSWERS } from "./eval-cases.mjs";
+import { EVAL_CASES, QQ_PHASE_ANSWERS, STEP_BY_STEP_ANSWERS } from "./eval-cases.mjs";
 import {
   CATEGORIES,
   RECORD_MODEL,
@@ -356,7 +357,9 @@ class EvalRun {
   /**
    * The answer turns: walk the whole flow in one session, typing each plan
    * turn when the flow asks its question, with one plainer retry when
-   * nothing saved (the walkthrough's loop, minus the printed replies).
+   * nothing saved (the walkthrough's loop, minus the printed replies). The
+   * work-requirements questions and the questions the talk path never asks
+   * (the household list) are saved through the answer route instead.
    */
   async runAnswerTurns(session, cases, plan, observations) {
     const caseByQuestion = new Map(cases.map((testCase) => [testCase.questionId, testCase]));
@@ -365,6 +368,12 @@ class EvalRun {
     // answer route — the work-requirements questions among them): never
     // typed turns, never scored (see eval-cases.mjs).
     const qqById = new Map(QQ_PHASE_ANSWERS.map((passThrough) => [passThrough.questionId, passThrough]));
+    // The questions the talk path never asks (the household list): saved
+    // through the same answer route, the way the person answers them in
+    // the step-by-step questions. Never typed, never scored.
+    const stepByStepById = new Map(
+      STEP_BY_STEP_ANSWERS.map((passThrough) => [passThrough.questionId, passThrough]),
+    );
     const privateValues = [];
     const asked = new Set();
     let state = session.state;
@@ -380,7 +389,8 @@ class EvalRun {
       }
       const step = planById.get(question.id);
       const qqAnswer = qqById.get(question.id);
-      if (!step && !qqAnswer) {
+      const localAnswer = qqAnswer ?? stepByStepById.get(question.id);
+      if (!step && !localAnswer) {
         failure = { reason: "http_error", errorCode: "uncovered_question" };
         break;
       }
@@ -389,19 +399,33 @@ class EvalRun {
         break;
       }
       asked.add(question.id);
-      if (!step && qqAnswer) {
-        // The quick-questions phase: captured through the wizard's answer
-        // route (the same save the quick-questions stage makes), never a
-        // typed turn to the model — sensitive select answers do not ride
-        // the extraction path (claude-review P1).
-        const response = await this.answerLocally(session, qqAnswer);
+      if (!step && localAnswer) {
+        // The quick-questions phase, or a question the talk path never
+        // asks: captured through the wizard's answer route (the same save
+        // the quick-questions stage and the step-by-step questions make),
+        // never a typed turn to the model — sensitive select answers and
+        // household names do not ride the extraction path (claude-review
+        // P1). A private name it saves (the household list's) is tracked
+        // before it is sent, like a typed private value: every later case
+        // is checked for it, and it never reaches the console or the
+        // record.
+        privateValues.push(
+          ...Walkthrough.privateStringsOf(question, {
+            status: localAnswer.intendedStatus,
+            value: localAnswer.value,
+          }),
+        );
+        const response = await this.answerLocally(session, localAnswer);
         if (!response.ok) {
           failure = response.failure;
           break;
         }
         state = response.state;
         this.say(
-          `QQ-ANSWER the flow reached ${question.id} — answered through the answer route (no model, not scored)`,
+          qqAnswer
+            ? `QQ-ANSWER the flow reached ${question.id} — answered through the answer route (no model, not scored)`
+            : `STEP      the flow reached ${question.id}, a step-by-step question the talk path never asks — `
+              + "answered through the answer route (no model, not scored)",
         );
         continue;
       }

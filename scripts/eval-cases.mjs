@@ -20,14 +20,17 @@
 // Everything here is fictional. The probes carry no personal detail at
 // all, and the answer turns are the walkthrough's synthetic persona.
 
+import { JOURNEY_PLAN } from "./walkthrough-core.mjs";
 import { CONVERSATION_PLAN } from "./walkthrough-plans.mjs";
 
 /**
  * Plan turns that exist only to cover branches the plan's own intended
  * answers skip (each one's comment in walkthrough-plans.mjs says so):
  * main_goal is health care, so goal_detail is skipped; income_sources has
- * no family, child support or other income, so other_income_amount is
- * skipped; id_status is have_id, so id_issue_detail is skipped;
+ * no job, so job_income_seasonal and its 6-month total are skipped;
+ * income_sources has no family, child support or other income, so
+ * other_income_amount is skipped; id_status is have_id, so id_issue_detail
+ * is skipped;
  * mailing_situation is a P.O. box, so shelter_mail_consent is skipped; and
  * contact_preference is email, so phone_contact is skipped. The harness
  * still answers one with its plan turn if the flow asks it (the extraction
@@ -37,6 +40,8 @@ import { CONVERSATION_PLAN } from "./walkthrough-plans.mjs";
  */
 export const BRANCH_ONLY_QUESTION_IDS = Object.freeze([
   "goal_detail",
+  "job_income_seasonal",
+  "job_income_seasonal_total",
   "other_income_amount",
   "id_issue_detail",
   "shelter_mail_consent",
@@ -108,6 +113,30 @@ export const QQ_PHASE_ANSWERS = Object.freeze([
   { questionId: "wr_student_enrolled", intendedStatus: "known", value: "not_enrolled" },
   { questionId: "wr_income_580", intendedStatus: "known", value: "yes" },
   { questionId: "wr_who_months", intendedStatus: "known", value: [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }] },
+]);
+
+/**
+ * The questions the talk path never asks (the household list, HACK-134):
+ * the person answers them in the step-by-step questions, so when the flow
+ * shows one the runner saves it through the same answer route, the way
+ * the walkthrough's typed journeys do. Like the work-requirements answers
+ * above, they are never typed and never scored. The household list is the
+ * walkthrough persona's own, imported from JOURNEY_PLAN rather than
+ * copied, so its fictional names live in one file. It matches the
+ * household the answer turns describe (three people: the person applying
+ * and two children, nobody 60 or older), and its first member is the
+ * member-1 the who-and-which-months answer above names. Every name on it
+ * is a private value from the save on, so a reply or body that carries
+ * one makes its case wrong, and none ever reaches the console or the
+ * record. The drift tests in eval-record-core.test.mjs prove the list
+ * against the real flow engine.
+ */
+export const STEP_BY_STEP_ANSWERS = Object.freeze([
+  {
+    questionId: "household_roster",
+    intendedStatus: "known",
+    value: JOURNEY_PLAN.find((step) => step.id === "household_roster").value,
+  },
 ]);
 
 /**

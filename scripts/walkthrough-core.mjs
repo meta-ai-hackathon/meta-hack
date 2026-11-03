@@ -79,18 +79,25 @@ export function exitCodeForRun(completed) {
 //   - known answers that trigger skips (main_goal=food skips the private
 //     goal_detail text; income_sources=[job,benefits] skips other_income;
 //     income_kind=both adds the self-employment + prior-employer chain
-//     (HACK-85's branched flow); id_status=have_id skips id_issue_detail;
+//     (HACK-85's branched flow); job_income_seasonal=no skips the 6-month
+//     seasonal total (HACK-130); id_status=have_id skips id_issue_detail;
 //     mailing_situation=po_box skips shelter_mail_consent;
 //     contact_preference=email skips phone),
 //   - known answers that trigger follow-ups (household_children=2 keeps
 //     childcare_cost; housing_status=rental_or_own keeps housing_cost and
 //     utilities_cost; contact_preference=email asks email_contact),
+//   - the household's named members and who each work-requirements
+//     situation applies to (HACK-134/135), consistent with the counts and
+//     the situations above,
 //   - honest "not sure" answers with no value, and unverified best guesses.
 // No question classification is duplicated here: which questions are pii
 // comes from the served state payload (the serialization boundary relays
 // each question's `pii` flag), never from a hand-copy of the spec.
 // All person-specific values are fictional; pii values are submitted and
 // then asserted to never reappear in any client-visible body.
+// walkthrough-core.test.mjs walks this plan on the app's own flow engine
+// for every journey it serves, so a spec change that asks the persona
+// something new fails the suite instead of the pre-demo check (HACK-133).
 export const JOURNEY_PLAN = [
   { id: "application_role", status: "known", value: "self" },
   { id: "main_goal", status: "known", value: "food" },
@@ -99,6 +106,20 @@ export const JOURNEY_PLAN = [
   { id: "household_size", status: "known", value: 3 },
   { id: "household_children", status: "known", value: 2 },
   { id: "household_seniors", status: "known", value: 0 },
+  // HACK-134 (#142) asks next who lives in the household, by first name or
+  // nickname. The roster matches the counts above: the persona, an adult
+  // born in 1990, and the two children under 18, with nobody 60 or older.
+  // The names are fictional, like the rest of the persona, and every one
+  // is tracked as a private value: none may reappear in any client body.
+  {
+    id: "household_roster",
+    status: "known",
+    value: [
+      { id: "member-1", displayName: "Jamie", relationship: "self", ageBand: "18_to_54" },
+      { id: "member-2", displayName: "Milo", relationship: "child", ageBand: "under_14" },
+      { id: "member-3", displayName: "Juno", relationship: "child", ageBand: "14_to_17" },
+    ],
+  },
   { id: "income_sources", status: "known", value: ["job", "benefits"] },
   { id: "income_kind", status: "known", value: "both" },
   { id: "self_employment_statements_offer", status: "known", value: "will_share" },
@@ -106,6 +127,11 @@ export const JOURNEY_PLAN = [
   { id: "prior_employer_last_month", status: "known", value: "June 2025" },
   { id: "job_income_amount", status: "known", value: 2400 },
   { id: "job_income_frequency", status: "known", value: "biweekly" },
+  // HACK-130 (#138) asks next whether ALL of the household's job work is
+  // seasonal. The persona's biweekly paycheck is year-round work, so the
+  // answer is no: the flow skips the 6-month seasonal total, and the $580
+  // screen's match keeps converting the paycheck, as it did before.
+  { id: "job_income_seasonal", status: "known", value: "no" },
   { id: "benefits_income_amount", status: "unknown" },
   { id: "benefits_income_frequency", status: "unverified", value: "monthly" },
   { id: "housing_status", status: "known", value: "rental_or_own" },
@@ -127,12 +153,12 @@ export const JOURNEY_PLAN = [
   // The work-requirements questions (milestone work-requirements), in spec
   // order. The persona is a parent of a child under 18 whose household
   // makes at least $580 a month — so the Civilla two-section design's
-  // reporting section (wr_work_activity_who/types/hours) is never asked
-  // (the exemption and income paths hide it), and neither is the
-  // which-situations follow-up (wr_applied_last_month = no). The four
-  // branch-covered ids below are still plan entries — the coverage check
-  // demands the plan can answer anything the flow could ask if an answer
-  // landed differently than intended.
+  // reporting section (wr_work_activity_who/types/hours and the per-person
+  // wr_work_rows) is never asked (the exemption and income paths hide it),
+  // and neither is the which-situations follow-up (wr_applied_last_month =
+  // no). The five branch-covered ids below are still plan entries — the
+  // coverage check demands the plan can answer anything the flow could ask
+  // if an answer landed differently than intended.
   { id: "wr_exempt_situations", status: "known", value: ["parent_child_under_18"] },
   { id: "wr_pregnant", status: "known", value: "no" },
   { id: "wr_drug_alcohol_treatment", status: "known", value: "no" },
@@ -150,18 +176,60 @@ export const JOURNEY_PLAN = [
   { id: "wr_hospital_care_24hr", status: "known", value: "no" },
   { id: "wr_student_enrolled", status: "known", value: "not_enrolled" },
   { id: "wr_income_580", status: "known", value: "yes" },
+  // HACK-135 (#143) asks next, for each situation answered above, who it
+  // applies to and in which months. The persona is the parent of the two
+  // children and earns the household's paycheck, in both months. Each
+  // entry names a roster member and a situation the persona reported, so
+  // reading the answer back prunes nothing.
+  {
+    id: "wr_who_months",
+    status: "known",
+    value: [
+      { memberId: "member-1", situationId: "parent_child_under_18", months: "both" },
+      { memberId: "member-1", situationId: "wr_income_580", months: "both" },
+    ],
+  },
   // Branch coverage: the work-activity reporting section, asked only when
   // no exemption/income/student path applies (the persona's answers hide
   // it). The who is free-form private content; the hours number is NOT
   // tracked as a private value (digits-only needles over-match — the
   // structural leak check carries the boundary, per the vault-row
-  // deflake lesson).
-  { id: "wr_work_activity_who", status: "known", value: "Me and my sister", privateValue: "Me and my sister" },
-  { id: "wr_work_activity_types", status: "known", value: ["job_internship", "caregiving"] },
-  { id: "wr_work_activity_hours", status: "known", value: 30 },
+  // deflake lesson). It tells the same story as the household list and
+  // the per-person row below: the persona alone works, at the year-round
+  // job, 160 hours last month.
+  {
+    id: "wr_work_activity_who",
+    status: "known",
+    value: "Just me, at my regular job",
+    privateValue: "Just me, at my regular job",
+  },
+  { id: "wr_work_activity_types", status: "known", value: ["job_internship"] },
+  { id: "wr_work_activity_hours", status: "known", value: 160 },
+  // Branch coverage too: the per-person work rows (HACK-128, #144), one
+  // row per person and activity with that person's hours last month,
+  // never summed across people. The row is the one the editor offers from
+  // the persona's job income: the persona's own year-round job.
+  {
+    id: "wr_work_rows",
+    status: "known",
+    value: [{ memberId: "member-1", activity: "job_internship", hours: 160 }],
+  },
 ];
 
 const PLAN_BY_ID = new Map(JOURNEY_PLAN.map((step) => [step.id, step]));
+
+/**
+ * The question types the talk path never asks or saves: the household
+ * roster (HACK-134), who each situation applies to (HACK-135) and the
+ * per-person work rows (HACK-128) are step-by-step questions only, so
+ * household names never reach a model prompt (src/lib/conversation.ts,
+ * talkPathSavesQuestion). The served flow still shows them, so a typed
+ * journey answers them the way the person does: in the step-by-step
+ * questions, through the answer route, from JOURNEY_PLAN. Read off the
+ * served question's `type`, like every other classification here; a drift
+ * test pins this set against the app's rule for every spec question.
+ */
+export const WIZARD_ONLY_QUESTION_TYPES = Object.freeze(["roster", "attribution", "work_activity"]);
 
 // ---------------------------------------------------------------------------
 // Small fetch/response helpers
@@ -954,6 +1022,9 @@ export class Walkthrough {
    * journeys): answer whatever question the flow shows next, retry once
    * with plainer words when the extraction saved nothing, track the
    * submitted private values, and log the skip behavior each turn causes.
+   * A step-by-step-only question the flow shows (WIZARD_ONLY_QUESTION_TYPES)
+   * is never typed: it is answered through the answer route instead, so
+   * no household name ever rides a turn to the model.
    *
    * @param {readonly {id: string, text: string, retry: string,
    *   intent: string, privateValue?: string}[]} plan typed turns by id
@@ -969,6 +1040,7 @@ export class Walkthrough {
     const planById = new Map(plan.map((step) => [step.id, step]));
     let state = this.state;
     let turnNumber = 0;
+    let stepByStepAnswers = 0;
     const skippedBy = new Map();
     while (!state.complete) {
       if (state.currentIndex === null) {
@@ -977,6 +1049,15 @@ export class Walkthrough {
         );
       }
       const question = state.questions[state.currentIndex];
+      if (WIZARD_ONLY_QUESTION_TYPES.includes(question.type)) {
+        state = await this.answerStepByStepOnly(question, state, skippedBy);
+        this.state = state;
+        stepByStepAnswers += 1;
+        if (this.violations.length > 0) {
+          return { skippedBy };
+        }
+        continue;
+      }
       const step = planById.get(question.id);
       if (!step) {
         throw new WalkthroughError(
@@ -1076,9 +1157,92 @@ export class Walkthrough {
     this.log(
       `COMPLETE  ${what} finished — ${turnNumber} question(s) answered in ` +
         `${this.turnsSent} typed turn(s), ` +
+        (stepByStepAnswers > 0
+          ? `${stepByStepAnswers} step-by-step question(s) through the answer route, `
+          : "") +
         `${skippedBy.size} question(s) skipped by the flow`,
     );
     return { skippedBy };
+  }
+
+  /**
+   * One step-by-step-only question (WIZARD_ONLY_QUESTION_TYPES: a roster,
+   * attribution or work-rows question) that the served flow shows during
+   * the talk stage. The talk path never asks it, so the person answers it
+   * in the step-by-step questions: the walkthrough saves JOURNEY_PLAN's
+   * answer through the answer route (POST /api/intake/answer, no model),
+   * the wizard's own save, with the wizard's checks. The answer's private
+   * names are tracked from here on, the response is scanned, the skips are
+   * noted, and the quick-questions counter must stay consistent. Returns
+   * the served state after the save; the caller stops on a violation.
+   */
+  async answerStepByStepOnly(question, state, skippedBy) {
+    const step = PLAN_BY_ID.get(question.id);
+    if (!step) {
+      throw new WalkthroughError(
+        `the flow showed "${question.id}", a step-by-step question the talk `
+          + "path never asks, which the journey plan does not cover",
+      );
+    }
+    const isPii = question.pii === true;
+    const beforeIds = new Set(state.questions.map((item) => item.id));
+    const response = await this.transport(
+      this.base,
+      "/api/intake/answer",
+      {
+        method: "POST",
+        body: { questionId: step.id, status: step.status, value: step.value ?? null },
+        cookie: this.cookie,
+      },
+      this.timeoutMs,
+    );
+    const newState = parseJsonBody(response.text, `answer ${step.id}`);
+    if (response.status !== 200) {
+      throw new WalkthroughError(
+        `step-by-step answer ${step.id} rejected: ${response.status} `
+          + this.maskPrivateValues(response.text.slice(0, 200)),
+      );
+    }
+    this.privateValues.push(...Walkthrough.privateStringsOf(question, step));
+    this.noteSavedAnswer(step.id, isPii && step.status !== "unknown");
+    this.log(
+      `STEP      ${step.id} = ${Walkthrough.plannedDisplay(step, isPii)} — `
+        + `${ANSWER_STATUS_LABELS[step.status]}  (answer route, no model: the `
+        + "talk path never asks this step-by-step question)",
+    );
+    const afterIds = new Set(newState.questions.map((item) => item.id));
+    if (afterIds.has(step.id) && newState.answers?.[step.id] === undefined) {
+      // The loop would show the same question again forever.
+      throw new WalkthroughError(
+        `the answer route saved nothing for "${step.id}" — the flow still shows it unanswered`,
+      );
+    }
+    const nowSkipped = [...beforeIds].filter((id) => !afterIds.has(id));
+    const nowAsked = [...afterIds].filter((id) => !beforeIds.has(id));
+    for (const id of nowSkipped) {
+      skippedBy.set(id, step.id);
+    }
+    if (nowSkipped.length > 0 || nowAsked.length > 0) {
+      const parts = [];
+      if (nowSkipped.length > 0) {
+        parts.push(`no longer asked: ${nowSkipped.join(", ")}`);
+      }
+      if (nowAsked.length > 0) {
+        parts.push(`newly asked: ${nowAsked.join(", ")}`);
+      }
+      this.log(`          ${parts.join(" · ")}`);
+    }
+    if (this.scanResponse(`answer ${step.id}`, response.text, newState)) {
+      return newState;
+    }
+    const counterProblem = quickQuestionsCounterProblem(state, newState, step.id);
+    if (counterProblem) {
+      this.recordViolation("quick_questions_counter", {
+        where: `answer ${step.id}`,
+        detail: counterProblem,
+      });
+    }
+    return newState;
   }
 
   /**
@@ -1908,6 +2072,35 @@ export class Walkthrough {
   }
 
   /**
+   * The private free-form strings one planned answer to a pii question
+   * carries, which every later body is checked for: a text or date answer
+   * is the person's own words, and so is each name on a household roster
+   * (the first names or nicknames the person types, HACK-134). Select
+   * options, attribution entries and work rows are spec vocabulary, member
+   * ids and hours: vocabulary legitimately appears in every payload's
+   * option lists and digits over-match, so the structural check in
+   * scanResponse (no `value` key under a pii question, ever) carries the
+   * boundary for those.
+   */
+  static privateStringsOf(question, step) {
+    if (question.pii !== true || step.status === "unknown") {
+      return [];
+    }
+    if (question.type === "text" || question.type === "date") {
+      return [String(step.value)];
+    }
+    if (question.type === "roster" && Array.isArray(step.value)) {
+      // Trimmed, the way the store keeps each name (parseRoster).
+      return step.value
+        .map((member) =>
+          typeof member?.displayName === "string" ? member.displayName.trim() : "",
+        )
+        .filter((name) => name !== "");
+    }
+    return [];
+  }
+
+  /**
    * The wizard's answer loop: answer whatever question the flow shows
    * next through the local answer route (POST /api/intake/answer — no
    * model in the loop), observing the skip behavior, tracking private
@@ -1937,7 +2130,6 @@ export class Walkthrough {
         );
       }
       const isPii = question.pii === true;
-      const isFreeForm = question.type === "text" || question.type === "date";
 
       const beforeIds = new Set(state.questions.map((item) => item.id));
       const answer = await this.transport(
@@ -1958,14 +2150,13 @@ export class Walkthrough {
       }
       answerNumber += 1;
 
-      if (isPii && step.status !== "unknown" && isFreeForm) {
-        // Track private free-form content (text/date answers) so every
-        // later body is scanned for it. Select-option values are spec
-        // vocabulary — they legitimately appear in every payload's option
-        // list — so the PII boundary for those rests on the structural
-        // check in scanResponse (no `value` key under a pii question, ever).
-        this.privateValues.push(String(step.value));
-      }
+      // Track private free-form content (text/date answers, and the names
+      // on a household roster) so every later body is scanned for it.
+      // Select-option values are spec vocabulary — they legitimately
+      // appear in every payload's option list — so the PII boundary for
+      // those rests on the structural check in scanResponse (no `value`
+      // key under a pii question, ever); privateStringsOf says which.
+      this.privateValues.push(...Walkthrough.privateStringsOf(question, step));
       this.noteSavedAnswer(step.id, isPii && step.status !== "unknown");
       this.log(
         `ANSWER ${String(answerNumber).padStart(2, "0")}  ${step.id} = ` +

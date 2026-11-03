@@ -232,7 +232,12 @@ Four modes:
   consent receipt (voice off) — the same grant the consent surface's typed
   path gives — and the turns pace themselves under the server's per-minute
   turn cap. Use `--timeout 90000` semantics (the default for this mode):
-  each typed turn runs two live model calls.
+  each typed turn runs two live model calls. The questions the talk path
+  never asks (the household list, who each work-requirements situation
+  applies to, and the per-person work rows) are never typed: the
+  walkthrough answers them through the answer route, the way the person
+  does in the step-by-step questions, and the household names count as
+  private values.
 - **form** (v2): the committed sample form's questions asked through the
   conversation, mapped fields pre-filled from the session's answers, the
   review's to-resolve list asserted consistent with the served state, then

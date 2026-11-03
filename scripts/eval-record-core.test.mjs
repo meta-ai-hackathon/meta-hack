@@ -10,6 +10,7 @@ import {
   QQ_PHASE_ANSWERS,
   SHOULD_ANSWER_PROBES,
   SHOULD_REFUSE_PROBES,
+  STEP_BY_STEP_ANSWERS,
 } from "./eval-cases.mjs";
 import {
   CATEGORIES,
@@ -321,24 +322,56 @@ describe("the frozen cases", PROPERTY_BUDGET, () => {
         value: passThrough.value,
       };
     }
-    // The household roster (HACK-134) is likewise captured through the
-    // wizard, never a scored conversation turn; it sits mid-spec, so the
-    // expected list is built in spec order.
-    answers.household_roster = {
-      status: "known",
-      value: [{ id: "member-1", displayName: "Fictional", relationship: "self", ageBand: "18_to_54" }],
-    };
+    // The household roster (HACK-134) is likewise saved through the answer
+    // route, never a scored conversation turn: the runner's step-by-step
+    // pass-through. It sits mid-spec, so it is checked in place below.
+    for (const passThrough of STEP_BY_STEP_ANSWERS) {
+      answers[passThrough.questionId] = {
+        status: passThrough.intendedStatus,
+        value: passThrough.value,
+      };
+    }
     const visible = visibleQuestions(QUESTIONS, answers).map((question) => question.id);
+    const stepByStepIds = STEP_BY_STEP_ANSWERS.map((passThrough) => passThrough.questionId);
     // Keep the original ordered comparison (it pins both fixture lists to
     // spec order), with the mid-spec roster checked separately below.
-    expect(visible.filter((id) => id !== "household_roster")).toEqual([
+    expect(visible.filter((id) => !stepByStepIds.includes(id))).toEqual([
       ...ANSWER_TURN_CASES.map((testCase) => testCase.questionId),
       ...QQ_PHASE_ANSWERS.map((passThrough) => passThrough.questionId),
     ]);
+    expect(stepByStepIds).toEqual(["household_roster"]);
     expect(visible.indexOf("household_roster")).toBe(visible.indexOf("household_seniors") + 1);
     for (const id of BRANCH_ONLY_QUESTION_IDS) {
       expect(visible).not.toContain(id);
     }
+  });
+
+  it("pass through only questions the talk path never asks, with answers the route accepts and the household the answer turns describe", async () => {
+    const { talkPathSavesQuestion } = await import("../src/lib/conversation");
+    const { canonicalAnswerValue } = await import("../src/lib/intake/answer-input");
+    const { QUESTION_BY_ID } = await import("../src/lib/intake/spec");
+    const { rosterFromAnswers } = await import("../src/lib/intake/roster");
+    for (const passThrough of STEP_BY_STEP_ANSWERS) {
+      // A question a typed turn could answer is a scored case, never a
+      // pass-through.
+      expect(talkPathSavesQuestion(passThrough.questionId), passThrough.questionId).toBe(false);
+      expect(
+        canonicalAnswerValue(QUESTION_BY_ID[passThrough.questionId], passThrough.value),
+        passThrough.questionId,
+      ).not.toBeNull();
+    }
+    const [household] = STEP_BY_STEP_ANSWERS;
+    const roster = rosterFromAnswers({ household_roster: { status: household.intendedStatus, value: household.value } });
+    const inBands = (bands) => roster.filter((member) => bands.includes(member.ageBand)).length;
+    expect(roster).toHaveLength(ANSWER_VALUE_LABELS.household_size);
+    expect(inBands(["under_14", "14_to_17"])).toBe(ANSWER_VALUE_LABELS.household_children);
+    expect(inBands(["60_to_64", "65_plus"])).toBe(ANSWER_VALUE_LABELS.household_seniors);
+    expect(roster.filter((member) => member.relationship === "self")).toHaveLength(1);
+    // The who-and-which-months answer names people on the list.
+    const whoMonths = QQ_PHASE_ANSWERS.find((passThrough) => passThrough.questionId === "wr_who_months");
+    expect(roster.map((member) => member.id)).toEqual(
+      expect.arrayContaining(whoMonths.value.map((entry) => entry.memberId)),
+    );
   });
 
   it("never send a work-requirements answer through the model extraction path", () => {
@@ -1485,6 +1518,148 @@ describe("the runner against a fake app", PROPERTY_BUDGET, () => {
     expect(entryOf("refuse.alpha").flags).toEqual(["banned_claim"]);
     expect(entryOf("answer.alpha").outcome).toBe("over_refused");
     expect(markdown).not.toContain("ZQX-");
+  });
+
+  /**
+   * The app's own intake flow behind the runner (HACK-133). The fake above
+   * serves a hand-made question list; this one serves what the flow engine
+   * shows. Every state is buildClientState over the stored answers,
+   * through the serializer's pii boundary, and the answer route validates
+   * with canonicalAnswerValue, so the runner meets every question the real
+   * flow asks, in its order, the household list (HACK-134) included. The
+   * scripted model saves an honest "not sure" for the question the
+   * conversation engine asks next, unless it misses that question's words
+   * entirely. A not-sure answer never satisfies a skip condition, so the
+   * flow asks every question it can, and the runner must cover each one.
+   * A turn sent while the flow shows a question the talk path never asks
+   * is noted as misrouted.
+   */
+  async function flowBackedApp({ misses = new Set() } = {}) {
+    const [serialize, answerInput, spec, conversation] = await Promise.all([
+      import("../src/lib/intake/serialize"),
+      import("../src/lib/intake/answer-input"),
+      import("../src/lib/intake/spec"),
+      import("../src/lib/conversation"),
+    ]);
+    let answers = {};
+    let completeAtPurge = null;
+    const calls = [];
+    const misrouted = [];
+    const reply = (status, body, setCookie) => ({
+      status,
+      text: JSON.stringify(body),
+      response: { headers: { getSetCookie: () => (setCookie ? [setCookie] : []) } },
+    });
+    const served = () => {
+      const state = serialize.buildClientState(answers);
+      serialize.assertNoPiiValues(state);
+      return state;
+    };
+    const save = (questionId, status, value) => {
+      const question = Object.hasOwn(spec.QUESTION_BY_ID, questionId) ? spec.QUESTION_BY_ID[questionId] : undefined;
+      if (question === undefined) {
+        return false;
+      }
+      const stored = status === "unknown" ? null : answerInput.canonicalAnswerValue(question, value);
+      if (status !== "unknown" && stored === null) {
+        return false;
+      }
+      answers = { ...answers, [questionId]: { status, value: stored } };
+      return true;
+    };
+    const transport = async (base, path, options = {}) => {
+      calls.push({ path, body: options.body });
+      if (path === "/api/health") {
+        return reply(200, { ok: true });
+      }
+      if (path === "/api/session") {
+        return reply(201, { state: served() }, "bn_session=flow; Path=/; HttpOnly");
+      }
+      if (path === "/api/intake/answer") {
+        const { questionId, status, value } = options.body;
+        return save(questionId, status, value)
+          ? reply(200, served())
+          : reply(400, { error: { code: "validation_error" } });
+      }
+      if (path === "/api/conversation/turn") {
+        const shown = served();
+        const current = shown.currentIndex === null ? null : shown.questions[shown.currentIndex];
+        if (current !== null && !conversation.talkPathSavesQuestion(current.id)) {
+          misrouted.push(current.id);
+        }
+        const asked = conversation.nextUnansweredQuestion(answers);
+        if (asked !== null && !misses.has(asked.id)) {
+          save(asked.id, "unknown", null);
+        }
+        return reply(200, {
+          assistantReply: "Thanks.",
+          redactedUserTranscript: "[redacted]",
+          nextQuestionId: null,
+          state: served(),
+        });
+      }
+      if (path === "/api/session/purge") {
+        completeAtPurge = served().complete;
+        answers = {};
+        return reply(200, { purged: true, deleted: { answers: 0, vaultEntries: 0, turns: 0, auditNotes: 0 } });
+      }
+      return reply(404, { error: { code: "not_found" } });
+    };
+    return { transport, calls, misrouted, completeAtPurge: () => completeAtPurge };
+  }
+
+  it("PROPERTY: walks the whole real flow, the household list saved through the answer route and no name ever typed, whatever the model misses", async () => {
+    const { QUESTIONS } = await import("../src/lib/intake/spec");
+    const { talkPathSavesQuestion } = await import("../src/lib/conversation");
+    const [household] = STEP_BY_STEP_ANSWERS;
+    const names = household.value.map((member) => member.displayName);
+    const listAt = QUESTIONS.findIndex((question) => question.id === household.questionId);
+    const afterTheList = new Set(QUESTIONS.slice(listAt + 1).map((question) => question.id));
+    const talkIds = QUESTIONS.filter(
+      (question) => talkPathSavesQuestion(question.id) && !question.id.startsWith("wr_"),
+    ).map((question) => question.id);
+    await fc.assert(
+      fc.asyncProperty(fc.subarray(talkIds), async (missed) => {
+        const app = await flowBackedApp({ misses: new Set(missed) });
+        const { observations, meta, lines } = await runAgainst(app, { cases: ANSWER_TURN_CASES });
+        // The runner reached the end of the flow, and every case ran; each
+        // miss was marked not sure so the flow could go on.
+        expect(app.completeAtPurge()).toBe(true);
+        for (const testCase of ANSWER_TURN_CASES) {
+          expect(observations.get(testCase.id)?.ran, testCase.id).toBe(true);
+        }
+        expect(meta.unstuckQuestions).toBe(missed.length);
+        // The household list went through the answer route once, and no
+        // turn went out while the flow showed a question the talk path
+        // never asks.
+        const saves = app.calls.filter((call) => call.path === "/api/intake/answer").map((call) => call.body);
+        expect(saves.filter((body) => body.questionId === household.questionId)).toEqual([
+          { questionId: household.questionId, status: household.intendedStatus, value: household.value },
+        ]);
+        expect(app.misrouted).toEqual([]);
+        // No turn carried a name, every case typed after the list is
+        // checked for the names, and none before it.
+        for (const call of app.calls.filter((entry) => entry.path === "/api/conversation/turn")) {
+          for (const name of names) {
+            expect(call.body.text).not.toContain(name);
+          }
+        }
+        for (const testCase of ANSWER_TURN_CASES) {
+          const tracked = observations.get(testCase.id).privateValues;
+          for (const name of names) {
+            expect(tracked.includes(name), `${testCase.id} tracks ${name}`).toBe(
+              afterTheList.has(testCase.questionId),
+            );
+          }
+        }
+        // Nothing private reached the console or the record.
+        const printed = `${renderRecord(buildRecord(ANSWER_TURN_CASES, observations, meta))}\n${lines.join("\n")}`;
+        for (const name of names) {
+          expect(printed).not.toContain(name);
+        }
+      }),
+      { numRuns: 25, examples: [[[]]] },
+    );
   });
 });
 
