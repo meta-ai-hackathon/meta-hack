@@ -12,9 +12,9 @@ import {
   RELATIONSHIP_LABELS,
   RELATIONSHIP_VALUES,
   addMember,
+  draftMembers,
   emptyMember,
   nextMemberId,
-  parseRoster,
   removeMember,
   updateMember,
   type HouseholdMember,
@@ -160,7 +160,7 @@ export function QuestionView({
       </fieldset>
     );
   } else if (question.type === "roster") {
-    const members: HouseholdMember[] = parseRoster(value) ?? [emptyMember("member-1")];
+    const members: HouseholdMember[] = draftMembers(value);
     const setMembers = (next: HouseholdMember[]) => onValueChange(next);
     control = (
       <fieldset aria-describedby={describedBy} className="flex flex-col gap-3">
@@ -212,7 +212,7 @@ export function QuestionView({
               </select>
             </label>
             {members.length > 1 ? (
-              <button type="button" disabled={busy} onClick={() => setMembers(removeMember(members, member.id))} className="self-start text-sm text-muted underline">
+              <button type="button" aria-label={`Remove person ${index + 1}${member.displayName ? `: ${member.displayName}` : ""}`} disabled={busy} onClick={() => setMembers(removeMember(members, member.id))} className="self-start text-sm text-muted underline">
                 Remove this person
               </button>
             ) : null}

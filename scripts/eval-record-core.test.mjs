@@ -321,11 +321,22 @@ describe("the frozen cases", PROPERTY_BUDGET, () => {
         value: passThrough.value,
       };
     }
+    // The household roster (HACK-134) is likewise captured through the
+    // wizard, never a scored conversation turn; it sits mid-spec, so the
+    // expected list is built in spec order.
+    answers.household_roster = {
+      status: "known",
+      value: [{ id: "member-1", displayName: "Fictional", relationship: "self", ageBand: "18_to_49" }],
+    };
     const visible = visibleQuestions(QUESTIONS, answers).map((question) => question.id);
-    expect(visible).toEqual([
-      ...ANSWER_TURN_CASES.map((testCase) => testCase.questionId),
-      ...QQ_PHASE_ANSWERS.map((passThrough) => passThrough.questionId),
-    ]);
+    const specOrder = new Map(QUESTIONS.map((q, i) => [q.id, i]));
+    expect(visible).toEqual(
+      [
+        ...ANSWER_TURN_CASES.map((testCase) => testCase.questionId),
+        ...QQ_PHASE_ANSWERS.map((passThrough) => passThrough.questionId),
+        "household_roster",
+      ].sort((a, b) => specOrder.get(a) - specOrder.get(b)),
+    );
     for (const id of BRANCH_ONLY_QUESTION_IDS) {
       expect(visible).not.toContain(id);
     }

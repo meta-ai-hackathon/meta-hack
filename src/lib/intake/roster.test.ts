@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { canonicalAnswerValue } from "./answer-input";
 import {
   AGE_BAND_VALUES,
+  draftMembers,
   RELATIONSHIP_VALUES,
   addMember,
   emptyMember,
@@ -19,7 +20,7 @@ import { QUESTION_BY_ID } from "./spec";
 const memberArb: fc.Arbitrary<HouseholdMember> = fc.record({
   id: fc.stringMatching(/^member-[a-z0-9]{1,8}$/),
   displayName: fc.string({ minLength: 1, maxLength: 20 }).filter((s) => s.trim() !== ""),
-  relationship: fc.constantFrom(...RELATIONSHIP_VALUES),
+  relationship: fc.constantFrom(...RELATIONSHIP_VALUES.filter((v) => v !== "self")),
   ageBand: fc.constantFrom(...AGE_BAND_VALUES),
 });
 const rosterArb = fc.uniqueArray(memberArb, { minLength: 1, maxLength: 6, selector: (m) => m.id });
@@ -55,6 +56,13 @@ describe("household roster (HACK-134)", () => {
       expect(removed.some((m) => m.id === updated[0].id)).toBe(false);
       expect(memberOptions(removed).map((o) => o.value)).toEqual(removed.map((m) => m.id));
     }));
+  });
+  it("keeps blank and untrimmed draft names for the editor, and rejects two self members", () => {
+    expect(draftMembers([{ id: "member-1", displayName: "Mary ", relationship: "self", ageBand: "18_to_49" }])[0].displayName).toBe("Mary ");
+    expect(draftMembers([{ id: "member-1", displayName: "", relationship: "self", ageBand: "18_to_49" }])).toHaveLength(1);
+    expect(draftMembers(undefined)).toEqual([emptyMember("member-1", "self")]);
+    const twoSelf = [{ ...emptyMember("member-1", "self"), displayName: "A" }, { ...emptyMember("member-2", "self"), displayName: "B" }];
+    expect(parseRoster(twoSelf)).toBeNull();
   });
   it("single member roster works and rosterFromAnswers ignores unknown", () => {
     const solo = [{ ...emptyMember("member-1"), displayName: "Sam" }];

@@ -86,6 +86,7 @@ export function parseRoster(value: unknown): HouseholdMember[] | null {
     if (!isRelationship(m.relationship) || !isAgeBand(m.ageBand)) return null;
     seen.add(m.id);
     out.push({ id: m.id, displayName: name, relationship: m.relationship, ageBand: m.ageBand });
+    if (out.filter((x) => x.relationship === "self").length > 1) return null;
   }
   return out;
 }
@@ -97,8 +98,29 @@ export function nextMemberId(roster: readonly HouseholdMember[]): string {
   return `member-${n}`;
 }
 
-export function emptyMember(id: string): HouseholdMember {
-  return { id, displayName: "", relationship: "self", ageBand: "18_to_49" };
+export function emptyMember(id: string, relationship: Relationship = "other_family"): HouseholdMember {
+  return { id, displayName: "", relationship, ageBand: "18_to_49" };
+}
+
+/**
+ * Loose draft view for the editor: blank and untrimmed names survive,
+ * so typing is never mangled mid-edit. parseRoster stays the strict
+ * canonical check and runs only at the store boundary on submit.
+ * At most one member may be "self": a second one invalidates the value.
+ */
+export function draftMembers(value: unknown): HouseholdMember[] {
+  if (!Array.isArray(value) || value.length === 0) return [emptyMember("member-1", "self")];
+  const out: HouseholdMember[] = [];
+  value.forEach((raw, i) => {
+    const m = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    out.push({
+      id: typeof m.id === "string" && m.id !== "" ? m.id : `member-${i + 1}`,
+      displayName: typeof m.displayName === "string" ? m.displayName : "",
+      relationship: isRelationship(m.relationship) ? m.relationship : i === 0 ? "self" : "other_family",
+      ageBand: isAgeBand(m.ageBand) ? m.ageBand : "18_to_49",
+    });
+  });
+  return out;
 }
 
 export function addMember(roster: readonly HouseholdMember[], member: HouseholdMember): HouseholdMember[] {

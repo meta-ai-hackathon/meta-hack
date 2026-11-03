@@ -366,6 +366,8 @@ function sentinelValueFor(
       return true;
     case "number":
       return 1;
+    case "roster":
+      return [{ id: "member-1", displayName: "SENTINEL-NAME", relationship: "self", ageBand: "18_to_49" }];
     default:
       return "SENTINEL-TEXT";
   }
