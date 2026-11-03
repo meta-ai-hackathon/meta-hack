@@ -214,14 +214,27 @@ filled form is never saved to the device.
   The owner chose this over a download on HACK-115 (Nov 3), after the
   review bot found the download saved every answer to the device as an
   unencrypted file that "Delete my answers from this device" couldn't
-  reach. Nothing is saved: no file, Blob, or object URL, no frame or embed
-  that shows the PDF (a browser may offer or start a download of one), and
-  nothing in the browser's storage. The pages go, and their canvases are
-  released, when any answer changes, typed ones included, when the page
-  closes, and with every delete, so the delete confirmation claims only
-  this browser and has no file to mention. The note by the Print button
-  asks the person to choose a printer, because saving as a PDF from the
-  print window would leave an ordinary file on the device.
+  reach. The filled form is never saved: no file, Blob, or object URL, no
+  share sheet, no frame or embed that shows the PDF (a browser may offer
+  or start a download of one), and nothing in the browser's storage. The
+  note by the show button says just that: the answers themselves may be
+  saved in this browser, as the save for later section says on the same
+  screen, so it never claims nothing at all is saved. The pages go, and
+  their canvases are released, when any answer changes, typed ones
+  included, when the person leaves for another screen of the app or
+  another site (on `pagehide`, so a page the browser keeps for Back comes
+  back without them), and with every delete, so the delete confirmation
+  claims only this browser and has no file to mention. The note by the
+  Print button asks the person to choose a printer, because saving as a
+  PDF from the print window would leave an ordinary file on the device.
+  Some in-app browsers ignore `window.print()`, so when no print starts
+  after a press, the page says to open it in a browser such as Safari or
+  Chrome, and that answers saved in this browser don't move there. Each
+  page prints on its own sheet, sized to fit the sheet's printable area
+  both ways, so narrow margins, headers and footers, or a landscape sheet
+  don't split it. While the form is prepared, the show button keeps focus
+  (it is marked busy rather than disabled) and the status line says so;
+  once the pages are drawn, focus moves to their heading.
 - **pdf.js on the page:** the print preview is the only device module that
   loads `pdfjs-dist`, and both it and pdf.js load only when the person asks
   to see the filled form. pdf.js runs on the page's own thread: the module
@@ -232,7 +245,14 @@ filled form is never saved to the device.
   or wasm files from. Pages draw with the print intent and the default
   annotation mode, so each field shows the appearance pdf-lib wrote for its
   answer, at about 150 DPI within a pixel budget that keeps a phone's
-  memory in mind.
+  memory in mind. pdf.js 6.4.x calls `Promise.withResolvers` and
+  `ArrayBuffer.prototype.transferToFixedLength` without bringing them, and
+  Safari before 17.4 lacks both (Chrome gained them in 119 and 114), while
+  Next.js builds for Safari 16.4 and Chrome 111. Without them pdf.js throws
+  on every document or never finishes a page, so the module fills in
+  whichever is missing before pdf.js loads and leaves a browser's own
+  alone. A drawing pdf.js hasn't finished a minute after it loaded is
+  given up on, and the page shows the same failure message as any other.
 - **The blank form:** the public DHB-5200 is a static file
   (`public/forms/dhb-5200.pdf`), byte for byte the registry's committed
   copy. The page asks for it only when the person asks to see the filled
@@ -260,9 +280,11 @@ filled form is never saved to the device.
 | Only Save and finish later asks the browser to keep the store, after saying so | `src/lib/intake/device-intake.test.ts` (answering never asks; it asks only when the device holds answers) + `src/app/intake/intake-wizard.device.test.tsx` (the note describes the button, one request a visit) |
 | `/intake` reaches the match, the review, and the filled form with no answer in any request, and a reload resumes them | `src/app/intake/device-results.test.tsx` (the page driven through the DOM over a fake IndexedDB, with every request recorded) + `src/lib/intake/device-path-boundary.test.ts` (no server module, Node built-in, or request on the path besides the blank form's GET) |
 | The end of `/intake` shows no banned claim and no private answer, for any answers | `src/app/intake/device-results.markup.test.tsx` (properties over generated device answers: the rendered text, attributes, and markup, plus labelled and described inputs with spellcheck off and a heading outline that never skips a level) |
-| The filled form is printed, never saved to the device | `src/lib/intake/device-path-boundary.test.ts` (the fill, the print preview, and the page hold no object URL, Blob, download attribute, embedding element, image file, storage, or service worker, read from the parsed code; pdf.js loads only in the print preview, on demand, with nothing that would send it to the network) + `src/app/intake/device-results.test.tsx` (the page driven to the filled pages: nothing handed to the browser as a file, nothing new in its storage, Print calls the browser's print) |
-| The print preview draws every page, in order, and keeps nothing when it can't finish | `src/lib/intake/device-print.test.ts` (properties with pdf.js faked: each page drawn once at its print size and label from a copy of the bytes, the worker hook in place first, the loading task destroyed, every canvas released after a failure or an abort, a failed pdf.js load retried; the print size never past 150 DPI or the pixel budgets) |
-| The filled pages never outlast the answers they show | `src/app/intake/device-results.test.tsx` (a typed change, an answer change, a change while the pages draw, leaving the page, and a delete each drop the pages and release their canvases) |
+| The filled form is printed, never saved to the device | `src/lib/intake/device-path-boundary.test.ts` (read from the parsed code of every module on the path: no object URL, Blob, File, response or canvas Blob, download attribute, share sheet, embedding element, file picker or file system, image file, browser storage, cookie, or service worker, whether named in code or in a string, with only the two sealed answer stores allowed their own storage; pdf.js loads only in the print preview, on demand, with nothing that would send it to the network) + `src/app/intake/device-results.test.tsx` (the page driven to the filled pages: nothing handed to the browser as a file, nothing new in its storage, Print calls the browser's print) |
+| Print puts only the filled pages on paper, one to a sheet | `src/app/intake/device-results.test.tsx` (the print rules in `src/app/globals.css`, read with the browser's CSS parser and matched against the rendered page: everything beside the pages is hidden, the typed answers included, nothing in them is, a break after every page but the last, and each canvas sized to fit the printable width and height) |
+| The print preview draws every page, in order, and keeps nothing when it can't finish | `src/lib/intake/device-print.test.ts` (properties with pdf.js faked: each page drawn once at its print size and label from a copy of the bytes, the worker hook and the missing built-ins in place first, the stand-in built-ins behaving as the real ones, the loading task destroyed, every canvas released after a failure, an abort, or a pdf.js that stops answering, a failed pdf.js load retried; the print size never past 150 DPI or the pixel budgets) |
+| The filled pages never outlast the answers they show | `src/app/intake/device-results.test.tsx` (a typed change, an answer change, a change while the pages draw, leaving the page for another screen or another site, a drawing still running when the page is left, and a delete each drop the pages and release their canvases, and the word that they are ready goes with them) |
+| A print press the browser ignores says how to print instead | `src/app/intake/device-results.test.tsx` (with `window.print()` ignored, the page says to open it in another browser, and a print that starts late takes that back) |
 | A box answer that isn't checked or unchecked holds the filled form back instead of printing an unchecked box | `src/lib/intake/device-review-answers.test.ts` (property over typed answers: box answers reach the fill only as checked or unchecked, any other text is listed) + `src/app/intake/device-results.test.tsx` (yes typed into a box: nothing fetched or filled, the box listed, then filled as fixed) |
 | Answers typed into the review survive a trip to a question and go with every delete | `src/app/intake/device-results.test.tsx` (property: generated typed answers are all still there after answering a question from the review; a delete here, in another tab, or found by a save leaves the review empty when the questions are answered again) |
 | The device's fill and review match the server's for the same answers | `src/lib/intake/device-form.test.ts` (properties over generated answer sets saved through the server store and on the device: the same field values, provenance, to-resolve and not-applicable lists, conflict flags, and the review route's view and coverage report) |
