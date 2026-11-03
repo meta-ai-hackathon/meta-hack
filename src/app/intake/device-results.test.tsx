@@ -1304,6 +1304,21 @@ describe("/intake to the review and the filled form, on the device", () => {
     expectNothingSaved();
     expect(view.downloadButton()?.textContent).toBe(view.copy.downloadButton);
 
+    // A browser that won't make the file saves nothing, and the page says so.
+    const makeUrl = Object.getOwnPropertyDescriptor(URL, "createObjectURL")!;
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: () => {
+        throw new DOMException("Object URLs are blocked here", "SecurityError");
+      },
+    });
+    await view.act(async () => {
+      view.downloadButton()!.click();
+    });
+    Object.defineProperty(URL, "createObjectURL", makeUrl);
+    expectNothingSaved();
+    await view.waitFor(() => view.status() === view.copy.downloadNotStarted, "the notice that the file wasn't made");
+
     const activation = { isActive: false };
     Object.defineProperty(navigator, "userActivation", { value: activation, configurable: true });
     await view.act(async () => {

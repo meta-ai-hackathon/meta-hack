@@ -613,7 +613,14 @@ export function DeviceResults(props: {
     if (filled === null || onScreen.current !== filled) {
       return;
     }
-    const saved = saveFilledFormToDevice(filled.bytes, DOWNLOAD_FILE_NAME);
+    // A browser that won't make the file (a locked-down frame can refuse
+    // object URLs) saved nothing, and the page says so.
+    let saved = false;
+    try {
+      saved = saveFilledFormToDevice(filled.bytes, DOWNLOAD_FILE_NAME);
+    } catch {
+      saved = false;
+    }
     announce(saved ? DEVICE_RESULTS_COPY.downloaded : DEVICE_RESULTS_COPY.downloadNotStarted);
   }
 
