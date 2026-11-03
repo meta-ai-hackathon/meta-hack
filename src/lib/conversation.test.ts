@@ -26,6 +26,7 @@ import {
   findBannedClaimsEverySentence,
   findPiiEchoes,
   followupGateProblem,
+  spokenGateProblem,
   malformedEnvelopeFallback,
   parseCombinedEnvelope,
   PARTIAL_SAVE_FALLBACK_PREFIX,
@@ -195,6 +196,29 @@ describe("grounded prompt builders", () => {
       }
     }
     expect(misses).toEqual([]);
+  });
+
+  it("holds the placeholder contract on typed and voice turns alike", () => {
+    // The contract is the same in both modes (PR #116 review): a voice
+    // turn's history carries the same token-bearing typed turns, so a
+    // voice reply needs the same never-echo instruction. The pinning
+    // keeps the honest-loss behavior from quietly regressing to
+    // typed-only while the spoken-rendition instruction stays scoped to
+    // the voice path.
+    const question = QUESTION_BY_ID["application_role"];
+    const typed = buildCombinedTurnPrompt(question);
+    const voice = buildCombinedTurnPrompt(question, {}, QUESTIONS, KB_ENTRIES, true);
+    for (const prompt of [typed, voice]) {
+      expect(prompt).toContain(
+        "Transcripts carry Rampart placeholders (for example [GIVEN_NAME_1])",
+      );
+      expect(prompt).toContain(
+        "instead of the private values the app held back",
+      );
+      expect(prompt).toContain("never repeat, quote, or echo a bracketed placeholder");
+    }
+    expect(typed).not.toContain("Spoken rendition");
+    expect(voice).toContain('spoken_reply');
   });
 
   it("grounds the combined prompt on the refusal phrase, the injection guardrail, and the pilot program", () => {
@@ -1062,3 +1086,30 @@ function makeEntry(status: KbEntry["status"], rulesPhrase: string): KbEntry {
     },
   };
 }
+
+describe("spoken_reply envelope parsing and gate (HACK-107)", () => {
+  const content = (spoken: unknown) =>
+    JSON.stringify({ answers: [], reply: "Next question coming up.", ...(spoken === undefined ? {} : { spoken_reply: spoken }) });
+  it("keeps a trimmed non-empty spoken_reply", () => {
+    const e = parseCombinedEnvelope(content("  Please tell me more.  "));
+    expect(e).not.toBeNull();
+    expect(e?.spokenReply).toBe("Please tell me more.");
+  });
+  it("drops bad spoken_reply values without failing the envelope", () => {
+    for (const bad of [42, "", "   ", null]) {
+      const e = parseCombinedEnvelope(content(bad));
+      expect(e).not.toBeNull();
+      expect(e?.spokenReply).toBeUndefined();
+      expect(e?.reply).toBe("Next question coming up.");
+    }
+    const absent = parseCombinedEnvelope(content(undefined));
+    expect(absent?.spokenReply).toBeUndefined();
+  });
+  it("spokenGateProblem gates placeholder, banned claim, pii echo, empty", () => {
+    expect(spokenGateProblem("Please tell me more.", [])).toBeNull();
+    expect(spokenGateProblem("Ask [GIVEN_NAME_1] next.", [])).toBe("placeholder");
+    expect(spokenGateProblem("You are eligible.", [])).toBe("banned_claim");
+    expect(spokenGateProblem("Please confirm Jane Doe.", ["Jane Doe"])).toBe("pii_echo");
+    expect(spokenGateProblem("   ", [])).toBe("empty");
+  });
+});
