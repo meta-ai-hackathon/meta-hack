@@ -8,6 +8,7 @@ import {
   INCOME_580_MONTHLY_THRESHOLD,
   INCOME_580_QUESTION_ID,
   NO_PROOF_NEEDED_NOTE,
+  NO_PROOF_NEEDED_NOTE_SENSITIVE,
   isWorkRequirementsQuestionId,
   matchIncome580,
 } from "./work-requirements";
@@ -82,11 +83,17 @@ describe("the no-proof-needed reassurance (HACK-129)", () => {
   });
 
   it("promises only that answering needs no paperwork; proof may come later", () => {
-    expect(NO_PROOF_NEEDED_NOTE).toContain("doctor's note");
-    expect(NO_PROOF_NEEDED_NOTE).toContain("may ask for proof later");
-    // Guardrails: never a never-proof promise, never a records-first claim.
-    expect(NO_PROOF_NEEDED_NOTE).not.toMatch(
-      /never (need|ask)|no proof will|records (will be |are )?checked/i,
+    for (const note of [NO_PROOF_NEEDED_NOTE, NO_PROOF_NEEDED_NOTE_SENSITIVE]) {
+      expect(note).toContain("doctor's note");
+      expect(note).toContain("may ask for proof later");
+      // Guardrails: never a never-proof promise, never a records-first claim.
+      expect(note).not.toMatch(
+        /never (need|ask)|no proof will|records (will be |are )?checked/i,
+      );
+    }
+    // The sensitive variant scopes itself to the health/caregiving cards.
+    expect(NO_PROOF_NEEDED_NOTE_SENSITIVE).toContain(
+      "health and caregiving questions",
     );
   });
 });

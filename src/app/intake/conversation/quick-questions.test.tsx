@@ -940,6 +940,9 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
     ).toBeNull();
     const note = container.querySelector('[data-qq-group-note="sensitive"]');
     expect(note).not.toBeNull();
+    // Scoped wording: it names the health/caregiving questions, because
+    // the sensitive group can also hold non-work-requirements cards.
+    expect(note?.textContent).toContain("health and caregiving questions");
     expect(note?.textContent).toContain("doctor's note");
   });
 

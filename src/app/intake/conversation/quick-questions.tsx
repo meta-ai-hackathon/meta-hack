@@ -9,6 +9,7 @@ import type { AnswerStatus } from "../../../lib/honesty";
 import {
   INCOME_580_QUESTION_ID,
   NO_PROOF_NEEDED_NOTE,
+  NO_PROOF_NEEDED_NOTE_SENSITIVE,
   isWorkRequirementsQuestionId,
   matchIncome580,
 } from "../../../lib/intake/work-requirements";
@@ -266,7 +267,11 @@ export function groupRemainingQuestions(
     groups.push({
       id: spec.id,
       heading: spec.heading,
-      note: carriesProofNote ? NO_PROOF_NEEDED_NOTE : undefined,
+      note: carriesProofNote
+        ? spec.id === SENSITIVE_GROUP.id
+          ? NO_PROOF_NEEDED_NOTE_SENSITIVE
+          : NO_PROOF_NEEDED_NOTE
+        : undefined,
       sensitive: spec.id === SENSITIVE_GROUP.id,
       questions,
     });
