@@ -324,7 +324,7 @@ export function QuestionView({
                     min="0"
                     value={row.hours === null ? "" : row.hours}
                     disabled={busy}
-                    onChange={(e) => setRows(setWorkRow(rows, index, { hours: e.target.value === "" ? null : Number(e.target.value) }))}
+                    onChange={(e) => setRows(setWorkRow(rows, index, { hours: e.target.value === "" ? null : Number(e.target.value), hoursNotSure: false }))}
                     className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
                   />
                 </label>
@@ -332,9 +332,9 @@ export function QuestionView({
                   <input
                     id={`${question.id}-${index}-notsure`}
                     type="checkbox"
-                    checked={row.hours === null}
+                    checked={row.hoursNotSure === true}
                     disabled={busy}
-                    onChange={(e) => setRows(setWorkRow(rows, index, { hours: e.target.checked ? null : 0 }))}
+                    onChange={(e) => setRows(setWorkRow(rows, index, { hoursNotSure: e.target.checked, hours: e.target.checked ? null : row.hours }))}
                   />
                   Not sure about the hours
                 </label>
@@ -343,6 +343,12 @@ export function QuestionView({
                 ) : null}
                 {row.hours !== null && row.hours < 0 ? (
                   <p className="text-sm font-medium text-danger">Hours cannot be less than zero.</p>
+                ) : null}
+                {row.hours !== null && row.hours > 744 ? (
+                  <p className="text-sm font-medium text-danger">That is more hours than a month has. Please check the number.</p>
+                ) : null}
+                {row.hours === null && row.hoursNotSure !== true ? (
+                  <p className="text-sm text-muted">Enter the hours, or tick Not sure about the hours.</p>
                 ) : null}
                 <button type="button" aria-label={`Remove this row (row ${index + 1})`} disabled={busy} onClick={() => setRows(removeWorkRow(rows, index))} className="self-start text-sm text-muted underline">
                   Remove this row

@@ -666,7 +666,7 @@ describe("per-person work rows re-pruning (HACK-128)", () => {
     ]);
     await save("wr_work_rows", [
       { memberId: "member-1", activity: "job_internship", hours: 40 },
-      { memberId: "member-2", activity: "community_service", hours: null },
+      { memberId: "member-2", activity: "community_service", hours: null, hoursNotSure: true },
     ]);
     await save("household_roster", [
       { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },

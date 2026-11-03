@@ -14,11 +14,15 @@ export function activityTypes(): { value: string; label: string }[] {
   return [...(QUESTION_BY_ID["wr_work_activity_types"]?.options ?? [])];
 }
 
+/** No month has more than 31 * 24 hours; anything above is a typo, never an answer. */
+export const MAX_HOURS_LAST_MONTH = 744;
+
 export interface WorkRow {
   readonly memberId: string;
   readonly activity: string;
-  /** Hours last month; null means the person said "not sure". */
+  /** Hours last month; null with hoursNotSure means "not sure", null alone is an unfilled draft. */
   readonly hours: number | null;
+  readonly hoursNotSure?: boolean;
 }
 
 export function parseWorkRows(value: unknown): WorkRow[] | null {
@@ -31,11 +35,14 @@ export function parseWorkRows(value: unknown): WorkRow[] | null {
     const r = raw as Record<string, unknown>;
     if (typeof r.memberId !== "string" || r.memberId === "" || r.memberId.length > 32) return null;
     if (typeof r.activity !== "string" || !activities.has(r.activity)) return null;
-    if (!(r.hours === null || (typeof r.hours === "number" && Number.isFinite(r.hours) && r.hours >= 0))) return null;
+    if (!(r.hours === null || (typeof r.hours === "number" && Number.isFinite(r.hours) && r.hours >= 0 && r.hours <= MAX_HOURS_LAST_MONTH))) return null;
+    // A null hours is only an answer when the person said "not sure";
+    // a blank draft row is not a saveable answer yet.
+    if (r.hours === null && r.hoursNotSure !== true) return null;
     const key = `${r.memberId}|${r.activity}`;
     if (seen.has(key)) return null;
     seen.add(key);
-    out.push({ memberId: r.memberId, activity: r.activity, hours: r.hours });
+    out.push({ memberId: r.memberId, activity: r.activity, hours: r.hours, ...(r.hours === null ? { hoursNotSure: true } : {}) });
   }
   return out;
 }
@@ -74,8 +81,8 @@ export function suggestedWorkRows(answers: AnswerMap, members: readonly Househol
   const sources = stored.value.map(String);
   const self = members.find((m) => m.relationship === "self") ?? members[0];
   const out: WorkRow[] = [];
-  if (sources.includes("job")) out.push({ memberId: self.id, activity: "job_internship", hours: null });
-  if (sources.includes("self_employed")) out.push({ memberId: self.id, activity: "self_employment", hours: null });
+  if (sources.includes("job")) out.push({ memberId: self.id, activity: "job_internship", hours: null, hoursNotSure: false });
+  if (sources.includes("self_employed")) out.push({ memberId: self.id, activity: "self_employment", hours: null, hoursNotSure: false });
   return out;
 }
 

@@ -6,11 +6,16 @@ import { QUESTION_BY_ID } from "./spec";
 import type { AnswerMap } from "./flow";
 
 const activities = activityTypes().map((a) => a.value);
-const rowArb: fc.Arbitrary<WorkRow> = fc.record({
-  memberId: fc.constantFrom("member-1", "member-2"),
-  activity: fc.constantFrom(...activities),
-  hours: fc.oneof(fc.constant(null), fc.integer({ min: 0, max: 200 })),
-});
+const rowArb: fc.Arbitrary<WorkRow> = fc
+  .record({
+    memberId: fc.constantFrom("member-1", "member-2"),
+    activity: fc.constantFrom(...activities),
+    hoursPart: fc.oneof(
+      fc.constant({ hours: null, hoursNotSure: true }),
+      fc.integer({ min: 0, max: 744 }).map((hours) => ({ hours })),
+    ),
+  })
+  .map(({ memberId, activity, hoursPart }) => ({ memberId, activity, ...hoursPart }));
 const rowsArb = fc.uniqueArray(rowArb, { minLength: 1, maxLength: 6, selector: (r) => `${r.memberId}|${r.activity}` });
 
 const members = [
@@ -39,6 +44,9 @@ describe("per-person work rows (HACK-128)", () => {
     expect(parseWorkRows([{ ...r, activity: "nope" }])).toBeNull();
     expect(parseWorkRows([{ ...r, hours: -1 }])).toBeNull();
     expect(parseWorkRows([])).toBeNull();
+    expect(parseWorkRows([{ ...r, hours: 745 }])).toBeNull();
+    expect(parseWorkRows([{ ...r, hours: null }])).toBeNull();
+    expect(parseWorkRows([{ ...r, hours: null, hoursNotSure: true }])).toEqual([{ ...r, hours: null, hoursNotSure: true }]);
   });
   it("set/remove touch only the indexed row", () => {
     const rows: WorkRow[] = [
@@ -58,8 +66,8 @@ describe("per-person work rows (HACK-128)", () => {
       ] },
     };
     expect(suggestedWorkRows(answers, members)).toEqual([
-      { memberId: "member-1", activity: "job_internship", hours: null },
-      { memberId: "member-1", activity: "self_employment", hours: null },
+      { memberId: "member-1", activity: "job_internship", hours: null, hoursNotSure: false },
+      { memberId: "member-1", activity: "self_employment", hours: null, hoursNotSure: false },
     ]);
     expect(currentWorkRows(answers)).toEqual([{ memberId: "member-1", activity: "job_internship", hours: 40 }]);
     expect(suggestedWorkRows({}, members)).toEqual([]);
