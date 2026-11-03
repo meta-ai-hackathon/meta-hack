@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import type { ClientAnswer, ClientQuestion } from "../../lib/intake/serialize";
 import {
@@ -104,17 +104,6 @@ export function QuestionView({
 }: QuestionViewProps) {
   // When the attribution editor is shown, sync the draft to the pruned
   // entries so a removed member or withdrawn situation is not re-saved.
-  const prefilledForRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (question.type !== "work_activity" || value !== undefined || !workContext || workContext.suggestions.length === 0) return;
-    if (prefilledForRef.current === question.id) return;
-    prefilledForRef.current = question.id;
-    // Income-section prefill (HACK-128), applied once per question: the
-    // suggested rows become the draft so Continue saves them for
-    // confirmation. Removing every row afterwards stays removed.
-    onValueChange([...workContext.suggestions]);
-  }, [question.id, question.type, value, workContext]);
-
   useEffect(() => {
     if (question.type !== "attribution" || !attributionContext) return;
     const pruned = draftAttribution(value, attributionContext);
@@ -258,10 +247,12 @@ export function QuestionView({
   } else if (question.type === "work_activity") {
     const members = workContext?.members ?? [];
     const memberIds = new Set(members.map((m) => m.id));
-    let rows: WorkRow[] = draftWorkRows(value, memberIds);
-    if (rows.length === 0 && value === undefined && workContext && workContext.suggestions.length > 0) {
-      rows = [...workContext.suggestions];
-    }
+    const rows: WorkRow[] = draftWorkRows(value, memberIds);
+    // Income-section suggestions (HACK-128) are offered, never drafted:
+    // a row enters the draft only when the person taps Add for it.
+    const offered = (workContext?.suggestions ?? []).filter(
+      (s) => !rows.some((r) => r.memberId === s.memberId && r.activity === s.activity),
+    );
     const setRows = (next: WorkRow[]) => onValueChange(next.length === 0 ? undefined : next);
     control = (
       <fieldset aria-describedby={describedBy} className="flex flex-col gap-3">
@@ -277,6 +268,24 @@ export function QuestionView({
           </p>
         ) : (
           <>
+            {offered.length > 0 ? (
+              <div className="flex flex-col gap-2 rounded-xl border border-teal/25 bg-teal-soft p-3">
+                <p className="text-sm text-muted">
+                  From your income answers, you could add:
+                </p>
+                {offered.map((s) => (
+                  <button
+                    key={`${s.memberId}|${s.activity}`}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setRows([...rows, s])}
+                    className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
+                  >
+                    Add a row for {members.find((m) => m.id === s.memberId)?.displayName ?? "this person"}: {activityTypes().find((a) => a.value === s.activity)?.label ?? s.activity}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {rows.map((row, index) => (
               <div key={index} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3" data-work-row={index}>
                 <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${index}-member`}>
@@ -329,6 +338,12 @@ export function QuestionView({
                   />
                   Not sure about the hours
                 </label>
+                {rows.some((r, i) => i !== index && r.memberId === row.memberId && r.activity === row.activity) ? (
+                  <p className="text-sm font-medium text-danger">This person already has a row for this activity. Change one of them or remove this row.</p>
+                ) : null}
+                {row.hours !== null && row.hours < 0 ? (
+                  <p className="text-sm font-medium text-danger">Hours cannot be less than zero.</p>
+                ) : null}
                 <button type="button" aria-label={`Remove this row (row ${index + 1})`} disabled={busy} onClick={() => setRows(removeWorkRow(rows, index))} className="self-start text-sm text-muted underline">
                   Remove this row
                 </button>
