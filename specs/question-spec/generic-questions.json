@@ -863,6 +863,16 @@
       "provenance": "user-supplied"
     },
     {
+      "id": "wr_who_months",
+      "prompt": "For each situation you told us about, who does it apply to, and which months?",
+      "type": "attribution",
+      "help": "Pick the person or people for each situation, then this month, last month, or both. Pick 'not sure' if you do not know. You can skip this - skipping never blocks your application.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
       "id": "wr_work_activity_who",
       "prompt": "Who completed work activities last month?",
       "type": "text",

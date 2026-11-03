@@ -1125,7 +1125,9 @@ describe("household roster on the talk path (HACK-134)", () => {
     expect(prompt).not.toContain(roster.prompt);
     const enumIds = (EXTRACTION_SCHEMA.properties.answers.items.properties.question_id as { enum: string[] }).enum;
     expect(enumIds).not.toContain("household_roster");
+    expect(enumIds).not.toContain("wr_who_months");
     expect(talkPathSavesQuestion("household_roster")).toBe(false);
+    expect(talkPathSavesQuestion("wr_who_months")).toBe(false);
     expect(talkPathSavesQuestion("household_size")).toBe(true);
   });
 });

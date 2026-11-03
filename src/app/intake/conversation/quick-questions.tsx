@@ -183,6 +183,7 @@ const GROUP_SPECS: readonly GroupSpec[] = [
       "wr_hospital_care_24hr",
       "wr_student_enrolled",
       "wr_income_580",
+      "wr_who_months",
       "wr_work_activity_who",
       "wr_work_activity_types",
       "wr_work_activity_hours",
@@ -558,6 +559,22 @@ function QuestionCard(props: {
           ),
         )}
       </fieldset>
+    );
+  } else if (question.type === "attribution") {
+    // Per-person attribution (HACK-135) is filled in from the household
+    // list in the step-by-step questions, where the roster lives on the
+    // device. Here the card explains that and stays optional: Not sure
+    // or Skip always work, and nothing blocks progress.
+    control = (
+      <div className="flex flex-col gap-1.5">
+        <p className="text-base font-medium">{question.prompt}</p>
+        {question.help ? (
+          <p id={`${question.id}-qq-help`} className="text-sm text-muted">{question.help}</p>
+        ) : null}
+        <p className="text-sm text-muted">
+          When your answers are kept on this device, the step-by-step questions let you say who each situation applies to and which months. You can skip this here - it never blocks your application.
+        </p>
+      </div>
     );
   } else {
     const inputType =

@@ -65,6 +65,7 @@
         "wr_hospital_care_24hr",
         "wr_student_enrolled",
         "wr_income_580",
+        "wr_who_months",
         "wr_work_activity_who",
         "wr_work_activity_types",
         "wr_work_activity_hours"

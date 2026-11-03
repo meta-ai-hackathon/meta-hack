@@ -14,6 +14,7 @@ export type QuestionType =
   | "multi_select"
   | "date"
   | "roster"
+  | "attribution"
   | "address";
 
 export type SkipOperator =

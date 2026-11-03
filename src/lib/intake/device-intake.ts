@@ -9,6 +9,7 @@ import { canonicalAnswerValue } from "./answer-input";
 import {
   EMPTY_CLIENT_ANSWERS,
   hasAnyAnswer,
+  deleteClientAnswer,
   saveClientAnswer,
   serializeClientAnswers,
   toAnswerMap,
@@ -21,12 +22,21 @@ import {
   openDeviceAnswerStore,
   purgeDeviceAnswers,
   recordDeviceAnswer,
+  removeDeviceAnswer,
   type DeviceAnswerSave,
   type DeviceAnswerStoreDeps,
   type DeviceAnswerStoreOpen,
   type DeviceAnswersLoad,
 } from "./device-answer-store";
 import { QUESTION_BY_ID } from "./spec";
+import {
+  ATTRIBUTION_QUESTION_ID,
+  EXEMPTION_QUESTION_IDS,
+  INCOME_580_SITUATION_ID,
+  currentAttribution,
+  parseAttribution,
+} from "./attribution";
+import { ROSTER_QUESTION_ID } from "./roster";
 
 // The step-by-step page's on-device intake (HACK-99). Answers live only in
 // this browser: the flow engine runs here over the sealed device store
@@ -286,6 +296,69 @@ export type DeviceAnswerResult =
   /** Other tabs kept changing the answers; nothing changed. */
   | { readonly kind: "busy"; readonly message: string };
 
+const ATTRIBUTION_TRIGGER_IDS: ReadonlySet<string> = new Set([
+  ROSTER_QUESTION_ID,
+  "wr_exempt_situations",
+  ...EXEMPTION_QUESTION_IDS,
+  INCOME_580_SITUATION_ID,
+]);
+
+/**
+ * Re-prune the stored attribution after a roster or situation answer
+ * changes (HACK-135): entries for a removed member or a withdrawn
+ * situation are dropped from the stored answer itself, not just hidden
+ * in the editor. On a failed or conflicting persisted write, memory keeps the
+ * unpruned state to match the device; stale entries are dropped on
+ * read (currentAttribution) and by the next successful re-prune.
+ */
+async function withReprunedAttribution(next: DeviceIntake, changedId: string): Promise<DeviceIntake> {
+  if (!ATTRIBUTION_TRIGGER_IDS.has(changedId)) return next;
+  const record = next.answers[ATTRIBUTION_QUESTION_ID];
+  if (!record || record.status === "unknown") return next;
+  const pruned = currentAttribution(toAnswerMap(next.answers));
+  const stored = parseAttribution(record.value) ?? [];
+  if (JSON.stringify(pruned) === JSON.stringify(stored)) return next;
+  if (pruned.length === 0) {
+    // Pruned to nothing: the question becomes unanswered again (never a
+    // synthesized "unknown" the user did not choose).
+    const cleared = deleteClientAnswer(next.answers, ATTRIBUTION_QUESTION_ID);
+    if (!keepsAnswers(next) || next.store === null) {
+      return intakeOf(next.store, next.keeping, next.stored, cleared);
+    }
+    try {
+      const removed = await deadline(removeDeviceAnswer(next.store, ATTRIBUTION_QUESTION_ID, { expectStored: next.stored }), "saving to device storage");
+      if (removed.status === "saved") return intakeOf(next.store, "kept", true, removed.state);
+      if (removed.status === "purged") return intakeOf(next.store, "kept", false, EMPTY_CLIENT_ANSWERS);
+    } catch {
+      // Fall through to the unpruned state below.
+    }
+    return next;
+  }
+  const prunedRecord: ClientAnswerRecord = { questionId: ATTRIBUTION_QUESTION_ID, status: record.status, provenance: record.provenance, value: pruned };
+  const state = saveClientAnswer(next.answers, prunedRecord);
+  if (!keepsAnswers(next) || next.store === null) {
+    return intakeOf(next.store, next.keeping, next.stored, state);
+  }
+  try {
+    const result = await deadline(recordDeviceAnswer(next.store, prunedRecord, { expectStored: next.stored }), "saving to device storage");
+    if (result.status === "saved") {
+      return intakeOf(next.store, "kept", true, result.state);
+    }
+    if (result.status === "purged") {
+      // The answers were deleted in another tab: the page starts fresh,
+      // exactly as when the main save discovers the purge.
+      return intakeOf(next.store, "kept", false, EMPTY_CLIENT_ANSWERS);
+    }
+  } catch {
+    // Fall through to the unpruned state below.
+  }
+  // The persisted prune could not be written (conflict or storage error):
+  // keep the unpruned state in memory too, so this page and the device
+  // never disagree about what is stored. The stale entries are dropped
+  // on read (currentAttribution) and by the next successful re-prune.
+  return next;
+}
+
 /**
  * Answer one question on the device. The value is checked and canonicalized
  * against the question spec first (as POST /api/intake/answer does), so
@@ -315,7 +388,8 @@ export async function answerOnDevice(
     value: stored,
   };
   if (!keepsAnswers(intake) || intake.store === null) {
-    const next = intakeOf(intake.store, intake.keeping, intake.stored, saveClientAnswer(intake.answers, record));
+    const base = intakeOf(intake.store, intake.keeping, intake.stored, saveClientAnswer(intake.answers, record));
+    const next = await withReprunedAttribution(base, questionId);
     return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, next) };
   }
   let result: DeviceAnswerSave;
@@ -346,7 +420,8 @@ export async function answerOnDevice(
   }
   switch (result.status) {
     case "saved": {
-      const next = intakeOf(intake.store, "kept", true, result.state);
+      const base = intakeOf(intake.store, "kept", true, result.state);
+      const next = await withReprunedAttribution(base, questionId);
       return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, next) };
     }
     case "purged":

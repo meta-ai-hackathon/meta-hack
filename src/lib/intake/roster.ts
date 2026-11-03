@@ -144,9 +144,16 @@ export function removeMember(roster: readonly HouseholdMember[], id: string): Ho
 }
 
 /** Roster stored under the roster question in an answer map, or []. */
-export function rosterFromAnswers(answers: Readonly<Record<string, { readonly status?: string; readonly value?: unknown } | undefined>>): HouseholdMember[] {
+export function rosterFromAnswers(
+  answers: Readonly<Record<string, { readonly status?: string; readonly value?: unknown } | undefined>>,
+  options?: { readonly includeUnverified?: boolean },
+): HouseholdMember[] {
   const stored = answers[ROSTER_QUESTION_ID];
-  if (!stored || stored.status !== "known") return [];
+  // Unknown carries no roster. A best-guess (unverified) roster counts
+  // only for callers that opt in (attribution, HACK-135): other callers
+  // must not present unverified data as confirmed.
+  if (!stored || stored.status === "unknown") return [];
+  if (stored.status !== "known" && !options?.includeUnverified) return [];
   return parseRoster(stored.value) ?? [];
 }
 

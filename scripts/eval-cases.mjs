@@ -107,6 +107,7 @@ export const QQ_PHASE_ANSWERS = Object.freeze([
   { questionId: "wr_hospital_care_24hr", intendedStatus: "known", value: "no" },
   { questionId: "wr_student_enrolled", intendedStatus: "known", value: "not_enrolled" },
   { questionId: "wr_income_580", intendedStatus: "known", value: "yes" },
+  { questionId: "wr_who_months", intendedStatus: "known", value: [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }] },
 ]);
 
 /**

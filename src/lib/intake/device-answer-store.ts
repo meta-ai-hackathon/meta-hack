@@ -3,6 +3,7 @@ import {
   EMPTY_CLIENT_ANSWERS,
   openSealed,
   parseClientAnswers,
+  deleteClientAnswer,
   saveClientAnswer,
   sealForStorage,
   serializeClientAnswers,
@@ -250,6 +251,43 @@ export async function recordDeviceAnswer(
     }
     // Another tab saved or deleted since the read. Once answers were seen
     // on the device, finding none on the next read means a delete.
+    expectStored = expectStored || read.identity !== "none";
+  }
+  return { status: "busy" };
+}
+
+/**
+ * Remove ONE answer from the answers kept on this device (HACK-135:
+ * re-pruning an attribution that no longer applies must be able to make
+ * the question unanswered again, not synthesize an "unknown"). Mirrors
+ * recordDeviceAnswer's compare-and-swap: merges on top of other tabs'
+ * saves, reports "purged" when the store was deleted since the read.
+ */
+export async function removeDeviceAnswer(
+  deps: DeviceAnswerStoreDeps,
+  questionId: string,
+  options: RecordDeviceAnswerOptions,
+): Promise<DeviceAnswerSave> {
+  let expectStored = options.expectStored;
+  for (let attempt = 0; attempt < DEVICE_SAVE_ATTEMPTS; attempt += 1) {
+    const read = await readStored(deps);
+    if (expectStored && read.identity === "none") {
+      return { status: "purged" };
+    }
+    if (!read.readable || read.key === null) {
+      // Nothing was removed: report busy (not saved) so callers keep the
+      // state they hold instead of believing the store is now empty.
+      return { status: "busy" };
+    }
+    const next = deleteClientAnswer(read.state, questionId);
+    const sealed = await sealForStorage(serializeClientAnswers(next), read.key, deps.subtle);
+    const written = await deps.kv.setMany([[DEVICE_ANSWERS_ENVELOPE_KEY, sealed]], {
+      key: DEVICE_ANSWERS_ENVELOPE_KEY,
+      keep: (current) => envelopeIdentity(current) !== read.identity,
+    });
+    if (written) {
+      return { status: "saved", state: next };
+    }
     expectStored = expectStored || read.identity !== "none";
   }
   return { status: "busy" };

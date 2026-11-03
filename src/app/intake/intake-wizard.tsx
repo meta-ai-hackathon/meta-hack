@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ClientQuestion, IntakeClientState } from "../../lib/intake/client-state";
 import {
   DEVICE_INTAKE_COPY,
@@ -18,6 +18,8 @@ import {
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { StatusRegion } from "../../components/status-region";
 import { QuestionView } from "./question-view";
+import { attributionContextFromAnswers } from "../../lib/intake/attribution";
+import { toAnswerMap } from "../../lib/intake/client-store";
 
 // Intake wizard (BN-09 / HACK-37): one question per screen, in spec order,
 // driven by the flow engine. Every screen saves immediately (no explicit
@@ -234,6 +236,10 @@ export function IntakeWizard(props: {
   // The on-device intake (persistence "device"): the store handle and every
   // answer, pii values included. Only its pii-stripped view is rendered.
   const [deviceIntake, setDeviceIntake] = useState<DeviceIntake | null>(null);
+  const attributionContext = useMemo(
+    () => (deviceIntake ? attributionContextFromAnswers(toAnswerMap(deviceIntake.answers)) : undefined),
+    [deviceIntake],
+  );
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Where focus goes after a delete: back into the questions, or back to
@@ -847,6 +853,7 @@ export function IntakeWizard(props: {
       </div>
       {screenStatus}
       <QuestionView
+        attributionContext={attributionContext}
         question={question}
         answer={answer}
         value={draftValue}

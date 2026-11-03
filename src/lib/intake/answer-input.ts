@@ -1,5 +1,6 @@
 import type { Question } from "./spec";
 import { parseRoster, type HouseholdMember } from "./roster";
+import { parseAttribution, type AttributionEntry } from "./attribution";
 
 // Answer-value canonicalization (BN-09), shared by the server store and the
 // on-device intake (HACK-99). Pure and browser-safe: it imports only the
@@ -11,7 +12,7 @@ import { parseRoster, type HouseholdMember } from "./roster";
 export const MAX_ANSWER_TEXT_LENGTH = 2000;
 
 /** What a valid known or unverified answer is stored as. */
-export type CanonicalAnswerValue = string | number | boolean | string[] | HouseholdMember[];
+export type CanonicalAnswerValue = string | number | boolean | string[] | HouseholdMember[] | AttributionEntry[];
 
 /**
  * The canonical stored value of `value` for `question`, or null when the
@@ -95,6 +96,9 @@ export function canonicalAnswerValue(
           })
         : value;
       return parseRoster(rows);
+    }
+    case "attribution": {
+      return parseAttribution(value);
     }
     case "multi_select": {
       if (!Array.isArray(value) || value.length === 0) {
