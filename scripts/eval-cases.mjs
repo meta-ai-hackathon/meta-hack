@@ -26,8 +26,10 @@ import { CONVERSATION_PLAN } from "./walkthrough-plans.mjs";
  * Plan turns that exist only to cover branches the plan's own intended
  * answers skip (each one's comment in walkthrough-plans.mjs says so):
  * main_goal is health care, so goal_detail is skipped; income_sources has
- * no family, child support or other income, so other_income_amount is
- * skipped; id_status is have_id, so id_issue_detail is skipped;
+ * no job, so job_income_seasonal and its 6-month total are skipped;
+ * income_sources has no family, child support or other income, so
+ * other_income_amount is skipped; id_status is have_id, so id_issue_detail
+ * is skipped;
  * mailing_situation is a P.O. box, so shelter_mail_consent is skipped; and
  * contact_preference is email, so phone_contact is skipped. The harness
  * still answers one with its plan turn if the flow asks it (the extraction
@@ -37,6 +39,8 @@ import { CONVERSATION_PLAN } from "./walkthrough-plans.mjs";
  */
 export const BRANCH_ONLY_QUESTION_IDS = Object.freeze([
   "goal_detail",
+  "job_income_seasonal",
+  "job_income_seasonal_total",
   "other_income_amount",
   "id_issue_detail",
   "shelter_mail_consent",

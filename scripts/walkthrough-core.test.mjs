@@ -11,6 +11,7 @@ import {
   SPRINT_FORM_IDS,
   TURN_ATTEMPTS,
   TURN_RETRY_WAIT_MS,
+  WIZARD_ONLY_QUESTION_TYPES,
   Walkthrough,
   WalkthroughError,
   deepEqual,
@@ -88,8 +89,9 @@ function clientState(questions, answers, currentIndex) {
 
 /** A scripted transport: each route matches (method, path) and answers
  * from a queue of canned responses. Each call is recorded with its
- * consent headers and whether the body was multipart (FormData), so the
- * consent-path tests can assert WHICH receipt rode WHICH call. */
+ * consent headers, its body, and whether the body was multipart
+ * (FormData), so the consent-path tests can assert WHICH receipt rode
+ * WHICH call, and the routing tests what each call carried. */
 function fakeTransport(routes) {
   const calls = [];
   const transport = async (base, path, options = {}) => {
@@ -98,6 +100,7 @@ function fakeTransport(routes) {
       method,
       path,
       headers: options.headers,
+      body: options.body,
       multipart: options.body instanceof FormData,
     });
     const route = routes.find(
@@ -2104,23 +2107,32 @@ describe("the scripted voice turn (VAL-SPRINT-001's voice-consented talk)", () =
 // asks the persona something the plan cannot answer fails this suite.
 // ---------------------------------------------------------------------------
 
-/** The app's pure intake modules the flow-backed app below runs. The CLI
- * never imports app code; its tests may, like the drift tests above. */
+/** The app's pure intake modules the flow-backed app below runs, plus the
+ * conversation engine's own next-question choice. The CLI never imports
+ * app code; its tests may, like the drift tests above. */
 async function intakeLogic() {
-  const [serialize, answerInput, spec, honesty] = await Promise.all([
+  const [serialize, answerInput, spec, honesty, conversation] = await Promise.all([
     import("../src/lib/intake/serialize"),
     import("../src/lib/intake/answer-input"),
     import("../src/lib/intake/spec"),
     import("../src/lib/honesty"),
+    import("../src/lib/conversation"),
   ]);
   return {
     buildClientState: serialize.buildClientState,
     assertNoPiiValues: serialize.assertNoPiiValues,
     canonicalAnswerValue: answerInput.canonicalAnswerValue,
+    QUESTIONS: spec.QUESTIONS,
     QUESTION_BY_ID: spec.QUESTION_BY_ID,
     isAnswerStatus: honesty.isAnswerStatus,
+    nextUnansweredQuestion: conversation.nextUnansweredQuestion,
+    talkPathSavesQuestion: conversation.talkPathSavesQuestion,
   };
 }
+
+/** The pacing waiter for the flow-backed typed journeys: a walk of every
+ * question the flow can ask outruns the turn cap's real one-minute wait. */
+const noPause = async () => {};
 
 /** The persona's household names, from the plan itself. */
 const ROSTER_NAMES = JOURNEY_PLAN.find((step) => step.id === "household_roster").value.map(
@@ -2137,17 +2149,31 @@ const ROSTER_NAMES = JOURNEY_PLAN.find((step) => step.id === "household_roster")
  * faked: a pii value stays in the map, the way store.ts loadAnswers hands
  * the vault's value back to the flow engine.
  *
+ * The conversation turn route answers with a scripted model that hears
+ * nothing it can be sure of: for the question the engine asks next (the
+ * engine's own choice, nextUnansweredQuestion), the extraction saves an
+ * honest "not sure". An unknown answer never satisfies a skip condition
+ * (the flow is fail-open), so a typed journey walks every question the
+ * flow can ask, whatever a real extraction would have heard, and its plan
+ * must cover all of them. A turn that arrives while the served flow shows
+ * a question the talk path never asks is refused loudly: the typed
+ * journeys answer those in the step-by-step questions, so no household
+ * name rides a turn to the model.
+ *
  * The sprint journey's later legs never consult the plan, so they answer
  * with the canned shapes sprintJourneyRoutes uses. The one exception is
  * the confirm, which saves its rows into the same answers with the
- * confirm flow's provenances, so the income gate reads real state.
+ * confirm flow's provenances, so the income gate reads real state. The
+ * history and the purge count the transcript rows the turns wrote.
  *
  * `held` plan steps are answers the session already holds when the
  * journey opens it.
  */
 function flowBackedApp(logic, { held = [] } = {}) {
   let answers = {};
+  let turns = [];
   const answeredIds = [];
+  const talkedIds = [];
   const save = (questionId, status, value, provenance = "user_supplied") => {
     const question = Object.hasOwn(logic.QUESTION_BY_ID, questionId)
       ? logic.QUESTION_BY_ID[questionId]
@@ -2196,6 +2222,41 @@ function flowBackedApp(logic, { held = [] } = {}) {
       answeredIds.push(questionId);
       return jsonResponse(200, served());
     }
+    if (route === "POST /api/conversation/turn") {
+      const shown = served();
+      const current = shown.currentIndex === null ? null : shown.questions[shown.currentIndex];
+      if (current !== null && !logic.talkPathSavesQuestion(current.id)) {
+        throw new Error(
+          `flowBackedApp: a conversation turn arrived while the flow shows ${current.id}, `
+            + "which the talk path never asks",
+        );
+      }
+      const asked = logic.nextUnansweredQuestion(answers);
+      if (asked !== null) {
+        save(asked.id, "unknown", null);
+        talkedIds.push(asked.id);
+      }
+      const next = logic.nextUnansweredQuestion(answers);
+      const reply = next === null ? "That's everything on my list." : "Thanks. Here is the next question.";
+      const transcript = "[the person's words, redacted]";
+      turns = [
+        ...turns,
+        { role: "user", transcript, createdAt: "2026-11-03T12:00:00.000Z" },
+        { role: "assistant", transcript: reply, createdAt: "2026-11-03T12:00:01.000Z" },
+      ];
+      return jsonResponse(200, {
+        sessionId: "flow-backed-session",
+        fresh: false,
+        assistantReply: reply,
+        assistantTurnId: `turn-${turns.length / 2}`,
+        redactedUserTranscript: transcript,
+        nextQuestionId: next?.id ?? null,
+        state: served(),
+      });
+    }
+    if (route === "GET /api/conversation/history") {
+      return jsonResponse(200, { turns, state: served() });
+    }
     if (route === "POST /api/intake/tax-return") {
       return jsonResponse(200, {
         readable: true,
@@ -2230,10 +2291,11 @@ function flowBackedApp(logic, { held = [] } = {}) {
         vaultEntries: rows.filter(
           ([id, row]) => logic.QUESTION_BY_ID[id].pii && row.status !== "unknown",
         ).length,
-        turns: 0,
+        turns: turns.length,
         auditNotes: 0,
       };
       answers = {};
+      turns = [];
       return jsonResponse(200, { purged: true, deleted });
     }
     const review = /^GET \/api\/forms\/([^/]+)\/review$/.exec(route);
@@ -2245,7 +2307,7 @@ function flowBackedApp(logic, { held = [] } = {}) {
     }
     throw new Error(`flowBackedApp: no route for ${route}`);
   };
-  return { transport, answeredIds, answers: () => answers };
+  return { transport, answeredIds, talkedIds, answers: () => answers };
 }
 
 /**
@@ -2254,8 +2316,11 @@ function flowBackedApp(logic, { held = [] } = {}) {
  * sprint journey's declined path answers the quick questions and then
  * every remaining question from it, with zero conversation sends. The
  * typed journeys (conversation, form, and the sprint journey's voice
- * path) take only their quick-questions phase from it; their talk turns
- * follow walkthrough-plans.mjs.
+ * path) take their quick-questions phase and every step-by-step-only
+ * question from it; their talk turns follow walkthrough-plans.mjs, heard
+ * by the flow-backed app's scripted model. The quick-questions phase also
+ * runs alone, so a work-requirements question it leaves unanswered is
+ * named as one.
  */
 const PLAN_SERVED_JOURNEYS = Object.freeze({
   wizard: (walk) => walk.run(),
@@ -2276,6 +2341,15 @@ const PLAN_SERVED_JOURNEYS = Object.freeze({
     }
     return walk.violations.length === 0;
   },
+  conversation: (walk) => walk.runConversation(),
+  form: (walk) => walk.runFormJourney(),
+  "sprint --consent voice": (walk) =>
+    walk.runSprintJourney({
+      consent: "voice",
+      audioGenerator: fakeAudioGenerator([]),
+      unmappedAnswers: SPRINT_UNMAPPED,
+      uploadBytes: FAKE_UPLOAD_BYTES,
+    }),
 });
 
 describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout: 30_000 }, () => {
@@ -2363,6 +2437,18 @@ describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout:
     // household roster, every name on it is a private value the walk
     // checked every later body for.
     const logic = await intakeLogic();
+    // The flow's opening question is never held, so every journey keeps
+    // one question to ask: the conversation journey rightly demands at
+    // least one stored exchange. No question skips on it, so leaving it
+    // out of the held set narrows no branch.
+    const opening = logic.QUESTIONS[0].id;
+    expect(JOURNEY_PLAN[0].id).toBe(opening);
+    expect(
+      logic.QUESTIONS.flatMap((question) => question.skip_conditions).map(
+        (condition) => condition.question_id,
+      ),
+    ).not.toContain(opening);
+    const holdable = JOURNEY_PLAN.filter((step) => step.id !== opening);
     // Each walk prints a full transcript; a failure reports the error
     // that stopped it, which names the question the plan does not cover.
     const quiet = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -2370,10 +2456,10 @@ describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout:
       await fc.assert(
         fc.asyncProperty(
           fc.constantFrom(...Object.keys(PLAN_SERVED_JOURNEYS)),
-          fc.subarray(JOURNEY_PLAN),
+          fc.subarray(holdable),
           async (journey, held) => {
             const app = flowBackedApp(logic, { held });
-            const walk = new Walkthrough("http://fake.test", 1000, app.transport);
+            const walk = new Walkthrough("http://fake.test", 1000, app.transport, noPause);
             await expect(PLAN_SERVED_JOURNEYS[journey](walk)).resolves.toBe(true);
             expect(walk.violations).toEqual([]);
             if (app.answeredIds.includes("household_roster")) {
@@ -2473,3 +2559,167 @@ describe("the household roster's names are private values (HACK-133)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Step-by-step-only questions on the typed journeys (HACK-133). Since #142
+// (HACK-134) the served flow shows the household roster right after the
+// counts, but the talk path never asks it (and #143/#144 added the
+// per-person attribution and work rows on the same terms). The typed
+// journeys answer those through the answer route from JOURNEY_PLAN, the
+// way the person answers them in the step-by-step questions, and track
+// the roster's names as private values from the save on.
+// ---------------------------------------------------------------------------
+
+describe("step-by-step-only questions on the typed journeys (HACK-133)", () => {
+  it("the step-by-step-only types are exactly the questions the talk path never saves", async () => {
+    const logic = await intakeLogic();
+    for (const question of logic.QUESTIONS) {
+      expect(logic.talkPathSavesQuestion(question.id), question.id).toBe(
+        !WIZARD_ONLY_QUESTION_TYPES.includes(question.type),
+      );
+    }
+  });
+
+  it("the plans split the spec the way the journeys do", async () => {
+    // JOURNEY_PLAN answers the quick-questions phase (every work-
+    // requirements question) and every step-by-step-only question; any
+    // other question can reach the talk stage, where a typed plan's turn
+    // answers it.
+    const logic = await intakeLogic();
+    const planned = new Set(JOURNEY_PLAN.map((step) => step.id));
+    const typedPlans = { CONVERSATION_PLAN, FORM_JOURNEY_PLAN };
+    for (const question of logic.QUESTIONS) {
+      if (question.id.startsWith("wr_") || WIZARD_ONLY_QUESTION_TYPES.includes(question.type)) {
+        expect(planned.has(question.id), `JOURNEY_PLAN has no answer for ${question.id}`).toBe(true);
+        continue;
+      }
+      for (const [name, plan] of Object.entries(typedPlans)) {
+        expect(
+          plan.some((step) => step.id === question.id),
+          `${name} has no turn for ${question.id}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("on the scripted model the conversation journey types every talk question the flow can ask, and saves the roster through the answer route", async () => {
+    const logic = await intakeLogic();
+    const app = flowBackedApp(logic);
+    const walk = new Walkthrough("http://fake.test", 1000, app.transport, noPause);
+    const quiet = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await expect(walk.runConversation()).resolves.toBe(true);
+    } finally {
+      quiet.mockRestore();
+    }
+    // Fail-open: with nothing it can be sure of, the flow asks every talk
+    // question it has, the branch-only ones (the seasonal pair, say)
+    // included, each once and in spec order, each by a typed turn.
+    const talkIds = logic.QUESTIONS.filter(
+      (question) => logic.talkPathSavesQuestion(question.id) && !question.id.startsWith("wr_"),
+    ).map((question) => question.id);
+    expect(app.talkedIds).toEqual(talkIds);
+    expect(app.talkedIds).toEqual(
+      expect.arrayContaining(["job_income_seasonal", "job_income_seasonal_total"]),
+    );
+    // The work-requirements questions went through the quick-questions
+    // phase and the roster through the step-by-step save, never a turn.
+    expect(app.answeredIds).toContain("household_roster");
+    expect(app.answeredIds).toContain("wr_who_months");
+    expect(walk.privateValues).toEqual(expect.arrayContaining(ROSTER_NAMES));
+  });
+
+  /** A talk stage whose flow shows the roster between two talk questions. */
+  function rosterTalkRoutes({ rosterSaved = true } = {}) {
+    const seniorsQ = v2Question("household_seniors", { type: "number" });
+    const rosterQ = v2Question("household_roster", { pii: true, type: "roster" });
+    const sourcesQ = v2Question("income_sources", { type: "multi_select" });
+    const questions = [seniorsQ, rosterQ, sourcesQ];
+    const seniors = { household_seniors: { status: "known", value: 0 } };
+    const withRoster = { ...seniors, household_roster: { status: "known" } };
+    const S0 = talkOnlyState(clientState(questions, {}, 0));
+    const S1 = talkOnlyState(clientState(questions, seniors, 1));
+    const S2 = talkOnlyState(clientState(questions, withRoster, 2));
+    const S3 = talkOnlyState(
+      clientState(questions, { ...withRoster, income_sources: { status: "known", value: ["job"] } }, null),
+    );
+    const routes = [
+      {
+        method: "POST",
+        path: "/api/conversation/turn",
+        respondNext: queue([
+          jsonResponse(200, turnBody({ reply: "Thanks.", transcript: "None of us is over 60.", nextQuestionId: "income_sources", state: S1 })),
+          jsonResponse(200, turnBody({ reply: "That's everything on my list.", transcript: "A job.", nextQuestionId: null, state: S3 })),
+        ]),
+      },
+      {
+        method: "POST",
+        path: "/api/intake/answer",
+        respondNext: queue([jsonResponse(200, rosterSaved ? S2 : S1)]),
+      },
+    ];
+    return { routes, S0 };
+  }
+
+  const ROSTER_TALK_PLAN = [
+    { id: "household_seniors", text: "None of us is over 60.", retry: "Zero", intent: "known" },
+    { id: "income_sources", text: "A job.", retry: "A job", intent: "known" },
+  ];
+
+  it("answers the roster through the answer route in the talk stage, never in a typed turn", async () => {
+    const { routes, S0 } = rosterTalkRoutes();
+    const transport = fakeTransport(routes);
+    const walk = new Walkthrough("http://fake.test", 1000, transport, noPause);
+    walk.state = S0;
+    await walk.runTurnLoop(ROSTER_TALK_PLAN, "conversation");
+    expect(walk.violations).toEqual([]);
+    expect(transport.calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+      "POST /api/conversation/turn",
+      "POST /api/intake/answer",
+      "POST /api/conversation/turn",
+    ]);
+    const saved = transport.calls.find((call) => call.path === "/api/intake/answer").body;
+    expect(saved).toEqual({
+      questionId: "household_roster",
+      status: "known",
+      value: JOURNEY_PLAN.find((step) => step.id === "household_roster").value,
+    });
+    expect(walk.turnsSent).toBe(2);
+    // The names are private from the save on, and no typed turn carried one.
+    expect(walk.privateValues).toEqual(expect.arrayContaining(ROSTER_NAMES));
+    for (const call of transport.calls.filter((item) => item.path === "/api/conversation/turn")) {
+      for (const name of ROSTER_NAMES) {
+        expect(call.body.text).not.toContain(name);
+      }
+    }
+    // The purge ledger counts the roster's vault row.
+    expect(walk.purgeLedger().vaultEntries).toBe(1);
+    const transcript = walk.lines.join("\n");
+    expect(transcript).toContain("household_roster = (answer kept private)");
+    expect(transcript).toContain("the talk path never asks this step-by-step question");
+    expect(transcript).toContain("1 step-by-step question(s) through the answer route");
+    for (const name of ROSTER_NAMES) {
+      expect(transcript).not.toContain(name);
+    }
+  });
+
+  it("a step-by-step-only question the journey plan does not cover is a journey error", async () => {
+    const transport = fakeTransport([]);
+    const walk = new Walkthrough("http://fake.test", 1000, transport, noPause);
+    walk.state = talkOnlyState(
+      clientState([v2Question("household_pets", { pii: true, type: "roster" })], {}, 0),
+    );
+    await expect(walk.runTurnLoop(ROSTER_TALK_PLAN, "conversation")).rejects.toThrow(
+      /"household_pets", a step-by-step question the talk path never asks, which the journey plan does not cover/,
+    );
+    expect(transport.calls).toEqual([]);
+  });
+
+  it("an answer route that saves nothing for one is a journey error, never an endless loop", async () => {
+    const { routes, S0 } = rosterTalkRoutes({ rosterSaved: false });
+    const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes), noPause);
+    walk.state = S0;
+    await expect(walk.runTurnLoop(ROSTER_TALK_PLAN, "conversation")).rejects.toThrow(
+      /the answer route saved nothing for "household_roster"/,
+    );
+  });
+});

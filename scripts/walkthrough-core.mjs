@@ -211,6 +211,19 @@ export const JOURNEY_PLAN = [
 
 const PLAN_BY_ID = new Map(JOURNEY_PLAN.map((step) => [step.id, step]));
 
+/**
+ * The question types the talk path never asks or saves: the household
+ * roster (HACK-134), who each situation applies to (HACK-135) and the
+ * per-person work rows (HACK-128) are step-by-step questions only, so
+ * household names never reach a model prompt (src/lib/conversation.ts,
+ * talkPathSavesQuestion). The served flow still shows them, so a typed
+ * journey answers them the way the person does: in the step-by-step
+ * questions, through the answer route, from JOURNEY_PLAN. Read off the
+ * served question's `type`, like every other classification here; a drift
+ * test pins this set against the app's rule for every spec question.
+ */
+export const WIZARD_ONLY_QUESTION_TYPES = Object.freeze(["roster", "attribution", "work_activity"]);
+
 // ---------------------------------------------------------------------------
 // Small fetch/response helpers
 // ---------------------------------------------------------------------------
@@ -1002,6 +1015,9 @@ export class Walkthrough {
    * journeys): answer whatever question the flow shows next, retry once
    * with plainer words when the extraction saved nothing, track the
    * submitted private values, and log the skip behavior each turn causes.
+   * A step-by-step-only question the flow shows (WIZARD_ONLY_QUESTION_TYPES)
+   * is never typed: it is answered through the answer route instead, so
+   * no household name ever rides a turn to the model.
    *
    * @param {readonly {id: string, text: string, retry: string,
    *   intent: string, privateValue?: string}[]} plan typed turns by id
@@ -1017,6 +1033,7 @@ export class Walkthrough {
     const planById = new Map(plan.map((step) => [step.id, step]));
     let state = this.state;
     let turnNumber = 0;
+    let stepByStepAnswers = 0;
     const skippedBy = new Map();
     while (!state.complete) {
       if (state.currentIndex === null) {
@@ -1025,6 +1042,15 @@ export class Walkthrough {
         );
       }
       const question = state.questions[state.currentIndex];
+      if (WIZARD_ONLY_QUESTION_TYPES.includes(question.type)) {
+        state = await this.answerStepByStepOnly(question, state, skippedBy);
+        this.state = state;
+        stepByStepAnswers += 1;
+        if (this.violations.length > 0) {
+          return { skippedBy };
+        }
+        continue;
+      }
       const step = planById.get(question.id);
       if (!step) {
         throw new WalkthroughError(
@@ -1124,9 +1150,92 @@ export class Walkthrough {
     this.log(
       `COMPLETE  ${what} finished — ${turnNumber} question(s) answered in ` +
         `${this.turnsSent} typed turn(s), ` +
+        (stepByStepAnswers > 0
+          ? `${stepByStepAnswers} step-by-step question(s) through the answer route, `
+          : "") +
         `${skippedBy.size} question(s) skipped by the flow`,
     );
     return { skippedBy };
+  }
+
+  /**
+   * One step-by-step-only question (WIZARD_ONLY_QUESTION_TYPES: a roster,
+   * attribution or work-rows question) that the served flow shows during
+   * the talk stage. The talk path never asks it, so the person answers it
+   * in the step-by-step questions: the walkthrough saves JOURNEY_PLAN's
+   * answer through the answer route (POST /api/intake/answer, no model),
+   * the wizard's own save, with the wizard's checks. The answer's private
+   * names are tracked from here on, the response is scanned, the skips are
+   * noted, and the quick-questions counter must stay consistent. Returns
+   * the served state after the save; the caller stops on a violation.
+   */
+  async answerStepByStepOnly(question, state, skippedBy) {
+    const step = PLAN_BY_ID.get(question.id);
+    if (!step) {
+      throw new WalkthroughError(
+        `the flow showed "${question.id}", a step-by-step question the talk `
+          + "path never asks, which the journey plan does not cover",
+      );
+    }
+    const isPii = question.pii === true;
+    const beforeIds = new Set(state.questions.map((item) => item.id));
+    const response = await this.transport(
+      this.base,
+      "/api/intake/answer",
+      {
+        method: "POST",
+        body: { questionId: step.id, status: step.status, value: step.value ?? null },
+        cookie: this.cookie,
+      },
+      this.timeoutMs,
+    );
+    const newState = parseJsonBody(response.text, `answer ${step.id}`);
+    if (response.status !== 200) {
+      throw new WalkthroughError(
+        `step-by-step answer ${step.id} rejected: ${response.status} `
+          + this.maskPrivateValues(response.text.slice(0, 200)),
+      );
+    }
+    this.privateValues.push(...Walkthrough.privateStringsOf(question, step));
+    this.noteSavedAnswer(step.id, isPii && step.status !== "unknown");
+    this.log(
+      `STEP      ${step.id} = ${Walkthrough.plannedDisplay(step, isPii)} — `
+        + `${ANSWER_STATUS_LABELS[step.status]}  (answer route, no model: the `
+        + "talk path never asks this step-by-step question)",
+    );
+    const afterIds = new Set(newState.questions.map((item) => item.id));
+    if (afterIds.has(step.id) && newState.answers?.[step.id] === undefined) {
+      // The loop would show the same question again forever.
+      throw new WalkthroughError(
+        `the answer route saved nothing for "${step.id}" — the flow still shows it unanswered`,
+      );
+    }
+    const nowSkipped = [...beforeIds].filter((id) => !afterIds.has(id));
+    const nowAsked = [...afterIds].filter((id) => !beforeIds.has(id));
+    for (const id of nowSkipped) {
+      skippedBy.set(id, step.id);
+    }
+    if (nowSkipped.length > 0 || nowAsked.length > 0) {
+      const parts = [];
+      if (nowSkipped.length > 0) {
+        parts.push(`no longer asked: ${nowSkipped.join(", ")}`);
+      }
+      if (nowAsked.length > 0) {
+        parts.push(`newly asked: ${nowAsked.join(", ")}`);
+      }
+      this.log(`          ${parts.join(" · ")}`);
+    }
+    if (this.scanResponse(`answer ${step.id}`, response.text, newState)) {
+      return newState;
+    }
+    const counterProblem = quickQuestionsCounterProblem(state, newState, step.id);
+    if (counterProblem) {
+      this.recordViolation("quick_questions_counter", {
+        where: `answer ${step.id}`,
+        detail: counterProblem,
+      });
+    }
+    return newState;
   }
 
   /**

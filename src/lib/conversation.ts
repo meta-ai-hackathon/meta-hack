@@ -1258,7 +1258,12 @@ async function runCombinedTurn(
 // The per-turn pipeline
 // ---------------------------------------------------------------------------
 
-function nextUnansweredQuestion(answers: AnswerMap): Question | null {
+/**
+ * The question the engine asks next: the first unanswered visible question
+ * the talk path saves. Exported so the walkthrough's flow-backed tests run
+ * the typed journeys on the engine's own choice (HACK-133).
+ */
+export function nextUnansweredQuestion(answers: AnswerMap): Question | null {
   const visible = visibleQuestions(QUESTIONS, answers).filter(
     (question) => talkPathSavesQuestion(question.id),
   );
