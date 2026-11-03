@@ -2628,8 +2628,13 @@ describe("step-by-step-only questions on the typed journeys (HACK-133)", () => {
     expect(walk.privateValues).toEqual(expect.arrayContaining(ROSTER_NAMES));
   });
 
-  /** A talk stage whose flow shows the roster between two talk questions. */
-  function rosterTalkRoutes({ rosterSaved = true } = {}) {
+  /** A talk stage whose flow shows the roster between two talk questions.
+   * `savedResponse` turns the served state after the roster save into the
+   * answer route's response, so a test can break that response. */
+  function rosterTalkRoutes({
+    rosterSaved = true,
+    savedResponse = (state) => jsonResponse(200, state),
+  } = {}) {
     const seniorsQ = v2Question("household_seniors", { type: "number" });
     const rosterQ = v2Question("household_roster", { pii: true, type: "roster" });
     const sourcesQ = v2Question("income_sources", { type: "multi_select" });
@@ -2654,7 +2659,7 @@ describe("step-by-step-only questions on the typed journeys (HACK-133)", () => {
       {
         method: "POST",
         path: "/api/intake/answer",
-        respondNext: queue([jsonResponse(200, rosterSaved ? S2 : S1)]),
+        respondNext: queue([savedResponse(rosterSaved ? S2 : S1)]),
       },
     ];
     return { routes, S0 };
@@ -2721,5 +2726,164 @@ describe("step-by-step-only questions on the typed journeys (HACK-133)", () => {
     await expect(walk.runTurnLoop(ROSTER_TALK_PLAN, "conversation")).rejects.toThrow(
       /the answer route saved nothing for "household_roster"/,
     );
+  });
+
+  /** The talk stage's two calls up to the roster save, and no further turn. */
+  const STOPPED_AT_THE_SAVE = ["POST /api/conversation/turn", "POST /api/intake/answer"];
+
+  /**
+   * The roster save's response with one check broken: a household name
+   * echoed in the body, a value shipped under the roster, banned promise
+   * language, or a quick-questions counter that no longer adds up.
+   */
+  function brokenSave(state, broken) {
+    switch (broken.kind) {
+      case "pii_value_exposure": {
+        const echo = `${broken.before}${broken.name}${broken.after}`;
+        return broken.inPrompt
+          ? {
+              ...state,
+              questions: state.questions.map((item) =>
+                item.id === "income_sources" ? { ...item, prompt: echo } : item,
+              ),
+            }
+          : { ...state, greeting: echo };
+      }
+      case "pii_value_leak":
+        return {
+          ...state,
+          answers: { ...state.answers, household_roster: { status: "known", value: broken.value } },
+        };
+      case "banned_claim":
+        return { ...state, message: broken.claim };
+      case "quick_questions_counter": {
+        const { quickQuestions, ...rest } = state;
+        if (broken.counter === "missing") {
+          return rest;
+        }
+        // The roster save reopened a quick question, or left the roster
+        // itself remaining: either way the count grew from the 0 before.
+        const remainingIds = [broken.counter === "grown" ? "income_sources" : "household_roster"];
+        return {
+          ...rest,
+          quickQuestions: { ...quickQuestions, remainingIds, remainingCount: 1, complete: false },
+        };
+      }
+      default:
+        throw new Error(`brokenSave: no breakage ${broken.kind}`);
+    }
+  }
+
+  it("PROPERTY: a roster save whose response breaks a check stops the walk there, and never prints a name", async () => {
+    // The step-by-step save scans its response the way every other body
+    // is scanned, and checks the quick-questions counter. Whichever check
+    // a response breaks, the walk records that violation, sends no turn
+    // after the save, and neither the transcript nor the violation says a
+    // household name.
+    const words = fc.string({ maxLength: 12 });
+    // A value shipped under the roster: the shapes the store keeps, minus
+    // the names, so only the structural check can catch it.
+    const nameless = fc.oneof(
+      fc.constant(null),
+      fc.boolean(),
+      fc.integer(),
+      fc.array(
+        fc.record({
+          id: fc.constantFrom("member-1", "member-2", "member-3"),
+          relationship: fc.constantFrom("self", "child"),
+          ageBand: fc.constantFrom("18_to_54", "under_14", "14_to_17"),
+        }),
+        { maxLength: 3 },
+      ),
+    );
+    const breakage = fc.oneof(
+      fc.record({
+        kind: fc.constant("pii_value_exposure"),
+        name: fc.constantFrom(...ROSTER_NAMES),
+        before: words,
+        after: words,
+        inPrompt: fc.boolean(),
+      }),
+      fc.record({ kind: fc.constant("pii_value_leak"), value: nameless }),
+      fc.record({
+        kind: fc.constant("banned_claim"),
+        claim: fc.constantFrom("You are eligible.", "You qualify for this.", "Approval is guaranteed."),
+      }),
+      fc.record({
+        kind: fc.constant("quick_questions_counter"),
+        counter: fc.constantFrom("missing", "grown", "roster_still_remaining"),
+      }),
+    );
+    const quiet = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await fc.assert(
+        fc.asyncProperty(breakage, async (broken) => {
+          const { routes, S0 } = rosterTalkRoutes({
+            savedResponse: (state) => jsonResponse(200, brokenSave(state, broken)),
+          });
+          const transport = fakeTransport(routes);
+          const walk = new Walkthrough("http://fake.test", 1000, transport, noPause);
+          walk.state = S0;
+          await walk.runTurnLoop(ROSTER_TALK_PLAN, "conversation");
+          expect(new Set(walk.violations.map((violation) => violation.kind))).toEqual(
+            new Set([broken.kind]),
+          );
+          for (const violation of walk.violations) {
+            expect(violation.detail.where).toBe("answer household_roster");
+          }
+          expect(transport.calls.map((call) => `${call.method} ${call.path}`)).toEqual(
+            STOPPED_AT_THE_SAVE,
+          );
+          const printed = `${walk.lines.join("\n")}\n${JSON.stringify(walk.violations)}`;
+          for (const name of ROSTER_NAMES) {
+            expect(printed).not.toContain(name);
+          }
+        }),
+        {
+          // One of each, the first a name echoed in a greeting.
+          examples: [
+            [{ kind: "pii_value_exposure", name: ROSTER_NAMES[2], before: "Welcome back, ", after: "", inPrompt: false }],
+            [{ kind: "pii_value_leak", value: null }],
+            [{ kind: "banned_claim", claim: "You are eligible." }],
+            [{ kind: "quick_questions_counter", counter: "grown" }],
+          ],
+        },
+      );
+    } finally {
+      quiet.mockRestore();
+    }
+  });
+
+  it("PROPERTY: an answer route that refuses the roster is a journey error, and no turn follows it", async () => {
+    const quiet = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.integer({ min: 400, max: 599 }),
+          fc.constantFrom("validation_error", "not_found", "rate_limited", "internal"),
+          async (status, code) => {
+            const { routes, S0 } = rosterTalkRoutes({
+              savedResponse: () => jsonResponse(status, { error: { code } }),
+            });
+            const transport = fakeTransport(routes);
+            const walk = new Walkthrough("http://fake.test", 1000, transport, noPause);
+            walk.state = S0;
+            const error = await walk.runTurnLoop(ROSTER_TALK_PLAN, "conversation").then(
+              () => null,
+              (caught) => caught,
+            );
+            expect(error).toBeInstanceOf(WalkthroughError);
+            expect(error.message).toContain(`step-by-step answer household_roster rejected: ${status}`);
+            expect(transport.calls.map((call) => `${call.method} ${call.path}`)).toEqual(
+              STOPPED_AT_THE_SAVE,
+            );
+            // A refused save is no saved answer: the purge ledger skips it.
+            expect(walk.savedAnswerIds.has("household_roster")).toBe(false);
+          },
+        ),
+      );
+    } finally {
+      quiet.mockRestore();
+    }
   });
 });
