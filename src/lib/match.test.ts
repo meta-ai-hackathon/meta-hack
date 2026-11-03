@@ -1301,12 +1301,13 @@ describe("number answers in the pii gate (HACK-121)", () => {
   });
 
   // Known gap: a range, a ratio, a digit group, or an id ("20-30 hours",
-  // "30/80", "1,030", "v30", "hours-30") has the same shape as the dates
+  // "30/80", "1,030", "v30", "hours-30", and the same with an en dash, a
+  // minus sign or an invisible joiner) has the same shape as the dates
   // and ids every response carries (2026-10-30, 10/08/2026, dhb-5200), so
   // the token rule reads the answer there as part of a longer token.
   // Catching those needs a rule that knows the date and id shapes.
   it.todo(
-    "catches the hours answer inside a range, a ratio, a digit group or an id (HACK-121 follow up)",
+    "catches the hours answer inside a range, a ratio, a digit group or an id (HACK-124)",
   );
 
   // A number answer the way String() and the vault write it: whole hours
@@ -1361,6 +1362,16 @@ describe("number answers in the pii gate (HACK-121)", () => {
     (value) => `hours:${value}`,
     // The same number with a trailing zero after its decimal point.
     (value) => (value.includes(".") ? `${value}0` : `${value}.0`),
+    // Glued to a letter outside ASCII, behind a bidi mark or zero-width
+    // space, or before a superscript or a fraction. The trigger keeps its
+    // ASCII edges for these, so it never reads less than it did (claude-review
+    // P2 on PR #133).
+    (value) => `\u5de5\u4f5c${value}\u5c0f\u65f6`,
+    (value) => `word\u200b${value}`,
+    (value) => `hours\u200f${value}`,
+    (value) => `work\u200e${value}`,
+    (value) => `${value}\u00b2`,
+    (value) => `${value}\u00bd`,
   ];
 
   // Generated copy: plain words and embedded digits, rendered per value.
@@ -1619,6 +1630,52 @@ describe("number answers in the pii gate (HACK-121)", () => {
     }
   });
 
+  // Look-alikes that join like the ASCII separators: the hyphen, the
+  // non-breaking hyphen, the figure dash, the en dash, the minus sign, the
+  // small and fullwidth hyphen-minus, the fraction and division slashes,
+  // the fullwidth slash, the one-dot leader, the small and fullwidth full
+  // stops, the fullwidth low line, the small and fullwidth colons and
+  // commas, the soft hyphen, the zero-width space, the word joiner, and
+  // runs of them stacked ("24\u00ad-hour").
+  const UNICODE_JOINERS: readonly string[] = [
+    "\u2010",
+    "\u2011",
+    "\u2012",
+    "\u2013",
+    "\u2212",
+    "\ufe63",
+    "\uff0d",
+    "\u2044",
+    "\u2215",
+    "\uff0f",
+    "\u2024",
+    "\ufe52",
+    "\uff0e",
+    "\uff3f",
+    "\ufe55",
+    "\uff1a",
+    "\ufe50",
+    "\uff0c",
+    "\u00ad",
+    "\u200b",
+    "\u2060",
+    "\u00ad-",
+    "-\u200b",
+    "\u200b\u2060",
+  ];
+
+  // Letters, a mark and digits from outside ASCII: an accented letter, the
+  // ordinal indicator, a superscript two, a one half, an Arabic-Indic one,
+  // and a combining acute accent.
+  const UNICODE_TOKEN_CHARS: readonly string[] = [
+    "\u00e9",
+    "\u00ba",
+    "\u00b2",
+    "\u00bd",
+    "\u0661",
+    "\u0301",
+  ];
+
   // The value glued to a letter or a word: an ordinal, a unit, a version
   // suffix, or a label. The trigger reads each of these as the number (a
   // leaked "0hrs" shows the answer), but none of them holds the number as a
@@ -1635,6 +1692,30 @@ describe("number answers in the pii gate (HACK-121)", () => {
     (value) => `${value}_hours`,
     (value) => `${value}.x`,
     (value) => `hours:${value}`,
+    // The same glue in characters copy pasted from an official page often
+    // carries: a Unicode hyphen, an en dash, a minus sign, a soft hyphen or
+    // a zero-width character where the ASCII hyphen would be, on either
+    // side, and a letter, a mark or a digit from outside ASCII, like the
+    // ordinal indicator Spanish copy prints after a 1, right before or
+    // after the value.
+    ...UNICODE_JOINERS.flatMap((joiner) => [
+      (value: string) => `${value}${joiner}hour`,
+      (value: string) => `9${joiner}${value}`,
+    ]),
+    ...UNICODE_TOKEN_CHARS.flatMap((char) => [
+      (value: string) => `${value}${char}`,
+      (value: string) => `${char}${value}`,
+    ]),
+  ];
+
+  // A copy that holds the value as a token of its own, which still excuses
+  // it: after a plain space or a no-break space, in parentheses, or before
+  // a closed em dash, which ends a clause rather than joining a word.
+  const OWN_TOKEN: readonly ((value: string) => string)[] = [
+    (value) => `page ${value}`,
+    (value) => `page\u00a0${value}`,
+    (value) => `(page ${value}).`,
+    (value) => `${value}\u2014then`,
   ];
 
   // Public copy that holds the value only inside longer tokens: plain words,
@@ -1675,23 +1756,55 @@ describe("number answers in the pii gate (HACK-121)", () => {
     };
   }
 
+  it("never fails the match on copy that joins the number with a look-alike (property)", () => {
+    // Droid review on PR #133: the excusal read Unicode joiners but the
+    // trigger did not, so copy printing "1\u20132 weeks" with an en dash
+    // read as carrying a 1 that the excusal would not excuse, and the match
+    // threw for a session that answered 1. Both now share one set of edges,
+    // so a range or id in public copy is one token to each of them.
+    fc.assert(
+      fc.property(
+        numberAnswerArb,
+        fc.constantFrom(...UNICODE_JOINERS),
+        fc.boolean(),
+        (value, joiner, valueFirst) => {
+          const shape = valueFirst ? `${value}${joiner}9` : `9${joiner}${value}`;
+          const response = withPrompt(
+            generatedResponse(["Medicaid", "work", "form"], 2, 5, "2026-10-30"),
+            `It takes ${shape} weeks.`,
+          );
+          expect(() =>
+            assertNoPiiValuesInMatch(response, {
+              wr_work_activity_hours: { status: "known", value },
+            }),
+          ).not.toThrow();
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
+
   it("never excuses a number the copy holds only inside a longer token (property)", async () => {
     // Security review on PR #132: the excusal used the trigger's edges, so a
     // copy that said "1st", "20h" or "3rd" counted as showing 1, 20 or 3,
     // and an explanation that said the number on its own kept its model copy
     // and passed the gate. A number the copy holds as a token of its own,
-    // like "page 1", is still excused.
+    // like "page 1", is still excused. The edges read every script, so a
+    // non-breaking hyphen or an en dash glues the number like an ASCII
+    // hyphen does.
     await fc.assert(
       fc.asyncProperty(
         numberAnswerArb,
         longerTokenCopyArb,
         copyArb,
         fc.nat({ max: OWN_NUMBER.length - 1 }),
+        // Half the cases add the value as a token of its own.
+        fc.oneof(fc.constant(undefined), fc.nat({ max: OWN_TOKEN.length - 1 })),
         fc.boolean(),
-        fc.boolean(),
-        async (value, publicCopy, explanationPieces, leak, ownToken, typed) => {
+        async (value, publicCopy, explanationPieces, leak, ownShape, typed) => {
           const held = renderLongerTokenCopy(publicCopy, value);
-          const copy = ownToken ? `${held} page ${value}` : held;
+          const ownToken = ownShape !== undefined;
+          const copy = ownToken ? `${held} ${OWN_TOKEN[ownShape]!(value)}` : held;
           const explanation =
             `${renderCopy(explanationPieces, value)} ${OWN_NUMBER[leak]!(value)}`;
           const hours: AnswerMap = {

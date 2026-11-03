@@ -231,9 +231,19 @@ export function validateTurnText(body: unknown): string {
 // Grounded prompt builders
 // ---------------------------------------------------------------------------
 
+/** One titled list in the grounding, or nothing when the list is empty. */
+function groundingSection(title: string, lines: readonly string[]): string[] {
+  return lines.length === 0
+    ? []
+    : [`${title}:\n${lines.map((line) => `- ${line}`).join("\n")}`];
+}
+
 /**
  * The knowledge-base grounding: active entries only. Stale or withdrawn
- * entries are never cited, silently or otherwise (BN-29).
+ * entries are never cited, silently or otherwise (BN-29). Every fact group
+ * a person can ask about goes in, since hard rule 2 refuses anything the
+ * grounding leaves out (HACK-125). Match signals are scoring, not facts, so
+ * they stay out.
  */
 export function activeKbGrounding(
   entries: readonly KbEntry[] = KB_ENTRIES,
@@ -244,10 +254,33 @@ export function activeKbGrounding(
   }
   return active
     .map((entry) => {
-      const rules = entry.facts.rules.items
-        .map((item) => `- ${item}`)
-        .join("\n");
-      return `Program: ${entry.title} (entry ${entry.id})\nRules:\n${rules}`;
+      const { facts } = entry;
+      return [
+        `Program: ${entry.title} (entry ${entry.id})`,
+        ...groundingSection("Rules", facts.rules.items),
+        ...groundingSection("Documents to have ready", facts.required_documents.items),
+        ...groundingSection("How to apply", facts.steps?.items ?? []),
+        ...groundingSection(
+          "Deadlines and timing",
+          facts.deadlines.items.map((item) => `${item.label}: ${item.due}`),
+        ),
+        ...groundingSection(
+          "Sending in the filled form",
+          (facts.submission_steps?.items ?? []).map(
+            (step) => `${step.label}: ${step.detail}`,
+          ),
+        ),
+        ...groundingSection(
+          "After you apply",
+          (facts.after_you_apply?.items ?? []).map(
+            (step) => `${step.label}: ${step.detail}`,
+          ),
+        ),
+        ...groundingSection(
+          "Official links",
+          facts.official_links.items.map((link) => `${link.label}: ${link.url}`),
+        ),
+      ].join("\n");
     })
     .join("\n\n");
 }
