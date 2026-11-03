@@ -447,9 +447,24 @@ describe("the device results copy", () => {
     expect(DEVICE_RESULTS_COPY.printNote).toContain(disclosure);
     expect(DEVICE_RESULTS_COPY.printNote).toContain("Saving the form as a PDF there instead saves a file to this device");
     // Never that the copy is sent, or submitted, anywhere.
-    for (const text of [DEVICE_RESULTS_COPY.downloadNote, DEVICE_RESULTS_COPY.downloaded]) {
+    for (const text of [
+      DEVICE_RESULTS_COPY.downloadNote,
+      DEVICE_RESULTS_COPY.downloaded,
+      DEVICE_RESULTS_COPY.drawFailed,
+      DEVICE_RESULTS_COPY.downloadOnlyBody,
+    ]) {
       expect(text).not.toMatch(/\bsubmitted\b|\bwe (?:send|sent|keep|kept)\b/i);
     }
+  });
+
+  it("where the pages can't be drawn, says so, offers the download, and says there's nothing to print on the page", () => {
+    expect(DEVICE_RESULTS_COPY.drawFailed).toContain("couldn't show its pages here");
+    expect(DEVICE_RESULTS_COPY.drawFailed).toContain("You can still download a copy below, or try again");
+    expect(DEVICE_RESULTS_COPY.downloadOnlyBody).toContain("there's nothing to print from this page");
+    expect(DEVICE_RESULTS_COPY.downloadOnlyBody).toContain("This goes away when you change an answer or leave");
+    // Its lists point at the form, with no pages below them.
+    expect(DEVICE_RESULTS_COPY.leftBlankHeadingNoPages).toBe("Left blank on the form");
+    expect(DEVICE_RESULTS_COPY.conflictsHeadingNoPages).toBe("Check these on the form");
   });
 
   it("after a press of Download a copy, says what should happen rather than that the file is saving, and what to do if it doesn't", () => {

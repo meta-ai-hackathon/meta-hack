@@ -52,7 +52,11 @@ import type { MatchCard, MatchSourceCitation } from "../../lib/match-core";
 // holds the filled-in answers, private ones included, that it isn't
 // encrypted, and to delete it on a shared computer. Nothing else is saved to
 // the device: nothing goes in the browser's storage, and no copy is kept
-// anywhere else.
+// anywhere else. Where the form fills but this browser can't draw its pages
+// (pdf.js didn't load, a canvas was refused, or the drawing never
+// finished), the page offers Download a copy alone, with the same note, so
+// the person can still get the form; with no pages there is nothing to
+// print.
 //
 // The pages and those bytes last only while they match the answers: a
 // change to any answer, typed ones included, drops them, and so does
@@ -136,6 +140,19 @@ export const DEVICE_RESULTS_COPY = {
     "One of the answers you typed for the form couldn't be used. Please " +
     "check it and try again.",
   failed: "Something went wrong preparing your form. Please try again.",
+  // The form filled, but this browser couldn't draw its pages (pdf.js
+  // didn't load, a canvas was refused, or the drawing never finished). The
+  // download needs only the filled form, so it is still offered.
+  drawFailed:
+    "We filled in your form, but this browser couldn't show its pages " +
+    "here. You can still download a copy below, or try again.",
+  downloadOnlyHeading: "Your filled form, ready to download",
+  downloadOnlyBody:
+    "This browser couldn't show the pages of your filled form here, so " +
+    "there's nothing to print from this page. You can download a copy to " +
+    "check, print, sign, and send in yourself, or show the filled form " +
+    "again to try once more. This goes away when you change an answer or " +
+    "leave.",
   unreadableBoxes:
     "Nothing was filled. Some box answers aren't checked or unchecked, so " +
     "fix the ones listed and try again.",
@@ -179,10 +196,12 @@ export const DEVICE_RESULTS_COPY = {
     "The download didn't start, so no copy was saved. Press Download a copy " +
     "to try again.",
   leftBlankHeading: "Left blank on the form below",
+  leftBlankHeadingNoPages: "Left blank on the form",
   coverageHeading: "Every field, accounted for",
   coverageDetails: "Why each blank field stays blank",
   coverageAllMapped: "Every box on this form takes an answer, so nothing was skipped.",
   conflictsHeading: "Check these on the form below",
+  conflictsHeadingNoPages: "Check these on the form",
   conflictsBody:
     "You checked more than one box where the form takes one answer. The " +
     "form shows every box you checked, so fix these by hand on the printed " +
@@ -389,7 +408,12 @@ const DOWNLOAD_FILE_NAME = `${DEVICE_FORM_ENTRY.id}.pdf`;
 
 /** The filled form on screen, with what its fill left blank or flagged. */
 interface FilledForm {
-  readonly drawn: PrintPreview;
+  /**
+   * Its pages, drawn to check and print, or null when the form filled but
+   * this browser couldn't draw them: then the page offers the download
+   * alone, so the person can still get the form.
+   */
+  readonly drawn: PrintPreview | null;
   /**
    * The filled PDF the pages were drawn from, for a copy the person
    * downloads. It lives only in this page's memory and is wiped with the
@@ -408,7 +432,7 @@ interface FilledForm {
  * nothing of it outlasts its pages. Safe to call more than once.
  */
 function releaseFilled(form: FilledForm): void {
-  form.drawn.release();
+  form.drawn?.release();
   form.bytes.fill(0);
 }
 
@@ -602,6 +626,7 @@ export function DeviceResults(props: {
   // to press Download a copy again never outlasts the button.
   const aboutTheForm =
     notice === DEVICE_RESULTS_COPY.ready ||
+    notice === DEVICE_RESULTS_COPY.drawFailed ||
     notice === DEVICE_RESULTS_COPY.downloaded ||
     notice === DEVICE_RESULTS_COPY.downloadNotStarted;
   const status =
@@ -702,11 +727,20 @@ export function DeviceResults(props: {
         return;
       }
       bytes = result.outcome.bytes;
-      const drawn = await renderPrintPreview(bytes, createPrintCanvas, signal);
+      // A drawing that fails, a pdf.js that wouldn't load or stopped
+      // answering included, still leaves the filled form, so the person
+      // can download it even where the pages can't be shown. A drawing
+      // stopped because the answers changed is no failure, and goes below.
+      const drawn = await renderPrintPreview(bytes, createPrintCanvas, signal).catch((error: unknown) => {
+        if (signal.aborted) {
+          throw error;
+        }
+        return null;
+      });
       // Pages drawn from answers that have since changed, or for a page the
       // person has left, are never shown.
       if (signal.aborted || leaves.current !== leavesBefore) {
-        drawn.release();
+        drawn?.release();
         return;
       }
       focusPreview.current = true;
@@ -723,11 +757,11 @@ export function DeviceResults(props: {
       pending.current = form;
       setFilled(form);
       shown = true;
-      announce(DEVICE_RESULTS_COPY.ready);
+      announce(drawn === null ? DEVICE_RESULTS_COPY.drawFailed : DEVICE_RESULTS_COPY.ready);
     } catch {
       // An answer changed or the screen went away while the form was being
       // drawn: nothing failed, and the person sees the change they made.
-      // Anything else, a pdf.js that stopped answering included, failed.
+      // Anything else before the form filled failed.
       if (!signal.aborted) {
         announce(DEVICE_RESULTS_COPY.failed);
       }
@@ -932,34 +966,47 @@ export function DeviceResults(props: {
         <StatusRegion message={status} className="text-sm text-muted" />
       </section>
 
+      {/* The filled form: its pages with Print and Download a copy, or,
+      when this browser couldn't draw the pages, Download a copy alone. */}
       {filled !== null ? (
-        <section aria-labelledby="device-print-heading" data-print-preview className="flex flex-col gap-3">
+        <section
+          aria-labelledby="device-print-heading"
+          data-print-preview={filled.drawn !== null ? "" : undefined}
+          data-download-only={filled.drawn === null ? "" : undefined}
+          className="flex flex-col gap-3"
+        >
           <h2
             id="device-print-heading"
             ref={previewHeading}
             tabIndex={-1}
             className="font-display text-2xl font-bold"
           >
-            {DEVICE_RESULTS_COPY.previewHeading}
+            {filled.drawn !== null ? DEVICE_RESULTS_COPY.previewHeading : DEVICE_RESULTS_COPY.downloadOnlyHeading}
           </h2>
-          <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.previewBody}</p>
+          <p className="text-sm text-muted">
+            {filled.drawn !== null ? DEVICE_RESULTS_COPY.previewBody : DEVICE_RESULTS_COPY.downloadOnlyBody}
+          </p>
           <div className="flex flex-col gap-2">
-            <p id="device-print-note" data-print-note className="text-sm text-muted">
-              {DEVICE_RESULTS_COPY.printNote}
-            </p>
+            {filled.drawn !== null ? (
+              <p id="device-print-note" data-print-note className="text-sm text-muted">
+                {DEVICE_RESULTS_COPY.printNote}
+              </p>
+            ) : null}
             <p id="device-download-note" data-download-note className="text-sm text-muted">
               {DEVICE_RESULTS_COPY.downloadNote}
             </p>
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={printForm}
-                data-action="print"
-                aria-describedby="device-print-note"
-                className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal"
-              >
-                {DEVICE_RESULTS_COPY.printButton}
-              </button>
+              {filled.drawn !== null ? (
+                <button
+                  type="button"
+                  onClick={printForm}
+                  data-action="print"
+                  aria-describedby="device-print-note"
+                  className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal"
+                >
+                  {DEVICE_RESULTS_COPY.printButton}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={downloadCopy}
@@ -973,7 +1020,9 @@ export function DeviceResults(props: {
           </div>
           {filled.leftBlank.length > 0 ? (
             <div data-left-blank className="flex flex-col gap-1">
-              <h3 className="font-medium">{DEVICE_RESULTS_COPY.leftBlankHeading}</h3>
+              <h3 className="font-medium">
+                {filled.drawn !== null ? DEVICE_RESULTS_COPY.leftBlankHeading : DEVICE_RESULTS_COPY.leftBlankHeadingNoPages}
+              </h3>
               <ul className="list-disc pl-5">
                 {filled.leftBlank.map((item) => (
                   <li key={item.fieldName}>
@@ -985,7 +1034,9 @@ export function DeviceResults(props: {
           ) : null}
           {filled.conflicts.length > 0 ? (
             <div data-check-conflicts className="flex flex-col gap-1">
-              <h3 className="font-medium">{DEVICE_RESULTS_COPY.conflictsHeading}</h3>
+              <h3 className="font-medium">
+                {filled.drawn !== null ? DEVICE_RESULTS_COPY.conflictsHeading : DEVICE_RESULTS_COPY.conflictsHeadingNoPages}
+              </h3>
               <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.conflictsBody}</p>
               <ul className="list-disc pl-5">
                 {filled.conflicts.map((conflict) => (
@@ -998,21 +1049,24 @@ export function DeviceResults(props: {
           ) : null}
           {/* The pages, and only they, print (the print rules in
           globals.css, keyed off the marks markForPrint sets while the pages
-          are here). Each canvas joins its frame here and leaves with it. */}
-          <div data-print-pages ref={markForPrint} className="flex flex-col gap-4">
-            {filled.drawn.pages.map((page) => (
-              <div
-                key={page.pageNumber}
-                role="img"
-                aria-label={page.label}
-                data-print-page={page.pageNumber}
-                ref={(frame) => {
-                  frame?.replaceChildren(page.canvas);
-                }}
-                className="overflow-hidden rounded-lg border border-surface-border"
-              />
-            ))}
-          </div>
+          are here). Each canvas joins its frame here and leaves with it.
+          With no pages there is no Print button and nothing is marked. */}
+          {filled.drawn !== null ? (
+            <div data-print-pages ref={markForPrint} className="flex flex-col gap-4">
+              {filled.drawn.pages.map((page) => (
+                <div
+                  key={page.pageNumber}
+                  role="img"
+                  aria-label={page.label}
+                  data-print-page={page.pageNumber}
+                  ref={(frame) => {
+                    frame?.replaceChildren(page.canvas);
+                  }}
+                  className="overflow-hidden rounded-lg border border-surface-border"
+                />
+              ))}
+            </div>
+          ) : null}
         </section>
       ) : null}
 

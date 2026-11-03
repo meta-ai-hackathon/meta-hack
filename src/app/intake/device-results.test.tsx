@@ -1168,15 +1168,21 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.unmount();
   }, 120_000);
 
-  it("says something went wrong and shows no pages when pdf.js won't load, then shows them on the next try", async () => {
+  it("offers the download alone and shows no pages when pdf.js won't load, then shows them on the next try", async () => {
+    // The download needs only the filled form, so a browser that can't
+    // draw the pages still lets the person get it (the owner called the
+    // download vital on HACK-115). With no pages there is nothing to print.
     pdfjs.failLoad = true;
     const page = await visit();
     await page.answerEverything();
     await page.click(page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')!);
-    await page.waitFor(() => page.text().includes(page.copy.failed), "the failure notice");
+    await page.waitFor(() => page.text().includes(page.copy.drawFailed), "the notice that the pages couldn't be shown");
+    expect(page.text()).not.toContain(page.copy.failed);
     expect(pdfjs.documents).toEqual([]);
     expect(page.pages()).toEqual([]);
     expect(page.container.querySelector("[data-print-preview]")).toBeNull();
+    expect(page.container.querySelector('[data-action="print"]')).toBeNull();
+    expectNoPrintMarks();
     // The button is back, ready for another try, and nothing says the form is still being filled in.
     const button = page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]');
     expect(button?.getAttribute("aria-disabled")).toBeNull();
@@ -1184,14 +1190,68 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(page.text()).not.toContain(page.copy.showingForm);
     expectNothingSaved();
 
+    // Download a copy, with the note that says what the file is, and focus on its heading.
+    const alone = page.container.querySelector<HTMLElement>("[data-download-only]")!;
+    expect(alone.querySelector("h2")?.textContent).toBe(page.copy.downloadOnlyHeading);
+    expect(document.activeElement).toBe(alone.querySelector("h2"));
+    expect(alone.textContent).toContain(page.copy.downloadOnlyBody);
+    const save = alone.querySelector<HTMLButtonElement>('[data-action="download-copy"]')!;
+    expect(save.textContent).toBe(page.copy.downloadButton);
+    expect(document.getElementById(save.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+      page.copy.downloadNote,
+    );
+    // The press saves the form the fill made, the one pdf.js never got.
+    const copy = await page.download();
+    expect(copy.name).toBe("dhb-5200.pdf");
+    expect(copy.type).toBe("application/pdf");
+    expect(copy.bytes).toEqual(new Uint8Array(filledBytes[0]));
+    expect(copy.form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe("07/19/1984");
+    const downloaded = saves.length;
+    expect(downloaded).toBe(2);
+
+    // It goes with an answer change, as the pages do, and its bytes are wiped.
+    await page.type(page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!, TYPED_NAME);
+    expect(page.container.querySelector("[data-download-only]")).toBeNull();
+    expect(page.container.querySelector('[data-action="download-copy"]')).toBeNull();
+    expectWiped(filledBytes[0]);
+    expect(page.container.querySelector(STATUS_LINE)?.textContent).toBe("");
+
     // A dropped connection isn't kept: the next press loads pdf.js and shows the form.
     pdfjs.failLoad = false;
     const filled = await page.showForm();
     expect(filled.pages).toHaveLength(21);
     expect(filled.form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe("07/19/1984");
-    expectNothingSaved();
-    expectNoAnswerInRequests([...PRIVATE_VALUES, "1200", "Quillfeather"]);
+    expect(page.container.querySelector("[data-download-only]")).toBeNull();
+    expectNothingSaved(downloaded);
+    expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
     await page.unmount();
+  }, 60_000);
+
+  it("lets go of the download offered without pages when the page is left, at once, and when it goes away", async () => {
+    pdfjs.failLoad = true;
+    const view = await results();
+    await view.show();
+    await view.waitFor(() => view.downloadButton() !== null, "the download offered alone");
+    expect(view.canvases()).toEqual([]);
+    await view.waitFor(() => view.status() === view.copy.drawFailed, "the notice that the pages couldn't be shown");
+    const kept = filledBytes[0];
+    expect(kept.some((byte) => byte !== 0)).toBe(true);
+    await view.act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+      expectWiped(kept);
+    });
+    expect(view.downloadButton()).toBeNull();
+    expect(view.status()).toBe("");
+
+    // Back from the browser's cache, again, and then the screen goes away.
+    window.dispatchEvent(new Event("pageshow"));
+    await view.show();
+    await view.waitFor(() => view.downloadButton() !== null, "the download offered alone again");
+    const again = filledBytes[1];
+    expect(again.some((byte) => byte !== 0)).toBe(true);
+    await view.unmount();
+    expectWiped(again);
+    expectNothingSaved();
   }, 60_000);
 
   it("stops drawing when an answer changes partway, and never shows pages from the old answers", async () => {
