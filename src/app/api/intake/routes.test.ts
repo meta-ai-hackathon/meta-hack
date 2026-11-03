@@ -366,6 +366,12 @@ function sentinelValueFor(
       return true;
     case "number":
       return 1;
+    case "work_activity":
+      return [{ memberId: "SENTINEL-ID", activity: "job_internship", hours: 20 }];
+    case "attribution":
+      return [{ memberId: "SENTINEL-ID", situationId: "wr_income_580", months: "both" }];
+    case "roster":
+      return [{ id: "member-1", displayName: "SENTINEL-NAME", relationship: "self", ageBand: "18_to_54" }];
     default:
       return "SENTINEL-TEXT";
   }

@@ -151,6 +151,16 @@
       "provenance": "user-supplied"
     },
     {
+      "id": "household_roster",
+      "prompt": "Who lives in your household? Add each person by first name or nickname.",
+      "type": "roster",
+      "help": "First names or nicknames are fine - you do not need legal names. You can add, change, or remove people. This list helps later questions ask about the right person.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
       "id": "income_sources",
       "prompt": "Where does money come from for your household?",
       "type": "multi_select",
@@ -853,6 +863,16 @@
       "provenance": "user-supplied"
     },
     {
+      "id": "wr_who_months",
+      "prompt": "For each situation you told us about, who does it apply to, and which months?",
+      "type": "attribution",
+      "help": "Pick the person or people for each situation, then this month, last month, or both. Pick 'not sure' if you do not know. You can skip this - skipping never blocks your application.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
       "id": "wr_work_activity_who",
       "prompt": "Who completed work activities last month?",
       "type": "text",
@@ -917,6 +937,32 @@
       "prompt": "About how many hours of work activities were completed last month?",
       "type": "number",
       "help": "The monthly target is 80 hours. For part-time students, 1 credit hour equals 13 work activity hours per month. A best count is fine.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "wr_exempt_situations", "operator": "in", "value": "parent_child_under_18,nonparent_caregiver_child_under_14,caregiver_daily_activities,already_snap_tanf_work_requirements" },
+        { "question_id": "wr_pregnant", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_treatment", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_disorder", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_disability_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_mental_health_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_serious_health_condition", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_jail_prison_past_4_months", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_foster_care_under_26", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_veteran_100_disabled", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_applied_last_month", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_medical_travel_1hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_hospital_care_24hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_income_580", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_student_enrolled", "operator": "in", "value": "full_time,at_least_half_time" }
+      ],
+      "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_work_rows",
+      "prompt": "For each person, what work activities did they do last month, and about how many hours?",
+      "type": "work_activity",
+      "help": "Add a row for each person and activity. Hours are per person and are never added together across people. Pick 'not sure' for the hours if you do not know - estimating is fine. The state decides how work counts.",
       "pii": true,
       "required": false,
       "skip_conditions": [

@@ -1,11 +1,43 @@
 "use client";
 
+import { useEffect } from "react";
+
 import type { ClientAnswer, ClientQuestion } from "../../lib/intake/serialize";
 import {
   NO_PROOF_NEEDED_NOTE_SINGLE,
   isWorkRequirementsQuestionId,
 } from "../../lib/intake/work-requirements";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
+import {
+  activityTypes,
+  draftWorkRows,
+  removeWorkRow,
+  setWorkRow,
+  type WorkRow,
+} from "../../lib/intake/work-activities";
+import {
+  MONTH_LABELS,
+  MONTH_VALUES,
+  draftAttribution,
+  parseAttribution,
+  setAttribution,
+  type Months,
+} from "../../lib/intake/attribution";
+import {
+  AGE_BAND_LABELS,
+  MAX_ROSTER_MEMBERS,
+  MAX_MEMBER_NAME_LENGTH,
+  AGE_BAND_VALUES,
+  RELATIONSHIP_LABELS,
+  RELATIONSHIP_VALUES,
+  addMember,
+  draftMembers,
+  emptyMember,
+  nextMemberId,
+  removeMember,
+  updateMember,
+  type HouseholdMember,
+} from "../../lib/intake/roster";
 import { Field } from "../../components/field";
 
 // One intake question per screen (BN-09): the plain-language prompt, help
@@ -17,6 +49,10 @@ import { Field } from "../../components/field";
 
 export interface QuestionViewProps {
   question: ClientQuestion;
+  /** Roster + applicable situations for the attribution editor (device mode). */
+  attributionContext?: import("../../lib/intake/attribution").AttributionContext;
+  /** Roster + income prefill suggestions for the work-rows editor (device mode). */
+  workContext?: import("../../lib/intake/work-activities").WorkContext;
   /** Stored answer for this question, when one exists. */
   answer?: ClientAnswer;
   /** Draft value being edited (undefined = nothing entered yet). */
@@ -53,6 +89,8 @@ function isChoiceType(type: ClientQuestion["type"]): boolean {
 
 export function QuestionView({
   question,
+  attributionContext,
+  workContext,
   answer,
   value,
   onValueChange,
@@ -64,6 +102,19 @@ export function QuestionView({
   busy,
   error,
 }: QuestionViewProps) {
+  // When the attribution editor is shown, sync the draft to the pruned
+  // entries so a removed member or withdrawn situation is not re-saved.
+  useEffect(() => {
+    if (question.type !== "attribution" || !attributionContext) return;
+    const pruned = draftAttribution(value, attributionContext);
+    const stored = parseAttribution(value);
+    if (JSON.stringify(pruned) !== JSON.stringify(stored ?? [])) {
+      onValueChange(pruned.length === 0 ? undefined : pruned);
+    }
+    // Runs when the editor for this question is (re)shown with a context.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question.id, attributionContext]);
+
   const choice = isChoiceType(question.type);
   const helpId = `${question.id}-help`;
   const errorId = `${question.id}-error`;
@@ -144,6 +195,257 @@ export function QuestionView({
             {option.label}
           </label>
         ))}
+      </fieldset>
+    );
+  } else if (question.type === "attribution") {
+    const entries = draftAttribution(value, attributionContext);
+    const members = attributionContext?.members ?? [];
+    const situations = attributionContext?.situations ?? [];
+    control = (
+      <fieldset aria-describedby={describedBy} className="flex flex-col gap-3">
+        <legend className="mb-1 text-base font-medium">
+          {question.prompt} {requiredMark}
+        </legend>
+        {question.help ? <p id={helpId} className="text-sm text-muted">{question.help}</p> : null}
+        {attributionContext === undefined ? (
+          <p className="text-sm text-muted">
+            This question can only be answered when your answers are saved on this device. You can skip it here - it never blocks your application.
+          </p>
+        ) : members.length === 0 || situations.length === 0 ? (
+          <p className="text-sm text-muted">
+            There is no household list or situation to attach yet. You can skip this question - it never blocks your application.
+          </p>
+        ) : (
+          situations.map((situation) => (
+            <fieldset key={situation.id} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3">
+              <legend className="text-base font-medium">{situation.label}</legend>
+              {members.map((member) => {
+                const entry = entries.find((e) => e.memberId === member.id && e.situationId === situation.id);
+                return (
+                  <label key={member.id} className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${situation.id}-${member.id}`}>
+                    {member.displayName}
+                    <select
+                      id={`${question.id}-${situation.id}-${member.id}`}
+                      value={entry?.months ?? ""}
+                      disabled={busy}
+                      onChange={(e) => { const next = setAttribution(entries, member.id, situation.id, e.target.value === "" ? null : (e.target.value as Months)); onValueChange(next.length === 0 ? undefined : next); }}
+                      className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+                    >
+                      <option value="">Does not apply / not picked yet</option>
+                      {MONTH_VALUES.map((v) => (
+                        <option key={v} value={v}>{MONTH_LABELS[v]}</option>
+                      ))}
+                    </select>
+                  </label>
+                );
+              })}
+            </fieldset>
+          ))
+        )}
+      </fieldset>
+    );
+  } else if (question.type === "work_activity") {
+    const members = workContext?.members ?? [];
+    const memberIds = new Set(members.map((m) => m.id));
+    const rows: WorkRow[] = draftWorkRows(value, memberIds);
+    // Income-section suggestions (HACK-128) are offered, never drafted:
+    // a row enters the draft only when the person taps Add for it.
+    const offered = (workContext?.suggestions ?? []).filter(
+      (s) => !rows.some((r) => r.memberId === s.memberId && r.activity === s.activity),
+    );
+    const setRows = (next: WorkRow[]) => onValueChange(next.length === 0 ? undefined : next);
+    control = (
+      <fieldset aria-describedby={describedBy} className="flex flex-col gap-3">
+        <legend className="mb-1 text-base font-medium">
+          {question.prompt} {requiredMark}
+        </legend>
+        {question.help ? <p id={helpId} className="text-sm text-muted">{question.help}</p> : null}
+        {members.length === 0 ? (
+          <p className="text-sm text-muted">
+            {workContext === undefined
+              ? "This question can only be answered when your answers are saved on this device. You can skip it here - it never blocks your application."
+              : "Add your household list first, then add a row for each person. You can skip this question - it never blocks your application."}
+          </p>
+        ) : (
+          <>
+            {offered.length > 0 ? (
+              <div className="flex flex-col gap-2 rounded-xl border border-teal/25 bg-teal-soft p-3">
+                <p className="text-sm text-muted">
+                  From your income answers, you could add:
+                </p>
+                {offered.map((s) => (
+                  <button
+                    key={`${s.memberId}|${s.activity}`}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setRows([...rows, s])}
+                    className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
+                  >
+                    Add a row for {members.find((m) => m.id === s.memberId)?.displayName ?? "this person"}: {activityTypes().find((a) => a.value === s.activity)?.label ?? s.activity}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {rows.map((row, index) => (
+              <div key={index} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3" data-work-row={index}>
+                <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${index}-member`}>
+                  Household member
+                  <select
+                    id={`${question.id}-${index}-member`}
+                    value={row.memberId}
+                    disabled={busy}
+                    onChange={(e) => setRows(setWorkRow(rows, index, { memberId: e.target.value }))}
+                    className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+                  >
+                    {members.map((m) => (
+                      <option key={m.id} value={m.id}>{m.displayName}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${index}-activity`}>
+                  Type of activity
+                  <select
+                    id={`${question.id}-${index}-activity`}
+                    value={row.activity}
+                    disabled={busy}
+                    onChange={(e) => setRows(setWorkRow(rows, index, { activity: e.target.value }))}
+                    className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+                  >
+                    {activityTypes().map((a) => (
+                      <option key={a.value} value={a.value}>{a.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${index}-hours`}>
+                  Hours last month
+                  <input
+                    id={`${question.id}-${index}-hours`}
+                    type="number"
+                    min="0"
+                    value={row.hours === null ? "" : row.hours}
+                    disabled={busy}
+                    onChange={(e) => setRows(setWorkRow(rows, index, { hours: e.target.value === "" ? null : Number(e.target.value), hoursNotSure: false }))}
+                    className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm text-muted" htmlFor={`${question.id}-${index}-notsure`}>
+                  <input
+                    id={`${question.id}-${index}-notsure`}
+                    type="checkbox"
+                    checked={row.hoursNotSure === true}
+                    disabled={busy}
+                    onChange={(e) => setRows(setWorkRow(rows, index, { hoursNotSure: e.target.checked, hours: e.target.checked ? null : row.hours }))}
+                  />
+                  Not sure about the hours
+                </label>
+                {rows.some((r, i) => i !== index && r.memberId === row.memberId && r.activity === row.activity) ? (
+                  <p className="text-sm font-medium text-danger">This person already has a row for this activity. Change one of them or remove this row.</p>
+                ) : null}
+                {row.hours !== null && row.hours < 0 ? (
+                  <p className="text-sm font-medium text-danger">Hours cannot be less than zero.</p>
+                ) : null}
+                {row.hours !== null && row.hours > 744 ? (
+                  <p className="text-sm font-medium text-danger">That is more hours than a month has. Please check the number.</p>
+                ) : null}
+                {row.hours === null && row.hoursNotSure !== true ? (
+                  <p className="text-sm text-muted">Enter the hours, or tick Not sure about the hours.</p>
+                ) : null}
+                <button type="button" aria-label={`Remove this row (row ${index + 1})`} disabled={busy} onClick={() => setRows(removeWorkRow(rows, index))} className="self-start text-sm text-muted underline">
+                  Remove this row
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                const used = new Set(rows.map((r) => `${r.memberId}|${r.activity}`));
+                const pair = members.flatMap((m) => activityTypes().map((a) => ({ memberId: m.id, activity: a.value }))).find((c) => !used.has(`${c.memberId}|${c.activity}`));
+                if (pair) setRows([...rows, { ...pair, hours: null }]);
+              }}
+              className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
+            >
+              Add a row
+            </button>
+          </>
+        )}
+      </fieldset>
+    );
+  } else if (question.type === "roster") {
+    const members: HouseholdMember[] = draftMembers(value);
+    const setMembers = (next: HouseholdMember[]) => onValueChange(next);
+    control = (
+      <fieldset aria-describedby={describedBy} className="flex flex-col gap-3">
+        <legend className="mb-1 text-base font-medium">
+          {question.prompt} {requiredMark}
+        </legend>
+        {question.help ? (
+          <p id={helpId} className="text-sm text-muted">{question.help}</p>
+        ) : null}
+        {members.map((member, index) => (
+          <div key={member.id} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3" data-roster-member={member.id}>
+            <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-name`}>
+              Person {index + 1}: first name or nickname
+              <input
+                id={`${question.id}-${member.id}-name`}
+                type="text"
+                maxLength={MAX_MEMBER_NAME_LENGTH}
+                value={member.displayName}
+                disabled={busy}
+                onChange={(e) => setMembers(updateMember(members, member.id, { displayName: e.target.value }))}
+                aria-describedby={member.displayName.trim() === "" ? `${question.id}-${member.id}-name-hint` : undefined}
+                className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+              />
+            </label>
+            {member.displayName.trim() === "" ? (
+              <p id={`${question.id}-${member.id}-name-hint`} className="text-sm text-muted">Enter a first name or nickname for this person.</p>
+            ) : null}
+            <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-relationship`}>
+              Relationship
+              <select
+                id={`${question.id}-${member.id}-relationship`}
+                value={member.relationship}
+                disabled={busy}
+                onChange={(e) => setMembers(updateMember(members, member.id, { relationship: e.target.value as HouseholdMember["relationship"] }))}
+                className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+              >
+                {RELATIONSHIP_VALUES.map((v) => (
+                  <option key={v} value={v} disabled={v === "self" && member.relationship !== "self" && members.some((m) => m.relationship === "self")}>{RELATIONSHIP_LABELS[v]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-age`}>
+              Age range
+              <select
+                id={`${question.id}-${member.id}-age`}
+                value={member.ageBand}
+                disabled={busy}
+                onChange={(e) => setMembers(updateMember(members, member.id, { ageBand: e.target.value as HouseholdMember["ageBand"] }))}
+                className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+              >
+                {AGE_BAND_VALUES.map((v) => (
+                  <option key={v} value={v}>{AGE_BAND_LABELS[v]}</option>
+                ))}
+              </select>
+            </label>
+            {members.length > 1 ? (
+              <button type="button" aria-label={`Remove this person (person ${index + 1}${member.displayName ? `: ${member.displayName}` : ""})`} disabled={busy} onClick={() => setMembers(removeMember(members, member.id))} className="self-start text-sm text-muted underline">
+                Remove this person
+              </button>
+            ) : null}
+          </div>
+        ))}
+        <button
+          type="button"
+          disabled={busy || members.length >= MAX_ROSTER_MEMBERS}
+          onClick={() => setMembers(addMember(members, emptyMember(nextMemberId(members))))}
+          className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
+        >
+          Add another person
+        </button>
+        {members.length >= MAX_ROSTER_MEMBERS ? (
+          <p className="text-sm text-muted">That is everyone we can list here. You can change or remove a person above.</p>
+        ) : null}
       </fieldset>
     );
   } else if (question.type === "multi_select") {

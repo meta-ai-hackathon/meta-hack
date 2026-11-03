@@ -321,11 +321,21 @@ describe("the frozen cases", PROPERTY_BUDGET, () => {
         value: passThrough.value,
       };
     }
+    // The household roster (HACK-134) is likewise captured through the
+    // wizard, never a scored conversation turn; it sits mid-spec, so the
+    // expected list is built in spec order.
+    answers.household_roster = {
+      status: "known",
+      value: [{ id: "member-1", displayName: "Fictional", relationship: "self", ageBand: "18_to_54" }],
+    };
     const visible = visibleQuestions(QUESTIONS, answers).map((question) => question.id);
-    expect(visible).toEqual([
+    // Keep the original ordered comparison (it pins both fixture lists to
+    // spec order), with the mid-spec roster checked separately below.
+    expect(visible.filter((id) => id !== "household_roster")).toEqual([
       ...ANSWER_TURN_CASES.map((testCase) => testCase.questionId),
       ...QQ_PHASE_ANSWERS.map((passThrough) => passThrough.questionId),
     ]);
+    expect(visible.indexOf("household_roster")).toBe(visible.indexOf("household_seniors") + 1);
     for (const id of BRANCH_ONLY_QUESTION_IDS) {
       expect(visible).not.toContain(id);
     }
@@ -344,7 +354,7 @@ describe("the frozen cases", PROPERTY_BUDGET, () => {
     expect(wrIds.length).toBeGreaterThan(0);
     const passThroughIds = QQ_PHASE_ANSWERS.map((passThrough) => passThrough.questionId);
     for (const id of wrIds) {
-      if (id === "wr_applied_last_month_which" || id.startsWith("wr_work_activity_")) {
+      if (id === "wr_applied_last_month_which" || id === "wr_work_rows" || id.startsWith("wr_work_activity_")) {
         // Skipped by the persona's answers — the flow never asks them.
         continue;
       }

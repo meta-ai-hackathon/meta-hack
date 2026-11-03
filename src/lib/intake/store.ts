@@ -463,7 +463,7 @@ function vaultValueFor(value: unknown): string {
 interface ValidatedAnswer {
   readonly question: Question;
   /** Canonical storage value; null for unknown answers (no value anywhere). */
-  readonly storedValue: string | number | boolean | string[] | null;
+  readonly storedValue: CanonicalAnswerValue | null;
 }
 
 /**
@@ -556,7 +556,7 @@ export async function saveAnswer(
         answered_at = now()
     `;
   } else {
-    const valueJson = storedValue === null ? null : sql.json(storedValue);
+    const valueJson = storedValue === null ? null : sql.json(storedValue as Parameters<typeof sql.json>[0]);
     await sql`
       INSERT INTO answer (session_id, question_id, value, status, provenance)
       VALUES (${sessionId}, ${question.id}, ${valueJson}, ${status}, ${provenance})

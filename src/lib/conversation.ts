@@ -16,6 +16,9 @@ import {
   type Question,
   type SkipCondition,
 } from "./intake/spec";
+import { ROSTER_QUESTION_ID } from "./intake/roster";
+import { ATTRIBUTION_QUESTION_ID } from "./intake/attribution";
+import { WORK_ROWS_QUESTION_ID } from "./intake/work-activities";
 import {
   ensureSession,
   loadAnswers,
@@ -393,7 +396,12 @@ export function buildCombinedTurnPrompt(
     "The official question list, in order (each question's stored-answer state " +
       "is marked):",
   );
-  const visible = visibleQuestions(questions, answers);
+  // The household roster (HACK-134) is a structured wizard question: it
+  // never enters the model prompt, so member names are never asked for
+  // or extracted on the talk path.
+  const visible = visibleQuestions(questions, answers).filter(
+    (question) => talkPathSavesQuestion(question.id),
+  );
   for (const question of visible) {
     const parts: string[] = [];
     if (question.id === currentQuestion?.id) {
@@ -572,8 +580,13 @@ export function buildCombinedTurnPrompt(
   return lines.join("\n");
 }
 
+/** Whether the talk path may save an extracted answer for a question. Structured wizard-only questions (roster, per-person attribution) are never extracted or saved from a model turn (HACK-134/135). */
+export function talkPathSavesQuestion(questionId: string): boolean {
+  return questionId !== ROSTER_QUESTION_ID && questionId !== ATTRIBUTION_QUESTION_ID && questionId !== WORK_ROWS_QUESTION_ID;
+}
+
 /** The strict per-turn extraction schema (BN-32), inside the envelope schema. */
-const EXTRACTION_SCHEMA = {
+export const EXTRACTION_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["answers"],
@@ -585,7 +598,7 @@ const EXTRACTION_SCHEMA = {
         additionalProperties: false,
         required: ["question_id", "status"],
         properties: {
-          question_id: { type: "string", enum: QUESTIONS.map((q) => q.id) },
+          question_id: { type: "string", enum: QUESTIONS.filter((q) => talkPathSavesQuestion(q.id)).map((q) => q.id) },
           status: { type: "string", enum: ["known", "unknown"] },
           value: { type: ["string", "number", "boolean", "array"] },
           verbatim: { type: "string" },
@@ -1246,7 +1259,9 @@ async function runCombinedTurn(
 // ---------------------------------------------------------------------------
 
 function nextUnansweredQuestion(answers: AnswerMap): Question | null {
-  const visible = visibleQuestions(QUESTIONS, answers);
+  const visible = visibleQuestions(QUESTIONS, answers).filter(
+    (question) => talkPathSavesQuestion(question.id),
+  );
   const index = firstUnansweredIndex(visible, answers);
   return index === -1 ? null : visible[index];
 }
@@ -1452,6 +1467,13 @@ export async function processUserTurn(
     for (const item of envelope?.answers ?? []) {
       let planned = answerToSave(item);
       if (!planned) {
+        continue;
+      }
+      // The roster is wizard-only (HACK-134): a model extraction for it is
+      // never saved, however well-formed it looks.
+      if (!talkPathSavesQuestion(planned.questionId)) {
+        logWarn("conversation_extraction_answer_skipped");
+        skippedAnswerCount += 1;
         continue;
       }
       // A token must never reach a saved answer (HACK-107 review): the

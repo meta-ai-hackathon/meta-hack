@@ -82,6 +82,12 @@ function validDraft(question: Question): unknown {
       return question.options![0].value;
     case "multi_select":
       return [question.options![0].value];
+    case "work_activity":
+      return [{ memberId: "member-1", activity: "job_internship", hours: 20 }];
+    case "attribution":
+      return [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }];
+    case "roster":
+      return [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }];
   }
 }
 
@@ -554,5 +560,119 @@ describe("the stored keys", () => {
     expect([...store.keys()].sort()).toEqual(
       [DEVICE_ANSWERS_CRYPTO_KEY_KEY, DEVICE_ANSWERS_ENVELOPE_KEY].sort(),
     );
+  });
+});
+
+describe("per-person attribution re-pruning (HACK-135)", () => {
+  it("drops attribution entries for a removed roster member when the roster changes", async () => {
+    const { kv } = memoryKv();
+    let intake = (await loadDeviceIntake(opener(kv))).intake;
+    const save = async (id: string, value: unknown) => {
+      const r = await answerOnDevice(intake, id, "known", value);
+      expect(r.kind).toBe("saved");
+      if (r.kind === "saved") intake = r.intake;
+    };
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+      { id: "member-2", displayName: "Jo", relationship: "child", ageBand: "under_14" },
+    ]);
+    await save("wr_income_580", "yes");
+    await save("wr_who_months", [
+      { memberId: "member-1", situationId: "wr_income_580", months: "both" },
+      { memberId: "member-2", situationId: "wr_income_580", months: "last_month" },
+    ]);
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+    ]);
+    expect(intake.answers["wr_who_months"]?.value).toEqual([
+      { memberId: "member-1", situationId: "wr_income_580", months: "both" },
+    ]);
+  });
+
+  it("makes the attribution unanswered again when re-pruning removes every entry", async () => {
+    const { kv } = memoryKv();
+    let intake = (await loadDeviceIntake(opener(kv))).intake;
+    const save = async (id: string, value: unknown) => {
+      const r = await answerOnDevice(intake, id, "known", value);
+      expect(r.kind).toBe("saved");
+      if (r.kind === "saved") intake = r.intake;
+    };
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+      { id: "member-2", displayName: "Jo", relationship: "child", ageBand: "under_14" },
+    ]);
+    await save("wr_income_580", "yes");
+    await save("wr_who_months", [
+      { memberId: "member-2", situationId: "wr_income_580", months: "last_month" },
+    ]);
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+    ]);
+    expect(intake.answers["wr_who_months"]).toBeUndefined();
+  });
+
+  it("keeps the stored attribution when the persisted re-prune cannot be written", async () => {
+    const base = memoryKv();
+    let sets = 0;
+    let failAfter = Number.POSITIVE_INFINITY;
+    const kv: DeviceKv = {
+      ...base.kv,
+      setMany: async (entries, guard) => {
+        sets += 1;
+        if (sets > failAfter) throw new Error("storage full");
+        return base.kv.setMany(entries, guard);
+      },
+    };
+    let intake = (await loadDeviceIntake(async () => ({ status: "ok", store: { kv, subtle: crypto.subtle } }))).intake;
+    const save = async (id: string, value: unknown) => {
+      const r = await answerOnDevice(intake, id, "known", value);
+      expect(r.kind).toBe("saved");
+      if (r.kind === "saved") intake = r.intake;
+    };
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+      { id: "member-2", displayName: "Jo", relationship: "child", ageBand: "under_14" },
+    ]);
+    await save("wr_income_580", "yes");
+    await save("wr_who_months", [
+      { memberId: "member-1", situationId: "wr_income_580", months: "both" },
+      { memberId: "member-2", situationId: "wr_income_580", months: "last_month" },
+    ]);
+    // Let the roster change itself save, then fail the re-prune write.
+    failAfter = sets + 1;
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+    ]);
+    // Memory still shows what the device holds: both entries, unpruned.
+    expect(intake.answers["wr_who_months"]?.value).toEqual([
+      { memberId: "member-1", situationId: "wr_income_580", months: "both" },
+      { memberId: "member-2", situationId: "wr_income_580", months: "last_month" },
+    ]);
+  });
+});
+
+describe("per-person work rows re-pruning (HACK-128)", () => {
+  it("drops work rows for a removed roster member when the roster changes", async () => {
+    const { kv } = memoryKv();
+    let intake = (await loadDeviceIntake(opener(kv))).intake;
+    const save = async (id: string, value: unknown) => {
+      const r = await answerOnDevice(intake, id, "known", value);
+      expect(r.kind).toBe("saved");
+      if (r.kind === "saved") intake = r.intake;
+    };
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+      { id: "member-2", displayName: "Jo", relationship: "child", ageBand: "under_14" },
+    ]);
+    await save("wr_work_rows", [
+      { memberId: "member-1", activity: "job_internship", hours: 40 },
+      { memberId: "member-2", activity: "community_service", hours: null, hoursNotSure: true },
+    ]);
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+    ]);
+    expect(intake.answers["wr_work_rows"]?.value).toEqual([
+      { memberId: "member-1", activity: "job_internship", hours: 40 },
+    ]);
   });
 });
