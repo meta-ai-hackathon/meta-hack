@@ -619,11 +619,12 @@ export function DeviceResults(props: {
     noticeTimer.current = setTimeout(() => setNotice(message), 30);
   }, []);
 
-  // Word that the form is being filled in, is ready below, or that a copy
-  // of it is downloading or didn't download, lasts only while that is
-  // true: the pages can go without a new announcement (an answer changed,
-  // or the page was left), and so can the work on them. A line that says
-  // to press Download a copy again never outlasts the button.
+  // Word that the form is being filled in, is ready below, couldn't be
+  // shown, or that the browser should now save a copy of it or didn't,
+  // lasts only while that is true: the pages can go without a new
+  // announcement (an answer changed, or the page was left), and so can the
+  // work on them. A line that says to press Download a copy again never
+  // outlasts the button.
   const aboutTheForm =
     notice === DEVICE_RESULTS_COPY.ready ||
     notice === DEVICE_RESULTS_COPY.drawFailed ||

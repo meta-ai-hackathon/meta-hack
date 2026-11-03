@@ -820,7 +820,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(copy.bytes).toEqual(first.bytes);
     expect(copy.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
     expect(copy.form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe("07/19/1984");
-    await page.waitFor(() => page.text().includes(page.copy.downloaded), "the word that the copy is downloading");
+    await page.waitFor(() => page.text().includes(page.copy.downloaded), "the word that the browser should save the copy");
     expect(document.querySelectorAll("a[download], a[href^='blob:']")).toHaveLength(0);
     expect(copy.revokedAtPress).toEqual([]);
     expect(revoked).toEqual([copy.url]);
@@ -1405,7 +1405,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     // moment later still gets it, and then it is revoked.
     expect(revoked).toEqual([]);
     expect(await blobBytes(downloads[0].blob)).toEqual(pdfjs.documents[0].bytes);
-    await view.waitFor(() => view.status() === view.copy.downloaded, "the word that the copy is downloading");
+    await view.waitFor(() => view.status() === view.copy.downloaded, "the word that the browser should save the copy");
     await view.waitFor(() => revoked.includes(downloads[0].url), "the download URL to be revoked");
     expect(revoked).toEqual([downloads[0].url]);
     // Only the blank form was asked for, and leaving takes the bytes too.
