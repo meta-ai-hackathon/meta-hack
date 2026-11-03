@@ -354,7 +354,7 @@ describe("the frozen cases", PROPERTY_BUDGET, () => {
     expect(wrIds.length).toBeGreaterThan(0);
     const passThroughIds = QQ_PHASE_ANSWERS.map((passThrough) => passThrough.questionId);
     for (const id of wrIds) {
-      if (id === "wr_applied_last_month_which" || id.startsWith("wr_work_activity_")) {
+      if (id === "wr_applied_last_month_which" || id === "wr_work_rows" || id.startsWith("wr_work_activity_")) {
         // Skipped by the persona's answers — the flow never asks them.
         continue;
       }

@@ -18,6 +18,7 @@ import {
 } from "./intake/spec";
 import { ROSTER_QUESTION_ID } from "./intake/roster";
 import { ATTRIBUTION_QUESTION_ID } from "./intake/attribution";
+import { WORK_ROWS_QUESTION_ID } from "./intake/work-activities";
 import {
   ensureSession,
   loadAnswers,
@@ -399,7 +400,7 @@ export function buildCombinedTurnPrompt(
   // never enters the model prompt, so member names are never asked for
   // or extracted on the talk path.
   const visible = visibleQuestions(questions, answers).filter(
-    (question) => question.id !== ROSTER_QUESTION_ID && question.id !== ATTRIBUTION_QUESTION_ID,
+    (question) => talkPathSavesQuestion(question.id),
   );
   for (const question of visible) {
     const parts: string[] = [];
@@ -581,7 +582,7 @@ export function buildCombinedTurnPrompt(
 
 /** Whether the talk path may save an extracted answer for a question. Structured wizard-only questions (roster, per-person attribution) are never extracted or saved from a model turn (HACK-134/135). */
 export function talkPathSavesQuestion(questionId: string): boolean {
-  return questionId !== ROSTER_QUESTION_ID && questionId !== ATTRIBUTION_QUESTION_ID;
+  return questionId !== ROSTER_QUESTION_ID && questionId !== ATTRIBUTION_QUESTION_ID && questionId !== WORK_ROWS_QUESTION_ID;
 }
 
 /** The strict per-turn extraction schema (BN-32), inside the envelope schema. */
@@ -1259,7 +1260,7 @@ async function runCombinedTurn(
 
 function nextUnansweredQuestion(answers: AnswerMap): Question | null {
   const visible = visibleQuestions(QUESTIONS, answers).filter(
-    (question) => question.id !== ROSTER_QUESTION_ID && question.id !== ATTRIBUTION_QUESTION_ID,
+    (question) => talkPathSavesQuestion(question.id),
   );
   const index = firstUnansweredIndex(visible, answers);
   return index === -1 ? null : visible[index];

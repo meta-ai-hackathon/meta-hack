@@ -536,6 +536,11 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
     };
     const answerRouteFixtures: AnswerRouteFixture[] = [
       {
+        questionId: "wr_work_rows",
+        value: [{ memberId: "member-1", activity: "job_internship", hours: 20 }],
+        vaultValue: JSON.stringify([{ memberId: "member-1", activity: "job_internship", hours: 20 }]),
+      },
+      {
         questionId: "wr_who_months",
         value: [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }],
         vaultValue: JSON.stringify([{ memberId: "member-1", situationId: "wr_income_580", months: "both" }]),

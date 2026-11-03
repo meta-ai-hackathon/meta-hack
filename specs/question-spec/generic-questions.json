@@ -957,6 +957,32 @@
         { "question_id": "wr_student_enrolled", "operator": "in", "value": "full_time,at_least_half_time" }
       ],
       "provenance": "user-supplied"
+    },
+    {
+      "id": "wr_work_rows",
+      "prompt": "For each person, what work activities did they do last month, and about how many hours?",
+      "type": "work_activity",
+      "help": "Add a row for each person and activity. Hours are per person and are never added together across people. Pick 'not sure' for the hours if you do not know - estimating is fine. The state decides how work counts.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [
+        { "question_id": "wr_exempt_situations", "operator": "in", "value": "parent_child_under_18,nonparent_caregiver_child_under_14,caregiver_daily_activities,already_snap_tanf_work_requirements" },
+        { "question_id": "wr_pregnant", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_treatment", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_drug_alcohol_disorder", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_disability_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_mental_health_hard_work", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_serious_health_condition", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_jail_prison_past_4_months", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_foster_care_under_26", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_veteran_100_disabled", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_applied_last_month", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_medical_travel_1hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_hospital_care_24hr", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_income_580", "operator": "equals", "value": "yes" },
+        { "question_id": "wr_student_enrolled", "operator": "in", "value": "full_time,at_least_half_time" }
+      ],
+      "provenance": "user-supplied"
     }
   ]
 }

@@ -99,6 +99,7 @@ export const PII_QUESTION_IDS = [
   "wr_work_activity_who",
   "wr_work_activity_types",
   "wr_work_activity_hours",
+  "wr_work_rows",
 ] as const;
 
 /** Identity keys redacted in addition to the spec-derived question ids. */

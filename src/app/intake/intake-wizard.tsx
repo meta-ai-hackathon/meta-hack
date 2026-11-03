@@ -19,6 +19,7 @@ import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { StatusRegion } from "../../components/status-region";
 import { QuestionView } from "./question-view";
 import { attributionContextFromAnswers } from "../../lib/intake/attribution";
+import { workContextFromAnswers } from "../../lib/intake/work-activities";
 import { toAnswerMap } from "../../lib/intake/client-store";
 
 // Intake wizard (BN-09 / HACK-37): one question per screen, in spec order,
@@ -236,6 +237,10 @@ export function IntakeWizard(props: {
   // The on-device intake (persistence "device"): the store handle and every
   // answer, pii values included. Only its pii-stripped view is rendered.
   const [deviceIntake, setDeviceIntake] = useState<DeviceIntake | null>(null);
+  const workContext = useMemo(
+    () => (deviceIntake ? workContextFromAnswers(toAnswerMap(deviceIntake.answers)) : undefined),
+    [deviceIntake],
+  );
   const attributionContext = useMemo(
     () => (deviceIntake ? attributionContextFromAnswers(toAnswerMap(deviceIntake.answers)) : undefined),
     [deviceIntake],
@@ -854,6 +859,7 @@ export function IntakeWizard(props: {
       {screenStatus}
       <QuestionView
         attributionContext={attributionContext}
+        workContext={workContext}
         question={question}
         answer={answer}
         value={draftValue}

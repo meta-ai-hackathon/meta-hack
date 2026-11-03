@@ -366,6 +366,8 @@ function sentinelValueFor(
       return true;
     case "number":
       return 1;
+    case "work_activity":
+      return [{ memberId: "SENTINEL-ID", activity: "job_internship", hours: 20 }];
     case "attribution":
       return [{ memberId: "SENTINEL-ID", situationId: "wr_income_580", months: "both" }];
     case "roster":

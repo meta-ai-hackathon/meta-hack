@@ -9,6 +9,13 @@ import {
 } from "../../lib/intake/work-requirements";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import {
+  activityTypes,
+  draftWorkRows,
+  removeWorkRow,
+  setWorkRow,
+  type WorkRow,
+} from "../../lib/intake/work-activities";
+import {
   MONTH_LABELS,
   MONTH_VALUES,
   draftAttribution,
@@ -44,6 +51,8 @@ export interface QuestionViewProps {
   question: ClientQuestion;
   /** Roster + applicable situations for the attribution editor (device mode). */
   attributionContext?: import("../../lib/intake/attribution").AttributionContext;
+  /** Roster + income prefill suggestions for the work-rows editor (device mode). */
+  workContext?: import("../../lib/intake/work-activities").WorkContext;
   /** Stored answer for this question, when one exists. */
   answer?: ClientAnswer;
   /** Draft value being edited (undefined = nothing entered yet). */
@@ -81,6 +90,7 @@ function isChoiceType(type: ClientQuestion["type"]): boolean {
 export function QuestionView({
   question,
   attributionContext,
+  workContext,
   answer,
   value,
   onValueChange,
@@ -231,6 +241,133 @@ export function QuestionView({
               })}
             </fieldset>
           ))
+        )}
+      </fieldset>
+    );
+  } else if (question.type === "work_activity") {
+    const members = workContext?.members ?? [];
+    const memberIds = new Set(members.map((m) => m.id));
+    const rows: WorkRow[] = draftWorkRows(value, memberIds);
+    // Income-section suggestions (HACK-128) are offered, never drafted:
+    // a row enters the draft only when the person taps Add for it.
+    const offered = (workContext?.suggestions ?? []).filter(
+      (s) => !rows.some((r) => r.memberId === s.memberId && r.activity === s.activity),
+    );
+    const setRows = (next: WorkRow[]) => onValueChange(next.length === 0 ? undefined : next);
+    control = (
+      <fieldset aria-describedby={describedBy} className="flex flex-col gap-3">
+        <legend className="mb-1 text-base font-medium">
+          {question.prompt} {requiredMark}
+        </legend>
+        {question.help ? <p id={helpId} className="text-sm text-muted">{question.help}</p> : null}
+        {members.length === 0 ? (
+          <p className="text-sm text-muted">
+            {workContext === undefined
+              ? "This question can only be answered when your answers are saved on this device. You can skip it here - it never blocks your application."
+              : "Add your household list first, then add a row for each person. You can skip this question - it never blocks your application."}
+          </p>
+        ) : (
+          <>
+            {offered.length > 0 ? (
+              <div className="flex flex-col gap-2 rounded-xl border border-teal/25 bg-teal-soft p-3">
+                <p className="text-sm text-muted">
+                  From your income answers, you could add:
+                </p>
+                {offered.map((s) => (
+                  <button
+                    key={`${s.memberId}|${s.activity}`}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setRows([...rows, s])}
+                    className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
+                  >
+                    Add a row for {members.find((m) => m.id === s.memberId)?.displayName ?? "this person"}: {activityTypes().find((a) => a.value === s.activity)?.label ?? s.activity}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {rows.map((row, index) => (
+              <div key={index} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3" data-work-row={index}>
+                <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${index}-member`}>
+                  Household member
+                  <select
+                    id={`${question.id}-${index}-member`}
+                    value={row.memberId}
+                    disabled={busy}
+                    onChange={(e) => setRows(setWorkRow(rows, index, { memberId: e.target.value }))}
+                    className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+                  >
+                    {members.map((m) => (
+                      <option key={m.id} value={m.id}>{m.displayName}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${index}-activity`}>
+                  Type of activity
+                  <select
+                    id={`${question.id}-${index}-activity`}
+                    value={row.activity}
+                    disabled={busy}
+                    onChange={(e) => setRows(setWorkRow(rows, index, { activity: e.target.value }))}
+                    className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+                  >
+                    {activityTypes().map((a) => (
+                      <option key={a.value} value={a.value}>{a.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${index}-hours`}>
+                  Hours last month
+                  <input
+                    id={`${question.id}-${index}-hours`}
+                    type="number"
+                    min="0"
+                    value={row.hours === null ? "" : row.hours}
+                    disabled={busy}
+                    onChange={(e) => setRows(setWorkRow(rows, index, { hours: e.target.value === "" ? null : Number(e.target.value), hoursNotSure: false }))}
+                    className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm text-muted" htmlFor={`${question.id}-${index}-notsure`}>
+                  <input
+                    id={`${question.id}-${index}-notsure`}
+                    type="checkbox"
+                    checked={row.hoursNotSure === true}
+                    disabled={busy}
+                    onChange={(e) => setRows(setWorkRow(rows, index, { hoursNotSure: e.target.checked, hours: e.target.checked ? null : row.hours }))}
+                  />
+                  Not sure about the hours
+                </label>
+                {rows.some((r, i) => i !== index && r.memberId === row.memberId && r.activity === row.activity) ? (
+                  <p className="text-sm font-medium text-danger">This person already has a row for this activity. Change one of them or remove this row.</p>
+                ) : null}
+                {row.hours !== null && row.hours < 0 ? (
+                  <p className="text-sm font-medium text-danger">Hours cannot be less than zero.</p>
+                ) : null}
+                {row.hours !== null && row.hours > 744 ? (
+                  <p className="text-sm font-medium text-danger">That is more hours than a month has. Please check the number.</p>
+                ) : null}
+                {row.hours === null && row.hoursNotSure !== true ? (
+                  <p className="text-sm text-muted">Enter the hours, or tick Not sure about the hours.</p>
+                ) : null}
+                <button type="button" aria-label={`Remove this row (row ${index + 1})`} disabled={busy} onClick={() => setRows(removeWorkRow(rows, index))} className="self-start text-sm text-muted underline">
+                  Remove this row
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                const used = new Set(rows.map((r) => `${r.memberId}|${r.activity}`));
+                const pair = members.flatMap((m) => activityTypes().map((a) => ({ memberId: m.id, activity: a.value }))).find((c) => !used.has(`${c.memberId}|${c.activity}`));
+                if (pair) setRows([...rows, { ...pair, hours: null }]);
+              }}
+              className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
+            >
+              Add a row
+            </button>
+          </>
         )}
       </fieldset>
     );
