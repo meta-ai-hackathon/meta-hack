@@ -918,6 +918,12 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
     expect(note?.textContent).toContain("doctor's note");
     expect(note?.textContent).toContain("may ask for proof later");
     expect(container.querySelectorAll("[data-qq-group-note]")).toHaveLength(1);
+    // The note is programmatically tied to its group for screen readers.
+    const wrSection = container.querySelector('[data-qq-group="work-requirements"]');
+    expect(wrSection?.getAttribute("aria-describedby")).toBe(
+      "qq-group-work-requirements-note",
+    );
+    expect(note?.id).toBe("qq-group-work-requirements-note");
     expect(
       container.querySelector('[data-qq-group-note="sensitive"]'),
     ).toBeNull();

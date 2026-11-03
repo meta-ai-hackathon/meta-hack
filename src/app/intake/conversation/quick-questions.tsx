@@ -756,13 +756,20 @@ export function QuickQuestionsStage(props: {
           key={group.id}
           data-qq-group={group.id}
           aria-labelledby={`qq-group-${group.id}-heading`}
+          aria-describedby={
+            group.note ? `qq-group-${group.id}-note` : undefined
+          }
           className="flex flex-col gap-3"
         >
           <h3 id={`qq-group-${group.id}-heading`} className="text-lg font-semibold">
             {group.heading}
           </h3>
           {group.note ? (
-            <p data-qq-group-note={group.id} className="text-sm text-muted">
+            <p
+              id={`qq-group-${group.id}-note`}
+              data-qq-group-note={group.id}
+              className="text-sm text-muted"
+            >
               {group.note}
             </p>
           ) : null}
