@@ -39,6 +39,46 @@ function collectMisses(cases: Array<[string, boolean]>): string[] {
 }
 
 describe("QuestionView across the whole spec", () => {
+  it("shows the no-proof-needed note on work-requirements questions only (HACK-129)", () => {
+    const misses = collectMisses(
+      QUESTIONS.map((question) => {
+        const html = renderView(question).replace(/&#x27;/g, "'");
+        const hasNote = html.includes("data-intake-proof-note");
+        return [
+          question.id,
+          hasNote === question.id.startsWith("wr_") &&
+            (!hasNote || html.includes("doctor's note")),
+        ] as [string, boolean];
+      }),
+    );
+    expect(misses).toEqual([]);
+  });
+
+  it("announces the proof note with the control on work-requirements screens (HACK-129)", () => {
+    // Choice screens: the fieldset's aria-describedby names the note.
+    const choice = QUESTIONS.find((q) => q.id === "wr_income_580")!;
+    const choiceHtml = renderView(choice).replace(/&#x27;/g, "'");
+    expect(choiceHtml).toContain('id="wr_income_580-proof-note"');
+    expect(choiceHtml).toMatch(
+      /aria-describedby="[^"]*wr_income_580-proof-note/,
+    );
+    // Scalar screens: the input's aria-describedby names the note too.
+    const scalar = QUESTIONS.find((q) => q.id === "wr_work_activity_hours")!;
+    const scalarHtml = renderView(scalar).replace(/&#x27;/g, "'");
+    expect(scalarHtml).toContain('id="wr_work_activity_hours-proof-note"');
+    expect(scalarHtml).toMatch(
+      /aria-describedby="[^"]*wr_work_activity_hours-proof-note/,
+    );
+    // Non-WR screens never reference a proof note.
+    const other = QUESTIONS.find((q) => q.id === "household_size")!;
+    expect(renderView(other)).not.toContain("proof-note");
+    // The note renders before the question prompt, so it is seen before
+    // the person starts answering (not below the controls).
+    expect(choiceHtml.indexOf("data-intake-proof-note")).toBeLessThan(
+      choiceHtml.indexOf(choice.prompt),
+    );
+  });
+
   it("renders every question with prompt, help, and a not-sure control", () => {
     const misses = collectMisses(
       QUESTIONS.map((question) => {

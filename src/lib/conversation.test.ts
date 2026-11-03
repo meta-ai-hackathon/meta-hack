@@ -6,7 +6,7 @@ import {
   QUESTION_BY_ID,
   QUESTIONS,
 } from "./intake/spec";
-import type { KbEntry } from "./kb";
+import { KB_ENTRIES, type KbEntry } from "./kb";
 import {
   BANNED_CLAIM_FALLBACK_REPLY,
   CHOICE_UNMAPPED_FALLBACK_PREFIX,
@@ -26,6 +26,7 @@ import {
   findBannedClaimsEverySentence,
   findPiiEchoes,
   followupGateProblem,
+  spokenGateProblem,
   malformedEnvelopeFallback,
   parseCombinedEnvelope,
   PARTIAL_SAVE_FALLBACK_PREFIX,
@@ -197,6 +198,29 @@ describe("grounded prompt builders", () => {
     expect(misses).toEqual([]);
   });
 
+  it("holds the placeholder contract on typed and voice turns alike", () => {
+    // The contract is the same in both modes (PR #116 review): a voice
+    // turn's history carries the same token-bearing typed turns, so a
+    // voice reply needs the same never-echo instruction. The pinning
+    // keeps the honest-loss behavior from quietly regressing to
+    // typed-only while the spoken-rendition instruction stays scoped to
+    // the voice path.
+    const question = QUESTION_BY_ID["application_role"];
+    const typed = buildCombinedTurnPrompt(question);
+    const voice = buildCombinedTurnPrompt(question, {}, QUESTIONS, KB_ENTRIES, true);
+    for (const prompt of [typed, voice]) {
+      expect(prompt).toContain(
+        "Transcripts carry Rampart placeholders (for example [GIVEN_NAME_1])",
+      );
+      expect(prompt).toContain(
+        "instead of the private values the app held back",
+      );
+      expect(prompt).toContain("never repeat, quote, or echo a bracketed placeholder");
+    }
+    expect(typed).not.toContain("Spoken rendition");
+    expect(voice).toContain('spoken_reply');
+  });
+
   it("grounds the combined prompt on the refusal phrase, the injection guardrail, and the pilot program", () => {
     const question = QUESTION_BY_ID["application_role"];
     const prompt = buildCombinedTurnPrompt(question);
@@ -269,6 +293,77 @@ describe("grounded prompt builders", () => {
     );
     expect(buildCombinedTurnPrompt(null, {}, QUESTIONS, [stale])).not.toContain(
       "only-the-stale-entry-has-this-phrase",
+    );
+  });
+
+  it("grounds the NC process questions the smoke test saw refused (HACK-125)", () => {
+    // The Nov 2 production smoke test asked what to bring, how to apply, how
+    // long a decision takes and where to apply online, and the model refused
+    // each one because the grounding held only the rules.
+    const grounding = activeKbGrounding();
+    const nc = KB_ENTRIES.find((entry) => entry.id === "nc_medicaid");
+    expect(nc).toBeDefined();
+    const { facts } = nc!;
+    const groundedFacts = [
+      ...facts.required_documents.items,
+      ...(facts.steps?.items ?? []),
+      ...facts.deadlines.items.map((item) => item.due),
+      ...(facts.submission_steps?.items ?? []).map((step) => step.detail),
+      ...(facts.after_you_apply?.items ?? []).map((step) => step.detail),
+      ...facts.official_links.items.map((link) => link.url),
+    ];
+    expect(groundedFacts.length).toBeGreaterThan(0);
+    for (const fact of groundedFacts) {
+      expect(grounding).toContain(fact);
+    }
+  });
+
+  it("grounds every fact group of an active entry and none of a stale one (property, HACK-125)", () => {
+    const markerArb = fc.stringMatching(/^[a-z]{10}$/);
+    fc.assert(
+      fc.property(
+        fc.array(markerArb, { minLength: 9, maxLength: 9 }),
+        fc.constantFrom("stale", "withdrawn") as fc.Arbitrary<KbEntry["status"]>,
+        (raw, inactiveStatus) => {
+          const m = raw.map((marker, index) => `marker${index}${marker}`);
+          const group = { sourceId: "synthetic_source", retrievedAt: "2026-10-29" };
+          const step = (id: string, label: string, detail: string) => ({
+            id,
+            label,
+            detail,
+            sourceId: "synthetic_source",
+          });
+          const base = makeEntry("active", m[0]!);
+          const entry: KbEntry = {
+            ...base,
+            facts: {
+              ...base.facts,
+              required_documents: { ...group, items: [m[1]!] },
+              steps: { ...group, items: [m[2]!] },
+              deadlines: { ...group, items: [{ label: "When", due: m[3]! }] },
+              official_links: {
+                ...group,
+                items: [{ label: m[4]!, url: `https://example.org/${m[5]}` }],
+              },
+              submission_steps: {
+                retrievedAt: "2026-10-29",
+                items: [step("send_it", "Send it", m[6]!)],
+              },
+              after_you_apply: {
+                retrievedAt: "2026-10-29",
+                items: [step("wait", m[7]!, m[8]!)],
+              },
+            },
+          };
+          const active = activeKbGrounding([entry]);
+          const inactive = activeKbGrounding([{ ...entry, status: inactiveStatus }]);
+          for (const marker of m) {
+            expect(active).toContain(marker);
+            expect(inactive).not.toContain(marker);
+          }
+        },
+      ),
+      { numRuns: 100 },
     );
   });
 
@@ -991,3 +1086,30 @@ function makeEntry(status: KbEntry["status"], rulesPhrase: string): KbEntry {
     },
   };
 }
+
+describe("spoken_reply envelope parsing and gate (HACK-107)", () => {
+  const content = (spoken: unknown) =>
+    JSON.stringify({ answers: [], reply: "Next question coming up.", ...(spoken === undefined ? {} : { spoken_reply: spoken }) });
+  it("keeps a trimmed non-empty spoken_reply", () => {
+    const e = parseCombinedEnvelope(content("  Please tell me more.  "));
+    expect(e).not.toBeNull();
+    expect(e?.spokenReply).toBe("Please tell me more.");
+  });
+  it("drops bad spoken_reply values without failing the envelope", () => {
+    for (const bad of [42, "", "   ", null]) {
+      const e = parseCombinedEnvelope(content(bad));
+      expect(e).not.toBeNull();
+      expect(e?.spokenReply).toBeUndefined();
+      expect(e?.reply).toBe("Next question coming up.");
+    }
+    const absent = parseCombinedEnvelope(content(undefined));
+    expect(absent?.spokenReply).toBeUndefined();
+  });
+  it("spokenGateProblem gates placeholder, banned claim, pii echo, empty", () => {
+    expect(spokenGateProblem("Please tell me more.", [])).toBeNull();
+    expect(spokenGateProblem("Ask [GIVEN_NAME_1] next.", [])).toBe("placeholder");
+    expect(spokenGateProblem("You are eligible.", [])).toBe("banned_claim");
+    expect(spokenGateProblem("Please confirm Jane Doe.", ["Jane Doe"])).toBe("pii_echo");
+    expect(spokenGateProblem("   ", [])).toBe("empty");
+  });
+});

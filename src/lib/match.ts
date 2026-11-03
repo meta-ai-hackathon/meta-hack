@@ -405,11 +405,11 @@ export async function buildMatchResponse(
     }
     let card = buildMatchCard(rankedEntry, explanation);
     if (
-      explanation.source === "model" &&
+      isModelExplanation(explanation) &&
       piiValues.length > 0 &&
       piiValues.some(
         (value) =>
-          value.carriedBy(card.explanation.text) &&
+          value.carriedByModelText(card.explanation.text) &&
           !value.inStatic.test(cardStaticCopy(rankedEntry.entry, card)),
       )
     ) {
@@ -453,12 +453,33 @@ const PLAIN_NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
  * of these separators (2026-10-30, 10/08/2026, 10:30, 1.5, 1,000). A letter
  * or a word after it is a unit (0hrs, 20-hour, 20/week), so the number
  * still stands as its own number there. These are the trigger's edges, and
- * the excusal's are stricter (standaloneNumberPattern).
+ * the excusal's are stricter (standaloneNumberPattern). These edges miss an
+ * answer inside a range, ratio, or id ("20-30 hours", "v30"), so a model
+ * explanation is also read with a wider trigger (carriedByModelText). Public
+ * copy that glues the answer to a letter or number outside ASCII ("1½
+ * hours") still fails the match; the shipped card and prompt test in
+ * match.test.ts keeps such copy out of the KB.
+ *
+ * The trigger keeps ASCII letters and digits, so a leak glued to a letter
+ * outside ASCII, behind a bidi mark, or before a superscript still shows
+ * the number. Between two digits it reads every joiner the excusal does,
+ * so a range or date printed with an en dash is one token to both, and
+ * public copy never trips the trigger where the excusal would refuse it.
+ *
+ * The excusal reads every script: any letter, mark, or number character is
+ * part of a token. Each separator also joins in its Unicode look-alikes,
+ * which copy pasted from an official page often prints: hyphens, the en
+ * dash and the minus sign; the fraction and division slashes; the one-dot
+ * leader; and the small and fullwidth forms. An invisible format character
+ * such as a soft hyphen or a zero-width space joins too, and a run of
+ * joiners counts as one. An em dash ends a clause rather than joining a
+ * word, so it does not join.
  */
-const TOKEN_CHAR = "[a-z0-9]";
-const TOKEN_JOINER = "[-./:,_]";
+const TOKEN_CHAR = "[a-zA-Z0-9]";
 const JOINER_AFTER_TOKEN_CHAR = "[-./_]";
-const JOINER_AFTER_DIGIT = "[:,]";
+const UNICODE_TOKEN_CHAR = "[\\p{L}\\p{M}\\p{N}]";
+const UNICODE_TOKEN_JOINER =
+  "[\\-./_:,\\u2010-\\u2013\\u2212\\ufe63\\uff0d\\u2024\\ufe52\\uff0e\\u2044\\u2215\\uff0f\\uff3f\\ufe55\\uff1a\\ufe50\\uff0c\\p{Cf}]+";
 
 /**
  * A plain number answer's digits. Trailing zeros after a decimal point are
@@ -476,9 +497,9 @@ function numberValuePattern(raw: string): string {
  */
 function ownNumberPattern(raw: string): RegExp {
   return new RegExp(
-    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${JOINER_AFTER_TOKEN_CHAR})(?<!\\d${JOINER_AFTER_DIGIT})` +
-      `${numberValuePattern(raw)}(?!\\d)(?!${TOKEN_JOINER}\\d)`,
-    "i",
+    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${JOINER_AFTER_TOKEN_CHAR})(?<!\\d${UNICODE_TOKEN_JOINER})` +
+      `${numberValuePattern(raw)}(?!\\d)(?!${UNICODE_TOKEN_JOINER}\\d)`,
+    "u",
   );
 }
 
@@ -488,13 +509,15 @@ function ownNumberPattern(raw: string): RegExp {
  * either side. A unit or label glued on still shows the answer in a leak,
  * but in the public copy that shape is a longer token, so a "1st", "20h",
  * "24-hour" or "hours:3" there never excuses a leaked 1, 20, 24 or 3
- * (security review on PR #132). "page 1" still excuses 1.
+ * (security review on PR #132), whatever script or hyphen the copy prints
+ * it in. "page 1" still excuses 1.
  */
 function standaloneNumberPattern(raw: string): RegExp {
   return new RegExp(
-    `(?<!${TOKEN_CHAR})(?<!${TOKEN_CHAR}${TOKEN_JOINER})` +
-      `${numberValuePattern(raw)}(?!${TOKEN_CHAR})(?!${TOKEN_JOINER}${TOKEN_CHAR})`,
-    "i",
+    `(?<!${UNICODE_TOKEN_CHAR})(?<!${UNICODE_TOKEN_CHAR}${UNICODE_TOKEN_JOINER})` +
+      `${numberValuePattern(raw)}` +
+      `(?!${UNICODE_TOKEN_CHAR})(?!${UNICODE_TOKEN_JOINER}${UNICODE_TOKEN_CHAR})`,
+    "iu",
   );
 }
 
@@ -523,14 +546,44 @@ const OWN_NUMBER_QUESTION_IDS: ReadonlySet<string> = new Set(["wr_work_activity_
  * response carries ("0" inside 2026-10-30), so the trigger counts it only
  * where it stands as its own number, a unit or label glued on included, and
  * the excusal only where the public copy holds it as a token of its own.
+ *
+ * A model explanation gets a wider trigger (HACK-124). It is the one text
+ * in a response written by a model rather than taken from the spec or the
+ * KB, so it is read for the number anywhere its digits are not part of a
+ * longer number: inside a range, a ratio, or an id ("20-30 hours", "30/80",
+ * "v30"), whatever joins them. Dates and ids in a model explanation trip it
+ * too, which only swaps that card to the entry's fact copy.
  */
 interface PrivateValueMatcher {
   /** True when the value is matched as a whole number token. */
   readonly wholeNumber: boolean;
   /** The trigger: does this text carry the value? */
   readonly carriedBy: (text: string) => boolean;
+  /** The trigger for a model explanation, at least as wide as carriedBy. */
+  readonly carriedByModelText: (text: string) => boolean;
   /** The excusal: matches a public copy the value is part of. */
   readonly inStatic: RegExp;
+}
+
+/**
+ * Every explanation except the entry's own fact copy is read as model text,
+ * so a source added later gets the wider trigger in the degrade step and
+ * the gate alike.
+ */
+function isModelExplanation(explanation: MatchExplanation): boolean {
+  return explanation.source !== "facts";
+}
+
+/**
+ * A plain number answer anywhere its digits are not part of a longer
+ * number: no digit right next to it, and no decimal point or digit group
+ * comma joining it to one ("1,030" and "7.25" hold neither 30 nor 7).
+ */
+function digitsPattern(raw: string): RegExp {
+  return new RegExp(
+    `(?<!\\d)(?<!\\d[.,])${numberValuePattern(raw)}(?!\\d)(?![.,]\\d)`,
+    "u",
+  );
 }
 
 function privateValueMatcher(questionId: string, raw: string): PrivateValueMatcher {
@@ -540,16 +593,20 @@ function privateValueMatcher(questionId: string, raw: string): PrivateValueMatch
     PLAIN_NUMBER_PATTERN.test(raw)
   ) {
     const ownNumber = ownNumberPattern(raw);
+    const digits = digitsPattern(raw);
     return {
       wholeNumber: true,
       carriedBy: (text) => ownNumber.test(text),
+      carriedByModelText: (text) => ownNumber.test(text) || digits.test(text),
       inStatic: standaloneNumberPattern(raw),
     };
   }
   const lowered = raw.toLowerCase();
+  const carriedBy = (text: string) => text.toLowerCase().includes(lowered);
   return {
     wholeNumber: false,
-    carriedBy: (text) => text.toLowerCase().includes(lowered),
+    carriedBy,
+    carriedByModelText: carriedBy,
     inStatic: new RegExp(`\\b${escapeRegExpValue(raw)}\\b`, "i"),
   };
 }
@@ -719,6 +776,9 @@ export function assertNoPiiValuesInMatch(
   const serialized = JSON.stringify(response).toLowerCase();
   const numberScan = responseNumberScan(response).join("\n");
   const staticCopy = responseStaticCopy(response);
+  const modelText = response.matches
+    .filter((card) => isModelExplanation(card.explanation))
+    .map((card) => card.explanation.text);
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     const stored = answers[questionId];
     if (!stored || stored.value === null || stored.value === undefined) {
@@ -734,7 +794,10 @@ export function assertNoPiiValuesInMatch(
         continue;
       }
       const matcher = privateValueMatcher(questionId, raw);
-      if (!matcher.carriedBy(matcher.wholeNumber ? numberScan : serialized)) {
+      if (
+        !matcher.carriedBy(matcher.wholeNumber ? numberScan : serialized) &&
+        !modelText.some((text) => matcher.carriedByModelText(text))
+      ) {
         continue;
       }
       if (!matcher.inStatic.test(staticCopy)) {

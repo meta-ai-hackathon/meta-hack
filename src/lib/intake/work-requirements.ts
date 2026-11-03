@@ -59,17 +59,84 @@ import type { AnswerMap } from "./flow";
 //    - anything else (no captured income at all, an uncountable source,
 //      or an unread source named in income_sources) → no proposal: the
 //      question is ASKED DIRECTLY.
+// 6. Seasonal job work (HACK-130, from Civilla's dedicated seasonal
+//    question: seasonal workers fail standard per-paycheck questions).
+//    When job_income_seasonal is known "yes" (the question asks whether
+//    ALL of the job work in the household is seasonal, so a "yes" means
+//    the seasonal total is the whole job source; a household with any
+//    year-round earner answers "no" and stays on rules 1-5), the job
+//    source converts
+//    ONLY from job_income_seasonal_total — what the person made from
+//    that seasonal work in the last 6 months — averaged exactly across
+//    those 6 months (total / 6 is both the floor and the ceiling: a
+//    fixed division of a captured number, never an estimate and never
+//    rounded). The per-paycheck amount and its frequency are NOT also
+//    counted (no double count). Seasonal "yes" without a known total is
+//    UNCOUNTABLE, like rule 3: converting the in-season paycheck as if
+//    it arrived all year would misstate the average, so the question is
+//    ASKED DIRECTLY. A seasonal "yes" stored unverified (not known) is
+//    treated the same way — never as a license to convert the paycheck.
+//    Any other seasonal answer ("no", "not_sure", or
+//    absent) leaves rules 1-5 untouched.
 //
 // Pure and browser-safe: imports only the flow engine's answer-map type.
 // The import-boundary test (work-requirements.test.ts, per the
 // VAL-INC-005 pattern) proves no model/LLM client is reachable from this
 // path.
 
+/**
+ * The no-proof-needed reassurance shown on the work-requirements screens
+ * (HACK-129, from Civilla's user testing: applicants abandoned forms when
+ * they believed a doctor's note or paperwork was needed before they could
+ * answer). Honesty guardrail: it promises only that ANSWERING needs no
+ * paperwork — the state may still ask for proof later — and it makes
+ * no eligibility or outcome claim.
+ */
+export const NO_PROOF_NEEDED_NOTE =
+  "You don't need any paperwork or a doctor's note to answer these " +
+  "questions. Answer with what you know now \u2014 the state may ask for " +
+  "proof later.";
+
+/**
+ * Singular variant for the step-by-step wizard (HACK-129 review): it shows
+ * one question per screen, so "these questions" would have no referent.
+ * Same honesty guardrail as above.
+ */
+export const NO_PROOF_NEEDED_NOTE_SINGLE =
+  "You don't need any paperwork or a doctor's note to answer this " +
+  "question. Answer with what you know now \u2014 the state may ask for " +
+  "proof later.";
+
+/**
+ * Scoped variant for the sensitive group (HACK-129 review): that group can
+ * also hold non-work-requirements cards, so this wording names the
+ * work-requirements questions it applies to instead of saying "these
+ * questions" over the whole group. Same honesty guardrail as above.
+ */
+export const NO_PROOF_NEEDED_NOTE_SENSITIVE =
+  "For the work-requirements questions below, you don't need any " +
+  "paperwork or a doctor's note to answer. Answer with what you know " +
+  "now \u2014 the state may ask for proof later.";
+
+/** True iff the question id belongs to the work-requirements (wr_*) set. */
+export function isWorkRequirementsQuestionId(id: string): boolean {
+  return id.startsWith("wr_");
+}
+
 /** The spec question the match proposes an answer for. */
 export const INCOME_580_QUESTION_ID = "wr_income_580";
 
 /** The screen's threshold, as printed on the Civilla insert ($580/month). */
 export const INCOME_580_MONTHLY_THRESHOLD = 580;
+
+/** The seasonal-work screen (HACK-130): known "yes" switches the job source to the 6-month average. */
+export const SEASONAL_WORK_QUESTION_ID = "job_income_seasonal";
+
+/** The captured last-6-months seasonal total the match averages (HACK-130). */
+export const SEASONAL_TOTAL_QUESTION_ID = "job_income_seasonal_total";
+
+/** Seasonal income is averaged across exactly this many months (the screen's own rule). */
+export const SEASONAL_AVERAGING_MONTHS = 6;
 
 /**
  * The fixed monthly factors per frequency option value. A frequency
@@ -133,12 +200,17 @@ export interface Income580Match {
   readonly proposal: "yes" | "no" | null;
   /** The monthly total the counted sources sum to; null with none counted. */
   readonly monthlyTotal: number | null;
-  /** The amount questions that fed the total, in the rule's source order. */
+  /**
+   * The amount questions that fed the total, in the rule's source order.
+   * A seasonal job source feeds it as SEASONAL_TOTAL_QUESTION_ID (rule 6).
+   */
   readonly countedSourceIds: readonly string[];
   /**
    * Captured amount questions that could NOT be converted deterministically
-   * (a "varies" or missing frequency). Their amounts are never estimated;
-   * their presence under the threshold withholds the proposal.
+   * (a "varies" or missing frequency, or — rule 6 — a captured job amount
+   * under a known seasonal "yes" with no captured 6-month total). Their
+   * amounts are never estimated; their presence under the threshold
+   * withholds the proposal.
    */
   readonly uncountedSourceIds: readonly string[];
 }
@@ -225,7 +297,13 @@ function namesUnaccountedSource(
           : named === "benefits"
             ? "benefits_income_amount"
             : "other_income_amount";
-      if (!countedSourceIds.includes(amountId)) {
+      // A seasonal job source is accounted by its 6-month total (rule 6)
+      // exactly as if its per-paycheck amount had been counted.
+      const accounted =
+        countedSourceIds.includes(amountId) ||
+        (named === "job" &&
+          countedSourceIds.includes(SEASONAL_TOTAL_QUESTION_ID));
+      if (!accounted) {
         return true;
       }
     }
@@ -242,7 +320,46 @@ export function matchIncome580(answers: AnswerMap): Income580Match {
   const uncountedSourceIds: string[] = [];
   let floorTotal = 0;
   let ceilingTotal = 0;
+  const seasonalStored = answers[SEASONAL_WORK_QUESTION_ID];
+  const seasonalYes =
+    seasonalStored?.status === "known" && seasonalStored.value === "yes";
+  // A seasonal "yes" that is not KNOWN (e.g. stored unverified from the
+  // conversation) must never fall back to converting the in-season
+  // paycheck as if it arrived all year — that is exactly the misstatement
+  // rule 6 exists to prevent. It marks the captured job amount uncounted
+  // instead, so the screen is asked directly.
+  const seasonalYesUncertain =
+    !seasonalYes &&
+    seasonalStored !== undefined &&
+    seasonalStored.status !== "known" &&
+    seasonalStored.value === "yes";
   for (const source of INCOME_SOURCES) {
+    if (seasonalYes && source.amountId === "job_income_amount") {
+      // Rule 6: the job source converts only from the 6-month seasonal
+      // total, averaged exactly; without a known total it is uncountable
+      // (the in-season paycheck must not be read as year-round income).
+      const seasonalTotal = knownAmount(answers, SEASONAL_TOTAL_QUESTION_ID);
+      if (seasonalTotal === null) {
+        // Uncountable only when a job amount was actually captured (the
+        // rule-3 semantics); an uncaptured source is simply not counted,
+        // and rule 4 still withholds any "no" for a named job source.
+        if (knownAmount(answers, source.amountId) !== null) {
+          uncountedSourceIds.push(source.amountId);
+        }
+      } else {
+        countedSourceIds.push(SEASONAL_TOTAL_QUESTION_ID);
+        const monthly = seasonalTotal / SEASONAL_AVERAGING_MONTHS;
+        floorTotal += monthly;
+        ceilingTotal += monthly;
+      }
+      continue;
+    }
+    if (seasonalYesUncertain && source.amountId === "job_income_amount") {
+      if (knownAmount(answers, source.amountId) !== null) {
+        uncountedSourceIds.push(source.amountId);
+      }
+      continue;
+    }
     const amount = knownAmount(answers, source.amountId);
     if (amount === null) {
       continue;
