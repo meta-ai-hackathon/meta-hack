@@ -79,7 +79,8 @@ export function exitCodeForRun(completed) {
 //   - known answers that trigger skips (main_goal=food skips the private
 //     goal_detail text; income_sources=[job,benefits] skips other_income;
 //     income_kind=both adds the self-employment + prior-employer chain
-//     (HACK-85's branched flow); id_status=have_id skips id_issue_detail;
+//     (HACK-85's branched flow); job_income_seasonal=no skips the 6-month
+//     seasonal total (HACK-130); id_status=have_id skips id_issue_detail;
 //     mailing_situation=po_box skips shelter_mail_consent;
 //     contact_preference=email skips phone),
 //   - known answers that trigger follow-ups (household_children=2 keeps
@@ -91,6 +92,9 @@ export function exitCodeForRun(completed) {
 // each question's `pii` flag), never from a hand-copy of the spec.
 // All person-specific values are fictional; pii values are submitted and
 // then asserted to never reappear in any client-visible body.
+// walkthrough-core.test.mjs walks this plan on the app's own flow engine
+// for every journey it serves, so a spec change that asks the persona
+// something new fails the suite instead of the pre-demo check (HACK-133).
 export const JOURNEY_PLAN = [
   { id: "application_role", status: "known", value: "self" },
   { id: "main_goal", status: "known", value: "food" },
@@ -106,6 +110,11 @@ export const JOURNEY_PLAN = [
   { id: "prior_employer_last_month", status: "known", value: "June 2025" },
   { id: "job_income_amount", status: "known", value: 2400 },
   { id: "job_income_frequency", status: "known", value: "biweekly" },
+  // HACK-130 (#138) asks next whether ALL of the household's job work is
+  // seasonal. The persona's biweekly paycheck is year-round work, so the
+  // answer is no: the flow skips the 6-month seasonal total, and the $580
+  // screen's match keeps converting the paycheck, as it did before.
+  { id: "job_income_seasonal", status: "known", value: "no" },
   { id: "benefits_income_amount", status: "unknown" },
   { id: "benefits_income_frequency", status: "unverified", value: "monthly" },
   { id: "housing_status", status: "known", value: "rental_or_own" },

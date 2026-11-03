@@ -1,6 +1,6 @@
 import { existsSync, writeFileSync } from "node:fs";
 import fc from "fast-check";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   BN25_SESSION_STATUSES,
   EXIT_JOURNEY_ERROR,
@@ -2090,5 +2090,256 @@ describe("the scripted voice turn (VAL-SPRINT-001's voice-consented talk)", () =
     };
     expect(() => scriptedWavBytes("hello", failing)).toThrow(WalkthroughError);
     expect(() => scriptedWavBytes("hello", failing)).toThrow(/say \+ afconvert/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// JOURNEY_PLAN against the app's own intake logic (HACK-133). The journey
+// tests above script every served state by hand, so none of them noticed
+// when #138 (HACK-130) made the flow ask the persona job_income_seasonal:
+// the suite stayed green while `pnpm walkthrough`, the pre-demo check
+// docs/runbooks.md recommends, failed in the wizard and the declined
+// sprint path. Here every served state is the app's own, so the flow
+// engine picks each next question and each skip, and a spec change that
+// asks the persona something the plan cannot answer fails this suite.
+// ---------------------------------------------------------------------------
+
+/** The app's pure intake modules the flow-backed app below runs. The CLI
+ * never imports app code; its tests may, like the drift tests above. */
+async function intakeLogic() {
+  const [serialize, answerInput, spec, honesty] = await Promise.all([
+    import("../src/lib/intake/serialize"),
+    import("../src/lib/intake/answer-input"),
+    import("../src/lib/intake/spec"),
+    import("../src/lib/honesty"),
+  ]);
+  return {
+    buildClientState: serialize.buildClientState,
+    assertNoPiiValues: serialize.assertNoPiiValues,
+    canonicalAnswerValue: answerInput.canonicalAnswerValue,
+    QUESTION_BY_ID: spec.QUESTION_BY_ID,
+    isAnswerStatus: honesty.isAnswerStatus,
+  };
+}
+
+/**
+ * An in-memory app whose intake routes run that logic. The answer route
+ * validates with canonicalAnswerValue, the rules validateAnswerInput
+ * applies, so a planned value the real route refuses is refused here too.
+ * Every served state is buildClientState over the stored answers, through
+ * the serializer's pii boundary, which is exactly what
+ * POST /api/intake/answer and the session routes return. Only storage is
+ * faked: a pii value stays in the map, the way store.ts loadAnswers hands
+ * the vault's value back to the flow engine.
+ *
+ * The sprint journey's later legs never consult the plan, so they answer
+ * with the canned shapes sprintJourneyRoutes uses. The one exception is
+ * the confirm, which saves its rows into the same answers with the
+ * confirm flow's provenances, so the income gate reads real state.
+ *
+ * `held` plan steps are answers the session already holds when the
+ * journey opens it.
+ */
+function flowBackedApp(logic, { held = [] } = {}) {
+  let answers = {};
+  const answeredIds = [];
+  const save = (questionId, status, value, provenance = "user_supplied") => {
+    const question = Object.hasOwn(logic.QUESTION_BY_ID, questionId)
+      ? logic.QUESTION_BY_ID[questionId]
+      : undefined;
+    if (question === undefined || !logic.isAnswerStatus(status)) {
+      return false;
+    }
+    const stored =
+      status === "unknown" ? null : logic.canonicalAnswerValue(question, value);
+    if (status !== "unknown" && stored === null) {
+      return false;
+    }
+    answers = { ...answers, [questionId]: { status, value: stored, provenance } };
+    return true;
+  };
+  for (const step of held) {
+    if (!save(step.id, step.status, step.value)) {
+      throw new Error(`flowBackedApp: the answer route refuses the held ${step.id}`);
+    }
+  }
+  const served = () => {
+    const state = logic.buildClientState(answers);
+    logic.assertNoPiiValues(state);
+    return state;
+  };
+  const sessionBody = () => ({ session: { status: "draft" }, state: served() });
+  const transport = async (base, path, options = {}) => {
+    const route = `${options.method ?? "GET"} ${path}`;
+    if (route === "GET /api/health") {
+      return jsonResponse(200, { ok: true });
+    }
+    if (route === "POST /api/session") {
+      // Without a cookie the POST creates the session; with one it saves.
+      return options.cookie
+        ? jsonResponse(200, sessionBody())
+        : jsonResponse(201, sessionBody(), { setCookie: SPRINT_COOKIE });
+    }
+    if (route === "GET /api/session") {
+      return jsonResponse(200, sessionBody());
+    }
+    if (route === "POST /api/intake/answer") {
+      const { questionId, status, value } = options.body;
+      if (!save(questionId, status, value)) {
+        return jsonResponse(400, { error: { code: "validation_error" } });
+      }
+      answeredIds.push(questionId);
+      return jsonResponse(200, served());
+    }
+    if (route === "POST /api/intake/tax-return") {
+      return jsonResponse(200, {
+        readable: true,
+        findings: [
+          { field: "agi_line_11", value: 12000, origin: "positional_text", confidence: "high" },
+        ],
+        monthlyDerived: 1000,
+        message: null,
+      });
+    }
+    if (route === "POST /api/intake/tax-return/confirm") {
+      const saved = [];
+      for (const { questionId, action, value } of options.body.confirmations) {
+        const provenance = action === "confirm" ? "tax_return" : "user";
+        if (!save(questionId, "known", value, provenance)) {
+          return jsonResponse(400, { error: { code: "validation_error" } });
+        }
+        saved.push({ questionId, provenance });
+      }
+      return jsonResponse(200, { saved, state: served() });
+    }
+    if (route === "GET /api/match") {
+      return jsonResponse(200, { hasSession: true, matches: [], toResolve: [] });
+    }
+    if (route === "POST /api/session/purge") {
+      if (options.body?.confirmed !== true) {
+        return jsonResponse(400, { error: { code: "validation_error" } });
+      }
+      const rows = Object.entries(answers);
+      const deleted = {
+        answers: rows.length,
+        vaultEntries: rows.filter(
+          ([id, row]) => logic.QUESTION_BY_ID[id].pii && row.status !== "unknown",
+        ).length,
+        turns: 0,
+        auditNotes: 0,
+      };
+      answers = {};
+      return jsonResponse(200, { purged: true, deleted });
+    }
+    const review = /^GET \/api\/forms\/([^/]+)\/review$/.exec(route);
+    if (review) {
+      return jsonResponse(200, reviewBody(review[1], Object.keys(answers).length > 0 ? 2 : 0));
+    }
+    if (/^POST \/api\/forms\/[^/]+\/fill$/.test(route)) {
+      return pdfResponse();
+    }
+    throw new Error(`flowBackedApp: no route for ${route}`);
+  };
+  return { transport, answeredIds, answers: () => answers };
+}
+
+/**
+ * Every journey JOURNEY_PLAN answers for, run through its own entry point.
+ * The wizard (the default mode) answers the whole flow from the plan. The
+ * sprint journey's declined path answers the quick questions and then
+ * every remaining question from it, with zero conversation sends. The
+ * typed journeys (conversation, form, and the sprint journey's voice
+ * path) take only their quick-questions phase from it; their talk turns
+ * follow walkthrough-plans.mjs.
+ */
+const PLAN_SERVED_JOURNEYS = Object.freeze({
+  wizard: (walk) => walk.run(),
+  "sprint --consent declined": (walk) =>
+    walk.runSprintJourney({
+      consent: "declined",
+      unmappedAnswers: SPRINT_UNMAPPED,
+      uploadBytes: FAKE_UPLOAD_BYTES,
+    }),
+  "quick-questions phase of conversation, form and sprint voice": async (walk) => {
+    await walk.startSession();
+    await walk.answerWorkRequirementsLocally();
+    const pending = walk.state.quickQuestions.remainingIds.filter((id) =>
+      id.startsWith("wr_"),
+    );
+    if (pending.length > 0) {
+      throw new Error(`the quick-questions phase left ${pending.join(", ")} unanswered`);
+    }
+    return walk.violations.length === 0;
+  },
+});
+
+describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout: 30_000 }, () => {
+  it("every planned answer is one the answer route accepts for its question", async () => {
+    const logic = await intakeLogic();
+    for (const step of JOURNEY_PLAN) {
+      expect(Object.hasOwn(logic.QUESTION_BY_ID, step.id), step.id).toBe(true);
+      expect(logic.isAnswerStatus(step.status), step.id).toBe(true);
+      if (step.status !== "unknown") {
+        expect(
+          logic.canonicalAnswerValue(logic.QUESTION_BY_ID[step.id], step.value),
+          step.id,
+        ).not.toBeNull();
+      }
+    }
+  });
+
+  it("asks the persona the seasonal question, skips the 6-month total, and keeps the $580 match on the paycheck", async () => {
+    const logic = await intakeLogic();
+    const { matchIncome580 } = await import("../src/lib/intake/work-requirements");
+    const app = flowBackedApp(logic);
+    const walk = new Walkthrough("http://fake.test", 1000, app.transport);
+    await expect(walk.run()).resolves.toBe(true);
+    expect(app.answeredIds).toContain("job_income_seasonal");
+    expect(app.answeredIds).not.toContain("job_income_seasonal_total");
+    expect(walk.lines.join("\n")).toContain(
+      "job_income_seasonal_total (after job_income_seasonal)",
+    );
+    // The persona's one year-round biweekly job: the match converts the
+    // paycheck, as it did before #138, and proposes the persona's own
+    // answer to the $580 screen.
+    const match = matchIncome580(app.answers());
+    expect(match.countedSourceIds).toEqual(["job_income_amount"]);
+    expect(match.proposal).toBe(
+      JOURNEY_PLAN.find((step) => step.id === "wr_income_580").value,
+    );
+  });
+
+  it("PROPERTY: every plan-served journey completes on the real flow, whatever share of the persona's answers its session already holds", async () => {
+    // The journeys reach the flow from different points: the wizard from
+    // a fresh session, the sprint and typed journeys after their quick-
+    // questions phase saved the work-requirements answers. A session that
+    // already holds any subset of the persona's own answers covers both,
+    // and any stage a later change runs first, so the plan's coverage can
+    // never hinge on which stage saved what. The held set shrinks toward
+    // the fresh session the CLI starts from.
+    const logic = await intakeLogic();
+    // Each walk prints a full transcript; a failure reports the error
+    // that stopped it, which names the question the plan does not cover.
+    const quiet = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.constantFrom(...Object.keys(PLAN_SERVED_JOURNEYS)),
+          fc.subarray(JOURNEY_PLAN),
+          async (journey, held) => {
+            const app = flowBackedApp(logic, { held });
+            const walk = new Walkthrough("http://fake.test", 1000, app.transport);
+            await expect(PLAN_SERVED_JOURNEYS[journey](walk)).resolves.toBe(true);
+            expect(walk.violations).toEqual([]);
+          },
+        ),
+        {
+          // Every journey from a fresh session, the way the CLI runs it.
+          examples: Object.keys(PLAN_SERVED_JOURNEYS).map((journey) => [journey, []]),
+        },
+      );
+    } finally {
+      quiet.mockRestore();
+    }
   });
 });
