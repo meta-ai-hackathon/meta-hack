@@ -156,10 +156,12 @@ without what the person told the chat.
 ## The match, the review, and the filled form on the device (HACK-115)
 
 When the person reaches the end of the questions on `/intake`, the page
-shows the benefit match, a review of the application form, and a download
-of the filled DHB-5200. All three are computed in the browser from the
-answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
-`src/app/intake/device-results.tsx`). No request carries an answer.
+shows the benefit match, a review of the application form, and, when the
+person asks, the filled DHB-5200 drawn on the page to print. All three are
+computed in the browser from the answers sealed on the device
+(`src/lib/intake/device-form.ts`, shown by
+`src/app/intake/device-results.tsx`). No request carries an answer, and the
+filled form is never saved to the device.
 
 - **The match:** the same deterministic scoring the server runs
   (`src/lib/match-core.ts`, which `src/lib/match.ts` re-exports), with every
@@ -182,40 +184,60 @@ answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
   through its registry entry's vault field allowlist. Every field the
   registry gives a non-mapped disposition stays blank, yes/no pairs fill by
   their export values, and the fill flags any question with more than one
-  box checked without picking a side; the page lists those after the
-  download. The device lays its answers out the way the server keeps the
-  same answers, so the filled form matches the server's fill of those
-  answers field for field. The PDF step (`src/lib/intake/device-fill.ts`)
-  is the only device module that loads pdf-lib, and the page loads it only
-  when the person downloads, so the questions never wait on it.
+  box checked without picking a side; the page lists those above the filled
+  pages. The device lays its answers out the way the server keeps the same
+  answers, so the filled form matches the server's fill of those answers
+  field for field. The PDF step (`src/lib/intake/device-fill.ts`) is the
+  only device module that loads pdf-lib, and the page loads it only when
+  the person asks to see the filled form, so the questions never wait on
+  it.
 - **Answers the questions don't ask:** the form's other fields that take
   an answer (the name, the addresses, the Social Security number, next
   year's income, and the rest of the full DHB-5200 mapping) are typed into
   the review. As on the conversation page, a box or a yes/no pair among them
   takes the word checked or unchecked. The fill would print any other text
-  as an unchecked box, so the download waits until each box answer reads
+  as an unchecked box, so the filled form waits until each box answer reads
   checked or unchecked (any case) and lists the ones that don't
   (`reviewAnswersForForm` in `src/lib/intake/device-form.ts`). They are
-  used for the download and live only in the page's memory: the wizard
+  used for the filled form and live only in the page's memory: the wizard
   holds them, so going from the review to a question and back keeps them,
   and they clear when the page closes or reloads or the answers are
   deleted (on this page, in another tab, or found deleted by a save). The
-  page never stores them, on the device or anywhere else, though the
-  downloaded file holds them like the rest of the filled form. Their
-  inputs turn off the browser's spellcheck, because a browser's cloud
-  spellcheck sends what is typed to its vendor.
-- **The downloaded file:** the filled PDF is an ordinary file that isn't
-  encrypted, outside the sealed store, so "Delete my answers from this
-  device" can't reach it. The page says what the file holds next to the
-  download, and the delete confirmation says a downloaded form is still on
-  the device until the person deletes it, as does the clear in a browser
-  that can't save answers.
+  page never stores them, on the device or anywhere else. Their inputs turn
+  off the browser's spellcheck, because a browser's cloud spellcheck sends
+  what is typed to its vendor.
+- **The print preview:** the filled PDF stays in the page's memory. The
+  page draws each of its pages onto a canvas with pdf.js
+  (`src/lib/intake/device-print.ts`), shows them under a heading with a
+  Print button that opens the browser's print, and the print rules in
+  `src/app/globals.css` put only those pages on paper, one page per sheet.
+  The owner chose this over a download on HACK-115 (Nov 3), after the
+  review bot found the download saved every answer to the device as an
+  unencrypted file that "Delete my answers from this device" couldn't
+  reach. Nothing is saved: no file, Blob, or object URL, no frame or embed
+  that shows the PDF (a browser may offer or start a download of one), and
+  nothing in the browser's storage. The pages go, and their canvases are
+  released, when any answer changes, typed ones included, when the page
+  closes, and with every delete, so the delete confirmation claims only
+  this browser and has no file to mention. The note by the Print button
+  asks the person to choose a printer, because saving as a PDF from the
+  print window would leave an ordinary file on the device.
+- **pdf.js on the page:** the print preview is the only device module that
+  loads `pdfjs-dist`, and both it and pdf.js load only when the person asks
+  to see the filled form. pdf.js runs on the page's own thread: the module
+  imports pdf.js's worker module first, which installs the
+  `globalThis.pdfjsWorker` hook pdf.js 6.4.x checks before it would start a
+  Worker, so it never starts one or requests a worker script. It gets the
+  filled bytes and none of the locations it would request font, CMap, ICC,
+  or wasm files from. Pages draw with the print intent and the default
+  annotation mode, so each field shows the appearance pdf-lib wrote for its
+  answer, at about 150 DPI within a pixel budget that keeps a phone's
+  memory in mind.
 - **The blank form:** the public DHB-5200 is a static file
   (`public/forms/dhb-5200.pdf`), byte for byte the registry's committed
-  copy. The page asks for it only when the person downloads, with a GET that
-  has no body, no cookies, and no referrer
-  (`src/lib/intake/device-template.ts`). The filled PDF goes to the browser
-  as a download, and the page keeps no copy of it.
+  copy. The page asks for it only when the person asks to see the filled
+  form, with a GET that has no body, no cookies, and no referrer
+  (`src/lib/intake/device-template.ts`).
 - **Resume:** the review is a pure function of the stored answers, so a
   reload that resumes them from IndexedDB lands back on the same review, and
   the form fills again from them.
@@ -238,12 +260,14 @@ answers sealed on the device (`src/lib/intake/device-form.ts`, shown by
 | Only Save and finish later asks the browser to keep the store, after saying so | `src/lib/intake/device-intake.test.ts` (answering never asks; it asks only when the device holds answers) + `src/app/intake/intake-wizard.device.test.tsx` (the note describes the button, one request a visit) |
 | `/intake` reaches the match, the review, and the filled form with no answer in any request, and a reload resumes them | `src/app/intake/device-results.test.tsx` (the page driven through the DOM over a fake IndexedDB, with every request recorded) + `src/lib/intake/device-path-boundary.test.ts` (no server module, Node built-in, or request on the path besides the blank form's GET) |
 | The end of `/intake` shows no banned claim and no private answer, for any answers | `src/app/intake/device-results.markup.test.tsx` (properties over generated device answers: the rendered text, attributes, and markup, plus labelled and described inputs with spellcheck off and a heading outline that never skips a level) |
-| A delete after a download claims only what it did | `src/app/intake/device-results.test.tsx` (download, then delete: the store is empty and the confirmation says the downloaded file is still on the device; the same in a browser that can't save, where the clear says it too) |
-| A box answer that isn't checked or unchecked holds the download back instead of printing an unchecked box | `src/lib/intake/device-review-answers.test.ts` (property over typed answers: box answers reach the fill only as checked or unchecked, any other text is listed) + `src/app/intake/device-results.test.tsx` (yes typed into a box: nothing fetched or filled, the box listed, then filled as fixed) |
+| The filled form is printed, never saved to the device | `src/lib/intake/device-path-boundary.test.ts` (the fill, the print preview, and the page hold no object URL, Blob, download attribute, embedding element, image file, storage, or service worker, read from the parsed code; pdf.js loads only in the print preview, on demand, with nothing that would send it to the network) + `src/app/intake/device-results.test.tsx` (the page driven to the filled pages: nothing handed to the browser as a file, nothing new in its storage, Print calls the browser's print) |
+| The print preview draws every page, in order, and keeps nothing when it can't finish | `src/lib/intake/device-print.test.ts` (properties with pdf.js faked: each page drawn once at its print size and label from a copy of the bytes, the worker hook in place first, the loading task destroyed, every canvas released after a failure or an abort, a failed pdf.js load retried; the print size never past 150 DPI or the pixel budgets) |
+| The filled pages never outlast the answers they show | `src/app/intake/device-results.test.tsx` (a typed change, an answer change, a change while the pages draw, leaving the page, and a delete each drop the pages and release their canvases) |
+| A box answer that isn't checked or unchecked holds the filled form back instead of printing an unchecked box | `src/lib/intake/device-review-answers.test.ts` (property over typed answers: box answers reach the fill only as checked or unchecked, any other text is listed) + `src/app/intake/device-results.test.tsx` (yes typed into a box: nothing fetched or filled, the box listed, then filled as fixed) |
 | Answers typed into the review survive a trip to a question and go with every delete | `src/app/intake/device-results.test.tsx` (property: generated typed answers are all still there after answering a question from the review; a delete here, in another tab, or found by a save leaves the review empty when the questions are answered again) |
 | The device's fill and review match the server's for the same answers | `src/lib/intake/device-form.test.ts` (properties over generated answer sets saved through the server store and on the device: the same field values, provenance, to-resolve and not-applicable lists, conflict flags, and the review route's view and coverage report) |
 | Every field on the form is in the review or listed as left blank, once | `src/app/intake/device-results.markup.test.tsx` (property over generated device answers: the review's fields and the coverage rows together are the form's fields, each row with its reason and page) |
-| Boxes checked on both sides of a question print as given and are named | `src/app/intake/device-results.test.tsx` (two boxes of one check-one line typed checked: both print checked and the page lists the question) |
+| Boxes checked on both sides of a question print as given and are named | `src/app/intake/device-results.test.tsx` (two boxes of one check-one line typed checked: both print checked and the page lists the question above the filled pages) |
 | The device's match is the consent-declined server match | `src/lib/match-core.test.ts` (property over answer maps) + `src/lib/intake/device-form.test.ts` (the `/api/match` route over the same answers) |
 | A form reads only the private answers its allowlist names | `src/lib/forms/fill-core.test.ts` (property over entries with fields remapped outside the allowlist) |
 | A field left blank by design is never filled or listed to resolve | `src/lib/forms/fill-core.test.ts` (property: every mapped field is filled, to resolve, or not applicable exactly once, even with values sent for the rest) |
