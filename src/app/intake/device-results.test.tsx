@@ -16,8 +16,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Nothing is saved to the device: no object URL, no download, nothing that
 // embeds the PDF, and nothing new in the browser's storage. A reload resumes
 // from IndexedDB, straight back to the review, and the form fills again
-// from the answers kept on the device. Leaving the page, by any route,
-// takes the filled pages off the screen.
+// from the answers kept on the device. The print rules in globals.css are
+// matched against the page as it renders, so only the filled pages go on
+// paper, and leaving the page, by any route, takes them off the screen.
 //
 // pdf.js itself is a stand-in here (jsdom has no canvas): it reads the page
 // count and sizes of the bytes it is given with pdf-lib, records them, and
@@ -445,6 +446,48 @@ async function visit() {
   };
 }
 
+/**
+ * The style rules globals.css applies when printing, read with the
+ * browser's own CSS parser. The file opens with Tailwind's directives,
+ * which only the build reads, so just its one print block is parsed.
+ */
+function printRules(): CSSStyleRule[] {
+  const css = readFileSync(path.join(REPO_ROOT, "src/app/globals.css"), "utf8");
+  const start = css.indexOf("@media print {");
+  expect(start, "globals.css has a print block").toBeGreaterThan(-1);
+  expect(css.indexOf("@media print", start + 1), "globals.css has one print block").toBe(-1);
+  let depth = 0;
+  let end = start;
+  for (; end < css.length; end += 1) {
+    depth += css[end] === "{" ? 1 : css[end] === "}" ? -1 : 0;
+    if (depth === 0 && css[end] === "}") {
+      break;
+    }
+  }
+  const style = document.createElement("style");
+  style.textContent = css.slice(start, end + 1);
+  document.head.append(style);
+  const media = style.sheet!.cssRules[0] as CSSMediaRule;
+  style.remove();
+  expect(media.media.mediaText).toBe("print");
+  return [...media.cssRules].filter((rule): rule is CSSStyleRule => "selectorText" in rule);
+}
+
+/**
+ * What the print rules set `property` to on `element`: the last rule that
+ * matches it and sets it. The print block lists its rules from the least
+ * specific to the most, so the last one is the one that applies.
+ */
+function printValue(rules: readonly CSSStyleRule[], element: Element, property: string): string {
+  return (
+    rules
+      .filter((rule) => !rule.selectorText.startsWith("@") && element.matches(rule.selectorText))
+      .map((rule) => rule.style.getPropertyValue(property))
+      .filter((value) => value !== "")
+      .at(-1) ?? ""
+  );
+}
+
 /** Every request so far: its URL and body carry none of these values. */
 function expectNoAnswerInRequests(values: readonly string[]) {
   for (const { url, init } of requests) {
@@ -520,11 +563,15 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(pdfjs.documents.every((document) => document.destroyed === 1)).toBe(true);
 
     // Every page of the form, in order, labeled for a screen reader by its
-    // number alone, each one canvas at 150 DPI for a Letter page.
+    // number alone, each one canvas at 150 DPI for a Letter page, all in
+    // the one container the print rules put on paper (globals.css).
     const preview = page.container.querySelector("[data-print-preview]");
     expect(preview?.querySelector("h2")?.textContent).toBe(page.copy.previewHeading);
     expect(first.pages).toHaveLength(21);
+    const onPaper = preview?.querySelectorAll("[data-print-pages]");
+    expect(onPaper).toHaveLength(1);
     first.pages.forEach(({ frame, canvases }, index) => {
+      expect(frame.parentElement).toBe(onPaper?.[0]);
       expect(frame.getAttribute("role")).toBe("img");
       expect(frame.getAttribute("aria-label")).toBe(`Page ${index + 1} of 21, filled application`);
       expect(canvases).toHaveLength(1);
@@ -982,6 +1029,97 @@ describe("/intake to the review and the filled form, on the device", () => {
     expectNothingSaved();
     await act(async () => root.unmount());
     container.remove();
+  }, 60_000);
+
+  it("prints only the filled pages, one to a sheet, each sized to fit its sheet both ways", async () => {
+    // The owner's decision on HACK-115 rests on the print rules: Print puts
+    // the filled pages on paper and nothing else, so the review's typed
+    // answers and the rest of the screen never print, and a page of the
+    // form never splits over two sheets. The rules are read from
+    // globals.css and matched against the page as it renders.
+    const rules = printRules();
+    const hide = rules.filter((rule) => rule.style.getPropertyValue("display") === "none");
+    expect(hide).toHaveLength(1);
+    expect(hide[0].style.getPropertyPriority("display")).toBe("important");
+    const view = await results();
+    // The app's own header and footer, around the page.
+    const header = document.createElement("header");
+    header.textContent = "Tenet";
+    const footer = document.createElement("footer");
+    footer.textContent = "Footer";
+    document.body.prepend(header);
+    document.body.append(footer);
+    const hidden = (element: Element) => element.matches(hide[0].selectorText);
+    const name = (element: Element) =>
+      `${element.tagName.toLowerCase()}${[...element.attributes].map((attribute) => `[${attribute.name}]`).join("")}`;
+
+    // With no pages drawn, a print is the page as it is.
+    expect([...document.body.children, ...view.container.querySelectorAll("section")].filter(hidden).map(name)).toEqual(
+      [],
+    );
+
+    await view.show();
+    await view.waitFor(() => view.canvases().length === 21, "the pages");
+    const onPaper = view.container.querySelector("[data-print-pages]")!;
+    // Hiding an element hides all that is in it, so what prints is decided
+    // along the line from the page's body down to the pages: everything on
+    // that line and in the pages prints, and everything beside the line is
+    // hidden, and with it the rest of the screen.
+    const line: Element[] = [];
+    for (let element: Element | null = onPaper; element !== document.body; element = element!.parentElement) {
+      line.push(element!);
+    }
+    for (const element of line) {
+      expect(hidden(element), name(element)).toBe(false);
+      // What holds the pages prints as a plain block, so the first page
+      // starts at the top of the first sheet.
+      expect(printValue(rules, element, "display"), name(element)).toBe("block");
+      expect(printValue(rules, element, "padding"), name(element)).toBe("0");
+      expect(printValue(rules, element, "margin"), name(element)).toBe("0");
+    }
+    const beside = [document.body, ...line.slice(1)].flatMap((holder) =>
+      [...holder.children].filter((child) => !line.includes(child)),
+    );
+    expect(beside.map(name)).toEqual(expect.arrayContaining(["header", "footer"]));
+    for (const element of beside) {
+      expect(hidden(element), name(element)).toBe(true);
+    }
+    for (const element of onPaper.querySelectorAll("*")) {
+      expect(hidden(element), name(element)).toBe(false);
+    }
+    // Among what stays off the paper: every typed answer, the status line,
+    // and the print button itself.
+    for (const element of view.container.querySelectorAll("input, [role='status'], button")) {
+      expect(
+        beside.some((hiddenHolder) => hiddenHolder.contains(element)),
+        name(element),
+      ).toBe(true);
+    }
+
+    // One page to a sheet: never split inside, a break after every page
+    // but the last, portrait where the browser lets the page ask.
+    const frames = [...onPaper.querySelectorAll("[data-print-page]")];
+    expect(frames).toHaveLength(21);
+    frames.forEach((frame, index) => {
+      expect(printValue(rules, frame, "break-inside")).toBe("avoid");
+      expect(printValue(rules, frame, "break-after")).toBe(index < frames.length - 1 ? "page" : "auto");
+    });
+    expect(printValue(rules, onPaper, "page")).toBe("filled-application");
+    expect(
+      rules.find((rule) => rule.selectorText === "@page filled-application")?.style.getPropertyValue("size"),
+    ).toBe("portrait");
+    // Each page's canvas keeps its shape and fits the printable width and
+    // height both, so narrow side margins or headers and footers can't
+    // push its bottom onto another sheet.
+    for (const canvas of view.canvases()) {
+      expect(printValue(rules, canvas, "width")).toBe("auto");
+      expect(printValue(rules, canvas, "height")).toBe("auto");
+      expect(printValue(rules, canvas, "max-width")).toBe("100%");
+      expect(printValue(rules, canvas, "max-height")).toMatch(/\b100vh\b/);
+    }
+    header.remove();
+    footer.remove();
+    await view.unmount();
   }, 60_000);
 
   it("lets go of the pages the moment the page is left for another site, so Back never shows them", async () => {

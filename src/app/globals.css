@@ -481,12 +481,20 @@ progress {
 }
 
 /* Printing it: while those pages are on screen, a print holds only them,
-   one page per sheet at the sheet's full width. Everything else, the
-   page's own headings, notes, and buttons included, stays off the paper.
-   The ancestors that hold the pages lose their own spacing, so the first
-   page starts at the top of the first sheet. Paper is the one way the
-   filled form leaves the page: it is never saved as a file. */
+   one page per sheet. Everything else, the page's own headings, notes,
+   and buttons included, stays off the paper. The ancestors that hold the
+   pages lose their own spacing, so the first page starts at the top of
+   the first sheet. Each page is as large as the sheet's printable area
+   allows in both directions, so narrow side margins, a browser's headers
+   and footers, or a landscape sheet never split one page of the form over
+   two sheets, and the sheets are portrait wherever the browser lets the
+   page ask. Paper is the one way the filled form leaves the page: it is
+   never saved as a file. */
 @media print {
+  @page filled-application {
+    size: portrait;
+  }
+
   body:has([data-print-pages]) :not(:has([data-print-pages]), [data-print-pages], [data-print-pages] *) {
     display: none !important;
   }
@@ -505,6 +513,10 @@ progress {
     box-shadow: none !important;
   }
 
+  [data-print-pages] {
+    page: filled-application;
+  }
+
   [data-print-page] {
     display: block !important;
     margin: 0 !important;
@@ -521,8 +533,15 @@ progress {
     page-break-after: auto;
   }
 
+  /* Sized by its own shape to fit both ways: the sheet's printable width,
+     and its printable height less a pixel against rounding, at most 9.25in
+     for a browser that measures that height some other way. 9.25in fits a
+     Letter or A4 sheet with its margins, headers, and footers. */
   [data-print-page] > canvas {
-    width: 100% !important;
+    width: auto !important;
     height: auto !important;
+    max-width: 100% !important;
+    max-height: min(calc(100vh - 1px), 9.25in) !important;
+    margin: 0 auto !important;
   }
 }
