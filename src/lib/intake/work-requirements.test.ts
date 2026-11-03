@@ -591,6 +591,47 @@ describe("the seasonal-work capture (HACK-130, rule 6)", () => {
     expect(match.uncountedSourceIds).toEqual(["job_income_amount"]);
   });
 
+  it("keeps mixed year-round + seasonal work on the old path", () => {
+    // The seasonal question asks whether ALL job work is seasonal, so a
+    // mixed household answers "no": its job income stays on rules 1-5
+    // (here "varies", so the screen is asked directly rather than the
+    // seasonal total silently replacing the year-round income).
+    const match = matchIncome580(
+      merge(
+        sources("job"),
+        frequency("job_income_seasonal", "no"),
+        amount(SEASONAL_TOTAL_QUESTION_ID, 3600),
+        amount("job_income_amount", 900),
+        frequency("job_income_frequency", "varies"),
+      ),
+    );
+    expect(match.proposal).toBeNull();
+    expect(match.countedSourceIds).toEqual([]);
+    expect(match.uncountedSourceIds).toEqual(["job_income_amount"]);
+  });
+
+  it("still applies rule 4 around a counted seasonal source", () => {
+    // Seasonal counting settles the job source, but an unread source
+    // (self-employment) still withholds a confident "no".
+    const under = matchIncome580(
+      merge(
+        sources("job", "self_employed"),
+        seasonalYes(),
+        amount(SEASONAL_TOTAL_QUESTION_ID, 3000),
+      ),
+    );
+    expect(under.proposal).toBeNull();
+    const over = matchIncome580(
+      merge(
+        sources("job", "self_employed"),
+        seasonalYes(),
+        amount(SEASONAL_TOTAL_QUESTION_ID, 3600),
+      ),
+    );
+    expect(over.proposal).toBe("yes");
+    expect(over.monthlyTotal).toBe(600);
+  });
+
   it("leaves non-seasonal answers on the old path (a stale total is ignored)", () => {
     const match = matchIncome580(
       merge(

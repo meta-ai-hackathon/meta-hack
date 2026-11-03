@@ -274,15 +274,31 @@ class TestWorkRequirementsQuestions(unittest.TestCase):
         ids = [q["id"] for q in self.questions]
         frequency_at = ids.index("job_income_frequency")
         self.assertEqual(ids[frequency_at + 1 : frequency_at + 3], SEASONAL_IDS)
+        seasonal = self.by_id["job_income_seasonal"]
+        self.assertEqual(
+            seasonal["skip_conditions"],
+            [
+                {
+                    "question_id": "income_sources",
+                    "operator": "not_in",
+                    "value": "job",
+                }
+            ],
+        )
         total = self.by_id["job_income_seasonal_total"]
         self.assertEqual(
             total["skip_conditions"],
             [
                 {
+                    "question_id": "income_sources",
+                    "operator": "not_in",
+                    "value": "job",
+                },
+                {
                     "question_id": "job_income_seasonal",
                     "operator": "not_equals",
                     "value": "yes",
-                }
+                },
             ],
         )
 

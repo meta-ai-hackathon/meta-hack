@@ -267,9 +267,9 @@
     },
     {
       "id": "job_income_seasonal",
-      "prompt": "Is that job work seasonal \u2014 do you only work it part of the year?",
+      "prompt": "Is all of that job work seasonal \u2014 do you only work it part of the year?",
       "type": "single_select",
-      "help": "Seasonal work only happens part of the year, like harvest, holiday, or summer work. Pick 'not sure' if you do not know.",
+      "help": "Seasonal work only happens part of the year, like harvest, holiday, or summer work. Answer yes only if all of your job work is seasonal. If you also have year-round work, answer no. Pick 'not sure' if you do not know.",
       "options": [
         { "value": "yes", "label": "Yes" },
         { "value": "no", "label": "No" },
@@ -278,7 +278,7 @@
       "pii": false,
       "required": false,
       "skip_conditions": [
-        { "question_id": "income_sources", "operator": "not_in", "value": "job,self_employed" }
+        { "question_id": "income_sources", "operator": "not_in", "value": "job" }
       ],
       "provenance": "user-supplied"
     },
@@ -286,10 +286,11 @@
       "id": "job_income_seasonal_total",
       "prompt": "About how much did you make from that seasonal work in the last 6 months, in total?",
       "type": "number",
-      "help": "Add up the last 6 months as best you can. Income from seasonal work can be averaged across 6 months, and this total is what gets averaged.",
+      "help": "Add up the last 6 months as best you can, counting only that seasonal work. Income from seasonal work can be averaged across 6 months, and this total is what gets averaged.",
       "pii": false,
       "required": false,
       "skip_conditions": [
+        { "question_id": "income_sources", "operator": "not_in", "value": "job" },
         { "question_id": "job_income_seasonal", "operator": "not_equals", "value": "yes" }
       ],
       "provenance": "user-supplied"
