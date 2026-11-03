@@ -171,6 +171,9 @@ describe("saving the person's own copy of the filled form", () => {
   });
 
   it("in the browser itself, revokes the URL only once its lifetime is up, and asks nothing of the network", () => {
+    // Some browsers start the download a moment after the click and cancel
+    // it if the URL is revoked sooner, so the URL lives a full second.
+    expect(DOWNLOAD_URL_LIFETIME_MS).toBe(1_000);
     vi.useFakeTimers();
     const { files, revoked } = stubObjectUrls();
     const clicks: string[] = [];
