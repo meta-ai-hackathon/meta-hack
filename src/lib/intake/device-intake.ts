@@ -331,11 +331,19 @@ async function withReprunedAttribution(next: DeviceIntake, changedId: string): P
     if (result.status === "saved") {
       return intakeOf(next.store, "kept", true, result.state);
     }
+    if (result.status === "purged") {
+      // The answers were deleted in another tab: the page starts fresh,
+      // exactly as when the main save discovers the purge.
+      return intakeOf(next.store, "kept", false, EMPTY_CLIENT_ANSWERS);
+    }
   } catch {
-    // Fall through: the in-memory state is pruned even if the persisted
-    // prune could not be written this visit.
+    // Fall through to the unpruned state below.
   }
-  return intakeOf(next.store, next.keeping, next.stored, state);
+  // The persisted prune could not be written (conflict or storage error):
+  // keep the unpruned state in memory too, so this page and the device
+  // never disagree about what is stored. The stale entries are dropped
+  // on read (currentAttribution) and by the next successful re-prune.
+  return next;
 }
 
 /**

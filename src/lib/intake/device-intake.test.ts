@@ -586,4 +586,43 @@ describe("per-person attribution re-pruning (HACK-135)", () => {
       { memberId: "member-1", situationId: "wr_income_580", months: "both" },
     ]);
   });
+
+  it("keeps the stored attribution when the persisted re-prune cannot be written", async () => {
+    const base = memoryKv();
+    let sets = 0;
+    let failAfter = Number.POSITIVE_INFINITY;
+    const kv: DeviceKv = {
+      ...base.kv,
+      setMany: async (entries, guard) => {
+        sets += 1;
+        if (sets > failAfter) throw new Error("storage full");
+        return base.kv.setMany(entries, guard);
+      },
+    };
+    let intake = (await loadDeviceIntake(async () => ({ status: "ok", store: { kv, subtle: crypto.subtle } }))).intake;
+    const save = async (id: string, value: unknown) => {
+      const r = await answerOnDevice(intake, id, "known", value);
+      expect(r.kind).toBe("saved");
+      if (r.kind === "saved") intake = r.intake;
+    };
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+      { id: "member-2", displayName: "Jo", relationship: "child", ageBand: "under_14" },
+    ]);
+    await save("wr_income_580", "yes");
+    await save("wr_who_months", [
+      { memberId: "member-1", situationId: "wr_income_580", months: "both" },
+      { memberId: "member-2", situationId: "wr_income_580", months: "last_month" },
+    ]);
+    // Let the roster change itself save, then fail the re-prune write.
+    failAfter = sets + 1;
+    await save("household_roster", [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+    ]);
+    // Memory still shows what the device holds: both entries, unpruned.
+    expect(intake.answers["wr_who_months"]?.value).toEqual([
+      { memberId: "member-1", situationId: "wr_income_580", months: "both" },
+      { memberId: "member-2", situationId: "wr_income_580", months: "last_month" },
+    ]);
+  });
 });
