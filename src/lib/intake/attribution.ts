@@ -5,7 +5,7 @@
 // state decides whether anyone is exempt. Never sums or decides.
 
 import { QUESTION_BY_ID } from "./spec";
-import { rosterFromAnswers, type HouseholdMember } from "./roster";
+import { ROSTER_QUESTION_ID, rosterFromAnswers, type HouseholdMember } from "./roster";
 import type { AnswerMap } from "./flow";
 
 export const ATTRIBUTION_QUESTION_ID = "wr_who_months";
@@ -117,10 +117,33 @@ export function applicableSituations(answers: AnswerMap): AttributionSituation[]
 export interface AttributionContext {
   readonly members: readonly HouseholdMember[];
   readonly situations: readonly AttributionSituation[];
+  /**
+   * Ids retained through pruning even when not currently applicable:
+   * entries whose source answer is "unknown" (not withdrawn). A null
+   * member set retains every member (the roster itself is unknown).
+   */
+  readonly retainMemberIds?: readonly string[] | null;
+  readonly retainSituationIds?: readonly string[];
 }
 
 export function attributionContextFromAnswers(answers: AnswerMap): AttributionContext {
-  return { members: rosterFromAnswers(answers), situations: applicableSituations(answers) };
+  const retainSituationIds = new Set<string>();
+  const exempt = answers["wr_exempt_situations"];
+  if (exempt?.status === "unknown") {
+    for (const id of allSituationIds()) retainSituationIds.add(id);
+  }
+  for (const id of EXEMPTION_QUESTION_IDS) {
+    if (answers[id]?.status === "unknown") retainSituationIds.add(id);
+  }
+  if (answers[INCOME_580_SITUATION_ID]?.status === "unknown") {
+    retainSituationIds.add(INCOME_580_SITUATION_ID);
+  }
+  return {
+    members: rosterFromAnswers(answers, { includeUnverified: true }),
+    situations: applicableSituations(answers),
+    retainMemberIds: answers[ROSTER_QUESTION_ID]?.status === "unknown" ? null : [],
+    retainSituationIds: [...retainSituationIds],
+  };
 }
 
 /** Loose draft entries for the editor: malformed rows are dropped, never repaired into data. */
@@ -143,7 +166,13 @@ export function draftAttribution(value: unknown, context?: AttributionContext): 
 export function pruneAttribution(entries: readonly AttributionEntry[], context: AttributionContext): AttributionEntry[] {
   const memberIds = new Set(context.members.map((m) => m.id));
   const situationIds = new Set(context.situations.map((s) => s.id));
-  return entries.filter((e) => memberIds.has(e.memberId) && situationIds.has(e.situationId));
+  const retainMembers = context.retainMemberIds;
+  const retainSituations = new Set(context.retainSituationIds ?? []);
+  return entries.filter((e) => {
+    const memberKept = memberIds.has(e.memberId) || retainMembers === null || (retainMembers ?? []).includes(e.memberId);
+    const situationKept = situationIds.has(e.situationId) || retainSituations.has(e.situationId);
+    return memberKept && situationKept;
+  });
 }
 
 export function setAttribution(entries: readonly AttributionEntry[], memberId: string, situationId: string, months: Months | null): AttributionEntry[] {

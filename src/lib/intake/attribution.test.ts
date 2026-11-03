@@ -76,6 +76,16 @@ describe("per-person attribution (HACK-135)", () => {
     };
     expect(currentAttribution(answers)).toEqual([{ memberId: "member-1", situationId: "wr_income_580", months: "both" }]);
   });
+  it("entries survive while their source answer is unknown, and are pruned when it becomes no", () => {
+    const base: AnswerMap = {
+      household_roster: { status: "known", value: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }] },
+      wr_income_580: { status: "unknown", value: null },
+      wr_who_months: { status: "known", value: [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }] },
+    };
+    expect(currentAttribution(base)).toHaveLength(1);
+    const withdrawn: AnswerMap = { ...base, wr_income_580: { status: "known", value: "no" } };
+    expect(currentAttribution(withdrawn)).toEqual([]);
+  });
   it("applicable situations come only from yes answers and selected situations", () => {
     const answers: AnswerMap = {
       wr_pregnant: { status: "known", value: "yes" },
