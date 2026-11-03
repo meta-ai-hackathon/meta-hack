@@ -65,6 +65,10 @@ import type { MatchCard, MatchSourceCitation } from "../../lib/match-core";
 // form left blank and any question the person checked more than one box
 // for, which the fill prints as given and flags.
 //
+// While the pages are on screen they mark <html>, and every element that
+// holds them, for the print rules in globals.css, so a print holds only the
+// pages in every browser, whether or not it supports :has().
+//
 // The show button keeps focus while the form is prepared (it is marked
 // busy rather than disabled), the status line says what is happening, and
 // focus moves to the pages' heading once they are drawn. Some in-app
@@ -397,6 +401,39 @@ interface FilledForm {
 function releaseFilled(form: FilledForm): void {
   form.drawn.release();
   form.bytes.fill(0);
+}
+
+/** On <html> while the filled pages are on screen, for the print rules in globals.css. */
+const PRINT_ROOT_ATTRIBUTE = "data-print-filled-form";
+
+/** On each element that holds the filled pages while they're on screen, for the same rules. */
+const PRINT_PATH_ATTRIBUTE = "data-print-path";
+
+/**
+ * Mark the page for printing the filled pages alone (the ref of their
+ * container): <html>, and every element from the body down that holds the
+ * pages. The print rules key off these marks, not :has(), which older
+ * browsers such as Firefox before 121 don't support. Without the marks,
+ * those browsers would print the whole screen, the review's typed answers
+ * included. The marks go when the pages do.
+ */
+function markForPrint(pages: HTMLElement | null): (() => void) | undefined {
+  if (pages === null) {
+    return undefined;
+  }
+  const root = pages.ownerDocument.documentElement;
+  const holders: Element[] = [];
+  for (let holder = pages.parentElement; holder !== null && holder !== root; holder = holder.parentElement) {
+    holder.setAttribute(PRINT_PATH_ATTRIBUTE, "");
+    holders.push(holder);
+  }
+  root.setAttribute(PRINT_ROOT_ATTRIBUTE, "");
+  return () => {
+    root.removeAttribute(PRINT_ROOT_ATTRIBUTE);
+    for (const holder of holders) {
+      holder.removeAttribute(PRINT_PATH_ATTRIBUTE);
+    }
+  };
 }
 
 /**
@@ -910,8 +947,9 @@ export function DeviceResults(props: {
             </div>
           ) : null}
           {/* The pages, and only they, print (the print rules in
-          globals.css). Each canvas joins its frame here and leaves with it. */}
-          <div data-print-pages className="flex flex-col gap-4">
+          globals.css, keyed off the marks markForPrint sets while the pages
+          are here). Each canvas joins its frame here and leaves with it. */}
+          <div data-print-pages ref={markForPrint} className="flex flex-col gap-4">
             {filled.drawn.pages.map((page) => (
               <div
                 key={page.pageNumber}

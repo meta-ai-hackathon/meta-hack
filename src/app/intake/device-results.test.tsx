@@ -564,19 +564,123 @@ function printRules(): CSSStyleRule[] {
   return [...media.cssRules].filter((rule): rule is CSSStyleRule => "selectorText" in rule);
 }
 
+/** A selector list split at its top-level commas, the ones outside any parentheses. */
+function selectorsIn(list: string): string[] {
+  const selectors: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < list.length; index += 1) {
+    if (list[index] === "(") {
+      depth += 1;
+    } else if (list[index] === ")") {
+      depth -= 1;
+    } else if (list[index] === "," && depth === 0) {
+      selectors.push(list.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  selectors.push(list.slice(start).trim());
+  return selectors;
+}
+
+/** A selector's specificity: its ids, its classes, attributes, and pseudo-classes, and its types. */
+type Specificity = readonly [number, number, number];
+
+function compareSpecificity(a: Specificity, b: Specificity): number {
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
+
 /**
- * What the print rules set `property` to on `element`: the last rule that
- * matches it and sets it. The print block lists its rules from the least
- * specific to the most, so the last one is the one that applies.
+ * A selector's specificity, for what the print block writes: type,
+ * universal, attribute, id, class, and pseudo-class selectors, with
+ * combinators between them, and :not(), :has(), and :is() counting as
+ * their most specific argument.
+ */
+function specificity(selector: string): Specificity {
+  const count = [0, 0, 0];
+  for (let index = 0; index < selector.length; ) {
+    const rest = selector.slice(index);
+    if (rest.startsWith("[")) {
+      count[1] += 1;
+      index = selector.indexOf("]", index) + 1;
+    } else if (rest.startsWith(":")) {
+      const name = /^:+([a-z-]+)/.exec(rest)![1];
+      index += rest.indexOf(name) + name.length;
+      if (selector[index] !== "(") {
+        count[1] += 1;
+        continue;
+      }
+      let depth = 0;
+      let end = index;
+      for (; end < selector.length; end += 1) {
+        depth += selector[end] === "(" ? 1 : selector[end] === ")" ? -1 : 0;
+        if (depth === 0) {
+          break;
+        }
+      }
+      if (name === "not" || name === "has" || name === "is") {
+        const most = selectorsIn(selector.slice(index + 1, end)).map(specificity).sort(compareSpecificity).at(-1)!;
+        most.forEach((part, place) => (count[place] += part));
+      } else if (name !== "where") {
+        count[1] += 1;
+      }
+      index = end + 1;
+    } else if (/^[#.]/.test(rest)) {
+      count[rest.startsWith("#") ? 0 : 1] += 1;
+      index += /^[#.][\w-]+/.exec(rest)![0].length;
+    } else if (/^[a-z]/i.test(rest)) {
+      count[2] += 1;
+      index += /^[a-z][\w-]*/i.exec(rest)![0].length;
+    } else {
+      // The universal selector, a combinator, or the space between.
+      index += 1;
+    }
+  }
+  return [count[0], count[1], count[2]];
+}
+
+/**
+ * What the print rules set `property` to on `element`, as the cascade
+ * picks it: of the rules that set it with a selector that matches, an
+ * important one over the rest, then the most specific selector, then the
+ * rule that comes last.
  */
 function printValue(rules: readonly CSSStyleRule[], element: Element, property: string): string {
-  return (
-    rules
-      .filter((rule) => !rule.selectorText.startsWith("@") && element.matches(rule.selectorText))
-      .map((rule) => rule.style.getPropertyValue(property))
-      .filter((value) => value !== "")
-      .at(-1) ?? ""
-  );
+  let winner: { important: boolean; specificity: Specificity; value: string } | null = null;
+  for (const rule of rules) {
+    const value = rule.style.getPropertyValue(property);
+    if (rule.selectorText.startsWith("@") || value === "") {
+      continue;
+    }
+    const matching = selectorsIn(rule.selectorText).filter((selector) => element.matches(selector));
+    if (matching.length === 0) {
+      continue;
+    }
+    const candidate = {
+      important: rule.style.getPropertyPriority(property) === "important",
+      specificity: matching.map(specificity).sort(compareSpecificity).at(-1)!,
+      value,
+    };
+    if (
+      winner === null ||
+      (candidate.important && !winner.important) ||
+      (candidate.important === winner.important && compareSpecificity(candidate.specificity, winner.specificity) >= 0)
+    ) {
+      winner = candidate;
+    }
+  }
+  return winner?.value ?? "";
+}
+
+/** The print rules a browser without :has() keeps: it drops every rule that uses it, whole. */
+function withoutHas(rules: readonly CSSStyleRule[]): CSSStyleRule[] {
+  return rules.filter((rule) => !rule.selectorText.includes(":has("));
+}
+
+/** Whether the page carries no print marks: nothing on <html>, and nothing on what held the pages. */
+function expectNoPrintMarks() {
+  expect(document.documentElement.hasAttribute("data-print-filled-form")).toBe(false);
+  expect(document.querySelectorAll("[data-print-path]")).toHaveLength(0);
 }
 
 /** Every request so far: its URL and body carry none of these values. */
@@ -726,6 +830,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(page.container.querySelector('[data-action="download-copy"]')).toBeNull();
     expectReleased(shown);
     expectWiped(filledBytes[0]);
+    expectNoPrintMarks();
     expect(page.text()).not.toContain(page.copy.ready);
 
     // The only requests: the cookie-only check, then the blank form, bodiless and cookieless.
@@ -831,6 +936,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(page.text()).not.toContain(TYPED_NAME);
     expectReleased(filled.pages.map(({ canvases }) => canvases[0]));
     expectWiped(filledBytes.at(-1));
+    expectNoPrintMarks();
     // The copy downloaded is a file outside the delete. The confirmation
     // claims only this browser and says the copy stays until the person
     // deletes it, and nothing more was saved.
@@ -1175,6 +1281,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(container.querySelector("[data-print-preview]")).toBeNull();
     expectReleased(shown);
     expectWiped(filledBytes[0]);
+    expectNoPrintMarks();
     expectNothingSaved();
     await act(async () => root.unmount());
     container.remove();
@@ -1224,16 +1331,25 @@ describe("/intake to the review and the filled form, on the device", () => {
     expectNothingSaved(2);
   }, 60_000);
 
-  it("prints only the filled pages, one to a sheet, each sized to fit its sheet both ways", async () => {
-    // The owner's decision on HACK-115 rests on the print rules: Print puts
-    // the filled pages on paper and nothing else, so the review's typed
-    // answers and the rest of the screen never print, and a page of the
-    // form never splits over two sheets. The rules are read from
-    // globals.css and matched against the page as it renders.
-    const rules = printRules();
-    const hide = rules.filter((rule) => rule.style.getPropertyValue("display") === "none");
-    expect(hide).toHaveLength(1);
-    expect(hide[0].style.getPropertyPriority("display")).toBe("important");
+  it("prints only the filled pages, one to a sheet, each sized to fit its sheet both ways, with or without :has()", async () => {
+    // Print puts the filled pages on paper and nothing else, so the
+    // review's typed answers and the rest of the screen never print, and a
+    // page of the form never splits over two sheets. The rules are read
+    // from globals.css and matched against the page as it renders, as the
+    // cascade applies them. A browser without :has(), such as Firefox
+    // before 121, drops every rule that uses it, so the rules without :has()
+    // must do all of this on their own, and :has() is only an enhancement
+    // in rules of its own.
+    const all = printRules();
+    const plain = withoutHas(all);
+    expect(plain.length, "a rule of its own uses :has()").toBeLessThan(all.length);
+    expect(
+      plain.some(
+        (rule) =>
+          rule.style.getPropertyValue("display") === "none" && rule.style.getPropertyPriority("display") === "important",
+      ),
+      "a rule without :has() hides the screen",
+    ).toBe(true);
     const view = await results();
     // The app's own header and footer, around the page.
     const header = document.createElement("header");
@@ -1242,14 +1358,22 @@ describe("/intake to the review and the filled form, on the device", () => {
     footer.textContent = "Footer";
     document.body.prepend(header);
     document.body.append(footer);
-    const hidden = (element: Element) => element.matches(hide[0].selectorText);
     const name = (element: Element) =>
       `${element.tagName.toLowerCase()}${[...element.attributes].map((attribute) => `[${attribute.name}]`).join("")}`;
+    const hiddenBy = (rules: readonly CSSStyleRule[]) => (element: Element) =>
+      printValue(rules, element, "display") === "none";
 
-    // With no pages drawn, a print is the page as it is.
-    expect([...document.body.children, ...view.container.querySelectorAll("section")].filter(hidden).map(name)).toEqual(
-      [],
-    );
+    // With no pages drawn, nothing marks the page, and a print is the page
+    // as it is, in any browser.
+    expectNoPrintMarks();
+    const screen = [
+      ...document.body.children,
+      ...view.container.querySelectorAll("section, button, [role='status']"),
+      view.container.querySelector("[data-review-fields] input")!,
+    ];
+    for (const rules of [plain, all]) {
+      expect(screen.filter(hiddenBy(rules)).map(name)).toEqual([]);
+    }
 
     await view.show();
     await view.waitFor(() => view.canvases().length === 21, "the pages");
@@ -1257,62 +1381,92 @@ describe("/intake to the review and the filled form, on the device", () => {
     // Hiding an element hides all that is in it, so what prints is decided
     // along the line from the page's body down to the pages: everything on
     // that line and in the pages prints, and everything beside the line is
-    // hidden, and with it the rest of the screen.
+    // hidden, and with it the rest of the screen. The page marks <html> and
+    // that line, and nothing else, while the pages are on screen.
     const line: Element[] = [];
     for (let element: Element | null = onPaper; element !== document.body; element = element!.parentElement) {
       line.push(element!);
     }
-    for (const element of line) {
-      expect(hidden(element), name(element)).toBe(false);
-      // What holds the pages prints as a plain block, so the first page
-      // starts at the top of the first sheet.
-      expect(printValue(rules, element, "display"), name(element)).toBe("block");
-      expect(printValue(rules, element, "padding"), name(element)).toBe("0");
-      expect(printValue(rules, element, "margin"), name(element)).toBe("0");
-    }
+    expect(document.documentElement.hasAttribute("data-print-filled-form")).toBe(true);
+    expect([...document.querySelectorAll("[data-print-path]")]).toEqual(
+      [document.body, ...line.slice(1).reverse()],
+    );
     const beside = [document.body, ...line.slice(1)].flatMap((holder) =>
       [...holder.children].filter((child) => !line.includes(child)),
     );
     expect(beside.map(name)).toEqual(expect.arrayContaining(["header", "footer"]));
-    for (const element of beside) {
-      expect(hidden(element), name(element)).toBe(true);
-    }
-    for (const element of onPaper.querySelectorAll("*")) {
-      expect(hidden(element), name(element)).toBe(false);
-    }
-    // Among what stays off the paper: every typed answer, the status line,
-    // and the print button itself.
-    for (const element of view.container.querySelectorAll("input, [role='status'], button")) {
-      expect(
-        beside.some((hiddenHolder) => hiddenHolder.contains(element)),
-        name(element),
-      ).toBe(true);
-    }
 
-    // One page to a sheet: never split inside, a break after every page
-    // but the last, portrait where the browser lets the page ask.
-    const frames = [...onPaper.querySelectorAll("[data-print-page]")];
-    expect(frames).toHaveLength(21);
-    frames.forEach((frame, index) => {
-      expect(printValue(rules, frame, "break-inside")).toBe("avoid");
-      expect(printValue(rules, frame, "break-after")).toBe(index < frames.length - 1 ? "page" : "auto");
-    });
-    expect(printValue(rules, onPaper, "page")).toBe("filled-application");
-    expect(
-      rules.find((rule) => rule.selectorText === "@page filled-application")?.style.getPropertyValue("size"),
-    ).toBe("portrait");
-    // Each page's canvas keeps its shape and fits the printable width and
-    // height both, so narrow side margins or headers and footers can't
-    // push its bottom onto another sheet.
-    for (const canvas of view.canvases()) {
-      expect(printValue(rules, canvas, "width")).toBe("auto");
-      expect(printValue(rules, canvas, "height")).toBe("auto");
-      expect(printValue(rules, canvas, "max-width")).toBe("100%");
-      expect(printValue(rules, canvas, "max-height")).toMatch(/\b100vh\b/);
+    /** Everything above holds for these rules: what a browser with them prints. */
+    function expectOnlyThePagesPrint(rules: readonly CSSStyleRule[], which: string) {
+      const hidden = hiddenBy(rules);
+      for (const element of [document.body, ...line]) {
+        expect(hidden(element), `${which}: ${name(element)}`).toBe(false);
+        // What holds the pages prints as a plain block, so the first page
+        // starts at the top of the first sheet.
+        expect(printValue(rules, element, "display"), `${which}: ${name(element)}`).toBe("block");
+        expect(printValue(rules, element, "padding"), `${which}: ${name(element)}`).toBe("0");
+        expect(printValue(rules, element, "margin"), `${which}: ${name(element)}`).toBe("0");
+      }
+      for (const element of beside) {
+        expect(hidden(element), `${which}: ${name(element)}`).toBe(true);
+      }
+      for (const element of onPaper.querySelectorAll("*")) {
+        expect(hidden(element), `${which}: ${name(element)}`).toBe(false);
+        expect(printValue(rules, element, "display"), `${which}: ${name(element)}`).toBe("block");
+      }
+      // Among what stays off the paper: every typed answer, the status
+      // line, and the print and download buttons themselves.
+      for (const element of view.container.querySelectorAll("input, [role='status'], button")) {
+        expect(
+          beside.some((hiddenHolder) => hiddenHolder.contains(element)),
+          `${which}: ${name(element)}`,
+        ).toBe(true);
+      }
+      // One page to a sheet: never split inside, a break after every page
+      // but the last, portrait where the browser lets the page ask.
+      const frames = [...onPaper.querySelectorAll("[data-print-page]")];
+      expect(frames).toHaveLength(21);
+      frames.forEach((frame, index) => {
+        expect(printValue(rules, frame, "break-inside"), which).toBe("avoid");
+        expect(printValue(rules, frame, "break-after"), which).toBe(index < frames.length - 1 ? "page" : "auto");
+      });
+      expect(printValue(rules, onPaper, "page"), which).toBe("filled-application");
+      expect(
+        rules.find((rule) => rule.selectorText === "@page filled-application")?.style.getPropertyValue("size"),
+        which,
+      ).toBe("portrait");
+      // Each page's canvas keeps its shape and fits the printable width
+      // and height both, so narrow side margins or headers and footers
+      // can't push its bottom onto another sheet.
+      for (const canvas of view.canvases()) {
+        expect(printValue(rules, canvas, "width"), which).toBe("auto");
+        expect(printValue(rules, canvas, "height"), which).toBe("auto");
+        expect(printValue(rules, canvas, "max-width"), which).toBe("100%");
+        expect(printValue(rules, canvas, "max-height"), which).toMatch(/\b100vh\b/);
+      }
     }
+    expectOnlyThePagesPrint(plain, "without :has()");
+    expectOnlyThePagesPrint(all, "with :has()");
+
+    // Should the marks ever be missing, a browser with :has() still keeps
+    // everything beside the pages off the paper.
+    const marks = [document.documentElement, ...document.querySelectorAll("[data-print-path]")];
+    document.documentElement.removeAttribute("data-print-filled-form");
+    document.querySelectorAll("[data-print-path]").forEach((holder) => holder.removeAttribute("data-print-path"));
+    for (const element of beside) {
+      expect(hiddenBy(all)(element), `with :has(), no marks: ${name(element)}`).toBe(true);
+    }
+    for (const element of [...line, ...onPaper.querySelectorAll("*")]) {
+      expect(hiddenBy(all)(element), `with :has(), no marks: ${name(element)}`).toBe(false);
+    }
+    document.documentElement.setAttribute("data-print-filled-form", "");
+    marks.slice(1).forEach((holder) => holder.setAttribute("data-print-path", ""));
+
+    // The marks go with the pages.
     header.remove();
     footer.remove();
     await view.unmount();
+    expectNoPrintMarks();
   }, 60_000);
 
   it("lets go of the pages the moment the page is left for another site, so Back never shows them", async () => {
@@ -1331,6 +1485,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     });
     expect(view.container.querySelector("[data-print-preview]")).toBeNull();
     expect(view.status()).not.toContain(view.copy.ready);
+    expectNoPrintMarks();
 
     // Back from that cache, the form can be shown again.
     window.dispatchEvent(new Event("pageshow"));
