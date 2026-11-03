@@ -9,12 +9,17 @@ import {
 import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { ConversationChat, RESULTS_WRAP_UP } from "./conversation-chat";
 
-// The three-stage voice journey (VAL-VJS-001..004): a clean mode-choice
-// ENTRY stage, a clean TALK stage (flowing transcript bubbles + the state
-// bar, no form/recording cluster), and a RESULTS stage the journey
-// AUTO-ADVANCES to when the deterministic engine has no unanswered
-// question left. The preserved surfaces — consent gate, mode-B typing,
-// wizard fallback, purge — stay reachable exactly as before.
+// The voice journey (VAL-VJS-001..004 + VAL-QQ-002): a clean mode-choice
+// ENTRY stage, the QUICK QUESTIONS stage (the requirements engine's
+// computed cards — shown only while any are pending), a clean TALK stage
+// (flowing transcript bubbles + the state bar, no form/recording
+// cluster), the INCOME stage (exactly two real source cards — reached
+// when the talk completes with income still unresolved), and a RESULTS
+// stage the journey AUTO-ADVANCES to when the deterministic engine has
+// no unanswered question left AND income is handled (VAL-QQ-011's
+// deliberate redefinition). The preserved surfaces — consent gate,
+// mode-B typing, wizard fallback, purge — stay reachable exactly as
+// before.
 
 // The controllable voice-session fake: the test drives the callbacks the
 // component wired and observes the session operations it called.
@@ -103,6 +108,126 @@ const OPEN_STATE: IntakeClientState = {
   progress: { answered: 0, remaining: 1, total: 1 },
   currentIndex: 0,
   complete: false,
+  quickQuestions: {
+    programs: ["nc_medicaid"],
+    requiredIds: ["application_role"],
+    requiredCount: 1,
+    remainingIds: ["application_role"],
+    remainingCount: 1,
+    complete: false,
+  },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
+  },
+};
+
+// A quick-questions state with TWO pending program questions: the live
+// counter must read the engine's numbers and decrement as answers save
+// through the existing tri-state path (VAL-QQ-004).
+const QQ_STATE: IntakeClientState = {
+  questions: [
+    {
+      id: "application_role",
+      prompt: "Who is this application for?",
+      help: "",
+      type: "text",
+      required: true,
+      pii: false,
+    },
+    {
+      id: "main_goal",
+      prompt: "What kind of help are you looking for right now?",
+      help: "",
+      type: "single_select",
+      required: true,
+      pii: false,
+      options: [
+        { value: "food", label: "Food" },
+        { value: "healthcare", label: "Healthcare" },
+      ],
+    },
+  ],
+  answers: {},
+  progress: { answered: 0, remaining: 2, total: 2 },
+  currentIndex: 0,
+  complete: false,
+  quickQuestions: {
+    programs: ["nc_medicaid"],
+    requiredIds: ["application_role", "main_goal"],
+    requiredCount: 2,
+    remainingIds: ["application_role", "main_goal"],
+    remainingCount: 2,
+    complete: false,
+  },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
+  },
+};
+
+// The QQ state one save later (POST /api/intake/answer answered
+// application_role): N decremented, ask-once — the card left the stage.
+// It doubles as the mid-stage RELOAD state (VAL-QQ-008): the same view
+// built from Postgres, served by /api/conversation/history on mount.
+const QQ_ONE_ANSWERED_STATE: IntakeClientState = {
+  ...QQ_STATE,
+  answers: { application_role: { status: "known", value: "myself" } },
+  progress: { answered: 1, remaining: 1, total: 2 },
+  currentIndex: 1,
+  quickQuestions: {
+    ...QQ_STATE.quickQuestions,
+    remainingIds: ["main_goal"],
+    remainingCount: 1,
+    complete: false,
+  },
+};
+
+// A session with zero pending program questions: the journey passes
+// straight through to the talk stage — the quick-questions stage is
+// never shown empty (VAL-QQ-002). main_goal is not required by any
+// targeted program, so it stays unanswered without pending quick
+// questions.
+const ZERO_PENDING_STATE: IntakeClientState = {
+  questions: [
+    {
+      id: "main_goal",
+      prompt: "What kind of help are you looking for right now?",
+      help: "",
+      type: "single_select",
+      required: true,
+      pii: false,
+      options: [
+        { value: "food", label: "Food" },
+        { value: "healthcare", label: "Healthcare" },
+      ],
+    },
+  ],
+  answers: {},
+  progress: { answered: 0, remaining: 1, total: 1 },
+  currentIndex: 0,
+  complete: false,
+  quickQuestions: {
+    programs: ["nc_medicaid"],
+    requiredIds: [],
+    requiredCount: 0,
+    remainingIds: [],
+    remainingCount: 0,
+    complete: true,
+  },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
+  },
 };
 
 const COMPLETE_STATE: IntakeClientState = {
@@ -111,7 +236,83 @@ const COMPLETE_STATE: IntakeClientState = {
   progress: { answered: 1, remaining: 0, total: 1 },
   currentIndex: null,
   complete: true,
+  quickQuestions: {
+    programs: ["nc_medicaid"],
+    requiredIds: ["application_role"],
+    requiredCount: 1,
+    remainingIds: [],
+    remainingCount: 0,
+    complete: true,
+  },
+  income: {
+    questionIds: [],
+    answeredCount: 0,
+    confirmedCount: 0,
+    totalCount: 0,
+    handled: true,
+  },
 };
+
+// The income gate's fixtures (VAL-QQ-011's redefined results gate). They
+// differ from COMPLETE_STATE only in the income block: the engine is
+// complete either way, and results requires income handled too.
+const INCOME_QUESTIONS: IntakeClientState["questions"] = [
+  {
+    id: "income_sources",
+    prompt: "Where does money come from for your household?",
+    help: "",
+    type: "multi_select",
+    required: true,
+    pii: false,
+    options: [
+      { value: "job", label: "A job" },
+      { value: "none", label: "No money coming in right now" },
+    ],
+  },
+  {
+    id: "job_income_amount",
+    prompt: "About how much money comes in from jobs each time you get paid?",
+    help: "",
+    type: "number",
+    required: true,
+    pii: false,
+  },
+];
+
+// A COMPLETED intake whose income is still unresolved: the journey must
+// land on the income stage — results is unreachable (VAL-QQ-011,
+// blocking).
+const INCOME_PENDING_STATE: IntakeClientState = {
+  ...COMPLETE_STATE,
+  questions: INCOME_QUESTIONS,
+  answers: {
+    income_sources: { status: "known", value: ["job"] },
+    job_income_amount: { status: "known", value: 2400 },
+  },
+  income: {
+    questionIds: ["income_sources", "job_income_amount"],
+    answeredCount: 2,
+    confirmedCount: 0,
+    totalCount: 2,
+    handled: false,
+  },
+};
+
+// The same session with income handled (a confirm saved it): results is
+// reachable — the income stage is skipped (VAL-QQ-011, non-blocking).
+const INCOME_HANDLED_STATE: IntakeClientState = {
+  ...INCOME_PENDING_STATE,
+  income: {
+    questionIds: ["income_sources", "job_income_amount"],
+    answeredCount: 2,
+    confirmedCount: 1,
+    totalCount: 2,
+    handled: true,
+  },
+};
+
+/** The quick-questions stage's answer POSTs, captured by the stub. */
+let answerPosts: { body: string }[] = [];
 
 function historyResponse(state: IntakeClientState): Response {
   return new Response(
@@ -212,16 +413,44 @@ function stubFetch(
   state: IntakeClientState,
   turnState?: IntakeClientState,
   speakStatus = 200,
+  answerState?: IntakeClientState,
+  confirmState?: IntakeClientState,
 ): void {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/conversation/history") {
         return historyResponse(state);
       }
       if (url === "/api/conversation/turn") {
         return turnResponse(turnState ?? state);
+      }
+      if (url === "/api/intake/answer") {
+        // The EXISTING tri-state answer path (VAL-QQ-007): the quick-
+        // questions stage's saves land here; the route returns the fresh
+        // client state. Captured for the body assertions.
+        answerPosts.push({ body: String(init?.body) });
+        return new Response(JSON.stringify(answerState ?? state), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/intake/tax-return/confirm") {
+        // The confirm route (the income stage's saves): returns the
+        // handled state the caller seeded.
+        return new Response(
+          JSON.stringify({ saved: [], state: confirmState ?? state }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === "/api/intake/state") {
+        // The zero-send wizard loads its own state (the deterministic
+        // question path).
+        return new Response(JSON.stringify(state), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url === "/api/conversation/speak") {
         return new Response(
@@ -263,6 +492,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionOps = [];
   queueSpeechMock.mockClear();
+  answerPosts = [];
   stubFetch(OPEN_STATE);
 });
 
@@ -316,9 +546,20 @@ async function beginMode(
       new MouseEvent("click", { bubbles: true }),
     );
   });
+  // The inserted QUICK QUESTIONS stage (VAL-QQ-002): when the requirements
+  // engine still has questions to ask, the journey lands there after the
+  // entry choice — traverse it with the calm CTA to reach the talk stage.
+  // A zero-pending session passes straight through (no stage, no click).
+  if (q(container, "quick-questions-stage")) {
+    await act(async () => {
+      q(container, "qq-to-talk")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+  }
 }
 
-describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
+describe("the voice journey stages (VAL-VJS-001..004, VAL-QQ-002)", () => {
   it("entry stage: the mode choice renders clean — no transcript, no journey sections (VAL-VJS-001)", async () => {
     const { container, act: actFn } = await renderChat();
     await actFn(async () => {
@@ -370,6 +611,12 @@ describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
   });
 
   it("auto-advance: the completed turn transitions to results with no clicks — spoken wrap-up, match, download, purge (VAL-VJS-003/004)", async () => {
+    // UPDATED for the income-capture redefinition (VAL-QQ-011): results
+    // = intake complete AND income handled. COMPLETE_STATE's income
+    // block is empty (no income questions were asked), which is
+    // vacuously HANDLED — so this session still advances straight to
+    // results, now pinned as the non-blocking conjunct's behavior. The
+    // income-unresolved blocking case is the describe block below.
     stubFetch(OPEN_STATE, COMPLETE_STATE);
     const { container, act: actFn } = await renderChat();
     await beginMode(container, actFn, "voice-plus-typing");
@@ -468,6 +715,242 @@ describe("the three-stage voice journey (VAL-VJS-001..004)", () => {
     // The ai-only path is unstaged: sections render inline as before.
     expect(container.textContent).toContain("Your answers so far");
     expect(q(container, "results-stage")).toBeNull();
+  });
+});
+
+describe("the income stage between talk-complete and results (VAL-QQ-001/011, VAL-INC-001/002/003)", () => {
+  it("the completed turn with income unresolved lands on the INCOME stage — exactly two source cards, results unreachable (VAL-INC-001/002)", async () => {
+    // The redefined gate (VAL-QQ-011, blocking side): a completed intake
+    // with income still unresolved is NOT results — the journey hands
+    // off to the income stage instead.
+    stubFetch(OPEN_STATE, INCOME_PENDING_STATE);
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-plus-typing");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    // The five-stage order (VAL-QQ-001): entry → quick questions →
+    // talk → INCOME → results.
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("income");
+    expect(q(container, "income-stage")).not.toBeNull();
+    expect(q(container, "results-stage")).toBeNull();
+    expect(q(container, "match-section")).toBeNull();
+    expect(q(container, "review-section")).toBeNull();
+    // Exactly two real source cards (VAL-INC-002): manual + tax upload.
+    expect(q(container, "income-manual-card")).not.toBeNull();
+    expect(q(container, "income-upload-card")).not.toBeNull();
+    // The session ended with the completed turn: the mic never opens
+    // over the income cards.
+    expect(sessionOps).toContain("stop");
+    // The shared frame surfaces stay reachable on the new stage.
+    expect(q(container, "purge-wrapper")).not.toBeNull();
+    expect(q(container, "coming-together")).not.toBeNull();
+  });
+
+  it("confirming through the income stage is what reaches results — the wrap-up speaks at the actual hand-off (VAL-QQ-011)", async () => {
+    stubFetch(OPEN_STATE, INCOME_PENDING_STATE, 200, undefined, INCOME_HANDLED_STATE);
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-plus-typing");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("income");
+    queueSpeechMock.mockClear();
+    // The person saves the prefilled income from the manual card: the
+    // stage POSTs the confirm route, whose fresh state flips the handled
+    // gate — and the journey reaches results.
+    await actFn(async () => {
+      q(container, "income-save-manual")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("results");
+    expect(q(container, "results-stage")).not.toBeNull();
+    // The spoken wrap-up happens HERE — at the actual hand-off to
+    // results, not on the earlier completion turn.
+    expect(queueSpeechMock).toHaveBeenCalled();
+    expect(q(container, "results-wrap-up")?.textContent).toBe(RESULTS_WRAP_UP);
+  });
+
+  it("a completed session with income already handled skips the income stage (VAL-QQ-011 non-blocking)", async () => {
+    // The gate's second conjunct only ADDS a requirement — sessions that
+    // already handled income reach results exactly as before.
+    stubFetch(OPEN_STATE, INCOME_HANDLED_STATE);
+    const { container, act: actFn } = await renderChat();
+    await beginMode(container, actFn, "voice-plus-typing");
+    await actFn(async () => {
+      sessionCallbacks.onUtterance(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("results");
+    expect(q(container, "income-stage")).toBeNull();
+    expect(q(container, "results-stage")).not.toBeNull();
+  });
+});
+
+describe("the quick-questions stage between entry and talk (VAL-QQ-002/004/006/010/012)", () => {
+  it("lands on quick questions after the entry choice and before talk — the mic never opens over the cards", async () => {
+    const { container, act: actFn } = await renderChat();
+    await actFn(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    await actFn(async () => {
+      const radio = q(container, 'mode-option="voice-plus-typing"')?.querySelector("input");
+      (radio as HTMLInputElement).click();
+      q(container, "mode-begin")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    // The stage order: entry → QUICK QUESTIONS → talk. While questions
+    // are pending the talk stage never renders.
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("quick-questions");
+    expect(q(container, "quick-questions-stage")).not.toBeNull();
+    expect(q(container, "conversation-transcript")).toBeNull();
+    // The Coming Together rail rides every non-entry/non-results stage.
+    expect(q(container, "coming-together")).not.toBeNull();
+    // The microphone is NEVER open over the question cards: the session
+    // begins only when the talk stage renders.
+    expect(sessionOps).not.toContain("begin");
+    // The honest live counter renders the engine's numbers (VAL-QQ-004).
+    expect(q(container, "qq-counter")?.textContent).toContain(
+      "1 question instead of 1",
+    );
+    expect(q(container, "qq-counter")?.getAttribute("aria-live")).toBe("polite");
+    // The calm CTA to talk (VAL-QQ-006: never blocked).
+    expect(q(container, "qq-to-talk")).not.toBeNull();
+    await actFn(async () => {
+      q(container, "qq-to-talk")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("talk");
+    expect(q(container, "quick-questions-stage")).toBeNull();
+    // The session began only now — on the talk stage.
+    expect(sessionOps).toContain("begin");
+  });
+
+  it("a zero-pending session passes straight through to talk — the stage is never shown empty (VAL-QQ-002)", async () => {
+    stubFetch(ZERO_PENDING_STATE);
+    const { container, act: actFn } = await renderChat();
+    await actFn(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    await actFn(async () => {
+      const radio = q(container, 'mode-option="voice-only"')?.querySelector("input");
+      (radio as HTMLInputElement).click();
+      q(container, "mode-begin")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(q(container, "quick-questions-stage")).toBeNull();
+    expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("talk");
+    expect(q(container, "conversation-transcript")).not.toBeNull();
+    expect(sessionOps).toContain("begin");
+  });
+
+  it("the counter decrements live as answers save through the EXISTING tri-state path (VAL-QQ-004/007)", async () => {
+    stubFetch(QQ_STATE, QQ_STATE, 200, QQ_ONE_ANSWERED_STATE);
+    const { container, act: actFn } = await renderChat();
+    await actFn(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    await actFn(async () => {
+      const radio = q(container, 'mode-option="voice-plus-typing"')?.querySelector("input");
+      (radio as HTMLInputElement).click();
+      q(container, "mode-begin")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    // Flow point one: the engine's N of M, live.
+    expect(q(container, "qq-counter")?.textContent).toContain(
+      "2 questions instead of 2",
+    );
+    // Answer the first card: typed value → POST /api/intake/answer.
+    await actFn(async () => {
+      const input = q(container, 'qq-card="application_role"')!.querySelector("input") as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "myself");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await actFn(async () => {
+      q(container, 'qq-save="application_role"')?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    // The EXISTING tri-state path carried the answer: questionId, status
+    // known, the plain value — provenance stays the store's default
+    // user_supplied (VAL-QQ-007; pii routing is pinned in the store tests).
+    expect(answerPosts).toHaveLength(1);
+    expect(JSON.parse(answerPosts[0]!.body)).toMatchObject({
+      questionId: "application_role",
+      status: "known",
+      value: "myself",
+    });
+    // Flow point two: the fresh engine state is on screen — N decremented,
+    // the saved card left the stage (ask-once).
+    expect(q(container, "qq-counter")?.textContent).toContain(
+      "1 question instead of 2",
+    );
+    expect(q(container, 'qq-card="application_role"')).toBeNull();
+    expect(q(container, 'qq-card="main_goal"')).not.toBeNull();
+  });
+
+  it("a reload mid-stage returns to the quick-questions stage with the saved answers intact (VAL-QQ-008)", async () => {
+    // The reload path: the state comes back from Postgres through
+    // /api/conversation/history — the saved answer intact, the remaining
+    // set and its counts excluding it. The entry stage re-shows first
+    // (the mode choice is component state), and re-beginning lands on
+    // the quick-questions stage with everything carried.
+    stubFetch(QQ_ONE_ANSWERED_STATE);
+    const { container, act: actFn } = await renderChat();
+    await actFn(async () => {
+      saveConsentReceipt(voiceReceipt());
+    });
+    await actFn(async () => {
+      const radio = q(container, 'mode-option="voice-only"')?.querySelector("input");
+      (radio as HTMLInputElement).click();
+      q(container, "mode-begin")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(q(container, "quick-questions-stage")).not.toBeNull();
+    // The captured question is not re-asked after the reload (ask-once);
+    // the remaining set is what the engine still needs.
+    expect(q(container, 'qq-card="application_role"')).toBeNull();
+    expect(q(container, 'qq-card="main_goal"')).not.toBeNull();
+    // The progress counts are consistent with the carried answers.
+    expect(q(container, "qq-counter")?.textContent).toContain(
+      "1 question instead of 2",
+    );
+    // Resume re-submitted nothing: no answer POST fires on the way back.
+    expect(answerPosts).toHaveLength(0);
+  });
+
+  it("consent refusal never blocks the journey: the deterministic zero-send path still covers the quick questions and reaches every section (VAL-QQ-010)", async () => {
+    // The declined journey's state: the engine's quick questions are
+    // pending — the deterministic wizard covers them (no QQ-stage detour,
+    // zero model sends on this path by construction).
+    stubFetch(QQ_STATE);
+    const { container, act: actFn } = await renderChat();
+    await actFn(async () => {
+      saveConsentReceipt(declinedReceipt());
+    });
+    expect(q(container, "zero-send-mode")).not.toBeNull();
+    // The wizard asks the quick questions: every required-for-programs
+    // remaining id is among the state's visible questions the wizard
+    // drives — the first one on screen now.
+    const requiredIds = QQ_STATE.quickQuestions.requiredIds;
+    expect(requiredIds.length).toBeGreaterThan(0);
+    const visibleIds = QQ_STATE.questions.map((question) => question.id);
+    for (const id of requiredIds) {
+      expect(visibleIds).toContain(id);
+    }
+    expect(q(container, 'intake-question="application_role"')).not.toBeNull();
+    // Every section stays reachable on the declined path (VAL-VJS-003).
+    expect(container.textContent).toContain("Your answers so far");
+    expect(q(container, "purge-wrapper")).not.toBeNull();
   });
 });
 

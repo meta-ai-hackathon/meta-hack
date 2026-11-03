@@ -45,6 +45,9 @@ const ANSWER_PROVENANCES = [
   "user_supplied",
   "ai_drafted",
   "source_verified",
+  // The tax-return confirm flow's provenances (VAL-INC-007).
+  "tax_return",
+  "user",
 ] as const;
 
 let admin: postgres.Sql;
@@ -96,11 +99,12 @@ afterAll(async () => {
 
 describe("fresh migration application (VAL-DM-001)", () => {
   it("applies migrations to a fresh database", () => {
-    // 0003_conversation_turn.sql joins the append-only list (Mission v2 M1).
+    // 0004_tax_return_provenance.sql joins the append-only list (VAL-INC-007).
     expect(firstRun).toEqual([
       "0001_core.sql",
       "0002_vault_entry.sql",
       "0003_conversation_turn.sql",
+      "0004_tax_return_provenance.sql",
     ]);
   });
 
@@ -114,6 +118,7 @@ describe("fresh migration application (VAL-DM-001)", () => {
       "0001_core.sql",
       "0002_vault_entry.sql",
       "0003_conversation_turn.sql",
+      "0004_tax_return_provenance.sql",
     ]);
     expect(await runMigrations(testDb)).toEqual([]);
   });

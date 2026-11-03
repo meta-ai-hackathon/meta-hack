@@ -73,7 +73,13 @@ export function ModeChoice(props: {
     <section
       data-mode-choice
       aria-labelledby="mode-choice-heading"
-      className="flex flex-col items-center gap-6 rounded-2xl border border-surface-border bg-surface p-8 text-center"
+      // The prototype's .voice-entry geometry (VAL-FIX-006), carried by
+      // the card itself so both hosts (the home shell and the
+      // conversation's entry stage) get it: centered, max-width 490px,
+      // width calc(100% - 48px), margin 42px auto 26px — with the 760px
+      // breakpoint's 38px/calc(100% - 36px). Centering is INSIDE the
+      // full-width frame; the frame never gets a max-width.
+      className="mx-auto mt-[38px] mb-[26px] flex w-[calc(100%_-_36px)] max-w-[490px] flex-col items-center gap-6 rounded-2xl border border-surface-border bg-surface p-8 text-center min-[761px]:mt-[42px] min-[761px]:w-[calc(100%_-_48px)]"
     >
       {/* The brand mark per the approved entry frame (VAL-VJS-001): the
       waveform mark, decorative and aria-hidden — the page header carries

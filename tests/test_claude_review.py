@@ -2,8 +2,11 @@
 
 Property-based tests (Hypothesis) pin the pure helpers: mention and issue
 reference neutralizing (outside code only), redaction (a private key in
-any written form goes whole, never less than main's old pattern took, and
-code between a key's markers always stays), delimiter escaping,
+any written form goes whole, a PGP private key block too, never less than
+main's old pattern took, and code between a key's markers always stays; a
+token stuck to an SSN or a card number goes with it in one pass, and a
+JWT goes whole whatever its segments hold),
+delimiter escaping,
 file selection under the token budget, comment size and contents, the
 sticky state line, the exit-code rule, and the output parser. More
 properties drive whole runs that cannot read the PR from every state the
@@ -1538,6 +1541,308 @@ class ShortKeyPieceProperties(unittest.TestCase):
         self.assertNotIn("aB3x", out)
 
 
+# --- PGP private key blocks (HACK-120) ---------------------------------------------
+
+PGP_HEADER = "-----BEGIN PGP PRIVATE KEY BLOCK-----"
+# A PGP block's checksum line, = and four base64 characters, which some
+# writers leave out.
+PGP_CHECKSUM_LINES = st.text(alphabet=string.ascii_letters + "+/", min_size=4, max_size=4).map(lambda crc: "=" + crc)
+PGP_CHECKSUMS = st.just("") | PGP_CHECKSUM_LINES
+# Runs shorter than a key line that are code a reviewer has to see, such as
+# an assignment that turns a check off.
+SHORT_CODE = st.builds(
+    lambda name, value: name + "=" + value,
+    st.text(alphabet=string.ascii_lowercase, min_size=1, max_size=8),
+    st.sampled_from(["True", "False", "None", "0", "1", "true", "false", "null"]),
+)
+# What can stand before the = of a run shaped like a checksum: a row of +
+# and / of any length, or backslashes before a /, the way a string escapes
+# one.
+CHECKSUM_MARKS = st.text(alphabet="+/", max_size=24) | st.builds(
+    lambda escapes, slashes: "\\" * escapes + "/" * slashes, st.integers(1, 20), st.integers(1, 3)
+)
+# Armor headers the way OpenPGP.js, GPG Suite and Keybase write them.
+PGP_ARMOR = st.lists(
+    st.sampled_from(
+        [
+            "Version: OpenPGP.js v4.10.10",
+            "Comment: https://openpgpjs.org",
+            "Comment: GPGTools - https://gpgtools.org",
+            "Version: Keybase Go 1.0.10 (darwin)",
+        ]
+    ),
+    min_size=1,
+    max_size=2,
+)
+
+
+def pgp_block(lines: Sequence[str], checksum: str, armor: Sequence[str] = (), kind: str = "PRIVATE KEY BLOCK") -> list[str]:
+    """A PGP block's lines as GnuPG writes them: its header, any armor
+    headers, a blank line, the base64 lines, the checksum line, its footer."""
+    return [f"-----BEGIN PGP {kind}-----", *armor, "", *lines, *([checksum] if checksum else []), f"-----END PGP {kind}-----"]
+
+
+class PgpKeyBlockProperties(unittest.TestCase):
+    """A PGP private key block is a private key like the others: written
+    the way GnuPG writes one, it goes whole in every form a key can take,
+    and with armor headers it still loses its body and both markers."""
+
+    @PBT
+    @given(KEY_BODIES, PGP_CHECKSUMS, KEY_FORMS, SAFE_TEXT, SAFE_TEXT)
+    @example(["FAKEFAKE" * 8, "FAKEFA"], "=FAKE", KeyForm(("",), "", "\n"), "", "")  # a short last line, then the checksum
+    @example(["FAKEFAKE" * 8, "FAKEFA"], "=FAKE", KeyForm(("+",), "", "\n"), "", "")  # the same, added in a diff
+    def test_a_pgp_private_key_block_goes_whole_however_it_is_written(
+        self, lines: list[str], checksum: str, form: KeyForm, before: str, after: str
+    ) -> None:
+        # Its blank line, its base64 lines, a short last line and then the
+        # checksum line, in a file, a diff, a comment, a string or one line:
+        # header to footer becomes one marker and nothing around it changes.
+        # The same block as a public key, a message or a signature holds no
+        # private key, so it stays as it is.
+        out, count = review.redact_sensitive(before + form.starts[0] + form.write(pgp_block(lines, checksum)) + form.end + after)
+        self.assertEqual((out, count), (before + form.starts[0] + review.redaction_marker("private key") + form.end + after, 1))
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+        for kind in ("PUBLIC KEY BLOCK", "MESSAGE", "SIGNATURE"):
+            text = before + form.starts[0] + form.write(pgp_block(lines, checksum, kind=kind)) + form.end + after
+            self.assertEqual(review.redact_sensitive(text), (text, 0), kind)
+
+    @PBT
+    @given(PGP_ARMOR, KEY_BODIES, PGP_CHECKSUMS, KEY_FORMS, SAFE_TEXT, SAFE_TEXT)
+    def test_a_pgp_block_with_armor_headers_still_loses_its_body_and_markers(
+        self, armor: list[str], lines: list[str], checksum: str, form: KeyForm, before: str, after: str
+    ) -> None:
+        # Armor headers are text and not key material, so the line walk
+        # stops at the first one, and the block goes the way a key written
+        # as code does (review.is_key_piece): every line of a key line or
+        # more goes, both markers go, and a second pass changes nothing.
+        out, _count = review.redact_sensitive(before + form.starts[0] + form.write(pgp_block(lines, checksum, armor)) + form.end + after)
+        for line in lines:
+            if len(line) >= 16:
+                self.assertNotIn(line.replace("/", form.slash), out)
+        self.assertNotIn("-----BEGIN", out)
+        self.assertNotIn("-----END", out)
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    @PBT
+    @given(
+        st.sampled_from([PGP_HEADER, "-----BEGIN PRIVATE KEY-----"]),
+        st.lists(KEY_LINE, max_size=3),
+        SHORT_CODE,
+        CHECKSUM_MARKS,
+        PGP_CHECKSUM_LINES,
+        st.lists(CODE_LINES, max_size=1),
+        MULTILINE_KEY_FORMS,
+        SAFE_TEXT,
+    )
+    @example(PGP_HEADER, ["FAKEFAKE" * 8], "isAdmin=True", "+" * 16, "=FAKE", ["send(answers);"], KeyForm(("# ",), "", "\n"), "")
+    @example(PGP_HEADER, [], "isAdmin=True", "\\" * 16 + "/", "=FAKE", [], KeyForm(("# ",), "", "\n"), "")
+    def test_with_no_footer_a_checksum_never_hides_the_code_before_it(
+        self, header: str, above: list[str], code: str, marks: str, checksum: str, rest: list[str], form: KeyForm, after: str
+    ) -> None:
+        # After a key's header and its lines, a short run that is code, then
+        # a run shaped like a checksum with any row of +, / and backslashes
+        # before its =, and no footer anywhere: the key lines go as always,
+        # and the code and that run reach the model. The checksum is a short
+        # run however long it is written, so it can never end a line of key
+        # material that takes the code before it along.
+        lines = [header, *above, code, marks + checksum, *rest]
+        out, _count = review.redact_sensitive(form.starts[0] + form.write(lines) + form.end + "\n" + after)
+        self.assertIn(code, out)
+        self.assertIn((marks + checksum).replace("/", form.slash), out)
+        for line in above:
+            self.assertNotIn(line.replace("/", form.slash), out)
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    def test_pgp_markers_and_checksum_lines_take_linear_time(self) -> None:
+        # Long texts that are almost PGP markers, and PGP blocks made of
+        # short lines and checksum lines: each header is read once, and
+        # quickly.
+        texts = [
+            ("-----BEGIN " + "PRIVATE KEY " * 5_000, 0),
+            ("-----BEGIN " + "PGP PRIVATE KEY BLOCK " * 2_500, 0),
+            ("-----BEGIN PGP PRIVATE KEY BLOC" * 1_700, 0),
+            (PGP_HEADER + "\n=Ab3d" * 9_000, 1),
+            (PGP_HEADER + "\nab\n=Ab3d" * 6_000, 1),
+            ((PGP_HEADER + "\nab\n=Ab3d\nx(") * 1_100, 1_100),
+        ]
+        for text, headers in texts:
+            self.assertGreaterEqual(len(text), 50_000)
+            started = time.monotonic()
+            _out, count = review.redact_sensitive(text)
+            self.assertEqual(count, headers, text[:40])
+            self.assertLess(time.monotonic() - started, 2.0, text[:40])
+
+
+# --- tokens stuck to a number, and JWTs (HACK-120) ---------------------------------
+
+# Tokens the token patterns find, other than a JWT, each with the kind its
+# marker names.
+OTHER_TOKENS = st.one_of(
+    st.from_regex(r"sk-ant-api03-[A-Za-z0-9_-]{40}", fullmatch=True).map(lambda token: ("api key", token)),
+    st.from_regex(r"sk-proj-[A-Za-z0-9_-]{48}", fullmatch=True).map(lambda token: ("api key", token)),
+    st.from_regex(r"(sk|rk)_live_[A-Za-z0-9]{24}", fullmatch=True).map(lambda token: ("api key", token)),
+    st.from_regex(r"AIza[0-9A-Za-z_-]{35}", fullmatch=True).map(lambda token: ("api key", token)),
+    st.from_regex(r"gh[pousr]_[A-Za-z0-9]{36}", fullmatch=True).map(lambda token: ("access token", token)),
+    st.from_regex(r"github_pat_[A-Za-z0-9_]{60}", fullmatch=True).map(lambda token: ("access token", token)),
+    st.from_regex(r"xox[abposr]-[A-Za-z0-9-]{20}", fullmatch=True).map(lambda token: ("access token", token)),
+    st.from_regex(r"(AKIA|ASIA)[0-9A-Z]{16}", fullmatch=True).map(lambda token: ("access token", token)),
+)
+# Every kind of token. These JWTs have segments of letters only, so no SSN
+# or card number sits inside one (JwtProperties covers the ones that do).
+TOKENS = OTHER_TOKENS | st.from_regex(r"eyJ[A-Za-z]{8,30}\.eyJ[A-Za-z]{8,30}\.[A-Za-z]{8,30}", fullmatch=True).map(
+    lambda token: ("jwt", token)
+)
+# Values a pattern after the token patterns redacts and that end in a
+# digit: SSN shapes, and the networks' test card numbers, bare or in groups
+# of four.
+NUMBERS = st.one_of(
+    st.from_regex(r"\d{3}-\d{2}-\d{4}", fullmatch=True).map(lambda number: ("ssn", number)),
+    st.sampled_from(TEST_CARDS).map(lambda number: ("card number", number)),
+    st.sampled_from(TEST_CARDS).map(lambda number: ("card number", " ".join(number[i : i + 4] for i in range(0, len(number), 4)))),
+)
+
+
+class StuckTokenProperties(unittest.TestCase):
+    """A token right after an SSN or a card number, with nothing between
+    them, goes in the same pass as the number. A letter or an underscore
+    right before a token still keeps it out, as on main."""
+
+    @PBT
+    @given(SAFE_TEXT, NUMBERS, TOKENS, SEPARATORS, SAFE_TEXT)
+    @example("ssn ", ("ssn", "000-12-3456"), ("access token", "ghp_" + "FAKE" * 9), " ", "")  # the shape the PR 81 review found
+    @example("card ", ("card number", "4242424242424242"), ("jwt", "eyJFAKEFAKEFAKE.eyJFAKEFAKEFAKE.FAKEFAKEFAKE"), "\n", "")
+    def test_a_token_right_after_a_number_goes_in_the_first_pass(
+        self, before: str, number: tuple[str, str], token: tuple[str, str], sep: str, after: str
+    ) -> None:
+        # Each goes as its own marker, nothing around them changes, and a
+        # second pass finds nothing more.
+        (number_kind, number_text), (token_kind, token_text) = number, token
+        out, count = review.redact_sensitive(before + number_text + token_text + sep + after)
+        expected = before + review.redaction_marker(number_kind) + review.redaction_marker(token_kind) + sep + after
+        self.assertEqual((out, count), (expected, 2))
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    @PBT
+    @given(st.text(alphabet=string.ascii_letters + "_", min_size=1, max_size=12), TOKENS, SEPARATORS)
+    def test_a_token_right_after_a_letter_or_an_underscore_never_starts_a_match(
+        self, word: str, token: tuple[str, str], sep: str
+    ) -> None:
+        # The tail of a longer name that happens to be shaped like a token,
+        # after a capital, a small letter or an underscore: no redaction
+        # starts where the token does. A run inside the token with a token's
+        # shape of its own may still go, and so may a word that is itself
+        # the start of a token, such as github_pat_ before a GitHub token,
+        # since then the match starts at the word.
+        text = word + token[1] + sep
+        self.assertFalse(review.redact_sensitive(text)[0].startswith(word + "[REDACTED "), text)
+
+    def test_token_prefixes_after_a_digit_take_linear_time(self) -> None:
+        # Rows of token prefixes, each right after a digit and each stopping
+        # one character short of a token: each start is read once, and
+        # quickly.
+        texts = [
+            ("0ghp_" + "a" * 29 + "!") * 1_500,
+            ("0sk-" + "a" * 31 + "!") * 1_500,
+            ("0AIza" + "a" * 34 + "!") * 1_300,
+            ("0xoxb-" + "a" * 9 + "!") * 3_500,
+            ("0github_pat_" + "a" * 39 + "!") * 1_000,
+            "0AKIA" * 12_000,
+        ]
+        for text in texts:
+            self.assertGreaterEqual(len(text), 50_000)
+            started = time.monotonic()
+            self.assertEqual(review.redact_sensitive(text), (text, 0), text[:40])
+            self.assertLess(time.monotonic() - started, 2.0, text[:40])
+
+
+# Pieces of a JWT's segments. They are base64url, which holds digits and
+# dashes, and so now and then the shape of an SSN, a card number or another
+# token. The digits are ASCII, as base64url's are.
+JWT_PIECES = st.one_of(
+    st.text(alphabet=string.ascii_letters + string.digits + "-_", min_size=1, max_size=10),
+    st.from_regex(r"[0-9]{3}-[0-9]{2}-[0-9]{4}", fullmatch=True),
+    st.sampled_from(TEST_CARDS),
+    st.sampled_from(TEST_CARDS).map(lambda number: "-".join(cut(number, 4))),
+    OTHER_TOKENS.map(lambda token: token[1]),
+)
+# A JWT of three segments made of those pieces, each with at least the 8
+# characters a segment needs.
+JWTS = st.lists(st.lists(JWT_PIECES, max_size=4).map(lambda pieces: "".join(pieces) + "FAKEFAKE"), min_size=3, max_size=3).map(
+    lambda segments: "eyJ{}.eyJ{}.{}".format(*segments)
+)
+# What comes right before a JWT, how it reads once redacted, and how many
+# markers it adds: a separator, or a number the JWT is stuck to.
+JWT_LEADS = SEPARATORS.map(lambda sep: (sep, sep, 0)) | NUMBERS.map(lambda number: (number[1], review.redaction_marker(number[0]), 1))
+# Google API keys of every ending. None holds a capital J, so no eyJ sits
+# inside one.
+GOOGLE_KEYS = st.text(alphabet=string.ascii_letters.replace("J", "") + string.digits + "_-", min_size=35, max_size=35).map(
+    lambda body: "AIza" + body
+)
+# JWTs whose segments hold small letters only, which no other pattern finds.
+PLAIN_JWTS = st.from_regex(r"eyJ[a-z]{8,30}\.eyJ[a-z]{8,30}\.[a-z]{8,30}", fullmatch=True)
+
+
+class JwtProperties(unittest.TestCase):
+    """A JWT goes whole in the first pass, whatever its segments hold and
+    whether a number or a Google API key comes right before it, and the
+    scan for one stays linear in long runs of base64url."""
+
+    @PBT
+    @given(SAFE_TEXT, JWT_LEADS, JWTS, SEPARATORS, SAFE_TEXT)
+    @example("", (" ", " ", 0), "eyJFAKEFAKE.eyJFAKE000-12-3456FAKE.FAKEFAKE", "\n", "")  # an SSN shape in the payload
+    @example("", (" ", " ", 0), "eyJFAKE4242424242424242FAKE.eyJFAKEFAKE.FAKEFAKE", "\n", "")  # a card number in the header
+    @example(
+        "ssn ", ("000-12-3456", review.redaction_marker("ssn"), 1), "eyJFAKE666-12-3456FAKE.eyJFAKEFAKE.7sk-" + "FAKE" * 8, " ", ""
+    )  # stuck to an SSN, with an SSN shape and an API key's shape inside
+    def test_a_jwt_goes_whole_in_the_first_pass_whatever_its_segments_hold(
+        self, before: str, lead: tuple[str, str, int], jwt: str, sep: str, after: str
+    ) -> None:
+        # The JWT becomes one marker, so no SSN, card number or token
+        # inside it is redacted on its own and leaves the rest of it
+        # visible. A number before it goes as its own marker, nothing
+        # around them changes, and a second pass finds nothing more.
+        text, shown, numbers = lead
+        out, count = review.redact_sensitive(before + text + jwt + sep + after)
+        self.assertEqual((out, count), (before + shown + review.redaction_marker("jwt") + sep + after, 1 + numbers))
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    @PBT
+    @given(SAFE_TEXT, SEPARATORS, GOOGLE_KEYS, PLAIN_JWTS, SEPARATORS, SAFE_TEXT)
+    @example("key", " ", "AIza" + "FAKE" * 8 + "FAK", "eyJfakefake.eyJfakefake.fakefake", "\n", "")  # the key ends in a letter
+    def test_a_jwt_stuck_to_a_google_api_key_goes_in_the_first_pass(
+        self, before: str, sep: str, key: str, jwt: str, sep_after: str, after: str
+    ) -> None:
+        # The key pattern takes the key at its fixed length, and the JWT
+        # starts right after the key's last character, which the first JWT
+        # pattern refuses when it is a letter or an underscore. Both go in
+        # the first pass, each as its own marker, nothing around them
+        # changes, and a second pass finds nothing more.
+        out, count = review.redact_sensitive(before + sep + key + jwt + sep_after + after)
+        expected = before + sep + review.redaction_marker("api key") + review.redaction_marker("jwt") + sep_after + after
+        self.assertEqual((out, count), (expected, 2))
+        self.assertEqual(review.redact_sensitive(out), (out, 0))
+
+    def test_long_base64url_runs_take_linear_time(self) -> None:
+        # Runs with an eyJ after every dash or digit, which a scan that
+        # tried a JWT from each of them would read again from each one (main
+        # did that after each dash), a run past a dot with a second segment
+        # and no third one, runs that each end in a dot, and the same after
+        # every ], where the second JWT pattern starts.
+        texts = [
+            "-eyJ" * 50_000,
+            "0eyJ" * 50_000,
+            "eyJ" + "a0-_" * 50_000,
+            "0eyJ" * 25_000 + ".eyJ" + "0eyJ" * 25_000,
+            ("0eyJ" * 2_000 + ".") * 25,
+            "]eyJ" * 50_000,
+            ("]eyJ" + "a" * 20 + ".eyJ" + "a" * 7 + "!") * 5_000,
+        ]
+        for text in texts:
+            started = time.monotonic()
+            self.assertEqual(review.redact_sensitive(text), (text, 0), text[:40])
+            self.assertLess(time.monotonic() - started, 2.0, text[:40])
+
+
 class DelimiterProperties(unittest.TestCase):
     @PBT
     @given(st.lists(st.sampled_from(["<", "</", "untrusted_", "UNTRUSTED_diff", ">", "x", " ", "​"])).map("".join))
@@ -2145,9 +2450,34 @@ class PromptTests(unittest.TestCase):
 
     def test_rules_and_agents_reach_the_system_prompt(self) -> None:
         request = self.build(make_pr(), FILES)
-        self.assertIn("No PII reaches any cloud LLM", request.system)
         self.assertIn("P1, must fix before merge", request.system)
         self.assertIn("Quality gates (non-negotiable)", request.system)
+
+    def test_real_data_rules_state_the_clarified_pii_policy(self) -> None:
+        """The clarified policy (owner decision, Oct 29) must be what the
+        reviewer actually reads: consented, no-retention voice and fax are
+        the only PII-to-API exceptions; voice consent covers transmitting
+        the user's PII audio and its transcript, but never vendor-side
+        retention; there is no LLM-specific PII ban; and the app's own
+        route handlers must not receive PII."""
+        request = self.build(make_pr(), FILES)
+        system = request.system
+        # The only two exceptions, and their twin conditions.
+        self.assertIn("No PII hits any API except a voice model and a fax API", system)
+        self.assertIn("must not retain any data", system)
+        self.assertIn("only with explicit user knowledge and consent", system)
+        self.assertIn("only exceptions to sending PII to APIs", system)
+        # Voice consent: transmission of PII audio + transcript, never retention.
+        self.assertIn("transmit the user's PII audio and its transcript", system)
+        self.assertIn("consent never covers vendor-side retention", system)
+        # No LLM-category ban: it is about destination, not model kind.
+        self.assertIn("no LLM-specific ban", system)
+        # The app's own endpoints never receive PII.
+        self.assertIn("route handlers must not receive PII", system)
+        self.assertIn("the server never becomes a relay for PII", system)
+        # The old blanket rule is superseded and must not come back.
+        self.assertNotIn("No PII reaches any cloud LLM", system)
+        self.assertNotIn("PII never reaches any cloud LLM", system)
 
     def test_missing_rules_file_falls_back_and_warns(self) -> None:
         warnings: list[str] = []

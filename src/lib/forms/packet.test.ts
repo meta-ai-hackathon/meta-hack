@@ -276,6 +276,7 @@ describe("fill bridge", () => {
         { fieldName: "b", provenance: "source_verified" as const },
       ],
       toResolve: [{ fieldName: "c", question: "Your income?", reason: "unknown" as const }],
+      conflicts: [],
     };
     const { provenance, missing } = provenanceFromFill(
       fill,
@@ -290,5 +291,47 @@ describe("fill bridge", () => {
     });
     expect(provenance[1]).toMatchObject({ fieldName: "b", source: "spec_answer" });
     expect(missing).toEqual([{ fieldName: "c", question: "Your income?" }]);
+  });
+
+  it("every box of a flagged conflict joins the still-needed rows, named for what it is", () => {
+    const fill = {
+      bytes: new Uint8Array(),
+      filled: [],
+      toResolve: [],
+      conflicts: [
+        {
+          kind: "yes_no" as const,
+          question: "Was Person 4 in foster care in this state when they turned 18?",
+          fields: ["foster_yes", "foster_no"],
+        },
+        {
+          kind: "single_choice" as const,
+          question: "Which renewal term?",
+          fields: ["term_1y"],
+        },
+      ],
+    };
+    const { missing } = provenanceFromFill(
+      fill,
+      () => "unrelated question",
+      () => "spec_answer",
+    );
+    expect(missing).toEqual([
+      {
+        fieldName: "foster_yes",
+        question:
+          "Was Person 4 in foster care in this state when they turned 18? (both Yes and No are checked — resolve before sending)",
+      },
+      {
+        fieldName: "foster_no",
+        question:
+          "Was Person 4 in foster care in this state when they turned 18? (both Yes and No are checked — resolve before sending)",
+      },
+      {
+        fieldName: "term_1y",
+        question:
+          "Which renewal term? (several boxes of one check-one group are checked — resolve before sending)",
+      },
+    ]);
   });
 });

@@ -137,4 +137,52 @@ describe("GET /api/forms/<formId>/review", () => {
     });
     expect(response.status).toBe(404);
   });
+
+  it("rides the full-form disposition report in the payload (VAL-FIX-007)", async () => {
+    const sessionId = await createSession();
+    const response = await GET(
+      reviewRequest("dhb-5200", `bn_session=${sessionId}`),
+      { params: Promise.resolve({ formId: "dhb-5200" }) },
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      coverage?: {
+        counts: Record<string, number>;
+        fields: {
+          fieldName: string;
+          question: string;
+          pages: number[];
+          disposition: string;
+          dispositionReason?: string;
+        }[];
+      };
+    };
+    // The complete honest arithmetic across all 21 pages: every one of the
+    // template's 571 named fields in exactly one disposition bucket.
+    const coverage = body.coverage!;
+    expect(coverage.counts).toEqual({
+      mapped: 355,
+      not_collected_by_interview: 164,
+      optional_unanswered: 29,
+      agency_use_only: 0,
+      duplicate_structural: 23,
+      total: 571,
+    });
+    expect(coverage.fields.length).toBe(571);
+    // Per-field rows carry registry data only — never a person value.
+    for (const row of coverage.fields) {
+      expect(Object.values(row)).not.toContain("Alex Rivera Demo");
+      if (row.disposition !== "mapped") {
+        expect(
+          (row.dispositionReason?.length ?? 0),
+          `row ${row.fieldName} lacks a reason`,
+        ).toBeGreaterThan(0);
+      }
+    }
+    // Pages 16-21 are in the report (part 3's scope, complete).
+    const pages = new Set(coverage.fields.flatMap((row) => row.pages));
+    for (const page of [16, 17, 18, 19, 20, 21]) {
+      expect(pages.has(page), `page ${page} in the report`).toBe(true);
+    }
+  });
 });

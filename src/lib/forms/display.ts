@@ -38,8 +38,12 @@ export function displayValueFor(
   if (raw === null || raw === undefined) {
     return null;
   }
-  if (field.type === "checkbox") {
+  if (field.type === "checkbox" || field.type === "radio") {
     // Boolean answers (jsonb boolean, or the vault's stringified form).
+    // Radio pairs (the yes/no widget groups) take the same checked/unchecked
+    // display as checkboxes: the fill selects the pair's discovered yes/no
+    // export value from it. Anything non-boolean renders null — the fill
+    // never guesses which box a non-boolean answer would check.
     if (raw === true || raw === "true") {
       return "checked";
     }

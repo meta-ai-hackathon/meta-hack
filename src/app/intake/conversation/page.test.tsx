@@ -17,6 +17,15 @@ function headingLevels(html: string): number[] {
 }
 
 describe("Conversation page shell", () => {
+  it("spans the product frame edge-to-edge (VAL-FIX-006)", () => {
+    const html = renderToStaticMarkup(<ConversationPage />);
+    // The Lovable prototype's product frame: edge-to-edge, no centered
+    // max-width column and no dead gutters — the stage grid and the
+    // bottom session deck carry the frame's own intentional paddings.
+    expect(html).not.toContain("max-w-[85rem]");
+    expect(html).toContain("w-full");
+  });
+
   it("renders exactly one h1 and mounts the chat shell", () => {
     const html = renderToStaticMarkup(<ConversationPage />);
     expect((html.match(/<h1[\s>]/g) ?? []).length).toBe(1);

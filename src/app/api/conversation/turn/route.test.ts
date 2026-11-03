@@ -21,9 +21,11 @@ import {
   PII_QUESTION_IDS_IN_SPEC,
   QUESTION_BY_ID,
 } from "../../../../lib/intake/spec";
+import type { IntakeClientState } from "../../../../lib/intake/client-state";
 import { SESSION_COOKIE } from "../../../../lib/intake/store";
 import { CONSENT_HEADER } from "../../../../lib/consent";
 import { GET as historyGet } from "../history/route";
+import { POST as postIntakeAnswer } from "../../intake/answer/route";
 import { POST } from "./route";
 
 // Conversation turn route tests (Mission v2 M1, VAL-CONV-001..007, 009):
@@ -130,6 +132,7 @@ function envelopeContent(step: ChatCallScript): string {
       ? { next_question_id: step.nextQuestionId }
       : {}),
     ...(step.followup ? { followup: step.followup } : {}),
+    ...(step.spokenReply ? { spoken_reply: step.spokenReply } : {}),
   });
 }
 
@@ -429,6 +432,39 @@ describe("POST /api/conversation/turn — extraction persistence (VAL-CONV-003)"
     expect(rows[0].provenance).toBe("user_supplied");
   });
 
+  it("skips a token-shaped extracted value without saving it (HACK-107 review)", async () => {
+    installScript([
+      {
+        extraction: JSON.stringify({
+          answers: [
+            {
+              question_id: "goal_detail",
+              status: "known",
+              value: "[GIVEN_NAME_1]",
+              verbatim: "[GIVEN_NAME_1]",
+            },
+            { question_id: "household_size", status: "known", value: 3 },
+          ],
+        }),
+        reply: "Got it.",
+      },
+    ]);
+    const response = await POST(turnRequest("There are three of us."));
+    expect(response.status).toBe(200);
+    // The token never lands as an answer value: the person's real answer to
+    // goal_detail stays unsaved (the reply discloses the loss honestly), and
+    // the sibling answer saves normally.
+    const goalRows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'goal_detail'
+    `;
+    expect(goalRows).toHaveLength(0);
+    const sizeRows = await testDb`
+      SELECT value FROM answer WHERE question_id = 'household_size'
+    `;
+    expect(sizeRows).toHaveLength(1);
+    expect(sizeRows[0].value).toBe(3);
+  });
+
   it("skips a malformed extracted answer without failing the turn", async () => {
     installScript([
       {
@@ -487,10 +523,80 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
       { questionId: "prior_employer_last_month", text: "I last got paid by that employer in June 2024", value: "June 2024", verbatim: "June 2024", vaultValue: "June 2024", wholeBodyCheck: true },
     ];
 
-    // The full population: exactly every pii:true question in the spec.
-    expect(fixtures.map((fixture) => fixture.questionId).sort()).toEqual(
-      [...PII_QUESTION_IDS_IN_SPEC].sort(),
-    );
+    // The work-questions' capture path: the quick-questions stage's own
+    // endpoint, POST /api/intake/answer — a server endpoint with no model
+    // in the loop — never a typed turn to the model: sensitive select
+    // answers do not ride the LLM extraction path (claude-review P1).
+    // Their fixtures drive that answer route and assert the same vault
+    // invariants.
+    type AnswerRouteFixture = {
+      questionId: string;
+      value: unknown;
+      vaultValue: string;
+    };
+    const answerRouteFixtures: AnswerRouteFixture[] = [
+      {
+        // "None of these apply" — any other selection would hide the
+        // reporting section (the two-section design), and the who fixture
+        // below needs it visible.
+        questionId: "wr_exempt_situations",
+        value: ["none"],
+        vaultValue: "none",
+      },
+      { questionId: "wr_pregnant", value: "no", vaultValue: "no" },
+      { questionId: "wr_drug_alcohol_treatment", value: "no", vaultValue: "no" },
+      { questionId: "wr_drug_alcohol_disorder", value: "no", vaultValue: "no" },
+      { questionId: "wr_disability_hard_work", value: "no", vaultValue: "no" },
+      { questionId: "wr_mental_health_hard_work", value: "no", vaultValue: "no" },
+      { questionId: "wr_serious_health_condition", value: "no", vaultValue: "no" },
+      { questionId: "wr_jail_prison_past_4_months", value: "no", vaultValue: "no" },
+      { questionId: "wr_foster_care_under_26", value: "no", vaultValue: "no" },
+      { questionId: "wr_veteran_100_disabled", value: "no", vaultValue: "no" },
+      {
+        questionId: "wr_applied_last_month_which",
+        value: ["caregiver_daily_activities"],
+        vaultValue: "caregiver_daily_activities",
+      },
+      {
+        // Answered AFTER the which follow-up: a "no" here hides that
+        // question (the which-situations skip), and its fixture above is
+        // already saved.
+        questionId: "wr_applied_last_month",
+        value: "no",
+        vaultValue: "no",
+      },
+      { questionId: "wr_medical_travel_1hr", value: "no", vaultValue: "no" },
+      { questionId: "wr_hospital_care_24hr", value: "no", vaultValue: "no" },
+      { questionId: "wr_work_activity_who", value: "Alex", vaultValue: "Alex" },
+      {
+        questionId: "wr_work_activity_types",
+        value: ["community_service"],
+        vaultValue: "community_service",
+      },
+      { questionId: "wr_work_activity_hours", value: 20, vaultValue: "20" },
+      {
+        questionId: "wr_student_enrolled",
+        value: "not_enrolled",
+        vaultValue: "not_enrolled",
+      },
+      {
+        // Last: a "yes" here hides the reporting section for the rest of
+        // the session (the income path), and the activity fixtures above
+        // are already saved.
+        questionId: "wr_income_580",
+        value: "yes",
+        vaultValue: "yes",
+      },
+    ];
+
+    // The full population: exactly every pii:true question in the spec —
+    // the talk path's fixtures plus the answer route's.
+    expect(
+      [
+        ...fixtures.map((fixture) => fixture.questionId),
+        ...answerRouteFixtures.map((fixture) => fixture.questionId),
+      ].sort(),
+    ).toEqual([...PII_QUESTION_IDS_IN_SPEC].sort());
 
     let cookie: string | undefined;
     for (const fixture of fixtures) {
@@ -591,6 +697,61 @@ describe("POST /api/conversation/turn — PII vault routing (VAL-CONV-004)", () 
           fixture.vaultValue.toLowerCase(),
         );
       }
+    }
+
+    // The answer route's own vault routing for the work-requirements
+    // questions: same invariants, the capture path with no model — the
+    // quick-questions stage's endpoint, never the model.
+    let answerCookie: string | undefined = cookie;
+    for (const fixture of answerRouteFixtures) {
+      const response = await postIntakeAnswer(
+        new Request("http://localhost:3100/api/intake/answer", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(answerCookie ? { cookie: answerCookie } : {}),
+          },
+          body: JSON.stringify({
+            questionId: fixture.questionId,
+            status: "known",
+            value: fixture.value,
+          }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      const setCookie = response.headers.get("set-cookie");
+      if (setCookie) {
+        answerCookie = setCookie.split(";")[0].trim();
+      }
+      // The intake answer route responds with the client state itself.
+      const data = (await response.json()) as IntakeClientState;
+
+      // The served state carries the status alone — structurally no value.
+      expect(data.answers[fixture.questionId]).toEqual({
+        status: "known",
+      });
+      expect(
+        Object.hasOwn(data.answers[fixture.questionId] ?? {}, "value"),
+      ).toBe(false);
+
+      // The answer row: value NULL, status known, provenance user_supplied.
+      const answerRows = await testDb`
+        SELECT value, status, provenance FROM answer
+        WHERE question_id = ${fixture.questionId}
+      `;
+      expect(answerRows).toHaveLength(1);
+      expect(answerRows[0].value).toBeNull();
+      expect(answerRows[0].status).toBe("known");
+      expect(answerRows[0].provenance).toBe("user_supplied");
+
+      // The vault holds the value — the same encrypted envelope.
+      const vaultRows = await testDb`
+        SELECT value FROM vault_entry WHERE field = ${fixture.questionId}
+      `;
+      expect(vaultRows).toHaveLength(1);
+      const storedValue = String(vaultRows[0].value);
+      expect(storedValue).not.toBe(fixture.vaultValue);
+      expect(storedValue).toMatch(/^enc1\./);
     }
 
     // One assistant turn per pii question, all clean.
@@ -1272,6 +1433,86 @@ describe("POST /api/conversation/turn — choice canonicalization (hardening 6)"
       SELECT value FROM answer WHERE question_id = 'main_goal'
     `;
     expect(mainGoal).toHaveLength(0);
+  });
+
+  it("never hands a token-bearing reply to the client or TTS (HACK-107 review)", async () => {
+    // Typed transcripts now carry Rampart tokens, so a model echoing a
+    // history token ("Thanks [GIVEN_NAME_1]") could previously pass every
+    // reply gate and be persisted — and then be TTS-served by the speak
+    // route. The token gate replaces such a reply with the honest fallback
+    // BEFORE persist, keeping the no-raw-token-to-TTS invariant for /
+    // api/conversation/speak as well as the display path.
+    installScript([
+      {
+        extraction: JSON.stringify({ answers: [] }),
+        reply: "Thanks [GIVEN_NAME_1] — what is your home ZIP code?",
+        nextQuestionId: "application_role",
+      },
+    ]);
+    const response = await POST(
+      turnRequest("My neighbor Carlos mentioned you."),
+    );
+    expect(response.status).toBe(200);
+    const data = (await response.json()) as TurnResponse;
+    expect(data.assistantReply).toBe(PII_ECHO_FALLBACK_REPLY);
+    expect(JSON.stringify(data)).not.toContain("GIVEN_NAME_1");
+    for (const transcript of await assistantTranscripts()) {
+      expect(transcript).not.toContain("[GIVEN_NAME_1]");
+    }
+  });
+
+  it("does not speak the envelope rendition when the display reply carries the loss disclosure (HACK-107 review)", async () => {
+    // Voice turn + one unmapped choice (loss) + one saved answer: the
+    // display reply is PARTIAL_SAVE_FALLBACK_PREFIX + the model's reply.
+    // The gated spoken rendition is a rendition of the envelope reply only,
+    // so speaking it would silently drop the honest loss disclosure the
+    // subtitle carries. The route must strip the spokenReply entirely; the
+    // client then renders the display text's tokens deterministically or
+    // fails closed to subtitles — the disclosure is heard either way.
+    installVoiceScript(
+      [
+        { transcript: "It is for myself." },
+        { transcript: "Zorp blorble quintessence." },
+      ],
+      [
+        {
+          extraction: JSON.stringify({
+            answers: [
+              { question_id: "application_role", status: "known", value: "self" },
+            ],
+          }),
+          reply: "Got it. What kind of help are you looking for right now?",
+          nextQuestionId: "main_goal",
+        },
+        {
+          extraction: JSON.stringify({
+            answers: [
+              { question_id: "application_role", status: "known", value: "self" },
+              {
+                question_id: "main_goal",
+                status: "known",
+                value: "martian vampire count",
+              },
+            ],
+          }),
+          reply: "One answer saved. What kind of help are you looking for right now?",
+          nextQuestionId: "main_goal",
+          spokenReply: "One answer was saved. What kind of help do you want?",
+        },
+      ],
+    );
+    const first = await POST(voiceRequest(SIXTEEN_K_MONO_WAV));
+    expect(first.status).toBe(200);
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0].trim();
+    const second = await POST(voiceRequest(SIXTEEN_K_MONO_WAV, cookie));
+    expect(second.status).toBe(200);
+    const data = (await second.json()) as TurnResponse & { spokenReply?: string };
+    expect(data.assistantReply).toBe(
+      `${PARTIAL_SAVE_FALLBACK_PREFIX} One answer saved. What kind of help are you looking for right now?`,
+    );
+    // The envelope carried a gate-clean spoken_reply, but the display reply
+    // is the loss-disclosure-prefixed variant — the rendition is stripped.
+    expect(data.spokenReply).toBeUndefined();
   });
 
   it("replaces the model reply with the honest re-ask when a skipped malformed answer left nothing saved", async () => {

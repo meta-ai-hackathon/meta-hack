@@ -1,4 +1,4 @@
-import type { AnswerStatus } from "../honesty";
+import type { AnswerProvenance, AnswerStatus } from "../honesty";
 import type { Question, SkipCondition } from "./spec";
 
 // Intake traversal engine (BN-09 / HACK-37): a pure function of stored
@@ -21,6 +21,13 @@ export interface StoredAnswer {
   readonly status: AnswerStatus;
   /** jsonb-decoded answer value; null/undefined when unknown or blank. */
   readonly value?: unknown;
+  /**
+   * Where the value came from (the honesty spine's vocabulary). Optional
+   * and absent on maps built without provenance (the device store's flow
+   * view); the server store carries it on every row. Never a PII concern —
+   * it is metadata about the answer's origin, not content.
+   */
+  readonly provenance?: AnswerProvenance;
 }
 
 export type AnswerMap = Readonly<Record<string, StoredAnswer | undefined>>;

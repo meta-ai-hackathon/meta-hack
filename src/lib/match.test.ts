@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { afterEach, describe, expect, it } from "vitest";
-import { findBannedClaims } from "./honesty";
+import { ANSWER_STATUS_LABELS, findBannedClaims } from "./honesty";
 import sampleEntryJson from "../../kb/entries/pilot-program-sample.json";
 import {
   KB_ENTRIES,
@@ -21,6 +21,7 @@ import {
   MATCH_FRAMING,
   MATCH_EXPLANATION_MAX_TOKENS,
   type MatchExplanation,
+  type MatchResponse,
   assertNoPiiValuesInMatch,
   buildMatchResponse,
   buildToResolve,
@@ -1173,6 +1174,752 @@ describe("assertNoPiiValuesInMatch", () => {
         },
       ),
       { numRuns: 40 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Number answers in the pii gate (HACK-121)
+// ---------------------------------------------------------------------------
+
+describe("number answers in the pii gate (HACK-121)", () => {
+  // Since #113 the work hours question is a private number question, and 0
+  // is one of its most common honest answers. The gate looked for an
+  // answer's digits anywhere in the payload, so it found "0" inside the
+  // retrieval dates (and "3" in the entry version) and failed the whole
+  // match with a 500. A number answer now counts only where it stands as
+  // its own number.
+  const NC_SESSION: AnswerMap = { state: { status: "known", value: "NC" } };
+
+  function withHours(value: unknown): AnswerMap {
+    return { ...NC_SESSION, wr_work_activity_hours: { status: "known", value } };
+  }
+
+  // The explanation stub: the given text, or the entry's own fact copy.
+  function explainWith(source: "facts" | "model", text?: string) {
+    return async (entry: KbEntry): Promise<MatchExplanation> => ({
+      text: text ?? composeFallbackExplanation(entry),
+      source,
+    });
+  }
+
+  async function ncMatch(answers: AnswerMap): Promise<MatchResponse> {
+    return buildMatchResponse(answers, {
+      explainer: explainWith("facts"),
+      explanationCache: new Map(),
+    });
+  }
+
+  function withReasonText(response: MatchResponse, text: string): MatchResponse {
+    const card = response.matches[0]!;
+    return {
+      ...response,
+      matches: [{ ...card, reasons: [{ ...card.reasons[0]!, text }] }],
+    };
+  }
+
+  it("keeps the match for a 0 or 1 work hours answer on both explanation paths", async () => {
+    for (const source of ["facts", "model"] as const) {
+      const clean = await buildMatchResponse(NC_SESSION, {
+        explainer: explainWith(source),
+        explanationCache: new Map(),
+      });
+      const card = clean.matches[0]!;
+      // 0 and 1, plus the card's own entry version and score: numbers the
+      // response computes itself, which the old check tripped on too.
+      for (const hours of [0, 1, card.entryVersion, card.score]) {
+        // A typed number, and the string the vault hands back to the route.
+        for (const stored of [hours, String(hours)]) {
+          const answers = withHours(stored);
+          const response = await buildMatchResponse(answers, {
+            explainer: explainWith(source),
+            explanationCache: new Map(),
+          });
+          expect(response.matches.map((match) => match.entryId)).toEqual([
+            "nc_medicaid",
+          ]);
+          expect(response.matches[0]!.explanation.source).toBe(source);
+          expect(
+            () => assertNoPiiValuesInMatch(response, answers),
+            `${source} build, hours ${JSON.stringify(stored)}`,
+          ).not.toThrow();
+        }
+      }
+    }
+  });
+
+  it("still bites when the hours answer appears as its own number", async () => {
+    const answers = withHours(0);
+    const clean = await ncMatch(answers);
+    expect(() =>
+      assertNoPiiValuesInMatch(
+        withReasonText(clean, "You reported 0 hours of work last month."),
+        answers,
+      ),
+    ).toThrow();
+    // A unit or a label joined on, or a trailing zero, still shows the
+    // answer.
+    for (const leak of ["0hrs of work", "a 0-hour week", "0/week", "hours:0", "0.0 hours"]) {
+      expect(
+        () =>
+          assertNoPiiValuesInMatch(
+            withReasonText(clean, `You reported ${leak} last month.`),
+            answers,
+          ),
+        leak,
+      ).toThrow();
+    }
+    // The same digit inside a date, an id, and longer numbers is not the
+    // answer.
+    expect(() =>
+      assertNoPiiValuesInMatch(
+        withReasonText(clean, "Retrieved 2026-10-30 for dhb-5200, 10 or 100 hours."),
+        answers,
+      ),
+    ).not.toThrow();
+  });
+
+  it("excuses a number only where the public copy shows it as its own number", async () => {
+    // The entry's sources say "retrieved 2026-10-30", so the old
+    // word-boundary excusal took 30 for public copy and let a leaked "30
+    // hours" through. 30 never stands alone in that copy, so the leak now
+    // throws, while 45 (the entry's "up to 45 days") is still excused like
+    // any other word of the public copy.
+    const clean = await ncMatch(NC_SESSION);
+    expect(() =>
+      assertNoPiiValuesInMatch(
+        withReasonText(clean, "You reported 30 hours of work last month."),
+        withHours(30),
+      ),
+    ).toThrow();
+    expect(() =>
+      assertNoPiiValuesInMatch(
+        withReasonText(clean, "You reported 45 hours of work last month."),
+        withHours(45),
+      ),
+    ).not.toThrow();
+  });
+
+  // A range, a ratio, or an id ("20-30 hours", "30/80", "v30", "hours-30",
+  // and the same with an en dash, a minus sign or an invisible joiner) has
+  // the shape of the dates and ids every response carries (2026-10-30,
+  // dhb-5200), so the token rule reads the answer there as part of a longer
+  // token. A model explanation is also read with the wider trigger, which
+  // catches them (HACK-124).
+  const INSIDE_LONGER_TOKEN: readonly ((value: string) => string)[] = [
+    (value) => `${value}-99 hours`,
+    (value) => `9-${value} hours`,
+    (value) => `${value}\u201399 hours`,
+    (value) => `9\u2212${value}`,
+    (value) => `${value}/80`,
+    (value) => `30/${value}`,
+    (value) => `v${value}`,
+    (value) => `hours-${value}`,
+    (value) => `id_${value}`,
+    (value) => `9\u200b${value}`,
+  ];
+
+  it("catches the hours answer inside a range, a ratio or an id in a model explanation (property, HACK-124)", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        numberAnswerArb,
+        fc.nat({ max: INSIDE_LONGER_TOKEN.length - 1 }),
+        async (value, shape) => {
+          const explanation = `Keep a record of ${INSIDE_LONGER_TOKEN[shape]!(value)} of work.`;
+          const hours: AnswerMap = {
+            wr_work_activity_hours: { status: "known", value },
+          };
+          // The gate: a model explanation carrying the shape throws, since
+          // the generated copy excuses nothing.
+          const response = generatedResponse(
+            ["Medicaid", "work", "form", "apply", "official", explanation, "hours"],
+            2,
+            5,
+            "2026-10-30",
+          );
+          expect(() => assertNoPiiValuesInMatch(response, hours)).toThrow();
+          // The degrade step mirrors it, so a built match never throws.
+          const answers = withHours(value);
+          const built = await buildMatchResponse(answers, {
+            explainer: explainWith("model", explanation),
+            explanationCache: new Map(),
+          });
+          expect(() => assertNoPiiValuesInMatch(built, answers)).not.toThrow();
+        },
+      ),
+      { numRuns: 150 },
+    );
+  });
+
+  it("swaps a model explanation with the answer in a range for the fact copy (HACK-124)", async () => {
+    // 387 appears nowhere in the NC entry's copy, so nothing excuses it.
+    const answers = withHours("387");
+    const built = await buildMatchResponse(answers, {
+      explainer: explainWith("model", "Many people report 300-387 hours a quarter."),
+      explanationCache: new Map(),
+    });
+    expect(built.matches[0]!.explanation.source).toBe("facts");
+    // A longer number that only contains the digits is not the answer.
+    const kept = await buildMatchResponse(withHours("30"), {
+      explainer: explainWith("model", "The program served 1,030 people and 17.30 is a rate."),
+      explanationCache: new Map(),
+    });
+    expect(kept.matches[0]!.explanation.source).toBe("model");
+  });
+
+  // A number answer the way String() and the vault write it: whole hours
+  // and tenths, from 0 up.
+  const numberAnswerArb: fc.Arbitrary<string> = fc.oneof(
+    fc.nat({ max: 400 }).map(String),
+    fc
+      .tuple(fc.nat({ max: 400 }), fc.integer({ min: 1, max: 9 }))
+      .map(([whole, tenth]) => `${whole}.${tenth}`),
+  );
+
+  // The value's digits inside a longer token: dates, times, ids, and
+  // longer numbers. None of these shows the value as its own number.
+  const EMBEDDED: readonly ((value: string, digit: number) => string)[] = [
+    (value) => `2026-${value}-30`,
+    (value) => `${value}-10-30`,
+    (value) => `2026-10-${value}`,
+    (value) => `10/${value}/2026`,
+    (value) => `${value}:30`,
+    (value) => `dhb-${value}`,
+    (value) => `dhb-${value}-ia`,
+    (value) => `wr_income_${value}`,
+    (value) => `travel_${value}hr`,
+    (value) => `v${value}`,
+    (value, digit) => `${digit}${value}`,
+    (value, digit) => `${value}${digit}`,
+    (value, digit) => `${value}.${digit}`,
+    (value, digit) => `${digit}.${value}`,
+    (value, digit) => `${digit},${value}`,
+  ];
+
+  // EMBEDDED from here on holds the value only inside a longer number, which
+  // no trigger reads as the answer. The shapes before it are dates and ids,
+  // which the wider model explanation trigger does read (HACK-124).
+  const FIRST_LONGER_NUMBER = 10;
+
+  function holdsDateOrId(pieces: readonly Piece[]): boolean {
+    return pieces.some(
+      (piece) => "embedded" in piece && piece.embedded < FIRST_LONGER_NUMBER,
+    );
+  }
+
+  // The value standing as its own number, the way a leak would print it.
+  const OWN_NUMBER: readonly ((value: string) => string)[] = [
+    (value) => value,
+    (value) => `${value} hours`,
+    (value) => `(${value})`,
+    (value) => `$${value}`,
+    (value) => `${value}.`,
+    (value) => `hours: ${value}`,
+    (value) => `"${value}"`,
+    (value) => `${value}%`,
+    (value) => `-${value}`,
+    (value) => `${value}, then`,
+    (value) => `first line\n${value}`,
+    // A unit glued on after the number.
+    (value) => `${value}h`,
+    (value) => `${value}hr`,
+    (value) => `${value}hrs`,
+    // A word joined on after it, and a label right before it.
+    (value) => `a ${value}-hour week`,
+    (value) => `${value}/week`,
+    (value) => `hours:${value}`,
+    // The same number with a trailing zero after its decimal point.
+    (value) => (value.includes(".") ? `${value}0` : `${value}.0`),
+    // Glued to a letter outside ASCII, behind a bidi mark or zero-width
+    // space, or before a superscript or a fraction. The trigger keeps its
+    // ASCII edges for these, so it never reads less than it did (claude-review
+    // P2 on PR #133).
+    (value) => `\u5de5\u4f5c${value}\u5c0f\u65f6`,
+    (value) => `word\u200b${value}`,
+    (value) => `hours\u200f${value}`,
+    (value) => `work\u200e${value}`,
+    (value) => `${value}\u00b2`,
+    (value) => `${value}\u00bd`,
+  ];
+
+  // Generated copy: plain words and embedded digits, rendered per value.
+  type Piece =
+    | { readonly word: string }
+    | { readonly embedded: number; readonly digit: number };
+  const copyArb: fc.Arbitrary<readonly Piece[]> = fc.array(
+    fc.oneof(
+      fc
+        .constantFrom("hours", "work", "official", "page", "apply", "Medicaid", "form")
+        .map((word): Piece => ({ word })),
+      fc
+        .record({
+          embedded: fc.nat({ max: EMBEDDED.length - 1 }),
+          // Never 0, so a digit after the value's decimal point is never
+          // a trailing zero: 20.0 is the same number as 20.
+          digit: fc.integer({ min: 1, max: 9 }),
+        })
+        .map((piece): Piece => piece),
+    ),
+    { maxLength: 5 },
+  );
+
+  function renderCopy(pieces: readonly Piece[], value: string): string {
+    return pieces
+      .map((piece) =>
+        "word" in piece
+          ? piece.word
+          : EMBEDDED[piece.embedded]!(value, piece.digit),
+      )
+      .join(" ");
+  }
+
+  // A response whose copy is all generated. Its entry id belongs to no KB
+  // entry, so no entry copy is excused, and the rest of the public copy
+  // (the framing, the status labels, a to-resolve prompt) has no digits.
+  function generatedResponse(
+    copy: readonly string[],
+    entryVersion: number,
+    score: number,
+    retrievedAt: string,
+  ): MatchResponse {
+    const source = {
+      entryId: "generated_entry",
+      entryTitle: copy[0]!,
+      entryVersion,
+      entryStatus: "active",
+      sourceUrl: "https://example.org/apply",
+      retrievedAt,
+    };
+    return {
+      matches: [
+        {
+          entryId: "generated_entry",
+          entryTitle: copy[0]!,
+          entryVersion,
+          score,
+          framing: MATCH_FRAMING,
+          reasons: [
+            { text: copy[1]!, questionId: "state", answerLabel: copy[2]!, source },
+          ],
+          requirements: [{ kind: "deadline", text: copy[3]!, source }],
+          links: [{ label: copy[4]!, url: "https://example.org/apply", source }],
+          explanation: { text: copy[5]!, source: "model" },
+          terms: [],
+        },
+      ],
+      toResolve: [
+        {
+          questionId: "main_goal",
+          prompt: QUESTION_BY_ID["main_goal"]!.prompt,
+          status: "unknown",
+          statusLabel: copy[6]!,
+        },
+      ],
+    };
+  }
+
+  it("throws exactly when a number answer appears as its own number (property)", () => {
+    fc.assert(
+      fc.property(
+        numberAnswerArb,
+        fc.array(copyArb, { minLength: 7, maxLength: 7 }),
+        fc.option(
+          fc.record({
+            field: fc.nat({ max: 6 }),
+            shape: fc.nat({ max: OWN_NUMBER.length - 1 }),
+          }),
+          { nil: undefined },
+        ),
+        fc.record({
+          versionIsValue: fc.boolean(),
+          scoreIsValue: fc.boolean(),
+          other: fc.nat({ max: 400 }),
+        }),
+        fc.date({
+          min: new Date("2000-01-01T00:00:00Z"),
+          max: new Date("2099-12-31T00:00:00Z"),
+          noInvalidDate: true,
+        }),
+        fc.boolean(),
+        (value, fields, leak, numbers, retrieved, typed) => {
+          const copy = fields.map((pieces) => renderCopy(pieces, value));
+          if (leak) {
+            copy[leak.field] = `${copy[leak.field]} ${OWN_NUMBER[leak.shape]!(value)}`;
+          }
+          // The card's version and score may equal the answer: they are
+          // numbers the response computes, never the answer itself.
+          const response = generatedResponse(
+            copy,
+            numbers.versionIsValue ? Number(value) : numbers.other,
+            numbers.scoreIsValue ? Number(value) : numbers.other,
+            retrieved.toISOString().slice(0, 10),
+          );
+          const answers: AnswerMap = {
+            wr_work_activity_hours: {
+              status: "known",
+              value: typed ? Number(value) : value,
+            },
+          };
+          const check = () => assertNoPiiValuesInMatch(response, answers);
+          // The model explanation (copy field 5) is also read with the wider
+          // trigger, so a date or id there carries the value too.
+          if (leak || holdsDateOrId(fields[5]!)) {
+            expect(check).toThrow();
+          } else {
+            expect(check).not.toThrow();
+          }
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
+
+  it("never fails the match over a number answer and any model explanation (property)", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        numberAnswerArb,
+        copyArb,
+        fc.option(fc.nat({ max: OWN_NUMBER.length - 1 }), { nil: undefined }),
+        fc.boolean(),
+        async (value, pieces, leak, typed) => {
+          const rendered = renderCopy(pieces, value);
+          const text =
+            leak === undefined ? rendered : `${rendered} ${OWN_NUMBER[leak]!(value)}`;
+          const answers = withHours(typed ? Number(value) : value);
+          const response = await buildMatchResponse(answers, {
+            explainer: explainWith("model", text),
+            explanationCache: new Map(),
+          });
+          // The build degrades any explanation the gate would reject, so a
+          // cached model explanation can never pin the session to a 500.
+          expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+          if (leak === undefined && !holdsDateOrId(pieces)) {
+            // Digits inside longer numbers keep the model copy. A date or id
+            // may not, since the wider trigger reads the value there unless
+            // the NC copy excuses it (HACK-124).
+            expect(response.matches[0]!.explanation.source).toBe("model");
+          }
+        },
+      ),
+      { numRuns: 150 },
+    );
+  });
+
+  it("does not excuse a number the copy only glues to a word, like 24-hour", async () => {
+    // The NC entry's Mecklenburg source note says "a 24-hour secure drop-off
+    // box", and 24 stands alone nowhere else in its copy. The excusal used
+    // the trigger's edges, which let a word glued on after the number still
+    // count, so it took that 24 for public copy and let a leaked "24 hours"
+    // through, and a model explanation that said "24 hours" kept its copy.
+    // The copy does say "page 1", so 1 is still excused on both paths.
+    const clean = await ncMatch(NC_SESSION);
+    expect(() =>
+      assertNoPiiValuesInMatch(
+        withReasonText(clean, "You reported 24 hours of work last month."),
+        withHours(24),
+      ),
+    ).toThrow();
+    expect(() =>
+      assertNoPiiValuesInMatch(
+        withReasonText(clean, "You reported 1 hour of work last month."),
+        withHours(1),
+      ),
+    ).not.toThrow();
+    for (const [hours, source] of [
+      [24, "facts"],
+      [1, "model"],
+    ] as const) {
+      const answers = withHours(hours);
+      const response = await buildMatchResponse(answers, {
+        explainer: explainWith("model", `Keep a record of ${hours} hours of work.`),
+        explanationCache: new Map(),
+      });
+      expect(response.matches[0]!.explanation.source, `hours ${hours}`).toBe(source);
+      expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
+    }
+  });
+
+  it("keeps the match for every number a shipped card or prompt shows", async () => {
+    // The trigger still reads a number with a word glued on, but the
+    // excusal needs the number on its own, so copy that showed a number
+    // only glued to a word, like "the 1st of the month" or "a 24-hour box",
+    // would fail the match for a session that answered that number
+    // (claude-review P2 on PR #132). So no shipped copy may show one. Every
+    // entry's card is built on its own for each answer its match signals
+    // take, and every to-resolve prompt in the spec stands alone, since
+    // copy shown together can only excuse more.
+    const responses: { readonly label: string; readonly response: MatchResponse }[] = [];
+    for (const entry of ALL_ENTRIES) {
+      for (const signal of entry.facts.match_signals?.items ?? []) {
+        // A signal with no values takes any answer, so every option shows
+        // its label. A question with no options echoes the answer itself,
+        // which is the person's own value, not shipped copy, so a word
+        // stands in for it.
+        const options = QUESTION_BY_ID[signal.questionId]?.options ?? [];
+        const values = signal.values?.length
+          ? signal.values
+          : options.length > 0
+            ? options.map((option) => option.value)
+            : ["any answer"];
+        for (const value of values) {
+          const response = await buildMatchResponse(known(signal.questionId, value), {
+            entries: [entry],
+            explainer: explainWith("facts"),
+            explanationCache: new Map(),
+          });
+          expect(response.matches.map((match) => match.entryId)).toEqual([entry.id]);
+          responses.push({ label: `${entry.id} for ${signal.questionId} ${value}`, response });
+        }
+      }
+    }
+    for (const question of Object.values(QUESTION_BY_ID)) {
+      responses.push({
+        label: `the ${question.id} prompt`,
+        response: {
+          matches: [],
+          toResolve: [
+            {
+              questionId: question.id,
+              prompt: question.prompt,
+              status: "unknown",
+              statusLabel: ANSWER_STATUS_LABELS.unknown,
+            },
+          ],
+        },
+      });
+    }
+    for (const { label, response } of responses) {
+      for (const hours of new Set(JSON.stringify(response).match(/\d+(?:\.\d+)?/g))) {
+        expect(
+          () =>
+            assertNoPiiValuesInMatch(response, {
+              wr_work_activity_hours: { status: "known", value: hours },
+            }),
+          `${label}, hours ${hours}`,
+        ).not.toThrow();
+      }
+    }
+  });
+
+  // Look-alikes that join like the ASCII separators: the hyphen, the
+  // non-breaking hyphen, the figure dash, the en dash, the minus sign, the
+  // small and fullwidth hyphen-minus, the fraction and division slashes,
+  // the fullwidth slash, the one-dot leader, the small and fullwidth full
+  // stops, the fullwidth low line, the small and fullwidth colons and
+  // commas, the soft hyphen, the zero-width space, the word joiner, and
+  // runs of them stacked ("24\u00ad-hour").
+  const UNICODE_JOINERS: readonly string[] = [
+    "\u2010",
+    "\u2011",
+    "\u2012",
+    "\u2013",
+    "\u2212",
+    "\ufe63",
+    "\uff0d",
+    "\u2044",
+    "\u2215",
+    "\uff0f",
+    "\u2024",
+    "\ufe52",
+    "\uff0e",
+    "\uff3f",
+    "\ufe55",
+    "\uff1a",
+    "\ufe50",
+    "\uff0c",
+    "\u00ad",
+    "\u200b",
+    "\u2060",
+    "\u00ad-",
+    "-\u200b",
+    "\u200b\u2060",
+  ];
+
+  // Letters, a mark and digits from outside ASCII: an accented letter, the
+  // ordinal indicator, a superscript two, a one half, an Arabic-Indic one,
+  // and a combining acute accent.
+  const UNICODE_TOKEN_CHARS: readonly string[] = [
+    "\u00e9",
+    "\u00ba",
+    "\u00b2",
+    "\u00bd",
+    "\u0661",
+    "\u0301",
+  ];
+
+  // The value glued to a letter or a word: an ordinal, a unit, a version
+  // suffix, or a label. The trigger reads each of these as the number (a
+  // leaked "0hrs" shows the answer), but none of them holds the number as a
+  // token of its own.
+  const GLUED: readonly ((value: string) => string)[] = [
+    (value) => `${value}st`,
+    (value) => `${value}nd`,
+    (value) => `${value}rd`,
+    (value) => `${value}th`,
+    (value) => `${value}h`,
+    (value) => `${value}hrs`,
+    (value) => `${value}-hour`,
+    (value) => `${value}/week`,
+    (value) => `${value}_hours`,
+    (value) => `${value}.x`,
+    (value) => `hours:${value}`,
+    // The same glue in characters copy pasted from an official page often
+    // carries: a Unicode hyphen, an en dash, a minus sign, a soft hyphen or
+    // a zero-width character where the ASCII hyphen would be, on either
+    // side, and a letter, a mark or a digit from outside ASCII, like the
+    // ordinal indicator Spanish copy prints after a 1, right before or
+    // after the value.
+    ...UNICODE_JOINERS.flatMap((joiner) => [
+      (value: string) => `${value}${joiner}hour`,
+      (value: string) => `9${joiner}${value}`,
+    ]),
+    ...UNICODE_TOKEN_CHARS.flatMap((char) => [
+      (value: string) => `${value}${char}`,
+      (value: string) => `${char}${value}`,
+    ]),
+  ];
+
+  // A copy that holds the value as a token of its own, which still excuses
+  // it: after a plain space or a no-break space, in parentheses, or before
+  // a closed em dash, which ends a clause rather than joining a word.
+  const OWN_TOKEN: readonly ((value: string) => string)[] = [
+    (value) => `page ${value}`,
+    (value) => `page\u00a0${value}`,
+    (value) => `(page ${value}).`,
+    (value) => `${value}\u2014then`,
+  ];
+
+  // Public copy that holds the value only inside longer tokens: plain words,
+  // the embedded shapes above, and at least one glued shape.
+  interface LongerTokenCopy {
+    readonly before: readonly Piece[];
+    readonly glued: readonly number[];
+    readonly after: readonly Piece[];
+  }
+  const longerTokenCopyArb: fc.Arbitrary<LongerTokenCopy> = fc.record({
+    before: copyArb,
+    glued: fc.array(fc.nat({ max: GLUED.length - 1 }), { minLength: 1, maxLength: 3 }),
+    after: copyArb,
+  });
+
+  function renderLongerTokenCopy(copy: LongerTokenCopy, value: string): string {
+    return [
+      renderCopy(copy.before, value),
+      ...copy.glued.map((shape) => GLUED[shape]!(value)),
+      renderCopy(copy.after, value),
+    ].join(" ");
+  }
+
+  // The sample entry with its first source note replaced. A card never
+  // renders a source note, but the note is part of the copy its model
+  // explanation is checked against, like the NC entry's "24-hour" note.
+  function sampleEntryWithNote(note: string): KbEntry {
+    const raw = structuredClone(sampleEntryJson);
+    raw.sources[0]!.supports = note;
+    return parseKbEntry(raw);
+  }
+
+  // The gate reads each to-resolve prompt as public copy.
+  function withPrompt(response: MatchResponse, prompt: string): MatchResponse {
+    return {
+      ...response,
+      toResolve: response.toResolve.map((item) => ({ ...item, prompt })),
+    };
+  }
+
+  it("never fails the match on copy that joins the number with a look-alike (property)", () => {
+    // Droid review on PR #133: the excusal read Unicode joiners but the
+    // trigger did not, so copy printing "1\u20132 weeks" with an en dash
+    // read as carrying a 1 that the excusal would not excuse, and the match
+    // threw for a session that answered 1. Both now share one set of edges,
+    // so a range or id in public copy is one token to each of them.
+    fc.assert(
+      fc.property(
+        numberAnswerArb,
+        fc.constantFrom(...UNICODE_JOINERS),
+        fc.boolean(),
+        (value, joiner, valueFirst) => {
+          const shape = valueFirst ? `${value}${joiner}9` : `9${joiner}${value}`;
+          const response = withPrompt(
+            generatedResponse(["Medicaid", "work", "form"], 2, 5, "2026-10-30"),
+            `It takes ${shape} weeks.`,
+          );
+          expect(() =>
+            assertNoPiiValuesInMatch(response, {
+              wr_work_activity_hours: { status: "known", value },
+            }),
+          ).not.toThrow();
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
+
+  it("never excuses a number the copy holds only inside a longer token (property)", async () => {
+    // Security review on PR #132: the excusal used the trigger's edges, so a
+    // copy that said "1st", "20h" or "3rd" counted as showing 1, 20 or 3,
+    // and an explanation that said the number on its own kept its model copy
+    // and passed the gate. A number the copy holds as a token of its own,
+    // like "page 1", is still excused. The edges read every script, so a
+    // non-breaking hyphen or an en dash glues the number like an ASCII
+    // hyphen does.
+    await fc.assert(
+      fc.asyncProperty(
+        numberAnswerArb,
+        longerTokenCopyArb,
+        copyArb,
+        fc.nat({ max: OWN_NUMBER.length - 1 }),
+        // Half the cases add the value as a token of its own.
+        fc.oneof(fc.constant(undefined), fc.nat({ max: OWN_TOKEN.length - 1 })),
+        fc.boolean(),
+        async (value, publicCopy, explanationPieces, leak, ownShape, typed) => {
+          const held = renderLongerTokenCopy(publicCopy, value);
+          const ownToken = ownShape !== undefined;
+          const copy = ownToken ? `${held} ${OWN_TOKEN[ownShape]!(value)}` : held;
+          const explanation =
+            `${renderCopy(explanationPieces, value)} ${OWN_NUMBER[leak]!(value)}`;
+          const hours: AnswerMap = {
+            wr_work_activity_hours: {
+              status: "known",
+              value: typed ? Number(value) : value,
+            },
+          };
+          // The swap step: the copy is the card entry's own, in a source
+          // note the card never renders.
+          const sessionAnswers: AnswerMap = {
+            housing_status: { status: "known", value: "shelter" },
+            ...hours,
+          };
+          const built = await buildMatchResponse(sessionAnswers, {
+            entries: [sampleEntryWithNote(copy)],
+            explainer: explainWith("model", explanation),
+            explanationCache: new Map(),
+          });
+          expect(built.matches[0]!.explanation.source).toBe(ownToken ? "model" : "facts");
+          if (!ownToken) {
+            expect(() => assertNoPiiValuesInMatch(built, sessionAnswers)).not.toThrow();
+          }
+          // The gate: the same copy as a to-resolve prompt, which the gate
+          // reads as public copy, and the model explanation carrying the
+          // number.
+          const response = withPrompt(
+            generatedResponse(
+              ["Medicaid", "work", "form", "apply", "official", explanation, "hours"],
+              2,
+              5,
+              "2026-10-30",
+            ),
+            copy,
+          );
+          const check = () => assertNoPiiValuesInMatch(response, hours);
+          if (ownToken) {
+            expect(check).not.toThrow();
+          } else {
+            expect(check).toThrow();
+          }
+        },
+      ),
+      { numRuns: 200 },
     );
   });
 });

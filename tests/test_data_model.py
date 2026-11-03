@@ -182,7 +182,13 @@ class DataModelSqlTests(unittest.TestCase):
             TEST_DB, f"INSERT INTO session (person_id) VALUES ('{person['id']}') RETURNING id"
         )[0]
         for status in ["known", "unknown", "unverified"]:
-            for provenance in ["user_supplied", "ai_drafted", "source_verified"]:
+            for provenance in [
+                "user_supplied",
+                "ai_drafted",
+                "source_verified",
+                "tax_return",
+                "user",
+            ]:
                 value = "null" if status == "unknown" else json.dumps({"answer": f"{status}/{provenance}"})
                 run_sql(
                     TEST_DB,

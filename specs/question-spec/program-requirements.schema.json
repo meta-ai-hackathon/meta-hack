@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Program question requirements",
+  "description": "The quick-questions milestone's program-requirements layer: a committed, reviewed decision listing which generic-question ids each program's application actually needs. The layer SELECTS from generic-questions.json — the single source of truth for question DEFINITIONS — it never defines questions of its own. Each program may also name committed form registries (kb/forms/*.json): the engine unions the registries' spec_question_id links into the program's required universe, so requirements grow with the forms as they are mapped.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "version", "default_programs", "programs"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "default_programs": {
+      "description": "The programs a session targets unless said otherwise — the honest counter's M is computed over their union.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_]*$" }
+    },
+    "programs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "form_registry_ids",
+          "required_question_ids",
+          "rationale"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "form_registry_ids": {
+            "description": "Committed form-registry entries (kb/forms/*.json) whose spec_question_id links join this program's required universe.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }
+          },
+          "required_question_ids": {
+            "description": "Question-spec ids this program's application asks. Every id must exist in generic-questions.json — the requirements layer selects, never defines.",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string" }
+          },
+          "rationale": {
+            "description": "The reviewed, honest reason for this list — what the application asks and what was deliberately left to the talk stage.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

@@ -5,6 +5,7 @@ import { PII_QUESTION_IDS_IN_SPEC, QUESTION_BY_ID } from "../intake/spec";
 import acroformEntryJson from "../../../kb/forms/sample-form-acroform.json";
 import flatEntryJson from "../../../kb/forms/sample-form-flat.json";
 import dhb5200EntryJson from "../../../kb/forms/dhb-5200.json";
+import dss8207EntryJson from "../../../kb/forms/dss-8207.json";
 
 // Form registry (Mission v2 M4 / HACK-74, BN-27 discipline): the reviewed,
 // committed description of every application form the pipeline can fill.
@@ -18,6 +19,48 @@ import dhb5200EntryJson from "../../../kb/forms/dhb-5200.json";
 // exact set of vault fields a form may read is reviewable in git.
 
 export type FormFieldKind = "text" | "checkbox" | "dropdown" | "radio" | "optionlist";
+
+/**
+ * Every field's explicit disposition (full-form mapping, VAL-FIX-007):
+ * "mapped" fields take a person answer (spec-mapped, or asked in the
+ * flow/review and sent with the fill request); every other disposition is
+ * an honest, reviewed reason the pipeline leaves the field blank.
+ */
+export type FormFieldDisposition =
+  | "mapped"
+  | "not_collected_by_interview"
+  | "optional_unanswered"
+  | "agency_use_only"
+  | "duplicate_structural";
+
+const DISPOSITIONS: readonly FormFieldDisposition[] = [
+  "mapped",
+  "not_collected_by_interview",
+  "optional_unanswered",
+  "agency_use_only",
+  "duplicate_structural",
+];
+
+/** A yes/no radio pair's discovered export values (the checked/unchecked states). */
+export interface RadioExportValues {
+  readonly yes: string;
+  readonly no: string;
+}
+
+/**
+ * Mutually exclusive checkbox group membership (full-form proof,
+ * VAL-FIX-007): kind "yes_no" marks one printed question's two independent
+ * Yes/No boxes; kind "single_choice" marks a check-one group (work status,
+ * pay frequency, renewal term). The fill-time consistency check flags a
+ * value set that checks two members of one group — it never silently picks
+ * a side.
+ */
+export type ConflictGroupKind = "yes_no" | "single_choice";
+
+export interface ConflictGroup {
+  readonly id: string;
+  readonly kind: ConflictGroupKind;
+}
 
 export interface AnswerBox {
   readonly page: number;
@@ -41,6 +84,22 @@ export interface FormRegistryField {
    * the form itself prints, so the person hands the agency a legible date.
    */
   readonly displayFormat?: string;
+  /** The field's reviewed disposition (every field carries exactly one). */
+  readonly disposition: FormFieldDisposition;
+  /**
+   * The honest per-field reason a non-mapped disposition leaves the field
+   * blank (required whenever disposition is not "mapped").
+   */
+  readonly dispositionReason?: string;
+  /**
+   * A mapped checkbox's on-state export value (the "true" side) as
+   * discovered in the template.
+   */
+  readonly exportValue?: string;
+  /** A mapped yes/no radio pair's discovered export values. */
+  readonly exportValues?: RadioExportValues;
+  /** The mapped checkbox's mutually exclusive group, when it has one. */
+  readonly conflictGroup?: ConflictGroup;
   /** Identity-like data: value is sensitive-by-default (omitted from client views). */
   readonly piiLikely: boolean;
   readonly required: boolean;
@@ -143,6 +202,73 @@ function parseEntry(raw: unknown): FormRegistryEntry {
     ) {
       throw registryError(`entry.fields[${index}].display_format must be a non-empty string`);
     }
+    const disposition = item.disposition;
+    if (
+      typeof disposition !== "string" ||
+      !DISPOSITIONS.includes(disposition as FormFieldDisposition)
+    ) {
+      throw registryError(`entry.fields[${index}].disposition is not a disposition`);
+    }
+    const dispositionReason = item.disposition_reason;
+    if (
+      dispositionReason !== undefined &&
+      dispositionReason !== null &&
+      (typeof dispositionReason !== "string" || dispositionReason.trim() === "")
+    ) {
+      throw registryError(
+        `entry.fields[${index}].disposition_reason must be a non-empty string`,
+      );
+    }
+    if (disposition !== "mapped" && typeof dispositionReason !== "string") {
+      // A non-mapped disposition without its reason is not reviewable —
+      // the whole point of the disposition is the honest why.
+      throw registryError(
+        `entry.fields[${index}] carries disposition ${disposition} without a disposition_reason`,
+      );
+    }
+    const exportValue = item.export_value;
+    if (
+      exportValue !== undefined &&
+      exportValue !== null &&
+      (typeof exportValue !== "string" || exportValue.trim() === "")
+    ) {
+      throw registryError(`entry.fields[${index}].export_value must be a non-empty string`);
+    }
+    const exportValuesRaw = item.export_values;
+    let exportValues: RadioExportValues | undefined;
+    if (exportValuesRaw !== undefined && exportValuesRaw !== null) {
+      if (
+        !isRecord(exportValuesRaw) ||
+        typeof exportValuesRaw.yes !== "string" ||
+        exportValuesRaw.yes.trim() === "" ||
+        typeof exportValuesRaw.no !== "string" ||
+        exportValuesRaw.no.trim() === ""
+      ) {
+        throw registryError(
+          `entry.fields[${index}].export_values must carry non-empty yes/no export values`,
+        );
+      }
+      exportValues = { yes: exportValuesRaw.yes, no: exportValuesRaw.no };
+    }
+    const conflictGroupRaw = item.conflict_group;
+    let conflictGroup: ConflictGroup | undefined;
+    if (conflictGroupRaw !== undefined && conflictGroupRaw !== null) {
+      if (
+        !isRecord(conflictGroupRaw) ||
+        typeof conflictGroupRaw.id !== "string" ||
+        conflictGroupRaw.id.trim() === "" ||
+        (conflictGroupRaw.kind !== "yes_no" &&
+          conflictGroupRaw.kind !== "single_choice")
+      ) {
+        throw registryError(
+          `entry.fields[${index}].conflict_group must carry a non-empty id and kind (yes_no | single_choice)`,
+        );
+      }
+      conflictGroup = {
+        id: conflictGroupRaw.id,
+        kind: conflictGroupRaw.kind as ConflictGroupKind,
+      };
+    }
     const pages = item.pages;
     if (
       !Array.isArray(pages) ||
@@ -177,6 +303,15 @@ function parseEntry(raw: unknown): FormRegistryEntry {
         ? { displayFormat: displayFormat.trim() }
         : {}),
       ...(answerBox ? { answerBox } : {}),
+      disposition: disposition as FormFieldDisposition,
+      ...(typeof dispositionReason === "string" && dispositionReason.trim() !== ""
+        ? { dispositionReason: dispositionReason.trim() }
+        : {}),
+      ...(typeof exportValue === "string" && exportValue.trim() !== ""
+        ? { exportValue: exportValue.trim() }
+        : {}),
+      ...(exportValues ? { exportValues } : {}),
+      ...(conflictGroup ? { conflictGroup } : {}),
     };
   });
   return {
@@ -230,6 +365,12 @@ const COMMITTED_ENTRIES: readonly FormRegistryEntry[] = [
   // registry subset is re-verified field-by-field against the committed
   // bytes by the dhb5200-registry test suite.
   assertEntryConsistent(parseEntry(dhb5200EntryJson)),
+  // The second real form (the DSS-8207 milestone): the official DSS-8207 FNS
+  // application entry, same BN-27 discipline — the review/fill/packet
+  // machinery is form-agnostic and serves it unchanged. Its registry
+  // subset is re-verified against the committed bytes by the dss8207
+  // test suite.
+  assertEntryConsistent(parseEntry(dss8207EntryJson)),
 ];
 
 /** Every committed registry entry, in load order. */

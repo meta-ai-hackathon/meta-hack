@@ -59,7 +59,20 @@ export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
   // "documents proving residency status" instead). Lexical backstops are
   // over/under-inclusive at the margins by nature; the grounding checker
   // carries the load for explanation prose.
-  /(?<!\b(?:if|whether|once|when|until|unless)\s+)\b(?:you|he|she|they)\s*(?:(?:will|'ll|'ve|have|shall|should|do|did|don't|doesn't|didn't|won't|haven't|hasn't|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?(?:meets?|met|satisfied|satisfies|satisfy)\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+|of\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|disability|citizenship|application)\w*\s+)*(?:rules?|requirements?|criteria|guidelines?|limits?|thresholds?|conditions?|standards?)\b/i,
+  /(?<!\b(?:if|whether|once|when|until|unless)\s+)\b(?:you|he|she|they)\s*(?:(?:will|'ll|'ve|have|shall|should|do|did|don't|doesn't|didn't|won't|haven't|hasn't|definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily)\s+(?:not\s+)?)?(?:meets?|met|satisfied|satisfies|satisfy)\s+(?:all\s+|any\s+|every\s+|each\s+|some\s+|the\s+|these\s+|those\s+|your\s+|its\s+|their\s+|of\s+)*(?:(?:income|program|program's|eligibility|asset|resource|residency|household|immigration|document|disability|citizenship|application|work)\w*\s+)*(?:rules?|requirements?|criteria|guidelines?|limits?|thresholds?|conditions?|standards?)\b/i,
+  // Work-requirements exemption determinations (VAL-WR-009; the milestone's
+  // HARD LINE): the app helps people REPORT — it never states or implies
+  // anyone IS exempt from a work requirement; the state decides. Assertive
+  // and negated determinations ban alike: a "not exempt" verdict decides
+  // as much as an affirmative one. Hedged forms ("may be exempt") stay
+  // allowed, like every determination above.
+  /\byou\s*(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|always)\s+)?(?:will|'ll|shall|must|should|are|'re)\s+(?:not\s+)?(?:going\s+to\s+)?(?:be\s+)?(?:(?:definitely|certainly|clearly|absolutely|fully|obviously|undoubtedly|easily|always)\s+)?(?:not\s+)?(?:be\s+)?exempt\b/i,
+  // "No need to report" determinations (VAL-WR-009): the app never tells a
+  // person they don't need to report work activities. The permitted framing
+  // is the HEDGED one — "you may not need to report work activities — the
+  // state decides" — so definite do-not / will-not forms bite and may/might
+  // hedges pass.
+  /\byou\s+(?:do\s+not|don't|don’t|will\s+not|won't|won’t)\s+(?:even\s+|have\s+to\s+)?need\s+to\s+report\b/i,
   // Renewal-time promises (HACK-50 renewal tracker). Telling the person
   // their coverage carries on past a renewal is an outcome promise like an
   // approval promise, in any tense. Shared rules for the six patterns
@@ -226,6 +239,44 @@ export function isAnswerStatus(value: unknown): value is AnswerStatus {
   return (
     typeof value === "string" &&
     (ANSWER_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Answer provenance vocabulary
+// ---------------------------------------------------------------------------
+
+/**
+ * Where an answer's value came from — mirrors the answer table's CHECK
+ * constraint exactly (migrations/0001_core.sql as extended by
+ * migrations/0004_tax_return_provenance.sql). Lives on the honesty spine so
+ * both server modules (the store) and browser-safe modules (the flow
+ * engine, the client-state builder) can share one vocabulary:
+ *
+ * - `user_supplied` — the person typed or spoke it (wizard, quick
+ *   questions, conversation).
+ * - `ai_drafted` — a genuine AI inference, always status `unverified`.
+ * - `source_verified` — checked against an official source.
+ * - `tax_return` — a parser proposal the person confirmed on the income
+ *   stage ("From your tax return"). Pairs only with status `known`.
+ * - `user` — a person-corrected/entered value through the income stage's
+ *   paths (the manual card, or correcting a proposal). Pairs only with
+ *   status `known`.
+ */
+export const ANSWER_PROVENANCES = [
+  "user_supplied",
+  "ai_drafted",
+  "source_verified",
+  "tax_return",
+  "user",
+] as const;
+
+export type AnswerProvenance = (typeof ANSWER_PROVENANCES)[number];
+
+export function isAnswerProvenance(value: unknown): value is AnswerProvenance {
+  return (
+    typeof value === "string" &&
+    (ANSWER_PROVENANCES as readonly string[]).includes(value)
   );
 }
 

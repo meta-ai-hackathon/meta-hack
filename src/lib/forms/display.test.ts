@@ -19,6 +19,7 @@ function fieldWithFormat(displayFormat?: string): FormRegistryField {
     piiLikely: true,
     required: true,
     pages: [3],
+    disposition: "mapped",
   };
 }
 
@@ -59,5 +60,42 @@ describe("displayValueFor display_format", () => {
       ),
       { numRuns: 100 },
     );
+  });
+});
+
+describe("displayValueFor yes/no widget pairs (full-form mapping part 1)", () => {
+  // The DHB-5200's yes/no pairs are radio GROUPS (two kid widgets with
+  // Yes_x/No_x export values). A boolean answer must render the same
+  // checked/unchecked display a checkbox gets, so the fill can select the
+  // right export value (the checked/unchecked semantics, not the raw
+  // boolean's string form).
+  const radioField: FormRegistryField = {
+    name: "a sample yes/no question pair",
+    type: "radio",
+    label: "a sample yes/no question pair",
+    question: "A sample yes/no question pair?",
+    specQuestionId: null,
+    piiLikely: true,
+    required: false,
+    pages: [4],
+    disposition: "not_collected_by_interview",
+    dispositionReason:
+      "Display-shape fixture for the radio checked/unchecked mapping.",
+  };
+
+  it("renders boolean answers as checked/unchecked for radio fields", () => {
+    expect(displayValueFor(radioField, true)).toBe("checked");
+    expect(displayValueFor(radioField, false)).toBe("unchecked");
+  });
+
+  it("renders the vault's stringified booleans too", () => {
+    expect(displayValueFor(radioField, "true")).toBe("checked");
+    expect(displayValueFor(radioField, "false")).toBe("unchecked");
+  });
+
+  it("returns null for anything that is not a boolean", () => {
+    expect(displayValueFor(radioField, "maybe")).toBeNull();
+    expect(displayValueFor(radioField, 1)).toBeNull();
+    expect(displayValueFor(radioField, null)).toBeNull();
   });
 });

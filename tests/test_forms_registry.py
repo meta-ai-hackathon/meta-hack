@@ -36,6 +36,14 @@ REAL_FORM_SHA256 = (
     "19e1e39f6150c8b823bc25e8732649e5d55bc9602c5b5a4e4a4dc7edc19232e0"
 )
 
+# The second real form (snap-form milestone, Nov 2026): the DSS-8207
+# "Application for Food and Nutrition Services" as published by NC DHHS,
+# retrieved 2026-11-01 from the official policies.ncdhhs.gov link. Same
+# discipline: the sha256 pins the committed fixture to the retrieved bytes.
+REAL_SNAP_FORM_SHA256 = (
+    "5d8f5624b1189a546ae55b5b43d4f93aa14b0adc430c40e9ea6b5e6fc9bbe1bf"
+)
+
 PROGRAM_NAME_BLOCKLIST = [
     # Benefit programs (the same list the KB surface enforces).
     "SNAP",
@@ -130,14 +138,17 @@ class TestRegistrySchemaAndEntries(unittest.TestCase):
     def test_schema_is_valid_draft07(self):
         Draft7Validator.check_schema(self.schema)
 
-    def test_exactly_two_samples_and_the_real_form_ship(self):
+    def test_exactly_two_samples_and_the_two_real_forms_ship(self):
         # Mission v2.1 M6: the two synthetic samples (M4 fixtures) plus the
         # REAL pilot registry entry (HACK-16 Done: the NC Medicaid DHB-5200,
+        # official_source origin) and the second real form (snap-form
+        # milestone: the DSS-8207 Food and Nutrition Services application,
         # official_source origin).
         self.assertEqual(
             sorted(self.entries),
             [
                 "dhb-5200.json",
+                "dss-8207.json",
                 "sample-form-acroform.json",
                 "sample-form-flat.json",
             ],
@@ -283,6 +294,22 @@ class TestPilotSurfaces(unittest.TestCase):
         )
         self.assertRegex(entry["source"]["retrieved_at"], ISO_DATE_RE)
 
+    def test_snap_entry_declares_official_provenance(self):
+        # The second real form (snap-form milestone): same BN-27 discipline —
+        # official NC DHHS URL, the retrieval date, and the revision the form
+        # itself prints (10/2024, recorded in the title/source).
+        entry = self.entries["dss-8207.json"]
+        self.assertEqual(
+            entry["program"], "NC Food and Nutrition Services (SNAP)"
+        )
+        self.assertEqual(entry["source"]["origin"], "official_source")
+        self.assertEqual(
+            entry["source"]["url"],
+            "https://policies.ncdhhs.gov/wp-content/uploads/DSS-8207-FNS-App_10.2024.pdf",
+        )
+        self.assertEqual(entry["source"]["retrieved_at"], "2026-11-01")
+        self.assertIn("DSS-8207", entry["title"])
+
     def test_no_real_program_names_outside_sanctioned_entries(self):
         # Text surface: the registry entries + schema + the forms module code.
         sanctioned = self.sanctioned_entry_names()
@@ -326,19 +353,94 @@ class TestPilotSurfaces(unittest.TestCase):
                     )
 
     def test_real_form_fixture_is_pinned_to_the_retrieved_bytes(self):
-        # The real form's content streams ARE the state's own words — the
-        # name-free scan does not apply to it. Its integrity is pinned by
-        # the sha256 of the 2026-10-30 retrieval instead.
-        path = REPO_ROOT / self.entries["dhb-5200.json"]["pdf_path"]
-        self.assertTrue(path.is_file(), f"missing real-form fixture {path}")
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        self.assertEqual(
-            digest,
-            REAL_FORM_SHA256,
-            "the committed DHB-5200 fixture is not the bytes retrieved "
-            "2026-10-30 — re-retrieve, re-verify the registry entry, and "
-            "re-pin the hash",
-        )
+        # The real forms' content streams ARE the state's own words — the
+        # name-free scan does not apply to them. Their integrity is pinned by
+        # the sha256 of each retrieval instead (DHB-5200: 2026-10-30;
+        # DSS-8207: 2026-11-01).
+        pins = {
+            "dhb-5200.json": (
+                REAL_FORM_SHA256,
+                "the committed DHB-5200 fixture is not the bytes retrieved "
+                "2026-10-30 — re-retrieve, re-verify the registry entry, and "
+                "re-pin the hash",
+            ),
+            "dss-8207.json": (
+                REAL_SNAP_FORM_SHA256,
+                "the committed DSS-8207 fixture is not the bytes retrieved "
+                "2026-11-01 — re-retrieve, re-verify the registry entry, and "
+                "re-pin the hash",
+            ),
+        }
+        for entry_name, (expected, message) in pins.items():
+            path = REPO_ROOT / self.entries[entry_name]["pdf_path"]
+            self.assertTrue(path.is_file(), f"missing real-form fixture {path}")
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            self.assertEqual(digest, expected, message)
+
+
+class TestConflictGroups(unittest.TestCase):
+    """Fill-time conflict-group data (full-form proof, VAL-FIX-007): the
+    reviewed conflict_group annotations mark the mutually exclusive checkbox
+    groups — independent Yes/No pairs and check-one groups — the fill flags
+    when a value set checks two members of one group (flag, never silently
+    pick a side). The schema validates the shape; these checks pin the
+    data discipline."""
+
+    def setUp(self) -> None:
+        self.entries = load_entries()
+
+    def test_members_are_mapped_checkboxes(self):
+        for name, entry in self.entries.items():
+            for field in entry["fields"]:
+                if field.get("conflict_group") is None:
+                    continue
+                self.assertEqual(
+                    field["disposition"],
+                    "mapped",
+                    f"{name}: {field['name']} joins a conflict group but is "
+                    "not mapped (a dispositioned field is never filled, so "
+                    "it can never contradict anything)",
+                )
+                self.assertEqual(
+                    field["type"],
+                    "checkbox",
+                    f"{name}: {field['name']} joins a conflict group but is "
+                    "not a checkbox (radio groups are exclusive by "
+                    "structure; text fields take no checked state)",
+                )
+
+    def test_group_ids_are_kind_consistent_and_groups_complete(self):
+        for name, entry in self.entries.items():
+            kinds: dict[str, str] = {}
+            for field in entry["fields"]:
+                group = field.get("conflict_group")
+                if group is None:
+                    continue
+                previous = kinds.setdefault(group["id"], group["kind"])
+                self.assertEqual(
+                    group["kind"],
+                    previous,
+                    f"{name}: conflict group {group['id']} mixes kinds",
+                )
+            members: dict[str, list[str]] = {}
+            for field in entry["fields"]:
+                group = field.get("conflict_group")
+                if group is not None:
+                    members.setdefault(group["id"], []).append(field["name"])
+            for group_id, kind in kinds.items():
+                self.assertGreaterEqual(
+                    len(members[group_id]),
+                    2,
+                    f"{name}: conflict group {group_id} has fewer than two "
+                    "members - nothing to conflict",
+                )
+                if kind == "yes_no":
+                    self.assertEqual(
+                        len(members[group_id]),
+                        2,
+                        f"{name}: yes/no group {group_id} must be exactly "
+                        "the question's two sides",
+                    )
 
 
 if __name__ == "__main__":

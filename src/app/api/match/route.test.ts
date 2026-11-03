@@ -460,3 +460,84 @@ describe("match consent gate (Mission v2.1 M5, VAL-CONSENT-001)", () => {
     expect(body.matches[0]!.explanation.source).toBe("model");
   });
 });
+
+// ---------------------------------------------------------------------------
+// HACK-121: since #113 the work hours question is a private number
+// question. The pii gate found the digits of a short answer like 0 inside
+// the response's dates and turned the whole match into a 500, so the
+// conversation page showed the match as unavailable.
+// ---------------------------------------------------------------------------
+
+describe("a 0 or 1 work hours answer (HACK-121)", () => {
+  async function hoursSession(hours: number): Promise<string> {
+    const personRows = await testDb`
+      INSERT INTO person DEFAULT VALUES RETURNING id
+    `;
+    const sessionRows = await testDb`
+      INSERT INTO session (person_id, caseworker_assisted, status)
+      VALUES (${String(personRows[0].id)}, false, 'draft') RETURNING id
+    `;
+    const id = String(sessionRows[0].id);
+    await saveAnswer(id, "state", "known", "NC", "user_supplied");
+    await saveAnswer(id, "wr_work_activity_hours", "known", hours, "user_supplied");
+    return id;
+  }
+
+  it("returns the match without AI consent", async () => {
+    for (const hours of [0, 1]) {
+      const response = await GET(matchRequest("GET", null, await hoursSession(hours)));
+      expect(response.status, `hours ${hours}`).toBe(200);
+      const body = await bodyOf(response);
+      expect(body.matches.map((card) => card.entryId)).toEqual(["nc_medicaid"]);
+      expect(body.matches[0]!.explanation.source).toBe("facts");
+    }
+  });
+
+  it("returns the match with the consented model explanation", async () => {
+    resetModuleExplanationCache();
+    const savedKey = process.env.MODEL_API_KEY;
+    process.env.MODEL_API_KEY = "sentinel-test-key-never-log";
+    // The scripted reply quotes the prompted entry's own facts, like the
+    // consented happy path above.
+    setModelTransport(async (_url, init) => {
+      const entryId = /knowledge-base entry (\S+) version \d+/.exec(String(init.body))?.[1];
+      const entry = KB_ENTRIES.find((candidate) => candidate.id === entryId);
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl-test",
+          model: "muse-spark-1.3",
+          choices: [
+            {
+              index: 0,
+              finish_reason: "stop",
+              message: {
+                role: "assistant",
+                content: entry ? composeFallbackExplanation(entry) : "",
+              },
+            },
+          ],
+          usage: { prompt_tokens: 20, completion_tokens: 30, total_tokens: 50 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    try {
+      for (const hours of [0, 1]) {
+        const response = await GET(
+          matchRequest("GET", CONSENTED_AI, await hoursSession(hours)),
+        );
+        expect(response.status, `hours ${hours}`).toBe(200);
+        const body = await bodyOf(response);
+        expect(body.matches.map((card) => card.entryId)).toEqual(["nc_medicaid"]);
+        expect(body.matches[0]!.explanation.source).toBe("model");
+      }
+    } finally {
+      setModelTransport(undefined);
+      if (savedKey === undefined) {
+        delete process.env.MODEL_API_KEY;
+      } else {
+        process.env.MODEL_API_KEY = savedKey;
+      }
+    }
+  });
+});

@@ -1,6 +1,8 @@
-import { PILOT_CONFIG } from "../../../../../lib/pilot";
+import { PILOT_CONFIG, pilotApplicationForForm } from "../../../../../lib/pilot";
 import { getFormRegistryEntry } from "../../../../../lib/forms/registry";
 import { buildFormFlow, FORM_SESSION_TRANSITIONS } from "../../../../../lib/forms/flow";
+import { buildDispositionReport } from "../../../../../lib/forms/disposition";
+import { assertNoPiiValuesInFormReview } from "../../../../../lib/forms/review-pii";
 import { conversationErrorResponse } from "../../../../../lib/conversation";
 import {
   loadAnswerRecords,
@@ -51,8 +53,23 @@ export async function GET(
         ),
       );
       const view = buildFormFlow(entry, answers, provenances);
+      // Defense in depth before anything leaves for the client: a pii
+      // value never reaches the review payload (the flow view omits it
+      // structurally; this check throws loudly if that ever changes).
+      // The still-needed questions and the handoff steps serialize
+      // alongside the fields — they join the needle haystack too.
+      assertNoPiiValuesInFormReview(view.fields, answers, entry, [
+        view.toResolve,
+        HANDOFF_STEPS,
+      ]);
       const sessionState = await loadSessionState(sessionId);
       logInfo("form_review_loaded");
+
+      // The per-form program identity (pilot seam): the pilot's primary
+      // program for its own form; the additional applications (ask-once
+      // reuse) carry theirs. Forms outside the pilot's programs (the
+      // sample fixtures) fall back to the pilot's identity.
+      const application = pilotApplicationForForm(entry.id);
 
       return Response.json({
         hasSession: true,
@@ -63,12 +80,19 @@ export async function GET(
           sourceUrl: entry.source.url,
           retrievedAt: entry.source.retrievedAt,
         },
+        programName: application?.programName ?? PILOT_CONFIG.programName,
+        countyName: PILOT_CONFIG.countyName,
         fields: view.fields,
         toResolve: view.toResolve,
         counts: view.counts,
+        // The full-form disposition report (VAL-FIX-007): every field on
+        // the template, mapped or carrying its reviewed blank-reason, so
+        // nothing is silently unmapped. Registry data only — field names,
+        // printed labels' questions, and dispositions; no person values.
+        coverage: buildDispositionReport(entry),
         sessionStatus: sessionState?.status ?? "draft",
         allowedSessionTransitions: FORM_SESSION_TRANSITIONS,
-        portalLinks: PILOT_CONFIG.portalLinks,
+        portalLinks: application?.portalLinks ?? PILOT_CONFIG.portalLinks,
         steps: HANDOFF_STEPS,
       });
     } catch (error) {

@@ -9,6 +9,7 @@ import {
   DEVICE_ANSWERS_CRYPTO_KEY_KEY,
   DEVICE_ANSWERS_ENVELOPE_KEY,
   type DeviceAnswerStoreOpen,
+  isSealingKey,
 } from "./device-answer-store";
 import {
   DEVICE_INTAKE_COPY,
@@ -372,10 +373,15 @@ describe("a save that fails mid-visit", () => {
     expect(result.intake.keeping).toBe("stopped");
     expect(result.intake.stored).toBe(true);
     expect(keepingBlurb(result.intake)).toBe(DEVICE_INTAKE_COPY.stoppedBlurb);
-    // The write the page gave up on commits anyway...
+    // The write the page gave up on commits anyway. A generated-key save
+    // is two anchored writes now (review P2): the claim is the one in
+    // flight here, so that is what commits; the envelope write awaited
+    // it and never ran.
     land?.();
     await vi.advanceTimersByTimeAsync(1);
-    expect(disk.store.size).toBe(2);
+    expect(disk.store.size).toBe(1);
+    expect(isSealingKey(disk.store.get(DEVICE_ANSWERS_CRYPTO_KEY_KEY))).toBe(true);
+    expect(disk.store.get(DEVICE_ANSWERS_ENVELOPE_KEY)).toBeUndefined();
     vi.useRealTimers();
     // ...and the delete still finds it and removes it.
     const deleted = await deleteDeviceIntake(result.intake);

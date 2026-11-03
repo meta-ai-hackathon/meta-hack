@@ -14,7 +14,15 @@ import {
   getFormRegistryEntry,
   loadTemplatePdf,
 } from "../../../../../lib/forms/registry";
+import fullPersonaJson from "../../../../../lib/forms/fixtures/dhb5200-full-persona.json";
+import dssFullPersonaJson from "../../../../../lib/forms/fixtures/dss8207-full-persona.json";
 import { POST } from "./route";
+
+// The full-form persona (fixture data, NOT product data): every in-request
+// answer the review-and-complete step can send for the real DHB-5200,
+// keyed by the form's real field names.
+const fullPersona = fullPersonaJson as Record<string, string>;
+const dssFullPersona = dssFullPersonaJson as Record<string, string>;
 
 // POST /api/forms/<formId>/fill route tests (Mission v2 M4,
 // VAL-PDF-003/004/005): the happy path returns filled PDF bytes as an
@@ -206,11 +214,14 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
   it("fills the committed official bytes from the demo persona; unanswered fields stay blank with the honest report", async () => {
     const cookie = await createSessionAndGetCookie();
     const sessionId = cookie.split("=")[1];
-    // Mapped answers: pii values (dob, phone) cross the vault through the
-    // entry's allowlist; the wage amount rides the answer table (non-pii).
-    // income_sources keeps job_income_amount inside the flow's visibility.
+    // Mapped answers: pii values (dob, phone, county) cross the vault
+    // through the entry's allowlist; the wage + state ride the answer
+    // table (non-pii). income_sources keeps job_income_amount inside the
+    // flow's visibility.
     await saveAnswer(sessionId, "date_of_birth", "known", "1980-02-03");
     await saveAnswer(sessionId, "phone_contact", "known", "555-010-9911");
+    await saveAnswer(sessionId, "state", "known", "NC");
+    await saveAnswer(sessionId, "county", "known", "Mecklenburg");
     await saveAnswer(sessionId, "income_sources", "known", ["job"]);
     await saveAnswer(sessionId, "job_income_amount", "known", 1200);
 
@@ -249,6 +260,11 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
       "555-010-9911",
     );
     expect(form.getTextField("undefined_10").getText()).toBe("1200");
+    // The newly mapped home-address lines (full-form mapping part 1): the
+    // state renders in its option-label display form; the county crosses
+    // the vault through the entry's allowlist.
+    expect(form.getTextField("5 State").getText()).toBe("North Carolina");
+    expect(form.getTextField("7 County").getText()).toBe("Mecklenburg");
     // Unmapped persona answers rode the request and filled their fields.
     expect(
       form.getTextField("1 First name Middle name Last name  Suffix").getText(),
@@ -273,9 +289,11 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
         .getText() ?? "",
     ).toBe("");
 
-    // The honest unmapped-field report: exactly the unanswered fields,
-    // each carrying its real question for the review surface's
-    // to-resolve list (the route's log mirrors its size).
+    // The honest unmapped-field report: exactly the unanswered mapped
+    // fields, each carrying its real question for the review surface's
+    // to-resolve list (the route's log mirrors its size). The demo persona
+    // answers the Person 1 fields; every pages 9-15 in-request carrier
+    // (full-form mapping part 2) is honestly still-needed here.
     const entry = getFormRegistryEntry("dhb-5200");
     const outcome = await fillForSession(
       loadTemplatePdf(entry),
@@ -283,14 +301,37 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
       sessionId,
       DHB_UNMAPPED,
     );
-    expect(outcome.toResolve.map((item) => item.fieldName)).toEqual([
-      "8 Mailing Address if different from home address",
-      "5 Social Security Number SSN",
-      "Your total income next year if you think it will be different",
-      // The person skipped typing in this fixture: the unsigned signature
-      // is honestly noted as still-needed (VAL-VJS2-002 empty path).
-      "Signature",
+    expect(outcome.toResolve.map((item) => item.fieldName)).toEqual(
+      expect.arrayContaining([
+        "8 Mailing Address if different from home address",
+        "5 Social Security Number SSN",
+        "Your total income next year if you think it will be different",
+        // The person skipped typing in this fixture: the unsigned signature
+        // is honestly noted as still-needed (VAL-VJS2-002 empty path).
+        "Signature",
+      ]),
+    );
+    const inRequestSent = new Set(Object.keys(DHB_UNMAPPED));
+    const specAnswered = new Set([
+      "date_of_birth",
+      "phone_contact",
+      "state",
+      "county",
+      "job_income_amount",
     ]);
+    const expectedUnfilled = entry.fields
+      .filter(
+        (field) =>
+          field.disposition === "mapped" &&
+          (field.specQuestionId === null
+            ? !inRequestSent.has(field.name)
+            : !specAnswered.has(field.specQuestionId)),
+      )
+      .map((field) => field.name)
+      .sort();
+    expect(outcome.toResolve.map((item) => item.fieldName).sort()).toEqual(
+      expectedUnfilled,
+    );
     for (const item of outcome.toResolve) {
       expect(item.reason).toBe("unknown");
       expect(item.question.length).toBeGreaterThan(0);
@@ -300,6 +341,8 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
         "1 First name Middle name Last name  Suffix",
         "2 Home address Leave blank if you dont have one",
         "3 Date of Birth mmddyyyy",
+        "5 State",
+        "7 County",
         "14 Phone Number",
         "undefined_10",
       ].sort(),
@@ -311,27 +354,23 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     const sessionId = cookie.split("=")[1];
     // Synthetic full-coverage persona: a KNOWN answer for every mapped
     // spec question (pii values ride the vault through the entry's
-    // allowlist; the wage rides the answer table).
+    // allowlist; the wage + state ride the answer table).
     await saveAnswer(sessionId, "date_of_birth", "known", "1979-07-08");
     await saveAnswer(sessionId, "phone_contact", "known", "555-014-2277");
+    await saveAnswer(sessionId, "state", "known", "NC");
+    await saveAnswer(sessionId, "county", "known", "Mecklenburg");
     await saveAnswer(sessionId, "income_sources", "known", ["job"]);
     await saveAnswer(sessionId, "job_income_amount", "known", 1500);
     // The unmapped persona fields — INCLUDING the typed signature — arrive
     // exactly as the real typed-signature step sends them: the multipart
     // `answers` part, keyed by field name. The signature value exists
     // nowhere else: not in the answer table, not in the vault (there is no
-    // spec question for it), never prefilled.
-    const FULL_PERSONA = {
-      "1 First name Middle name Last name  Suffix": "Alex Rivera Demo",
-      "2 Home address Leave blank if you dont have one":
-        "101 Test Ave, Charlotte, NC 28202",
-      "8 Mailing Address if different from home address":
-        "PO Box 9, Charlotte, NC 28201",
-      "5 Social Security Number SSN": "000-00-0000",
-      "Your total income next year if you think it will be different":
-        "18000",
-      Signature: "Alex Rivera",
-    };
+    // spec question for it), never prefilled. The full-form persona (the
+    // shared fixture) covers EVERY in-request carrier of the real form —
+    // pages 1-8's, the pages 9-15 household-member fields (part 2), and
+    // the pages 16-21 fields (part 3) — a count that rides the RAISED
+    // in-request cap.
+    const FULL_PERSONA = fullPersona;
     const multipart = new FormData();
     multipart.append("answers", JSON.stringify(FULL_PERSONA));
     const response = await POST(
@@ -355,16 +394,18 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     ).toBe("Alex Rivera Demo");
     expect(
       form.getTextField("2 Home address Leave blank if you dont have one").getText(),
-    ).toBe("101 Test Ave, Charlotte, NC 28202");
+    ).toBe("101 Test Ave, Sample City, NC 28202");
     expect(
       form
         .getTextField("8 Mailing Address if different from home address")
         .getText(),
-    ).toBe("PO Box 9, Charlotte, NC 28201");
+    ).toBe("PO Box 9, Sample City, NC 28201");
     expect(form.getTextField("14 Phone Number").getText()).toBe("555-014-2277");
     expect(form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe(
       "07/08/1979",
     );
+    expect(form.getTextField("5 State").getText()).toBe("North Carolina");
+    expect(form.getTextField("7 County").getText()).toBe("Mecklenburg");
     expect(form.getTextField("5 Social Security Number SSN").getText()).toBe(
       "000-00-0000",
     );
@@ -385,11 +426,26 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     const entry = getFormRegistryEntry("dhb-5200");
     const template = await PDFDocument.load(loadTemplatePdf(entry));
     const discovered = discoverAcroFormFields(template);
-    const mapped = new Set(entry.fields.map((field) => field.name));
+    // "Mapped" is the registry's mapped DISPOSITION now (full-form mapping
+    // parts 1-3): 355 fields take person answers — the person's own
+    // review-and-complete step at fill time; the other 216 carry an honest
+    // disposition and are never filled.
+    const mapped = new Set(
+      entry.fields
+        .filter((field) => field.disposition === "mapped")
+        .map((field) => field.name),
+    );
     const unmapped = discovered.filter((field) => !mapped.has(field.name));
-    expect(mapped.size).toBe(9);
+    expect(mapped.size).toBe(355);
     expect(discovered.length).toBe(614);
-    expect(unmapped.length).toBe(discovered.length - mapped.size);
+    // Never fabricated: every mapped name exists in the template's own
+    // discovery pass (multi-widget names — radio pairs — appear once in the
+    // mapped set and per-widget in the discovery walk, so the arithmetic
+    // the old single-widget mapping allowed doesn't reduce widget counts).
+    const discoveredNames = new Set(discovered.map((field) => field.name));
+    for (const name of mapped) {
+      expect(discoveredNames.has(name), name).toBe(true);
+    }
     // Text-kind unmapped fields, sampled deterministically for speed.
     const blankable = unmapped
       .filter((field) => field.kind === "text")
@@ -406,8 +462,12 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
       sessionId,
       FULL_PERSONA,
     );
-    expect(outcome.filled.length).toBe(entry.fields.length);
+    expect(outcome.filled.length).toBe(mapped.size);
     expect(outcome.toResolve).toEqual([]);
+    // The coherent persona checks no two sides of one yes/no pair or
+    // check-one group: the fill-time consistency check is clean (the
+    // conflict cases live in the forms module's own suite).
+    expect(outcome.conflicts).toEqual([]);
   });
 
   it("the person skips typing: the form downloads unsigned, signature noted in to-resolve (VAL-VJS2-002)", async () => {
@@ -453,6 +513,349 @@ describe("POST /api/forms/dhb-5200/fill — the REAL form (VAL-RFEX-002)", () =>
     expect(outcome.toResolve).toContainEqual(
       expect.objectContaining({ fieldName: "Signature" }),
     );
+  });
+});
+
+describe("POST /api/forms/dss-8207/fill — the REAL SNAP form (VAL-SNAP-007/009/010)", () => {
+  // The persona's in-request answers for this form (fixture data, NOT
+  // product data), keyed by the DSS-8207's real AcroForm field names —
+  // the same fixture the forms-module full-fill proof drives.
+  const dssPersona = dssFullPersona as Record<string, string>;
+
+  /**
+   * The 8 spec answers the dss-8207 registry links: pii values (dob,
+   * phone, email) cross the vault through the entry's allowlist; the
+   * costs/state ride the answer table; the two booleans map onto the
+   * situations-checklist checkbox and the prior-benefits radio pair.
+   */
+  async function saveDssSpecAnswers(sessionId: string): Promise<void> {
+    await saveAnswer(sessionId, "housing_cost", "known", 950);
+    await saveAnswer(sessionId, "utilities_cost", "known", 180);
+    await saveAnswer(sessionId, "date_of_birth", "known", "1979-07-08");
+    await saveAnswer(sessionId, "received_benefits_before", "known", false);
+    await saveAnswer(sessionId, "veteran_status", "known", true);
+    await saveAnswer(sessionId, "phone_contact", "known", "555-010-9911");
+    await saveAnswer(
+      sessionId,
+      "email_contact",
+      "known",
+      "alex.rivera@example.com",
+    );
+    await saveAnswer(sessionId, "state", "known", "NC");
+  }
+
+  it("fills mapped fields from the session's answers plus the in-request persona values; unknowns stay blank and named still-needed (VAL-SNAP-007)", async () => {
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+    await saveDssSpecAnswers(sessionId);
+
+    // NO uploaded template: the registry's committed official DSS-8207
+    // bytes are the template (the UI download path). A few of the
+    // persona's in-request answers ride the request in memory only.
+    const IN_REQUEST = {
+      "First Middle Initial  Last NameRow1": dssPersona["First Middle Initial  Last NameRow1"]!,
+      Text1: dssPersona.Text1!,
+      "Date Signed": dssPersona["Date Signed"]!,
+    };
+    const multipart = new FormData();
+    multipart.append("answers", JSON.stringify(IN_REQUEST));
+    const response = await POST(
+      new Request("http://localhost:3100/api/forms/dss-8207/fill", {
+        method: "POST",
+        headers: { cookie },
+        body: multipart,
+      }),
+      { params: Promise.resolve({ formId: "dss-8207" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition")).toContain(
+      "dss-8207.pdf",
+    );
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
+    const pdf = await PDFDocument.load(bytes);
+    const form = pdf.getForm();
+    // Mapped fields filled from the session's answers — vault pii through
+    // the entry's allowlist, table values in their display forms.
+    expect(form.getTextField("Birth DateSelf").getText()).toBe("1979-07-08");
+    expect(form.getTextField("Message Number").getText()).toBe("555-010-9911");
+    expect(form.getTextField("Email Address voluntary").getText()).toBe(
+      "alex.rivera@example.com",
+    );
+    expect(form.getTextField("Text5").getText()).toBe("North Carolina");
+    expect(
+      form.getTextField(
+        "AmountWhat are the total monthly shelter costs rent or mortgage that the household pays",
+      ).getText(),
+    ).toBe("950");
+    expect(
+      form.getTextField(
+        "AmountWhat is the total monthly utility cost heat electricity LPNatural Gas WaterSewage GarbageTrash TelephoneCell Phone and Utility Excess Public Housing",
+      ).getText(),
+    ).toBe("180");
+    expect(form.getCheckBox("A veteran").isChecked()).toBe(true);
+    expect(
+      form
+        .getRadioGroup(
+          "Does anyone get Food and Nutrition Services Food Stamps or SNAP in this or another county or state",
+        )
+        .getSelected(),
+    ).toBe("No_6");
+    // The in-request persona answers rode the request and filled their fields.
+    expect(
+      form.getTextField("First Middle Initial  Last NameRow1").getText(),
+    ).toBe(IN_REQUEST["First Middle Initial  Last NameRow1"]);
+    expect(form.getTextField("Text1").getText()).toBe(IN_REQUEST.Text1);
+    expect(form.getTextField("Date Signed").getText()).toBe(
+      IN_REQUEST["Date Signed"],
+    );
+    // Unasked mapped fields stay VISIBLY blank — never guessed.
+    expect(form.getTextField("Name of School").getText() ?? "").toBe("");
+    expect(form.getTextField("Text7").getText() ?? "").toBe("");
+
+    // The honest still-needed report: exactly the mapped fields this
+    // fixture did not answer, each carrying its real question for the
+    // review surface's to-resolve list.
+    const entry = getFormRegistryEntry("dss-8207");
+    const outcome = await fillForSession(
+      loadTemplatePdf(entry),
+      entry,
+      sessionId,
+      IN_REQUEST,
+    );
+    const answered = new Set(Object.keys(IN_REQUEST));
+    const expectedUnfilled = entry.fields
+      .filter(
+        (field) =>
+          field.disposition === "mapped" &&
+          !answered.has(field.name) &&
+          // The 8 spec-linked fields all carry this fixture's answers.
+          ![
+            "housing_cost",
+            "utilities_cost",
+            "date_of_birth",
+            "received_benefits_before",
+            "veteran_status",
+            "phone_contact",
+            "email_contact",
+            "state",
+          ].includes(field.specQuestionId ?? ""),
+      )
+      .map((field) => field.name)
+      .sort();
+    expect(outcome.toResolve.map((item) => item.fieldName).sort()).toEqual(
+      expectedUnfilled,
+    );
+    for (const item of outcome.toResolve) {
+      expect(item.reason).toBe("unknown");
+      expect(item.question.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("without a typed signature the signature block stays blank and is named still-needed; the app never signs (VAL-SNAP-009)", async () => {
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+    // The session HAS stored answers — yet nothing may pre-fill the
+    // signature block: its only source is fresh typed input on the fill
+    // request, and this request carries none.
+    await saveDssSpecAnswers(sessionId);
+    const response = await POST(
+      new Request("http://localhost:3100/api/forms/dss-8207/fill", {
+        method: "POST",
+        headers: { cookie },
+        body: new FormData(),
+      }),
+      { params: Promise.resolve({ formId: "dss-8207" }) },
+    );
+    expect(response.status).toBe(200);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const pdf = await PDFDocument.load(bytes);
+    // The signature block's typed lines stay VISIBLY BLANK — the app never
+    // signs, and nothing is pulled from stored answers or the vault.
+    expect(pdf.getForm().getTextField("Text1").getText() ?? "").toBe("");
+    expect(
+      pdf.getForm().getTextField("Text2").getText() ?? "",
+    ).toBe("");
+    expect(
+      pdf.getForm().getTextField("First Name Middle Initial Last Name").getText() ?? "",
+    ).toBe("");
+    expect(pdf.getForm().getTextField("Date Signed").getText() ?? "").toBe("");
+
+    const entry = getFormRegistryEntry("dss-8207");
+    const outcome = await fillForSession(
+      loadTemplatePdf(entry),
+      entry,
+      sessionId,
+      {},
+    );
+    for (const name of [
+      "Text1",
+      "Text2",
+      "First Name Middle Initial Last Name",
+      "Date Signed",
+    ]) {
+      expect(outcome.toResolve).toContainEqual(
+        expect.objectContaining({ fieldName: name }),
+      );
+    }
+  });
+
+  it("mapped fields cannot be spoofed through the request, and the PKI signature widget is never filled (VAL-SNAP-009)", async () => {
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+    await saveDssSpecAnswers(sessionId);
+    // The `answers` part names a SPEC-MAPPED field ("Message Number" maps
+    // to phone_contact): parseFormValues refuses it outright — mapped
+    // fields' values live only in the session's own server-side stores.
+    const spoof = new FormData();
+    spoof.append(
+      "answers",
+      JSON.stringify({ "Message Number": "555-0186" }),
+    );
+    const response = await POST(
+      new Request("http://localhost:3100/api/forms/dss-8207/fill", {
+        method: "POST",
+        headers: { cookie },
+        body: spoof,
+      }),
+      { params: Promise.resolve({ formId: "dss-8207" }) },
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("validation_error");
+
+    // The digital-signature (PKI) widget is dispositioned
+    // not_collected_by_interview: even when its name rides the request
+    // (it is spec-null, so parseFormValues admits it), the fill never
+    // touches it — the person signs the printed form by hand.
+    const pkiAttempt = new FormData();
+    pkiAttempt.append(
+      "answers",
+      JSON.stringify({
+        "Your Signature or Authorized Representative": "Forged McForgeface",
+      }),
+    );
+    const pkiResponse = await POST(
+      new Request("http://localhost:3100/api/forms/dss-8207/fill", {
+        method: "POST",
+        headers: { cookie },
+        body: pkiAttempt,
+      }),
+      { params: Promise.resolve({ formId: "dss-8207" }) },
+    );
+    expect(pkiResponse.status).toBe(200);
+    const pkiBytes = new Uint8Array(await pkiResponse.arrayBuffer());
+    const pkiForm = (await PDFDocument.load(pkiBytes)).getForm();
+    // The widget is still a PDFSignature (no typed value API, nothing set):
+    // the pipeline never converts it into a filled text field.
+    expect(pkiForm.getField("Your Signature or Authorized Representative")?.constructor.name).toBe(
+      "PDFSignature",
+    );
+  });
+
+  it("no file, bytea column, table row, or log line ever carries the filled bytes or values (VAL-SNAP-010)", async () => {
+    const SENTINEL = "PERSIST-SENTINEL-DSS8207";
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+    // Seed a vault pii value through the sanctioned store, and send the
+    // in-request answer as part of the fill: it never touches a store at
+    // all, so the table scan asserts it appears in NO table.
+    await saveDssSpecAnswers(sessionId);
+
+    const logLines: LogLine[] = [];
+    setLogSink((line) => logLines.push(JSON.parse(line) as LogLine));
+
+    const multipart = new FormData();
+    multipart.append(
+      "answers",
+      JSON.stringify({ "Name of School": SENTINEL }),
+    );
+    const response = await POST(
+      new Request("http://localhost:3100/api/forms/dss-8207/fill", {
+        method: "POST",
+        headers: { cookie },
+        body: multipart,
+      }),
+      { params: Promise.resolve({ formId: "dss-8207" }) },
+    );
+    expect(response.status).toBe(200);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    // The response IS the filled PDF carrying the person's values — the
+    // product. What must never happen is a SERVER-SIDE copy.
+    expect(bytes.length).toBeGreaterThan(0);
+    setLogSink(() => undefined);
+
+    // 1. Filesystem: no file in the process tmpdir carries the sentinel.
+    const tmpFiles = readdirSync(os.tmpdir());
+    for (const name of tmpFiles) {
+      const candidate = path.join(os.tmpdir(), name);
+      try {
+        // Only REGULAR files are read: open()ing a FIFO for read blocks
+        // until a writer appears (a synchronous freeze — this hung the CI
+        // runner), and directories/sockets are not candidate stores. Size
+        // is bounded so no giant pre-existing file dominates the run.
+        const stat = statSync(candidate, { throwIfNoEntry: false });
+        if (!stat?.isFile() || stat.size > 64 * 1024 * 1024) {
+          continue;
+        }
+        const content = readFileSync(candidate);
+        expect(content.includes(SENTINEL)).toBe(false);
+      } catch {
+        // unreadable (permissions) — skip
+      }
+    }
+
+    // 2. No bytea columns exist anywhere (the schema has none, and the fill
+    // adds no tables): filled bytes have no Postgres home.
+    const byteaColumns = await testDb`
+      SELECT table_name, column_name
+      FROM information_schema.columns
+      WHERE data_type = 'bytea' AND table_schema = 'public'
+    `;
+    expect(byteaColumns).toEqual([]);
+
+    // 3. NO table ever sees the sentinel — the in-request answer has no
+    // server-side home by design.
+    for (const table of [
+      "answer",
+      "vault_entry",
+      "conversation_turn",
+      "session_audit_note",
+      "session",
+      "person",
+    ]) {
+      const rows = await testDb`
+        SELECT count(*) AS n FROM ${testDb(table)}
+        WHERE to_jsonb(${testDb(table)})::text LIKE ${"%" + SENTINEL + "%"}
+      `;
+      expect(Number(rows[0].n), table).toBe(0);
+    }
+
+    // 4. No log line carries the sentinel or the values.
+    for (const line of logLines) {
+      const serialized = JSON.stringify(line);
+      expect(serialized).not.toContain(SENTINEL);
+      expect(serialized).not.toContain("1979-07-08");
+      expect(serialized).not.toContain("555-010-9911");
+      expect(serialized).not.toContain("alex.rivera@example.com");
+    }
+
+    // 5. Static backstop: neither the fill module nor the route imports a
+    // filesystem API at all — there is no path to a server-side file.
+    for (const modulePath of [
+      path.resolve(
+        import.meta.dirname,
+        "../../../../../lib/forms/fill.ts",
+      ),
+      path.resolve(import.meta.dirname, "./route.ts"),
+    ]) {
+      const source = readFileSync(modulePath, "utf8");
+      expect(source).not.toMatch(/from\s+["'](node:)?fs/);
+      expect(source).not.toMatch(/require\(["'](node:)?fs/);
+      expect(source).not.toContain("writeFile");
+    }
   });
 });
 
