@@ -25,24 +25,37 @@ import {
   deviceMatch,
   reviewAnswersForForm,
 } from "../../lib/intake/device-form";
+import type { PrintPreview } from "../../lib/intake/device-print";
 import { loadDeviceTemplate } from "../../lib/intake/device-template";
 import type { MatchCard, MatchSourceCitation } from "../../lib/match-core";
 
 // What the step-by-step page shows once the questions are done (HACK-115):
 // the benefit match, the review of the application form, and the filled
-// form to download. All of it is computed in this browser from the answers
-// on this device (lib/intake/device-form.ts). The match explains each
-// program with the program's own sourced facts only. Downloading fetches
-// the blank public form, loads the PDF fill (lib/intake/device-fill.ts,
-// kept out of the page's first load), fills the form here, and hands the
-// file to the browser; no answer is sent anywhere, and answers typed here
-// for the form's other fields live only in this page's memory, held by the
-// wizard so going back to a question doesn't lose them. After a download the
-// page lists what the form left blank and any question the person checked
-// more than one box for, which the fill prints as given and flags.
+// form, ready to print. All of it is computed in this browser from the
+// answers on this device (lib/intake/device-form.ts). The match explains
+// each program with the program's own sourced facts only.
 //
-// Private answers never appear on this screen: the review shows their
-// status and provenance, and the match never carries them.
+// Showing the filled form fetches the blank public form, loads the PDF fill
+// (lib/intake/device-fill.ts) and the print preview
+// (lib/intake/device-print.ts), both kept out of the page's first load,
+// fills the form here, and draws its pages on this page so the person can
+// check them and print them to sign and send in. No answer is sent
+// anywhere, and nothing is saved to the device: no file, no download, and
+// nothing in the browser's storage. The owner chose printing over a
+// download on HACK-115 (Nov 3), because a downloaded PDF is an unencrypted
+// copy of every answer that deleting the answers can't reach. The pages
+// last only while they match the answers: a change to any answer, typed
+// ones included, drops them, and so does leaving the page, and a drop
+// releases their canvases. Answers typed here for the form's other fields
+// live only in this page's memory, held by the wizard so going back to a
+// question doesn't lose them. With the pages, the page lists what the form
+// left blank and any question the person checked more than one box for,
+// which the fill prints as given and flags.
+//
+// Private answers never appear on this screen as text: the review shows
+// their status and provenance, and the match never carries them. The
+// filled pages show them only as the drawn form the person prints, and a
+// page's screen reader label names the page, never what is on it.
 
 export const DEVICE_RESULTS_COPY = {
   matchHeading: "Benefits that may be worth pursuing",
@@ -62,22 +75,21 @@ export const DEVICE_RESULTS_COPY = {
     "submits for you. Preparing it is not a benefits decision; only the " +
     "agency decides that.",
   typedNote:
-    "Used only for the form you download. This page keeps it only while " +
+    "Used only for the form you print. This page keeps it only while " +
     "it's open, and deleting your answers clears it.",
   answerAbove: "Answer this question",
   stillNeededHeading: "Still needed on the form",
   stillNeededBody: "These are left blank on the prepared form. Nothing is guessed.",
-  downloadButton: "Download the filled form",
-  downloading: "Preparing your form…",
-  downloadNote:
-    "When you tap download, this page gets the blank form and fills it in " +
-    "this browser. None of your answers are sent anywhere. The file holds " +
-    "the answers filled in on the form, private ones included. It saves to " +
-    "this device as an ordinary file that isn't encrypted, so on a shared " +
-    "computer, delete it once you've printed or sent it.",
-  downloaded:
-    "Your application downloaded. It was filled in this browser, and none " +
-    "of your answers were sent anywhere.",
+  showFormButton: "Show the filled form",
+  showingForm: "Filling in your form…",
+  showFormNote:
+    "This fills in the official form with your answers here in this " +
+    "browser and shows it below. None of your answers are sent anywhere, " +
+    "and nothing is saved to this device. Printing the form is how you " +
+    "sign it and send it in.",
+  ready:
+    "Your filled form is ready below. It was filled in this browser, and " +
+    "none of your answers were sent anywhere.",
   templateUnavailable:
     "We couldn't get the blank form right now, so nothing was filled. " +
     "Check your connection and try again.",
@@ -87,20 +99,32 @@ export const DEVICE_RESULTS_COPY = {
     "check it and try again.",
   failed: "Something went wrong preparing your form. Please try again.",
   unreadableBoxes:
-    "Nothing was downloaded. Some box answers aren't checked or unchecked, " +
-    "so fix the ones listed and download again.",
+    "Nothing was filled. Some box answers aren't checked or unchecked, so " +
+    "fix the ones listed and try again.",
   unreadableBoxesHeading: "Box answers to fix first",
   unreadableBoxesBody:
     "Each of these is a box on the form, so its answer is the word checked " +
-    "or unchecked. Fix it or leave it empty, then download again.",
-  leftBlankHeading: "Left blank on the form you downloaded",
+    "or unchecked. Fix it or leave it empty, then show the filled form again.",
+  previewHeading: "Your filled form, ready to print",
+  previewBody:
+    "These are the pages of your application with your answers filled in, " +
+    "private ones included. Check them, print them, then sign the form and " +
+    "send it in yourself. They stay only on this page, and they go away " +
+    "when you change an answer or leave.",
+  printButton: "Print the form",
+  printNote:
+    "When the print window opens, choose a printer. Saving the form as a " +
+    "PDF there would leave a copy of every answer on this device as an " +
+    "ordinary file.",
+  leftBlankHeading: "Left blank on the form below",
   coverageHeading: "Every field, accounted for",
   coverageDetails: "Why each blank field stays blank",
   coverageAllMapped: "Every box on this form takes an answer, so nothing was skipped.",
-  conflictsHeading: "Check these on the form you downloaded",
+  conflictsHeading: "Check these on the form below",
   conflictsBody:
     "You checked more than one box where the form takes one answer. The " +
-    "form shows every box you checked, so fix these by hand before you sign it.",
+    "form shows every box you checked, so fix these by hand on the printed " +
+    "form before you sign it.",
   handoffHeading: "Submit it yourself",
   handoffBody:
     "You sign the form and submit it yourself. The official links below " +
@@ -158,7 +182,7 @@ function coverageSummary(counts: DispositionReport["counts"]): string {
   return (
     `The application has ${counts.total} boxes and lines to fill in. ` +
     `${counts.mapped} of them take your answers. The rest stay blank on the ` +
-    `form you download: ${counts.not_collected_by_interview} that these ` +
+    `form you print: ${counts.not_collected_by_interview} that these ` +
     "questions don't ask, so fill those in by hand if they apply to you, " +
     `${counts.optional_unanswered} that are optional, ${counts.agency_use_only} ` +
     `for the agency to fill in, and ${counts.duplicate_structural} printed ` +
@@ -283,23 +307,22 @@ function MatchCardView({ card }: { card: MatchCard }) {
   );
 }
 
-/**
- * How long the filled form's object URL outlives the click. Some browsers
- * start a download a moment after the click, and revoking the URL before
- * then cancels it.
- */
-const DOWNLOAD_URL_LIFETIME_MS = 1000;
+/** A canvas for one page of the filled form. It lives only on this page. */
+function createPrintCanvas(width: number, height: number): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+}
 
-/** Hand the filled form to the browser as a download. Nothing is kept here. */
-function saveToDevice(bytes: Uint8Array, fileName: string): void {
-  const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
+/** The filled form on screen, with what its fill left blank or flagged. */
+interface FilledForm {
+  readonly drawn: PrintPreview;
+  readonly leftBlank: readonly ToResolveItem[];
+  readonly conflicts: readonly FillConflict[];
+  /** The answers it was filled from, typed ones included. */
+  readonly answers: ClientAnswerState;
+  readonly typed: Readonly<Record<string, string>>;
 }
 
 /**
@@ -331,31 +354,58 @@ export function DeviceResults(props: {
   const [busy, setBusy] = useState(false);
   // The typed answers as the fill takes them. A box or yes/no answer that
   // isn't checked or unchecked would print as an unchecked box with no word
-  // to the person, so those hold the download back and are listed, from
-  // the first download try on.
+  // to the person, so those hold the filled form back and are listed, from
+  // the first try on.
   const forForm = useMemo(() => reviewAnswersForForm(typed), [typed]);
-  const [triedDownload, setTriedDownload] = useState(false);
+  const [triedForm, setTriedForm] = useState(false);
   const unreadableBoxes = useMemo(
-    () => new Set(triedDownload ? forForm.unreadable : []),
-    [triedDownload, forForm],
+    () => new Set(triedForm ? forForm.unreadable : []),
+    [triedForm, forForm],
   );
   const questionByField = useMemo(
     () => new Map(review.fields.map((field) => [field.fieldName, field.question])),
     [review],
   );
-  const [leftBlank, setLeftBlank] = useState<readonly ToResolveItem[] | null>(null);
-  const [conflicts, setConflicts] = useState<readonly FillConflict[]>([]);
+  const [filled, setFilled] = useState<FilledForm | null>(null);
   const [notice, setNotice] = useState("");
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // The pages show the form their answers fill, so a change to any answer,
+  // typed ones included, drops them in the same render: they never show
+  // next to answers they don't match. The effect below releases them.
+  if (filled !== null && (filled.answers !== answers || filled.typed !== typed)) {
+    setFilled(null);
+  }
+
+  // Pages that leave the screen are released at once: replaced, dropped
+  // for a change, or gone with this screen.
+  useEffect(() => {
+    if (filled === null) {
+      return;
+    }
+    return () => filled.drawn.release();
+  }, [filled]);
+
+  // Leaving drops the pages too, so a screen the app brings back (React
+  // keeps a page it navigates away from) never shows released ones.
   useEffect(
     () => () => {
+      setFilled(null);
       if (noticeTimer.current) {
         clearTimeout(noticeTimer.current);
       }
     },
     [],
   );
+
+  // Filling stops when the answers it started from change or this screen
+  // goes away: pages drawn from older answers would be stale.
+  const answersSignal = useRef<AbortSignal | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    answersSignal.current = controller.signal;
+    return () => controller.abort();
+  }, [answers, typed]);
 
   // The status region announces a change, so clear it and set the message
   // on the next tick: a repeated outcome is announced again.
@@ -367,20 +417,24 @@ export function DeviceResults(props: {
     noticeTimer.current = setTimeout(() => setNotice(message), 30);
   }, []);
 
-  async function download(): Promise<void> {
+  async function showFilledForm(): Promise<void> {
     if (busy) {
       return;
     }
-    setTriedDownload(true);
+    setTriedForm(true);
     if (forForm.unreadable.length > 0) {
       announce(DEVICE_RESULTS_COPY.unreadableBoxes);
       return;
     }
+    const signal = answersSignal.current ?? new AbortController().signal;
+    // Pages already on screen go first: the form is drawn again from scratch.
+    setFilled(null);
     setBusy(true);
     try {
-      const [template, { fillFormOnDevice }] = await Promise.all([
+      const [template, { fillFormOnDevice }, { renderPrintPreview }] = await Promise.all([
         loadDeviceTemplate(DEVICE_FORM_ENTRY),
         import("../../lib/intake/device-fill"),
+        import("../../lib/intake/device-print"),
       ]);
       if (template === null) {
         announce(DEVICE_RESULTS_COPY.templateUnavailable);
@@ -395,12 +449,25 @@ export function DeviceResults(props: {
         announce(DEVICE_RESULTS_COPY.unreadableForm);
         return;
       }
-      saveToDevice(result.outcome.bytes, `${DEVICE_FORM_ENTRY.id}.pdf`);
-      setLeftBlank(result.outcome.toResolve);
-      setConflicts(result.outcome.conflicts);
-      announce(DEVICE_RESULTS_COPY.downloaded);
+      const drawn = await renderPrintPreview(result.outcome.bytes, createPrintCanvas, signal);
+      if (signal.aborted) {
+        drawn.release();
+        return;
+      }
+      setFilled({
+        drawn,
+        leftBlank: result.outcome.toResolve,
+        conflicts: result.outcome.conflicts,
+        answers,
+        typed,
+      });
+      announce(DEVICE_RESULTS_COPY.ready);
     } catch {
-      announce(DEVICE_RESULTS_COPY.failed);
+      // An answer changed or the screen went away while the form was being
+      // drawn: nothing failed, and the person sees the change they made.
+      if (!signal.aborted) {
+        announce(DEVICE_RESULTS_COPY.failed);
+      }
     } finally {
       setBusy(false);
     }
@@ -570,15 +637,15 @@ export function DeviceResults(props: {
           </div>
         ) : null}
         <div className="flex flex-col gap-2">
-          <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.downloadNote}</p>
+          <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.showFormNote}</p>
           <button
             type="button"
             disabled={busy}
-            onClick={() => void download()}
-            data-action="download"
+            onClick={() => void showFilledForm()}
+            data-action="show-form"
             className="self-start rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
           >
-            {busy ? DEVICE_RESULTS_COPY.downloading : DEVICE_RESULTS_COPY.downloadButton}
+            {busy ? DEVICE_RESULTS_COPY.showingForm : DEVICE_RESULTS_COPY.showFormButton}
           </button>
         </div>
         {unreadableBoxes.size > 0 ? (
@@ -594,33 +661,69 @@ export function DeviceResults(props: {
             </ul>
           </div>
         ) : null}
-        {leftBlank !== null && leftBlank.length > 0 ? (
-          <div data-left-blank className="flex flex-col gap-1">
-            <h3 className="font-medium">{DEVICE_RESULTS_COPY.leftBlankHeading}</h3>
-            <ul className="list-disc pl-5">
-              {leftBlank.map((item) => (
-                <li key={item.fieldName}>
-                  {item.question} {LEFT_BLANK_COPY[item.reason]}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {conflicts.length > 0 ? (
-          <div data-check-conflicts className="flex flex-col gap-1">
-            <h3 className="font-medium">{DEVICE_RESULTS_COPY.conflictsHeading}</h3>
-            <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.conflictsBody}</p>
-            <ul className="list-disc pl-5">
-              {conflicts.map((conflict) => (
-                <li key={conflict.fields.join("\n")} data-check-conflict={conflict.kind}>
-                  {conflict.question} {CONFLICT_COPY[conflict.kind]}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
         <StatusRegion message={notice} className="text-sm text-muted" />
       </section>
+
+      {filled !== null ? (
+        <section aria-labelledby="device-print-heading" data-print-preview className="flex flex-col gap-3">
+          <h2 id="device-print-heading" className="font-display text-2xl font-bold">
+            {DEVICE_RESULTS_COPY.previewHeading}
+          </h2>
+          <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.previewBody}</p>
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.printNote}</p>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              data-action="print"
+              className="self-start rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal"
+            >
+              {DEVICE_RESULTS_COPY.printButton}
+            </button>
+          </div>
+          {filled.leftBlank.length > 0 ? (
+            <div data-left-blank className="flex flex-col gap-1">
+              <h3 className="font-medium">{DEVICE_RESULTS_COPY.leftBlankHeading}</h3>
+              <ul className="list-disc pl-5">
+                {filled.leftBlank.map((item) => (
+                  <li key={item.fieldName}>
+                    {item.question} {LEFT_BLANK_COPY[item.reason]}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {filled.conflicts.length > 0 ? (
+            <div data-check-conflicts className="flex flex-col gap-1">
+              <h3 className="font-medium">{DEVICE_RESULTS_COPY.conflictsHeading}</h3>
+              <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.conflictsBody}</p>
+              <ul className="list-disc pl-5">
+                {filled.conflicts.map((conflict) => (
+                  <li key={conflict.fields.join("\n")} data-check-conflict={conflict.kind}>
+                    {conflict.question} {CONFLICT_COPY[conflict.kind]}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {/* The pages, and only they, print (the print rules in
+          globals.css). Each canvas joins its frame here and leaves with it. */}
+          <div data-print-pages className="flex flex-col gap-4">
+            {filled.drawn.pages.map((page) => (
+              <div
+                key={page.pageNumber}
+                role="img"
+                aria-label={page.label}
+                data-print-page={page.pageNumber}
+                ref={(frame) => {
+                  frame?.replaceChildren(page.canvas);
+                }}
+                className="overflow-hidden rounded-lg border border-surface-border"
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section aria-labelledby="device-handoff-heading" data-handoff className="flex flex-col gap-2">
         <h2 id="device-handoff-heading" className="font-display text-xl font-bold">

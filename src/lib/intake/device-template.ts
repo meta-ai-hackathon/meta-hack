@@ -6,9 +6,9 @@ import type { FormRegistryEntry } from "../forms/registry-core";
 // as a static file from public/forms/. It carries no person data.
 //
 // This is the one request the device path makes, and only when the person
-// asks to download their filled form: a GET for the blank form with no
-// body, no cookies, and no referrer, so nothing about the person or their
-// answers rides along. The fill itself happens in the browser afterwards.
+// asks to see their filled form: a GET for the blank form with no body, no
+// cookies, and no referrer, so nothing about the person or their answers
+// rides along. The fill itself happens in the browser afterwards.
 
 /** Where the static blank copy of a registered form is served. */
 export function deviceTemplateUrl(entry: Pick<FormRegistryEntry, "id">): string {

@@ -470,3 +470,59 @@ progress {
   }
 }
 
+
+/* The filled application at the end of /intake (HACK-115), drawn by
+   src/lib/intake/device-print.ts: each page's canvas fits the width of its
+   frame on screen. */
+[data-print-page] > canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Printing it: while those pages are on screen, a print holds only them,
+   one page per sheet at the sheet's full width. Everything else, the
+   page's own headings, notes, and buttons included, stays off the paper.
+   The ancestors that hold the pages lose their own spacing, so the first
+   page starts at the top of the first sheet. Paper is the one way the
+   filled form leaves the page: it is never saved as a file. */
+@media print {
+  body:has([data-print-pages]) :not(:has([data-print-pages]), [data-print-pages], [data-print-pages] *) {
+    display: none !important;
+  }
+
+  body:has([data-print-pages]),
+  body:has([data-print-pages]) :has([data-print-pages]),
+  [data-print-pages] {
+    display: block !important;
+    width: auto !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: none !important;
+    box-shadow: none !important;
+  }
+
+  [data-print-page] {
+    display: block !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  [data-print-page]:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  [data-print-page] > canvas {
+    width: 100% !important;
+    height: auto !important;
+  }
+}

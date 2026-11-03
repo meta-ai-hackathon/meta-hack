@@ -8,13 +8,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The step-by-step page to the end (HACK-115), driven through the DOM: a
 // person answers every question, sees the match and the review of the
-// filled form, types the answers the questions don't ask, and downloads the
-// filled DHB-5200. Everything is computed in the browser. The only requests
-// the page makes are the cookie-only check for answers saved on the server
-// before (server-answers-notice.tsx) and the GET for the blank form, and no
-// request URL or body carries an answer. A reload resumes from IndexedDB,
-// straight back to the review, and the form fills again from the answers
-// kept on the device.
+// filled form, types the answers the questions don't ask, and shows the
+// filled DHB-5200 on the page to print it. Everything is computed in the
+// browser. The only requests the page makes are the cookie-only check for
+// answers saved on the server before (server-answers-notice.tsx) and the
+// GET for the blank form, and no request URL or body carries an answer.
+// Nothing is saved to the device: no object URL, no download, nothing that
+// embeds the PDF, and nothing new in the browser's storage. A reload resumes
+// from IndexedDB, straight back to the review, and the form fills again
+// from the answers kept on the device.
+//
+// pdf.js itself is a stand-in here (jsdom has no canvas): it reads the page
+// count and sizes of the bytes it is given with pdf-lib, records them, and
+// draws nothing. The real print module runs around it, so the test sees the
+// filled bytes exactly as pdf.js would get them, the canvases the page
+// makes, and what becomes of them. device-print.test.ts covers the drawing.
 
 type Handler = ((event: unknown) => void) | null;
 
@@ -139,19 +147,80 @@ const PRIVATE_VALUES = [
   "704-555-0142",
 ];
 
+/** What the stand-in pdf.js was given and made, and how it is set to behave. */
+const pdfjs = {
+  /** Whether importing pdf.js fails, as a dropped connection would make it. */
+  failLoad: false,
+  /** Held drawings: a page draws only once this resolves, when set. */
+  drawGate: null as Promise<void> | null,
+  /** Each document pdf.js opened: what it was given, and a copy of the bytes. */
+  documents: [] as { options: Readonly<Record<string, unknown>>; bytes: Uint8Array; destroyed: number }[],
+  /** Every canvas a page was drawn on, in order. */
+  drawnOn: [] as HTMLCanvasElement[],
+};
+
+/**
+ * Put the stand-in pdf.js where the print module imports it. Registered
+ * again on each visit: Vitest keeps a mocked module once it has loaded, and
+ * a visit that fails to load pdf.js must see the failure.
+ */
+function mockPdfJs(): void {
+  vi.doMock("pdfjs-dist/legacy/build/pdf.mjs", () => {
+    if (pdfjs.failLoad) {
+      throw new TypeError("Failed to fetch dynamically imported module");
+    }
+    return {
+      getDocument(options: Readonly<Record<string, unknown>>) {
+        const record = { options, bytes: new Uint8Array(options.data as Uint8Array), destroyed: 0 };
+        pdfjs.documents.push(record);
+        const opened = PDFDocument.load(record.bytes).then((pdf) => ({
+          numPages: pdf.getPageCount(),
+          async getPage(pageNumber: number) {
+            const size = pdf.getPage(pageNumber - 1).getSize();
+            return {
+              getViewport: ({ scale }: { scale: number }) => ({
+                width: size.width * scale,
+                height: size.height * scale,
+              }),
+              render({ canvas }: { canvas: HTMLCanvasElement }) {
+                pdfjs.drawnOn.push(canvas);
+                return { promise: pdfjs.drawGate ?? Promise.resolve(), cancel: () => undefined };
+              },
+              cleanup: () => true,
+            };
+          },
+        }));
+        return {
+          promise: opened,
+          async destroy() {
+            record.destroyed += 1;
+          },
+        };
+      },
+    };
+  });
+  vi.doMock("pdfjs-dist/legacy/build/pdf.worker.mjs", () => {
+    (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker = { WorkerMessageHandler: {} };
+    return { WorkerMessageHandler: {} };
+  });
+}
+
 let device: ReturnType<typeof fakeIndexedDb>;
 let requests: { url: string; init?: RequestInit }[];
-let downloads: { name: string; blob: Blob }[];
-let pendingBlob: Blob | null;
-let revoked: string[];
+/** Every attempt to hand the browser a file: object URLs and clicked download links. */
+let saves: string[];
+let printed: number;
 
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   device = fakeIndexedDb();
   requests = [];
-  downloads = [];
-  pendingBlob = null;
-  revoked = [];
+  saves = [];
+  printed = 0;
+  pdfjs.failLoad = false;
+  pdfjs.drawGate = null;
+  pdfjs.documents = [];
+  pdfjs.drawnOn = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -170,46 +239,68 @@ beforeEach(() => {
   vi.stubGlobal("indexedDB", device.factory);
   vi.stubGlobal("crypto", webcrypto);
   Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+  // Anything that would hand the browser a file is recorded, so a test can
+  // show nothing ever did.
   Object.defineProperty(URL, "createObjectURL", {
     configurable: true,
-    value: (blob: Blob) => {
-      pendingBlob = blob;
+    value: () => {
+      saves.push("createObjectURL");
       return "blob:filled-form";
     },
   });
-  Object.defineProperty(URL, "revokeObjectURL", {
-    configurable: true,
-    value: (url: string) => {
-      revoked.push(url);
-    },
-  });
-  // The browser saves the file; here the click records what it would save.
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
-    if (this.href === "blob:filled-form" && pendingBlob) {
-      downloads.push({ name: this.download, blob: pendingBlob });
+    if (this.hasAttribute("download") || this.href.startsWith("blob:")) {
+      saves.push(`download ${this.download}`);
     }
   });
+  vi.stubGlobal("print", () => {
+    printed += 1;
+  });
+  window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
+  vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
+  vi.doUnmock("pdfjs-dist/legacy/build/pdf.worker.mjs");
   document.body.replaceChildren();
 });
 
-async function blobBytes(blob: Blob): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsArrayBuffer(blob);
-  });
+/** What the browser keeps for this site: storage keys, by where they are kept. */
+function browserStorage(): Record<string, string[]> {
+  const keys = (storage: Storage) => Array.from({ length: storage.length }, (_, index) => storage.key(index) ?? "");
+  return {
+    indexedDB: [...device.stores.entries()]
+      .flatMap(([store, entries]) => [...entries.keys()].map((key) => `${store}/${key}`))
+      .sort(),
+    localStorage: keys(window.localStorage).sort(),
+    sessionStorage: keys(window.sessionStorage).sort(),
+  };
+}
+
+/** Nothing anywhere on the page could save the filled form or show it as a document. */
+function expectNothingSaved() {
+  expect(saves).toEqual([]);
+  expect(document.querySelectorAll("a[download], iframe, frame, embed, object")).toHaveLength(0);
+}
+
+/** A canvas let go of: shrunk to nothing and off the page. */
+function expectReleased(canvases: readonly HTMLCanvasElement[]) {
+  expect(canvases.length).toBeGreaterThan(0);
+  for (const canvas of canvases) {
+    expect(canvas.width).toBe(0);
+    expect(canvas.height).toBe(0);
+    expect(canvas.isConnected).toBe(false);
+  }
 }
 
 /** Open /intake as a fresh visit: new modules, so nothing is cached between visits. */
 async function visit() {
   vi.resetModules();
+  mockPdfJs();
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { default: IntakePage } = await import("./page");
@@ -294,23 +385,47 @@ async function visit() {
       // one question per screen
     }
   }
-  async function download() {
-    const before = downloads.length;
-    const button = container.querySelector<HTMLButtonElement>('[data-action="download"]');
+  /** The filled pages on screen: each page's frame and the canvas in it. */
+  const pages = () =>
+    [...container.querySelectorAll<HTMLElement>("[data-print-page]")].map((frame) => ({
+      frame,
+      canvases: [...frame.querySelectorAll("canvas")],
+    }));
+  /**
+   * Show the filled form, wait for its pages, and read the form pdf.js was
+   * given, which is the form the person prints.
+   */
+  async function showForm() {
+    const before = pdfjs.documents.length;
+    const button = container.querySelector<HTMLButtonElement>('[data-action="show-form"]');
     if (!button) {
-      throw new Error("no download button");
+      throw new Error("no show-form button");
     }
     await click(button);
-    await waitFor(() => downloads.length > before, "the download");
-    await waitFor(() => text().includes(DEVICE_RESULTS_COPY.downloaded), "the announcement");
-    const { name, blob } = downloads[downloads.length - 1];
-    return { name, form: (await PDFDocument.load(await blobBytes(blob))).getForm() };
+    await waitFor(() => pdfjs.documents.length > before, "the fill");
+    await waitFor(() => text().includes(DEVICE_RESULTS_COPY.ready), "the announcement");
+    await waitFor(() => pages().length > 0, "the pages");
+    const { options, bytes } = pdfjs.documents[pdfjs.documents.length - 1];
+    return { options, form: (await PDFDocument.load(bytes)).getForm(), pages: pages() };
   }
   const unmount = async () => {
     await act(async () => root.unmount());
     container.remove();
   };
-  return { container, text, byId, act, click, type, waitFor, answerEverything, download, unmount, copy: DEVICE_RESULTS_COPY };
+  return {
+    container,
+    text,
+    byId,
+    act,
+    click,
+    type,
+    waitFor,
+    answerEverything,
+    pages,
+    showForm,
+    unmount,
+    copy: DEVICE_RESULTS_COPY,
+  };
 }
 
 /** Every request so far: its URL and body carry none of these values. */
@@ -325,7 +440,7 @@ function expectNoAnswerInRequests(values: readonly string[]) {
 }
 
 describe("/intake to the review and the filled form, on the device", () => {
-  it("shows the match and the review, downloads the filled DHB-5200, and resumes after a reload", async () => {
+  it("shows the match, the review, and the filled DHB-5200 to print, saves nothing, and resumes after a reload", async () => {
     const page = await visit();
     await page.answerEverything();
     expect(page.text()).toContain("All questions answered for now");
@@ -371,12 +486,8 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(nameInput).toBeTruthy();
     await page.type(nameInput!, TYPED_NAME);
 
-    const first = await page.download();
-    expect(first.name).toBe("dhb-5200.pdf");
-    // The file's URL outlives the click, so a browser that starts the
-    // download a moment later still gets it, and then it is let go.
-    expect(revoked).toEqual([]);
-    await page.waitFor(() => revoked.includes("blob:filled-form"), "the download URL to be revoked");
+    const storedBefore = browserStorage();
+    const first = await page.showForm();
     expect(first.form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe("07/19/1984");
     expect(first.form.getTextField("14 Phone Number").getText()).toBe("704-555-0142");
     expect(first.form.getTextField("undefined_10").getText()).toBe("1200");
@@ -385,37 +496,82 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(first.form.getTextField("5 Social Security Number SSN").getText() ?? "").toBe("");
     expect(page.container.querySelector("[data-left-blank]")?.textContent).toContain("Social Security number");
 
+    // pdf.js got the filled bytes and nothing that would make it request
+    // anything, and its document is gone once the pages are drawn.
+    expect(Object.keys(first.options).sort()).toEqual(["data", "isEvalSupported"]);
+    expect(first.options.isEvalSupported).toBe(false);
+    expect(pdfjs.documents.every((document) => document.destroyed === 1)).toBe(true);
+
+    // Every page of the form, in order, labeled for a screen reader by its
+    // number alone, each one canvas at 150 DPI for a Letter page.
+    const preview = page.container.querySelector("[data-print-preview]");
+    expect(preview?.querySelector("h2")?.textContent).toBe(page.copy.previewHeading);
+    expect(first.pages).toHaveLength(21);
+    first.pages.forEach(({ frame, canvases }, index) => {
+      expect(frame.getAttribute("role")).toBe("img");
+      expect(frame.getAttribute("aria-label")).toBe(`Page ${index + 1} of 21, filled application`);
+      expect(canvases).toHaveLength(1);
+      expect([canvases[0].width, canvases[0].height]).toEqual([1275, 1650]);
+    });
+    expect(first.pages.map(({ canvases }) => canvases[0])).toEqual(pdfjs.drawnOn);
+    // The heading outline still never skips a level.
+    const levels = [...page.container.querySelectorAll("[data-device-results] :is(h2, h3, h4)")].map((heading) =>
+      Number(heading.tagName.slice(1)),
+    );
+    levels.forEach((level, index) => expect(level).toBeLessThanOrEqual((levels[index - 1] ?? 1) + 1));
+
+    // Print is the browser's print, and nothing anywhere was saved.
+    await page.click(preview!.querySelector<HTMLButtonElement>('[data-action="print"]')!);
+    expect(printed).toBe(1);
+    expectNothingSaved();
+    expect(browserStorage()).toEqual(storedBefore);
+    expect(storedBefore.indexedDB).toEqual(["kv/intake-answers", "kv/intake-answers-key"]);
+
+    // A change to a typed answer drops the pages: they no longer match.
+    const shown = first.pages.map(({ canvases }) => canvases[0]);
+    await page.type(nameInput!, `${TYPED_NAME} Jr.`);
+    expect(page.pages()).toEqual([]);
+    expect(page.container.querySelector("[data-print-preview]")).toBeNull();
+    expectReleased(shown);
+
     // The only requests: the cookie-only check, then the blank form, bodiless and cookieless.
     expect(requests.map((request) => request.url)).toEqual(["/api/intake/state", "/forms/dhb-5200.pdf"]);
     expect(requests[1].init).toEqual({ method: "GET", credentials: "omit", referrerPolicy: "no-referrer" });
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
     expect(device.stores.get("kv")?.has("intake-answers")).toBe(true);
+
+    // Shown again, then the page goes away: its pages go with it.
+    const again = await page.showForm();
     await page.unmount();
+    expectReleased(again.pages.map(({ canvases }) => canvases[0]));
 
     // A reload: the answers come back from IndexedDB, straight to the review.
-    const again = await visit();
-    expect(again.text()).toContain("Welcome back. These are the answers you saved in this browser.");
-    expect(again.text()).toContain("All questions answered for now");
-    expect(again.container.querySelector("[data-match-card='nc_medicaid']")).not.toBeNull();
-    const second = await again.download();
+    const reloaded = await visit();
+    expect(reloaded.text()).toContain("Welcome back. These are the answers you saved in this browser.");
+    expect(reloaded.text()).toContain("All questions answered for now");
+    expect(reloaded.container.querySelector("[data-match-card='nc_medicaid']")).not.toBeNull();
+    expect(reloaded.pages()).toEqual([]);
+    const second = await reloaded.showForm();
     expect(second.form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe("07/19/1984");
     expect(second.form.getTextField("14 Phone Number").getText()).toBe("704-555-0142");
-    // The typed name was for that one download: it isn't kept anywhere.
+    // The typed name was for that visit's form: it isn't kept anywhere.
     expect(second.form.getTextField(NAME_FIELD).getText() ?? "").toBe("");
     expect(requests.map((request) => request.url)).toEqual([
       "/api/intake/state",
+      "/forms/dhb-5200.pdf",
       "/forms/dhb-5200.pdf",
       "/api/intake/state",
       "/forms/dhb-5200.pdf",
     ]);
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
-    await again.unmount();
+    expectNothingSaved();
+    await reloaded.unmount();
   }, 60_000);
 
   it("prints both boxes of a check-one line as typed and says to fix them", async () => {
     // The full DHB-5200 mapping (VAL-FIX-007): the fill never picks a side
     // when two boxes of one check-one group are checked. The form shows
-    // both, and the page names the question after the download.
+    // both, and the page names the question above the filled pages.
     const { DEVICE_FORM_ENTRY } = await import("../../lib/intake/device-form");
     const [employed, selfEmployed] = ["Employed_2", "SelfEmployed_2"].map(
       (name) => DEVICE_FORM_ENTRY.fields.find((field) => field.name === name)!,
@@ -432,7 +588,7 @@ describe("/intake to the review and the filled form, on the device", () => {
       );
     }
     expect(page.container.querySelector("[data-check-conflicts]")).toBeNull();
-    const filled = await page.download();
+    const filled = await page.showForm();
     expect(filled.form.getCheckBox(employed.name).isChecked()).toBe(true);
     expect(filled.form.getCheckBox(selfEmployed.name).isChecked()).toBe(true);
     const flagged = page.container.querySelectorAll("[data-check-conflicts] li");
@@ -442,15 +598,16 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(page.container.querySelector("[data-check-conflicts]")?.textContent).toContain(
       page.copy.conflictsHeading,
     );
+    expect(page.container.querySelector("[data-print-preview] [data-check-conflicts]")).not.toBeNull();
     expectNoAnswerInRequests([...PRIVATE_VALUES, "1200", "Quillfeather"]);
     await page.unmount();
   }, 60_000);
 
-  it("after a download, deletes the answers without claiming the downloaded file is gone", async () => {
+  it("with the filled form shown, a delete takes its pages too and claims only what it did", async () => {
     const page = await visit();
     await page.answerEverything();
     await page.type(page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!, TYPED_NAME);
-    const filled = await page.download();
+    const filled = await page.showForm();
     expect(filled.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
 
     const { act } = await import("react");
@@ -467,30 +624,30 @@ describe("/intake to the review and the filled form, on the device", () => {
     });
     await page.waitFor(() => page.text().includes(DEVICE_INTAKE_COPY.deleted), "the delete confirmation");
 
-    // The answers and their key are gone from the browser, and the typed name with the screen.
+    // The answers and their key are gone from the browser, and the typed
+    // name and the filled pages with the screen.
     expect(device.stores.get("kv")?.has("intake-answers")).toBe(false);
     expect(device.stores.get("kv")?.has("intake-answers-key")).toBe(false);
     expect(page.container.querySelector("[data-device-results]")).toBeNull();
     expect(page.text()).not.toContain(TYPED_NAME);
-    // The file already saved to the device is outside the delete, and the page says so.
-    expect(downloads).toHaveLength(1);
-    expect(DEVICE_INTAKE_COPY.deleted).toContain("downloaded the filled form");
-    expect(page.text()).not.toContain("left on this device");
+    expectReleased(filled.pages.map(({ canvases }) => canvases[0]));
+    // Nothing was ever saved to the device, so the confirmation has no
+    // file to warn about, and it claims only this browser.
+    expectNothingSaved();
+    expect(DEVICE_INTAKE_COPY.deleted).not.toMatch(/download|file/i);
+    expect(DEVICE_INTAKE_COPY.deleted).toContain("in this browser");
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
     await page.unmount();
   }, 60_000);
 
-  it("in a browser that can't save, says a downloaded form is still on the device after a clear", async () => {
-    // Nothing is kept in this browser, but the filled form downloaded from
-    // the end of /intake is still a file on the device, so the clear must
-    // not say there was nothing on the device.
+  it("in a browser that can't save, a clear takes the filled pages and says none were kept", async () => {
     vi.stubGlobal("indexedDB", undefined);
     const page = await visit();
     const { DEVICE_INTAKE_COPY } = await import("../../lib/intake/device-intake");
     expect(page.text()).toContain(DEVICE_INTAKE_COPY.unsupportedOnLoad);
     await page.answerEverything();
     await page.type(page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!, TYPED_NAME);
-    const filled = await page.download();
+    const filled = await page.showForm();
     expect(filled.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
 
     await page.click(page.container.querySelector<HTMLButtonElement>("[data-delete-from-device]")!);
@@ -501,9 +658,9 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.waitFor(() => page.text().includes(DEVICE_INTAKE_COPY.clearedNothingStored), "the clear");
     expect(page.container.querySelector("[data-device-results]")).toBeNull();
     expect(page.text()).not.toContain(TYPED_NAME);
-    expect(downloads).toHaveLength(1);
-    expect(DEVICE_INTAKE_COPY.clearedNothingStored).toContain("downloaded the filled form");
-    expect(page.text()).not.toContain("nothing on the device");
+    expectReleased(filled.pages.map(({ canvases }) => canvases[0]));
+    expectNothingSaved();
+    expect(DEVICE_INTAKE_COPY.clearedNothingStored).not.toMatch(/download|file/i);
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
     await page.unmount();
   }, 60_000);
@@ -518,7 +675,7 @@ describe("/intake to the review and the filled form, on the device", () => {
         throw new TypeError("Failed to fetch");
       }),
     );
-    const button = page.container.querySelector<HTMLButtonElement>('[data-action="download"]')!;
+    const button = page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')!;
     await page.type(page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!, TYPED_NAME);
     const { act } = await import("react");
     await act(async () => {
@@ -530,13 +687,15 @@ describe("/intake to the review and the filled form, on the device", () => {
       });
     }
     expect(page.text()).toContain(page.copy.templateUnavailable);
-    expect(downloads).toHaveLength(0);
+    expect(pdfjs.documents).toEqual([]);
+    expect(page.pages()).toEqual([]);
+    expectNothingSaved();
     expect(requests.at(-1)?.url).toBe("/forms/dhb-5200.pdf");
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME]);
     await page.unmount();
   }, 60_000);
 
-  it("holds the download back until every box answer reads checked or unchecked", async () => {
+  it("holds the filled form back until every box answer reads checked or unchecked", async () => {
     // A box answer the fill can't read would print as an unchecked box that
     // counts as filled, so "yes" for "Is Person 2 employed?" is listed to
     // fix, and nothing is filled or fetched until it is.
@@ -547,9 +706,10 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.type(input(NAME_FIELD), TYPED_NAME);
     await page.type(input("Employed_2"), "yes");
     await page.type(input("SelfEmployed_2"), " Checked ");
-    await page.click(page.container.querySelector<HTMLButtonElement>('[data-action="download"]')!);
+    await page.click(page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')!);
     await page.waitFor(() => page.text().includes(page.copy.unreadableBoxes), "the box answers notice");
-    expect(downloads).toHaveLength(0);
+    expect(pdfjs.documents).toEqual([]);
+    expect(page.pages()).toEqual([]);
     expect(requests.map((request) => request.url)).toEqual(["/api/intake/state"]);
     const listed = [...page.container.querySelectorAll("[data-unreadable-box]")].map((item) =>
       item.getAttribute("data-unreadable-box"),
@@ -561,7 +721,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     // Fixed, the list goes away and the form fills as answered.
     await page.type(input("Employed_2"), "unchecked");
     expect(page.container.querySelector("[data-unreadable-boxes]")).toBeNull();
-    const filled = await page.download();
+    const filled = await page.showForm();
     expect(filled.form.getCheckBox("Employed_2").isChecked()).toBe(false);
     expect(filled.form.getCheckBox("SelfEmployed_2").isChecked()).toBe(true);
     expect(filled.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
@@ -673,4 +833,111 @@ describe("/intake to the review and the filled form, on the device", () => {
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME]);
     await page.unmount();
   }, 120_000);
+
+  it("says something went wrong and shows no pages when pdf.js won't load, then shows them on the next try", async () => {
+    pdfjs.failLoad = true;
+    const page = await visit();
+    await page.answerEverything();
+    await page.click(page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')!);
+    await page.waitFor(() => page.text().includes(page.copy.failed), "the failure notice");
+    expect(pdfjs.documents).toEqual([]);
+    expect(page.pages()).toEqual([]);
+    expect(page.container.querySelector("[data-print-preview]")).toBeNull();
+    expect(page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')?.disabled).toBe(false);
+    expectNothingSaved();
+
+    // A dropped connection isn't kept: the next press loads pdf.js and shows the form.
+    pdfjs.failLoad = false;
+    const filled = await page.showForm();
+    expect(filled.pages).toHaveLength(21);
+    expect(filled.form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe("07/19/1984");
+    expectNothingSaved();
+    expectNoAnswerInRequests([...PRIVATE_VALUES, "1200", "Quillfeather"]);
+    await page.unmount();
+  }, 60_000);
+
+  it("stops drawing when an answer changes partway, and never shows pages from the old answers", async () => {
+    const page = await visit();
+    await page.answerEverything();
+    const nameInput = page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!;
+    await page.type(nameInput, TYPED_NAME);
+    const gate = Promise.withResolvers<void>();
+    pdfjs.drawGate = gate.promise;
+    await page.click(page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')!);
+    await page.waitFor(() => pdfjs.drawnOn.length > 0, "the first page to start drawing");
+
+    // The name changes while the first page draws, and then the drawing finishes.
+    await page.type(nameInput, `${TYPED_NAME} Jr.`);
+    pdfjs.drawGate = null;
+    await page.act(async () => {
+      gate.resolve();
+    });
+    await page.waitFor(
+      () => !page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')?.disabled,
+      "the drawing to stop",
+    );
+    expect(page.pages()).toEqual([]);
+    expect(pdfjs.drawnOn).toHaveLength(1);
+    expectReleased(pdfjs.drawnOn);
+    // Nothing failed: the person changed an answer.
+    expect(page.text()).not.toContain(page.copy.failed);
+    expect(page.text()).not.toContain(page.copy.ready);
+
+    // Shown again, the form has the new name.
+    const filled = await page.showForm();
+    expect(filled.form.getTextField(NAME_FIELD).getText()).toBe(`${TYPED_NAME} Jr.`);
+    expectNothingSaved();
+    await page.unmount();
+  }, 60_000);
+
+  it("drops the filled pages when the answers on the device change, and lets go of them", async () => {
+    // Another tab can change the answers while the end of /intake is on
+    // screen (the wizard picks the change up on focus); the pages drawn
+    // from the old answers go at once.
+    vi.resetModules();
+    mockPdfJs();
+    const React = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { DeviceResults } = await import("./device-results");
+    const { EMPTY_CLIENT_ANSWERS, saveClientAnswer } = await import("../../lib/intake/client-store");
+    const typed = { values: {}, onChange: () => undefined };
+    const before = saveClientAnswer(EMPTY_CLIENT_ANSWERS, {
+      questionId: "state",
+      status: "known",
+      provenance: "user_supplied",
+      value: "NC",
+    });
+    const after = saveClientAnswer(before, {
+      questionId: "household_size",
+      status: "known",
+      provenance: "user_supplied",
+      value: "2",
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const { act } = React;
+    await act(async () => {
+      root.render(React.createElement(DeviceResults, { answers: before, typedAnswers: typed }));
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-action="show-form"]')!.click();
+    });
+    for (let i = 0; i < 400 && container.querySelectorAll("[data-print-page] canvas").length === 0; i += 1) {
+      await act(async () => {
+        await new Promise((done) => setTimeout(done, 10));
+      });
+    }
+    const shown = [...container.querySelectorAll("canvas")];
+    expect(shown).toHaveLength(21);
+
+    await act(async () => {
+      root.render(React.createElement(DeviceResults, { answers: after, typedAnswers: typed }));
+    });
+    expect(container.querySelector("[data-print-preview]")).toBeNull();
+    expectReleased(shown);
+    expectNothingSaved();
+    await act(async () => root.unmount());
+    container.remove();
+  }, 60_000);
 });

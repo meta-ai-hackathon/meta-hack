@@ -343,6 +343,32 @@ describe("the device results, for any answers on the device", () => {
     );
   }, RENDER_TIMEOUT_MS);
 
+  it("offer the filled form to show and print, never to download, and embed no document", () => {
+    // The owner's decision on HACK-115 (Nov 3): the filled form is printed,
+    // never saved to the device. Whatever the answers, the end of /intake
+    // offers to show it, with the note on what that does, and nothing on
+    // the screen downloads or embeds a file.
+    fc.assert(
+      fc.property(deviceAnswersArb, (state) => {
+        const { root } = render(state);
+        const show = root.querySelectorAll<HTMLButtonElement>('button[data-action="show-form"]');
+        expect(show).toHaveLength(1);
+        expect(show[0].textContent).toBe(DEVICE_RESULTS_COPY.showFormButton);
+        expect(root.textContent).toContain(DEVICE_RESULTS_COPY.showFormNote);
+        expect(root.querySelectorAll("[download], iframe, frame, embed, object")).toHaveLength(0);
+        // The page's own words never offer a download. The knowledge base's
+        // sourced facts may (the agency's paper route starts with its blank
+        // form), so the match cards and official links are left out here.
+        const ownWords = root.cloneNode(true) as HTMLElement;
+        ownWords.querySelectorAll("[data-match-card], [data-handoff-links]").forEach((sourced) => sourced.remove());
+        expect(ownWords.textContent).not.toMatch(/download/i);
+        // The pages appear only once the person asks for them.
+        expect(root.querySelector("[data-print-preview], [data-print-pages], canvas")).toBeNull();
+      }),
+      { numRuns: 20 },
+    );
+  }, RENDER_TIMEOUT_MS);
+
   it("keep a heading outline that never skips a level", () => {
     fc.assert(
       fc.property(deviceAnswersArb, (state) => {
@@ -358,4 +384,30 @@ describe("the device results, for any answers on the device", () => {
       { numRuns: 60 },
     );
   }, RENDER_TIMEOUT_MS);
+});
+
+describe("the device results copy", () => {
+  // Some of this copy shows only once the filled form is drawn, so the
+  // renderings above never see it: every string is checked here as well.
+  const strings = Object.entries(DEVICE_RESULTS_COPY);
+
+  it("carries no banned claim, no download wording, and no em dash", () => {
+    for (const [key, text] of strings) {
+      expect(findBannedClaims(text), key).toEqual([]);
+      expect(text, key).not.toMatch(/download/i);
+      expect(text, key).not.toContain("—");
+    }
+  });
+
+  it("says where the form is filled, that nothing leaves or stays on the device, and that printing is how it goes in", () => {
+    const note = DEVICE_RESULTS_COPY.showFormNote;
+    expect(note).toContain("in this browser");
+    expect(note).toContain("None of your answers are sent anywhere");
+    expect(note).toContain("nothing is saved to this device");
+    expect(note).toContain("Printing the form is how you sign it and send it in");
+    // The lists that come with the pages point at the form, not at a file.
+    expect(DEVICE_RESULTS_COPY.leftBlankHeading).toBe("Left blank on the form below");
+    expect(DEVICE_RESULTS_COPY.conflictsHeading).toBe("Check these on the form below");
+    expect(DEVICE_RESULTS_COPY.conflictsBody).toContain("on the printed form");
+  });
 });

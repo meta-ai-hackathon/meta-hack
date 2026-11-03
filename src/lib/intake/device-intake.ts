@@ -120,18 +120,14 @@ export const DEVICE_INTAKE_COPY = {
     "can't be undone.",
   deleteYes: "Yes, delete them",
   deleteNo: "Keep them",
-  // The filled form the end of /intake downloads (HACK-115) is an ordinary
-  // file outside this browser's storage, so the delete can't reach it.
-  deleted:
-    "Deleted. None of your answers are left in this browser. If you " +
-    "downloaded the filled form, that file is still on this device until " +
-    "you delete it.",
-  // In a browser that can't save, a filled form downloaded from the end of
-  // /intake is still a file on the device, so the clear can't say nothing is.
+  // The delete reaches this browser's storage, so that is what it claims.
+  // The end of /intake never saves the filled form (HACK-115): it shows the
+  // pages to print and lets go of them with the answers, so there is no
+  // file to mention.
+  deleted: "Deleted. None of your answers are left in this browser.",
   clearedNothingStored:
     "Cleared from this page. This browser can't save answers, so none were " +
-    "kept in it. If you downloaded the filled form, that file is still on " +
-    "this device until you delete it.",
+    "kept in it.",
   deleteUnconfirmed:
     "We couldn't confirm your answers were deleted from this device. To be " +
     "sure, clear this site's data in your browser settings.",

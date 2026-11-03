@@ -73,7 +73,7 @@ export interface FillOutcome {
    * the flag reaches the person the way every still-needed item does: the
    * packet cover's missing rows (provenanceFromFill) and the fill logs
    * (counts only, no values). On the device, the end of /intake lists them
-   * after the download.
+   * above the filled pages it shows to print.
    */
   readonly conflicts: readonly FillConflict[];
 }

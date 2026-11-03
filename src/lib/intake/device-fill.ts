@@ -6,10 +6,11 @@ import { DEVICE_FORM_ENTRY, deviceFillValues } from "./device-form";
 
 // Drawing the device answers onto the blank application form, in the
 // browser (HACK-115). This is the one device module that loads pdf-lib, so
-// the step-by-step page imports it only when the person downloads: the
-// questions never wait on the PDF library. The values come from
-// deviceFillValues and the drawing is fill-core's, the same code the
-// server's fill route runs.
+// the step-by-step page imports it only when the person asks to see their
+// filled form: the questions never wait on the PDF library. The values come
+// from deviceFillValues and the drawing is fill-core's, the same code the
+// server's fill route runs. The filled bytes go to the print preview
+// (device-print.ts) and are never saved.
 
 export type DeviceFillResult =
   | { readonly kind: "filled"; readonly outcome: FillOutcome }

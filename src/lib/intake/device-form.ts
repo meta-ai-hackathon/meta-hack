@@ -40,7 +40,7 @@ import { QUESTION_BY_ID, QUESTIONS } from "./spec";
 // (property-proven in device-form.test.ts against the real routes).
 //
 // Nothing here loads pdf-lib: drawing onto the form is device-fill.ts,
-// which the page loads only when the person downloads.
+// which the page loads only when the person asks to see the filled form.
 
 /** The pilot's registered form, read from the committed registry data. */
 export const DEVICE_FORM_ENTRY: FormRegistryEntry = pilotFormEntry();
