@@ -152,6 +152,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   document.removeEventListener("click", catchDownload, true);
   Reflect.deleteProperty(navigator, "storage");
   vi.unstubAllGlobals();
@@ -473,12 +474,16 @@ describe("the calendar file download stays behind its gate (HACK-50 review)", ()
   );
 
   it("while it is off, a saved date still gets its in-app reminder, and the banner on other pages reads it", async () => {
+    // The device's today is held at noon on a fixed day, so "10 days out"
+    // can't slip by one at midnight. Only Date is faked; timers stay real.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(2027, 3, 1, 12) });
     const app = await loadTracker();
     const page = await app.mount(false);
     expect(page.text()).toContain(app.copy.LINES_WITHOUT_CALENDAR_FILE.noDateIntro);
     expect(page.text()).toContain(app.copy.LINES_WITHOUT_CALENDAR_FILE.privacyNote);
     expect(page.text()).toContain(app.copy.LINES_WITHOUT_CALENDAR_FILE.browserCanClearNote);
     const today = deviceToday();
+    expect(formatIsoDate(today)).toBe("2027-04-01");
     const due = addDays(today, 10);
     await page.enterDueDate(formatIsoDate(due));
     expect(page.button(app.copy.DOWNLOAD_BUTTON)).toBeUndefined();
