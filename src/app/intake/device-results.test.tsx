@@ -660,7 +660,15 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(page.text()).not.toContain(TYPED_NAME);
     expectReleased(filled.pages.map(({ canvases }) => canvases[0]));
     expectNothingSaved();
+    // The clear claims only this browser, as the delete does: answers are
+    // kept per browser, and a Save as PDF from the print window would be a
+    // file on the device the clear can't see, so it never says there was
+    // nothing on the device.
     expect(DEVICE_INTAKE_COPY.clearedNothingStored).not.toMatch(/download|file/i);
+    expect(DEVICE_INTAKE_COPY.clearedNothingStored).toContain(
+      "This browser can't save answers, so none were kept in it",
+    );
+    expect(page.text()).not.toContain("nothing on the device");
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
     await page.unmount();
   }, 60_000);
