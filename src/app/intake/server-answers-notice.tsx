@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { StatusRegion } from "../../components/status-region";
+import { DOWNLOADED_COPY_STAYS } from "../../lib/intake/device-intake";
 import { requestPurge, type PurgeRequestOutcome } from "./conversation/purge-section";
 
 // Answers this browser has saved on the app's server (HACK-99, from the
@@ -27,6 +28,11 @@ import { requestPurge, type PurgeRequestOutcome } from "./conversation/purge-sec
 // notice says it couldn't reach the app, so the press is never silent.
 // Only one Check again runs at a time, so a failed check can never land
 // after one that reached the app and overwrite what it found.
+//
+// The same page offers a downloaded copy of the filled form (HACK-115),
+// which is a file on the device that no delete reaches, so the delete's
+// confirming step and every outcome that says what was or wasn't removed
+// say that a downloaded copy stays (rules.md, Real data rules).
 
 export const SERVER_ANSWERS_COPY = {
   heading: "Answers saved on the app's server",
@@ -36,22 +42,22 @@ export const SERVER_ANSWERS_COPY = {
   deleteButton: "Delete them from the app's server",
   confirm:
     "This deletes everything this browser saved on the app's server, " +
-    "including any chat history and private details. It can't be undone.",
+    `including any chat history and private details. It can't be undone. ${DOWNLOADED_COPY_STAYS}`,
   confirmYes: "Yes, delete them",
   confirmNo: "Keep them",
   deleting: "Deleting…",
   purged:
     "Deleted from the app's server. All it keeps now is a record that this " +
-    "browser had a session, with no answers in it.",
+    `browser had a session, with no answers in it. ${DOWNLOADED_COPY_STAYS}`,
   noSession:
     "There was nothing saved on the app's server for this browser, so " +
-    "nothing was removed.",
+    `nothing was removed. ${DOWNLOADED_COPY_STAYS}`,
   refused: "The delete was refused, so nothing was removed from the app's server.",
   unknown:
     "We couldn't reach the app to finish the delete, so we can't say " +
-    "whether it went through. Check again to see where things stand.",
+    `whether it went through. Check again to see where things stand. ${DOWNLOADED_COPY_STAYS}`,
   checkAgain: "Check again",
-  goneAfterCheck: "Nothing from this browser is saved on the app's server now.",
+  goneAfterCheck: `Nothing from this browser is saved on the app's server now. ${DOWNLOADED_COPY_STAYS}`,
   checkFailed:
     "We still couldn't reach the app, so we can't say whether the delete " +
     "went through. Try again in a moment.",

@@ -141,8 +141,11 @@ describe("the server answers notice", () => {
     expect(document.activeElement?.textContent).toBe(SERVER_ANSWERS_COPY.deleteButton);
 
     await page.click(SERVER_ANSWERS_COPY.deleteButton);
+    // The confirming step says a downloaded copy of the filled form isn't touched.
+    expect(page.container.textContent).toContain("that file stays on this device until you delete it");
     await page.click(SERVER_ANSWERS_COPY.confirmYes);
     expect(page.status()).toBe(SERVER_ANSWERS_COPY.purged);
+    expect(page.status()).toContain("that file stays on this device until you delete it");
     expect(page.button(SERVER_ANSWERS_COPY.deleteButton)).toBeUndefined();
     expect(page.container.textContent).not.toContain(SERVER_ANSWERS_COPY.body(3));
     expect(document.activeElement?.id).toBe("server-answers-heading");
@@ -377,6 +380,18 @@ describe("the notice's copy", () => {
     );
     for (const line of lines) {
       expect(findBannedClaims(line)).toEqual([]);
+    }
+  });
+
+  it("says at the delete, and in each outcome that says what was or wasn't removed, that a downloaded copy of the filled form stays", () => {
+    // The same page offers a downloaded copy of the filled form (HACK-115).
+    // It is a file on the device that no delete reaches, and the rules
+    // (.github/claude-review/rules.md) require the delete and purge copy
+    // to say it stays until the person deletes it.
+    for (const key of ["confirm", "purged", "noSession", "unknown", "goneAfterCheck"] as const) {
+      expect(SERVER_ANSWERS_COPY[key], key).toContain(
+        "If you downloaded a copy of the filled form, or saved it as a PDF when printing, that file stays on this device until you delete it.",
+      );
     }
   });
 });

@@ -67,10 +67,12 @@ export type DeviceKeeping = "kept" | "unsupported" | "unavailable" | "stopped";
 /**
  * A copy of the filled form the person downloads from the end of /intake
  * (HACK-115), or saves as a PDF from its print window, is an ordinary file
- * outside this browser's storage, so no delete here reaches it. Every
- * delete and purge message says so (rules.md, Real data rules).
+ * outside this browser's storage, so no delete here reaches it, and no
+ * delete of the answers on the app's server does either. Every delete and
+ * purge message on /intake says so (rules.md, Real data rules): these
+ * below, and the server answers notice's (server-answers-notice.tsx).
  */
-const DOWNLOADED_COPY_STAYS =
+export const DOWNLOADED_COPY_STAYS =
   "If you downloaded a copy of the filled form, or saved it as a PDF when " +
   "printing, that file stays on this device until you delete it.";
 
