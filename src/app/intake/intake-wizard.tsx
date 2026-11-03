@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ClientQuestion, IntakeClientState } from "../../lib/intake/client-state";
 import {
   DEVICE_INTAKE_COPY,
@@ -19,6 +19,9 @@ import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { StatusRegion } from "../../components/status-region";
 import { DeviceResults } from "./device-results";
 import { QuestionView } from "./question-view";
+import { attributionContextFromAnswers } from "../../lib/intake/attribution";
+import { workContextFromAnswers } from "../../lib/intake/work-activities";
+import { toAnswerMap } from "../../lib/intake/client-store";
 
 // Intake wizard (BN-09 / HACK-37): one question per screen, in spec order,
 // driven by the flow engine. Every screen saves immediately (no explicit
@@ -92,6 +95,9 @@ function displayValue(question: ClientQuestion, value: unknown): string {
   }
   if (question.type === "boolean") {
     return value === true ? "Yes" : "No";
+  }
+  if (question.type === "roster" && Array.isArray(value)) {
+    return value.map((m) => (m && typeof m === "object" && "displayName" in m ? String((m as {displayName: unknown}).displayName) : "")).filter(Boolean).join(", ");
   }
   if (Array.isArray(value)) {
     return value
@@ -239,6 +245,14 @@ export function IntakeWizard(props: {
   // nowhere else, so going from the review to a question and back keeps
   // it. It is never stored, and every delete of the answers clears it too.
   const [reviewTyped, setReviewTyped] = useState<Readonly<Record<string, string>>>({});
+  const workContext = useMemo(
+    () => (deviceIntake ? workContextFromAnswers(toAnswerMap(deviceIntake.answers)) : undefined),
+    [deviceIntake],
+  );
+  const attributionContext = useMemo(
+    () => (deviceIntake ? attributionContextFromAnswers(toAnswerMap(deviceIntake.answers)) : undefined),
+    [deviceIntake],
+  );
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Where focus goes after a delete: back into the questions, or back to
@@ -877,6 +891,8 @@ export function IntakeWizard(props: {
       </div>
       {screenStatus}
       <QuestionView
+        attributionContext={attributionContext}
+        workContext={workContext}
         question={question}
         answer={answer}
         value={draftValue}
