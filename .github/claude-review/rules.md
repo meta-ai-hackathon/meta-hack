@@ -1,6 +1,6 @@
 # Claude review rules
 
-The Claude review bot (`scripts/claude_review.py`) sends this file to the model on every push, together with `AGENTS.md`. This file is the single source of truth for the privacy, PII, and honesty rules (AGENTS.md points here instead of restating them); a change to the Legal topics in it needs the owner's explicit human sign-off recorded on its Linear ticket and must not be authored solely by an agent. Edit it like any other doc. The bot always reads the copy on the PR's base branch, so a change here takes effect once it merges, never inside the PR that makes it.
+The Claude review bot (`scripts/claude_review.py`) sends this file to the model on every push, together with `AGENTS.md`. This file is the canonical review-enforced statement of the privacy, PII, and honesty rules (AGENTS.md points here instead of restating them); a change to the Legal topics in it needs the owner's explicit human sign-off recorded on its Linear ticket and must not be authored solely by an agent. Edit it like any other doc. The bot always reads the copy on the PR's base branch, so a change here takes effect once it merges, never inside the PR that makes it.
 
 ## Severities
 
