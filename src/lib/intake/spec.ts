@@ -13,6 +13,7 @@ export type QuestionType =
   | "single_select"
   | "multi_select"
   | "date"
+  | "roster"
   | "address";
 
 export type SkipOperator =

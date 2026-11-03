@@ -1,4 +1,5 @@
 import type { Question } from "./spec";
+import { parseRoster, type HouseholdMember } from "./roster";
 
 // Answer-value canonicalization (BN-09), shared by the server store and the
 // on-device intake (HACK-99). Pure and browser-safe: it imports only the
@@ -10,7 +11,7 @@ import type { Question } from "./spec";
 export const MAX_ANSWER_TEXT_LENGTH = 2000;
 
 /** What a valid known or unverified answer is stored as. */
-export type CanonicalAnswerValue = string | number | boolean | string[];
+export type CanonicalAnswerValue = string | number | boolean | string[] | HouseholdMember[];
 
 /**
  * The canonical stored value of `value` for `question`, or null when the
@@ -79,6 +80,9 @@ export function canonicalAnswerValue(
         return null;
       }
       return value;
+    }
+    case "roster": {
+      return parseRoster(value);
     }
     case "multi_select": {
       if (!Array.isArray(value) || value.length === 0) {

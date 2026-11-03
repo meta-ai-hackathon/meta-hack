@@ -151,6 +151,16 @@
       "provenance": "user-supplied"
     },
     {
+      "id": "household_roster",
+      "prompt": "Who lives in your household? Add each person by first name or nickname.",
+      "type": "roster",
+      "help": "First names or nicknames are fine - you do not need legal names. You can add, change, or remove people. This list helps later questions ask about the right person.",
+      "pii": true,
+      "required": false,
+      "skip_conditions": [],
+      "provenance": "user-supplied"
+    },
+    {
       "id": "income_sources",
       "prompt": "Where does money come from for your household?",
       "type": "multi_select",
