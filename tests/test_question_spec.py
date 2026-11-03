@@ -21,14 +21,6 @@ VALID_OPERATORS = {"equals", "not_equals", "in", "not_in", "gt"}
 # retrieved 2026-11-01) for the CMS interim final rule of June 1, 2026
 # (work requirements effective 2027-01-01). The canonical id list, in the
 # order the questions appear in the spec.
-# The seasonal-work pair (HACK-130, Civilla's dedicated seasonal question):
-# income questions, so they live in the income section right after
-# job_income_frequency rather than in the appended work-requirements block.
-SEASONAL_IDS = [
-    "job_income_seasonal",
-    "job_income_seasonal_total",
-]
-
 WORK_REQUIREMENTS_IDS = [
     "wr_exempt_situations",
     "wr_pregnant",
@@ -49,6 +41,14 @@ WORK_REQUIREMENTS_IDS = [
     "wr_work_activity_who",
     "wr_work_activity_types",
     "wr_work_activity_hours",
+]
+
+# The seasonal-work pair (HACK-130, Civilla's dedicated seasonal question):
+# income questions, so they live in the income section right after
+# job_income_frequency rather than in the appended work-requirements block.
+SEASONAL_IDS = [
+    "job_income_seasonal",
+    "job_income_seasonal_total",
 ]
 
 # The reporting section of the Civilla two-section design: these three ask

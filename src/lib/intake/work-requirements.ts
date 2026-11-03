@@ -204,8 +204,10 @@ export interface Income580Match {
   readonly countedSourceIds: readonly string[];
   /**
    * Captured amount questions that could NOT be converted deterministically
-   * (a "varies" or missing frequency). Their amounts are never estimated;
-   * their presence under the threshold withholds the proposal.
+   * (a "varies" or missing frequency, or — rule 6 — a captured job amount
+   * under a known seasonal "yes" with no captured 6-month total). Their
+   * amounts are never estimated; their presence under the threshold
+   * withholds the proposal.
    */
   readonly uncountedSourceIds: readonly string[];
 }

@@ -1,6 +1,6 @@
 {
   "title": "Generic benefits-application questions",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "answer_statuses": ["known", "unknown", "unverified"],
   "questions": [
     {
