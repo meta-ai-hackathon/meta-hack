@@ -251,6 +251,6 @@ describe("QuestionView per-person attribution (HACK-135)", () => {
   });
   it("shows a skip-friendly note when there is nothing to attribute yet", () => {
     const q = QUESTIONS.find((x) => x.id === "wr_who_months")!;
-    expect(renderView(q)).toContain("never blocks your application");
+    expect(renderView(q)).toContain("can only be answered when your answers are saved on this device");
   });
 });

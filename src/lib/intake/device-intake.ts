@@ -27,6 +27,14 @@ import {
   type DeviceAnswersLoad,
 } from "./device-answer-store";
 import { QUESTION_BY_ID } from "./spec";
+import {
+  ATTRIBUTION_QUESTION_ID,
+  EXEMPTION_QUESTION_IDS,
+  INCOME_580_SITUATION_ID,
+  currentAttribution,
+  parseAttribution,
+} from "./attribution";
+import { ROSTER_QUESTION_ID } from "./roster";
 
 // The step-by-step page's on-device intake (HACK-99). Answers live only in
 // this browser: the flow engine runs here over the sealed device store
@@ -291,6 +299,46 @@ export type DeviceAnswerResult =
  * against the question spec first (as POST /api/intake/answer does), so
  * nothing invalid is kept; an unknown answer keeps no value at all.
  */
+const ATTRIBUTION_TRIGGER_IDS: ReadonlySet<string> = new Set([
+  ROSTER_QUESTION_ID,
+  "wr_exempt_situations",
+  ...EXEMPTION_QUESTION_IDS,
+  INCOME_580_SITUATION_ID,
+]);
+
+/**
+ * Re-prune the stored attribution after a roster or situation answer
+ * changes (HACK-135): entries for a removed member or a withdrawn
+ * situation are dropped from the stored answer itself, not just hidden
+ * in the editor. Best effort on the persisted path - the in-memory
+ * state is always pruned.
+ */
+async function withReprunedAttribution(next: DeviceIntake, changedId: string): Promise<DeviceIntake> {
+  if (!ATTRIBUTION_TRIGGER_IDS.has(changedId)) return next;
+  const record = next.answers[ATTRIBUTION_QUESTION_ID];
+  if (!record || record.status === "unknown") return next;
+  const pruned = currentAttribution(toAnswerMap(next.answers));
+  const stored = parseAttribution(record.value) ?? [];
+  if (JSON.stringify(pruned) === JSON.stringify(stored)) return next;
+  const prunedRecord: ClientAnswerRecord = pruned.length === 0
+    ? { questionId: ATTRIBUTION_QUESTION_ID, status: "unknown", provenance: record.provenance, value: null }
+    : { questionId: ATTRIBUTION_QUESTION_ID, status: record.status, provenance: record.provenance, value: pruned };
+  const state = saveClientAnswer(next.answers, prunedRecord);
+  if (!keepsAnswers(next) || next.store === null) {
+    return intakeOf(next.store, next.keeping, next.stored, state);
+  }
+  try {
+    const result = await deadline(recordDeviceAnswer(next.store, prunedRecord, { expectStored: next.stored }), "saving to device storage");
+    if (result.status === "saved") {
+      return intakeOf(next.store, "kept", true, result.state);
+    }
+  } catch {
+    // Fall through: the in-memory state is pruned even if the persisted
+    // prune could not be written this visit.
+  }
+  return intakeOf(next.store, next.keeping, next.stored, state);
+}
+
 export async function answerOnDevice(
   intake: DeviceIntake,
   questionId: string,
@@ -315,7 +363,8 @@ export async function answerOnDevice(
     value: stored,
   };
   if (!keepsAnswers(intake) || intake.store === null) {
-    const next = intakeOf(intake.store, intake.keeping, intake.stored, saveClientAnswer(intake.answers, record));
+    const base = intakeOf(intake.store, intake.keeping, intake.stored, saveClientAnswer(intake.answers, record));
+    const next = await withReprunedAttribution(base, questionId);
     return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, next) };
   }
   let result: DeviceAnswerSave;
@@ -346,7 +395,8 @@ export async function answerOnDevice(
   }
   switch (result.status) {
     case "saved": {
-      const next = intakeOf(intake.store, "kept", true, result.state);
+      const base = intakeOf(intake.store, "kept", true, result.state);
+      const next = await withReprunedAttribution(base, questionId);
       return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, next) };
     }
     case "purged":

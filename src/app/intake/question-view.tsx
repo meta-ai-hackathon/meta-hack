@@ -199,7 +199,7 @@ export function QuestionView({
         {question.help ? <p id={helpId} className="text-sm text-muted">{question.help}</p> : null}
         {attributionContext === undefined ? (
           <p className="text-sm text-muted">
-            This question is filled in from your household list in the step-by-step questions. You can skip it here - it never blocks your application.
+            This question can only be answered when your answers are saved on this device. You can skip it here - it never blocks your application.
           </p>
         ) : members.length === 0 || situations.length === 0 ? (
           <p className="text-sm text-muted">
