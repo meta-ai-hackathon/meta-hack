@@ -5,14 +5,16 @@ import type * as PdfJs from "pdfjs-dist/legacy/build/pdf.mjs";
 // The step-by-step page fills the official form in memory (device-fill.ts)
 // and hands the filled bytes here. This draws each page onto a canvas with
 // pdf.js, so the person can check the form on screen and print it to sign
-// and send in. Paper is the one way the filled form leaves the page: the
-// owner decided on HACK-115 (Nov 3) to replace the download, which saved
-// every answer to the device as an unencrypted file, with this print
-// preview. So nothing here saves anything. The pages are canvases in the
-// page's memory, never a file, a Blob or object URL, a frame or embed
-// showing the PDF (Android Chrome turns a PDF frame into a download, and
-// desktop PDF viewers offer one), or anything in the browser's storage,
-// and whoever shows them releases them as soon as they stop showing them.
+// and send in. Nothing here saves anything: the person's own downloaded
+// copy goes only through device-download.ts, when they press Download a
+// copy. The pages are canvases in the page's memory, never a file, a Blob
+// or object URL, a frame or embed showing the PDF (Android Chrome turns a
+// PDF frame into a download, and desktop PDF viewers offer one), or
+// anything in the browser's storage, and whoever shows them releases them
+// as soon as they stop showing them. They are drawn at about 150 DPI, and
+// at about 110 DPI within a smaller pixel budget on a phone or tablet with
+// little memory and on every iPhone and iPad, whose Safari caps the memory
+// all of a page's canvases may use (printBudgetFor).
 //
 // The page loads this module only on demand, and this module loads pdf.js
 // only on demand, from literal paths the device path's boundary check can
@@ -86,15 +88,114 @@ const POINTS_PER_INCH = 72;
 export const MAX_PAGE_PIXELS = 2_500_000;
 
 /**
- * The most pixels all of a form's pages may hold together, about 190 MB of
- * canvas memory. The DHB-5200's 21 Letter pages come to about 44 million
- * at 150 DPI, so a much longer form draws at a lower resolution rather
- * than exhaust a phone's memory.
+ * The most pixels all of a form's pages may hold together on a device with
+ * memory to spare, about 190 MB of canvas memory. The DHB-5200's 21 Letter
+ * pages come to about 44 million at 150 DPI, so a much longer form draws at
+ * a lower resolution rather than exhaust the device's memory.
  */
 export const MAX_TOTAL_PIXELS = 48_000_000;
 
+/**
+ * About 110 dots per inch on a small device (see printBudgetFor): the
+ * form's small print still reads on paper.
+ */
+export const SMALL_DEVICE_PRINT_DPI = 110;
+
+/**
+ * The most pixels all of a form's pages may hold together on a small
+ * device, about 88 MB of canvas memory. iOS Safari caps the memory all of
+ * a page's canvases may use, and 190 MB comes near that cap on many
+ * iPhones, so a small device stays well under 100 MB. The DHB-5200's 21
+ * Letter pages come to about 23.8 million at 110 DPI, so on a small device
+ * they draw at about 106 DPI.
+ */
+export const SMALL_DEVICE_MAX_TOTAL_PIXELS = 22_000_000;
+
 /** The longest side a page's canvas may have, within every browser's limit. */
 export const MAX_CANVAS_SIDE = 8_192;
+
+/** How sharp a device draws the pages, and how many pixels their canvases may hold. */
+export interface PrintBudget {
+  /** The sharpest the pages are drawn, in dots per inch. */
+  readonly dpi: number;
+  /** The most pixels one page's canvas may hold. */
+  readonly pagePixels: number;
+  /** The most pixels all of a form's pages may hold together. */
+  readonly totalPixels: number;
+}
+
+/** A device with memory to spare. */
+export const FULL_PRINT_BUDGET: PrintBudget = {
+  dpi: PRINT_DPI,
+  pagePixels: MAX_PAGE_PIXELS,
+  totalPixels: MAX_TOTAL_PIXELS,
+};
+
+/** A phone or tablet with little memory, and every iPhone and iPad. */
+export const SMALL_DEVICE_PRINT_BUDGET: PrintBudget = {
+  dpi: SMALL_DEVICE_PRINT_DPI,
+  pagePixels: MAX_PAGE_PIXELS,
+  totalPixels: SMALL_DEVICE_MAX_TOTAL_PIXELS,
+};
+
+/** What the print size needs to know about the device it draws on. */
+export interface PrintDevice {
+  /**
+   * The device's memory in gigabytes, as navigator.deviceMemory gives it
+   * (Chromium browsers say 0.25, 0.5, 1, 2, 4, or 8), or undefined where
+   * the browser doesn't say.
+   */
+  readonly memoryGb: number | undefined;
+  /** Whether the device is an iPhone, iPad, or iPod, whose Safari caps canvas memory. */
+  readonly appleMobile: boolean;
+}
+
+/** A device with at most this much memory, in gigabytes, is a small device. */
+export const SMALL_DEVICE_MEMORY_GB = 4;
+
+/**
+ * How sharp `device` draws the pages: a small device, one that says it has
+ * at most SMALL_DEVICE_MEMORY_GB of memory or is an iPhone, iPad, or iPod
+ * (whose browsers don't say), gets the small budget, and every other the
+ * full one.
+ */
+export function printBudgetFor(device: PrintDevice): PrintBudget {
+  const small =
+    device.appleMobile || (device.memoryGb !== undefined && device.memoryGb <= SMALL_DEVICE_MEMORY_GB);
+  return small ? SMALL_DEVICE_PRINT_BUDGET : FULL_PRINT_BUDGET;
+}
+
+/** The parts of a browser's navigator the print size reads. */
+export interface DeviceNavigator {
+  readonly userAgent: string;
+  readonly maxTouchPoints?: number;
+  readonly deviceMemory?: unknown;
+}
+
+/**
+ * A device, from what its browser says. An iPhone or iPod says so in its
+ * user agent, as an iPad did before iPadOS 13. Since then an iPad's Safari
+ * says it is a Mac, so a Mac with a touch screen is taken for an iPad. Every
+ * browser on iOS and iPadOS draws with WebKit, so this holds for Chrome and
+ * Firefox there too. With no navigator at all, the device is taken to have
+ * memory to spare.
+ */
+export function printDeviceOf(browser: DeviceNavigator | undefined): PrintDevice {
+  if (browser === undefined) {
+    return { memoryGb: undefined, appleMobile: false };
+  }
+  const memory = browser.deviceMemory;
+  const touchMac = /\bMacintosh\b/.test(browser.userAgent) && (browser.maxTouchPoints ?? 0) > 1;
+  return {
+    memoryGb: typeof memory === "number" && Number.isFinite(memory) && memory > 0 ? memory : undefined,
+    appleMobile: /\b(?:iPhone|iPad|iPod)\b/.test(browser.userAgent) || touchMac,
+  };
+}
+
+/** This browser's device. */
+function currentPrintDevice(): PrintDevice {
+  return printDeviceOf(typeof navigator === "undefined" ? undefined : navigator);
+}
 
 /**
  * How long pdf.js may take to open and draw the whole form, once it has
@@ -104,14 +205,15 @@ export const MAX_CANVAS_SIDE = 8_192;
 export const DRAW_TIMEOUT_MS = 60_000;
 
 /**
- * The scale one page is drawn at, from its size at scale 1 and how many
- * pages the form has: 150 DPI unless that would break one of the limits
- * above, in which case the largest scale that keeps to all of them.
+ * The scale one page is drawn at, from its size at scale 1, how many pages
+ * the form has, and the device's budget: the budget's DPI unless that
+ * would break one of its pixel limits or the longest canvas side, in which
+ * case the largest scale that keeps to all of them.
  */
-export function printScale(size: PageSize, pageCount: number): number {
-  const pixelBudget = Math.min(MAX_PAGE_PIXELS, MAX_TOTAL_PIXELS / pageCount);
+export function printScale(size: PageSize, pageCount: number, budget: PrintBudget = FULL_PRINT_BUDGET): number {
+  const pixelBudget = Math.min(budget.pagePixels, budget.totalPixels / pageCount);
   return Math.min(
-    PRINT_DPI / POINTS_PER_INCH,
+    budget.dpi / POINTS_PER_INCH,
     Math.sqrt(pixelBudget / (size.width * size.height)),
     MAX_CANVAS_SIDE / Math.max(size.width, size.height),
   );
@@ -245,6 +347,10 @@ function unlessStopped<T>(promise: Promise<T>, stop: AbortSignal): Promise<T> {
  * destroyed whatever happens. This waits for that teardown unless the
  * drawing was stopped, so a stuck pdf.js can't hold it up.
  *
+ * The pages are drawn at the print scale for `device`, this browser's
+ * unless another is given, so a phone or tablet with little memory draws
+ * them at a lower resolution (printBudgetFor).
+ *
  * Rejects when pdf.js can't load or can't draw the form, when `signal`
  * aborts (the answers changed, or the page closed), and when pdf.js hasn't
  * finished `timeoutMs` after it loaded (a TimeoutError). Either way it
@@ -256,7 +362,9 @@ export async function renderPrintPreview(
   createCanvas: PrintCanvasFactory,
   signal?: AbortSignal,
   timeoutMs: number = DRAW_TIMEOUT_MS,
+  device: PrintDevice = currentPrintDevice(),
 ): Promise<PrintPreview> {
+  const budget = printBudgetFor(device);
   const engine = await loadEngine();
   signal?.throwIfAborted();
   // One switch for everything that stops the drawing: the caller, or the
@@ -284,7 +392,7 @@ export async function renderPrintPreview(
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
       stop.signal.throwIfAborted();
       const page = await unlessStopped(pdf.getPage(pageNumber), stop.signal);
-      const viewport = page.getViewport({ scale: printScale(page.getViewport({ scale: 1 }), pageCount) });
+      const viewport = page.getViewport({ scale: printScale(page.getViewport({ scale: 1 }), pageCount, budget) });
       const size = canvasSize(viewport);
       const canvas = createCanvas(size.width, size.height);
       pages.push({ pageNumber, pageCount, label: printPageLabel(pageNumber, pageCount), canvas });

@@ -721,47 +721,194 @@ describe("the print size", () => {
     height: fc.double({ min: 1, max: 14_400, noNaN: true }),
   });
 
-  it("never passes 150 DPI, a page's pixel budget, the form's, or the longest canvas side", async () => {
-    const { MAX_CANVAS_SIDE, MAX_PAGE_PIXELS, MAX_TOTAL_PIXELS, PRINT_DPI, canvasSize, printScale } =
-      await freshModule();
+  it("never passes the budget's DPI, its page or form pixel budget, or the longest canvas side, full or small", async () => {
+    const {
+      FULL_PRINT_BUDGET,
+      MAX_CANVAS_SIDE,
+      MAX_PAGE_PIXELS,
+      MAX_TOTAL_PIXELS,
+      PRINT_DPI,
+      SMALL_DEVICE_PRINT_BUDGET,
+      canvasSize,
+      printScale,
+    } = await freshModule();
+    expect(FULL_PRINT_BUDGET).toEqual({ dpi: PRINT_DPI, pagePixels: MAX_PAGE_PIXELS, totalPixels: MAX_TOTAL_PIXELS });
     fc.assert(
-      fc.property(fc.array(anySizeArb, { minLength: 1, maxLength: 60 }), (sizes) => {
-        const count = sizes.length;
-        let total = 0;
-        for (const size of sizes) {
-          const scale = printScale(size, count);
-          expect(scale).toBeGreaterThan(0);
-          expect(scale).toBeLessThanOrEqual(PRINT_DPI / 72);
-          const canvas = canvasSize({ width: size.width * scale, height: size.height * scale });
-          expect(Number.isInteger(canvas.width) && Number.isInteger(canvas.height)).toBe(true);
-          expect(Math.min(canvas.width, canvas.height)).toBeGreaterThanOrEqual(1);
-          expect(Math.max(canvas.width, canvas.height)).toBeLessThanOrEqual(MAX_CANVAS_SIDE);
-          expect(canvas.width * canvas.height).toBeLessThanOrEqual(
-            Math.min(MAX_PAGE_PIXELS, MAX_TOTAL_PIXELS / count),
-          );
-          total += canvas.width * canvas.height;
-        }
-        expect(total).toBeLessThanOrEqual(MAX_TOTAL_PIXELS);
+      fc.property(
+        fc.array(anySizeArb, { minLength: 1, maxLength: 60 }),
+        fc.constantFrom(FULL_PRINT_BUDGET, SMALL_DEVICE_PRINT_BUDGET),
+        (sizes, budget) => {
+          const count = sizes.length;
+          let total = 0;
+          for (const size of sizes) {
+            const scale = printScale(size, count, budget);
+            expect(scale).toBeGreaterThan(0);
+            expect(scale).toBeLessThanOrEqual(budget.dpi / 72);
+            const canvas = canvasSize({ width: size.width * scale, height: size.height * scale });
+            expect(Number.isInteger(canvas.width) && Number.isInteger(canvas.height)).toBe(true);
+            expect(Math.min(canvas.width, canvas.height)).toBeGreaterThanOrEqual(1);
+            expect(Math.max(canvas.width, canvas.height)).toBeLessThanOrEqual(MAX_CANVAS_SIDE);
+            expect(canvas.width * canvas.height).toBeLessThanOrEqual(
+              Math.min(budget.pagePixels, budget.totalPixels / count),
+            );
+            total += canvas.width * canvas.height;
+          }
+          expect(total).toBeLessThanOrEqual(budget.totalPixels);
+          // With no budget given, the scale is the full budget's.
+          expect(printScale(sizes[0], count)).toBe(printScale(sizes[0], count, FULL_PRINT_BUDGET));
+        },
+      ),
+    );
+  });
+
+  it("draws Letter pages at exactly the budget's DPI for any form whose pages fit the budget at that size", async () => {
+    const { FULL_PRINT_BUDGET, PRINT_DPI, SMALL_DEVICE_PRINT_BUDGET, SMALL_DEVICE_PRINT_DPI, canvasSize, printScale } =
+      await freshModule();
+    expect(SMALL_DEVICE_PRINT_BUDGET.dpi).toBe(SMALL_DEVICE_PRINT_DPI);
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 60 }),
+        fc.constantFrom(FULL_PRINT_BUDGET, SMALL_DEVICE_PRINT_BUDGET),
+        (count, budget) => {
+          const sharpest = budget.dpi / 72;
+          const atDpi = canvasSize({ width: LETTER.width * sharpest, height: LETTER.height * sharpest });
+          const scale = printScale(LETTER, count, budget);
+          const canvas = canvasSize({ width: LETTER.width * scale, height: LETTER.height * scale });
+          if (count * atDpi.width * atDpi.height <= budget.totalPixels) {
+            expect(scale).toBe(sharpest);
+            expect(canvas).toEqual(atDpi);
+          } else {
+            expect(scale).toBeLessThan(sharpest);
+            expect(count * canvas.width * canvas.height).toBeLessThanOrEqual(budget.totalPixels);
+          }
+        },
+      ),
+    );
+    // A Letter page at 150 DPI.
+    expect(canvasSize({ width: LETTER.width * (PRINT_DPI / 72), height: LETTER.height * (PRINT_DPI / 72) })).toEqual({
+      width: 1275,
+      height: 1650,
+    });
+    // The DHB-5200's 21 pages print at full resolution on a device with memory to spare.
+    expect(printScale(LETTER, 21)).toBe(PRINT_DPI / 72);
+  });
+
+  it("keeps the DHB-5200's pages well under 100 MB of canvas memory on a small device, still sharp enough to read", async () => {
+    // iOS Safari caps the memory all of a page's canvases may use, and the
+    // full budget's 48 million pixels, about 190 MB, comes near that cap.
+    const { SMALL_DEVICE_PRINT_BUDGET, canvasSize, printScale } = await freshModule();
+    const scale = printScale(LETTER, 21, SMALL_DEVICE_PRINT_BUDGET);
+    const canvas = canvasSize({ width: LETTER.width * scale, height: LETTER.height * scale });
+    const bytes = 21 * canvas.width * canvas.height * 4;
+    expect(bytes).toBeLessThanOrEqual(90_000_000);
+    // About 106 DPI: small print still reads on paper.
+    expect(scale * 72).toBeGreaterThanOrEqual(105);
+    expect(scale * 72).toBeLessThanOrEqual(SMALL_DEVICE_PRINT_BUDGET.dpi);
+  });
+});
+
+describe("the device the pages are drawn for", () => {
+  const IPHONE_SAFARI =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+  const IPHONE_CHROME =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.54 Mobile/15E148 Safari/604.1";
+  const OLD_IPAD = "Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+  const IPOD = "Mozilla/5.0 (iPod touch; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+  /** What Safari on a Mac says, and what an iPad's Safari has said since iPadOS 13. */
+  const MAC_SAFARI =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15";
+  const ANDROID_CHROME =
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
+  const WINDOWS_FIREFOX = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0";
+  const LINUX_CHROME =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
+  /** What navigator.deviceMemory may be: what Chromium says, nothing, or something unusable. */
+  const memoryArb = fc.oneof(
+    fc.constantFrom(0.25, 0.5, 1, 2, 4, 8),
+    fc.constantFrom(undefined, null, Number.NaN, Number.POSITIVE_INFINITY, 0, -2, "8"),
+  );
+
+  const deviceArb = fc.record({
+    memoryGb: fc.option(fc.constantFrom(0.25, 0.5, 1, 2, 4, 8, 16), { nil: undefined }),
+    appleMobile: fc.boolean(),
+  });
+
+  it("is an iPhone, iPad, or iPod whatever the browser there says, and an iPad that says it is a Mac by its touch screen", async () => {
+    const { printDeviceOf } = await freshModule();
+    fc.assert(
+      fc.property(
+        fc.constantFrom(IPHONE_SAFARI, IPHONE_CHROME, OLD_IPAD, IPOD, MAC_SAFARI, ANDROID_CHROME, WINDOWS_FIREFOX, LINUX_CHROME),
+        fc.option(fc.integer({ min: 0, max: 10 }), { nil: undefined }),
+        memoryArb,
+        (userAgent, maxTouchPoints, deviceMemory) => {
+          const device = printDeviceOf({ userAgent, maxTouchPoints, deviceMemory });
+          const apple = [IPHONE_SAFARI, IPHONE_CHROME, OLD_IPAD, IPOD].includes(userAgent);
+          const touchMac = userAgent === MAC_SAFARI && (maxTouchPoints ?? 0) > 1;
+          expect(device.appleMobile).toBe(apple || touchMac);
+          const usable = typeof deviceMemory === "number" && Number.isFinite(deviceMemory) && deviceMemory > 0;
+          expect(device.memoryGb).toBe(usable ? deviceMemory : undefined);
+        },
+      ),
+    );
+    // No navigator at all: a device with memory to spare.
+    expect(printDeviceOf(undefined)).toEqual({ memoryGb: undefined, appleMobile: false });
+  });
+
+  it("gets the small budget when it is an iPhone, iPad, or iPod, or says it has 4 GB of memory or less", async () => {
+    const { FULL_PRINT_BUDGET, SMALL_DEVICE_MEMORY_GB, SMALL_DEVICE_PRINT_BUDGET, printBudgetFor } = await freshModule();
+    expect(SMALL_DEVICE_MEMORY_GB).toBe(4);
+    fc.assert(
+      fc.property(deviceArb, (device) => {
+        const small = device.appleMobile || (device.memoryGb !== undefined && device.memoryGb <= 4);
+        expect(printBudgetFor(device)).toBe(small ? SMALL_DEVICE_PRINT_BUDGET : FULL_PRINT_BUDGET);
       }),
     );
   });
 
-  it("draws Letter pages at exactly 150 DPI for any form whose pages fit the budget at that size", async () => {
-    const { MAX_TOTAL_PIXELS, PRINT_DPI, canvasSize, printScale } = await freshModule();
-    fc.assert(
-      fc.property(fc.integer({ min: 1, max: 60 }), (count) => {
-        const scale = printScale(LETTER, count);
-        const canvas = canvasSize({ width: LETTER.width * scale, height: LETTER.height * scale });
-        if (count * 1275 * 1650 <= MAX_TOTAL_PIXELS) {
-          expect(scale).toBe(PRINT_DPI / 72);
-          expect(canvas).toEqual({ width: 1275, height: 1650 });
-        } else {
-          expect(scale).toBeLessThan(PRINT_DPI / 72);
-          expect(count * canvas.width * canvas.height).toBeLessThanOrEqual(MAX_TOTAL_PIXELS);
-        }
+  it("draws the pages at the print size of the device it's given", async () => {
+    const { canvasSize, printBudgetFor, printScale, renderPrintPreview } = await freshModule();
+    await fc.assert(
+      fc.asyncProperty(pagesArb, deviceArb, async (pages, device) => {
+        resetEngine(pages);
+        const canvases = canvasMaker();
+        await renderPrintPreview(new Uint8Array([1]), canvases.make, undefined, undefined, device);
+        pages.forEach((size, index) => {
+          const scale = printScale(size, pages.length, printBudgetFor(device));
+          const expected = canvasSize({ width: size.width * scale, height: size.height * scale });
+          expect({ width: canvases.made[index].width, height: canvases.made[index].height }).toEqual(expected);
+          expect((engine.renders[index].params.viewport as { scale: number }).scale).toBe(scale);
+        });
       }),
+      { numRuns: 30 },
     );
-    // The DHB-5200's 21 pages print at full resolution.
-    expect(printScale(LETTER, 21)).toBe(PRINT_DPI / 72);
+  });
+
+  it("is this browser's own when none is given: smaller pages on an iPhone, full ones on a desktop", async () => {
+    const { FULL_PRINT_BUDGET, SMALL_DEVICE_PRINT_BUDGET, canvasSize, printScale, renderPrintPreview } =
+      await freshModule();
+    const letterAt = (budget: DevicePrint.PrintBudget) => {
+      const scale = printScale(LETTER, 21, budget);
+      return canvasSize({ width: LETTER.width * scale, height: LETTER.height * scale });
+    };
+    const drawn = async (browser: Readonly<Record<string, unknown>>) => {
+      vi.stubGlobal("navigator", browser);
+      try {
+        resetEngine(Array.from({ length: 21 }, () => LETTER));
+        const canvases = canvasMaker();
+        await renderPrintPreview(new Uint8Array([1]), canvases.make);
+        return canvases.made.map((canvas) => ({ width: canvas.width, height: canvas.height }));
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    };
+    const phone = await drawn({ userAgent: IPHONE_SAFARI, maxTouchPoints: 5 });
+    expect(new Set(phone.map((size) => `${size.width}x${size.height}`))).toEqual(
+      new Set([`${letterAt(SMALL_DEVICE_PRINT_BUDGET).width}x${letterAt(SMALL_DEVICE_PRINT_BUDGET).height}`]),
+    );
+    const desktop = await drawn({ userAgent: LINUX_CHROME, maxTouchPoints: 0, deviceMemory: 8 });
+    expect(desktop).toEqual(Array.from({ length: 21 }, () => letterAt(FULL_PRINT_BUDGET)));
+    expect(letterAt(FULL_PRINT_BUDGET)).toEqual({ width: 1275, height: 1650 });
+    expect(phone[0].width).toBeLessThan(desktop[0].width);
   });
 });
