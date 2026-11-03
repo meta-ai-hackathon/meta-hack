@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StatusRegion } from "../../../components/status-region";
 import { removeStoredAnswers } from "../../../lib/intake/client-store";
+import { purgePlaidOriginsFromDevice } from "../../../lib/plaid/origin-store";
 
 // The visible purge (HACK-80 / VAL-DEMOEXP-006/007, Mission v2.1 M7): the
 // one filmed surface the polish pass left unstyled, now ported per the
@@ -498,12 +499,18 @@ export function PurgeSection({ onPurged }: { onPurged: () => void }) {
     // unknown outcome touches nothing, so the answers stay intact and
     // resumable — exactly what those notices claim.
     const erasesDeviceStores = outcome === "purged" || outcome === "no_session";
-    // removeStoredAnswers returns true only when the slot verifiably
-    // reads back empty; its signal decides whether the completion may
-    // claim the device copies are gone (droid-review carried from
-    // PR #66 — the purged path no longer ignores it).
-    const deviceCleared = erasesDeviceStores ? removeStoredAnswers() : false;
+    // Both device stores must verify empty: the localStorage answer slot
+    // (HACK-94) and the sealed Plaid-origins envelope (HACK-140, which
+    // holds pii:true institution names). removeStoredAnswers returns true
+    // only when its slot verifiably reads back empty, and the completion
+    // may claim the device copies are gone only when both do
+    // (droid-review carried from PR #66 — the purged path no longer
+    // ignores it).
+    let deviceCleared = false;
     if (erasesDeviceStores) {
+      const originsCleared = await purgePlaidOriginsFromDevice();
+      const answersCleared = removeStoredAnswers();
+      deviceCleared = originsCleared && answersCleared;
       // onPurged re-reads the truth — a purged or session-less history
       // shows the empty state.
       onPurged();

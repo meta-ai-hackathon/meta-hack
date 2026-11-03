@@ -142,7 +142,7 @@ const PROVENANCE_COPY: Readonly<Record<string, string>> = {
   // labels the badges rendered empty — they are also the income stage's
   // origin-badge copy ("From your tax return").
   tax_return: "From your tax return",
-  user: "You corrected this",
+  user: "You confirmed this",
 };
 
 /** Plain-language copy for each disposition bucket (VAL-FIX-007 report). */

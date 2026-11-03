@@ -739,7 +739,7 @@ describe("the voice journey stages (VAL-VJS-001..004, VAL-QQ-002)", () => {
 });
 
 describe("the income stage between talk-complete and results (VAL-QQ-001/011, VAL-INC-001/002/003)", () => {
-  it("the completed turn with income unresolved lands on the INCOME stage — exactly two source cards, results unreachable (VAL-INC-001/002)", async () => {
+  it("the completed turn with income unresolved lands on the INCOME stage — source cards present, results unreachable (VAL-INC-001/002)", async () => {
     // The redefined gate (VAL-QQ-011, blocking side): a completed intake
     // with income still unresolved is NOT results — the journey hands
     // off to the income stage instead.
@@ -756,9 +756,10 @@ describe("the income stage between talk-complete and results (VAL-QQ-001/011, VA
     expect(q(container, "results-stage")).toBeNull();
     expect(q(container, "match-section")).toBeNull();
     expect(q(container, "review-section")).toBeNull();
-    // Exactly two real source cards (VAL-INC-002): manual + tax upload.
+    // Source cards (VAL-INC-002, HACK-140): manual + tax upload + Plaid Sandbox bank.
     expect(q(container, "income-manual-card")).not.toBeNull();
     expect(q(container, "income-upload-card")).not.toBeNull();
+    expect(q(container, "income-plaid-card")).not.toBeNull();
     // The session ended with the completed turn: the mic never opens
     // over the income cards.
     expect(sessionOps).toContain("stop");

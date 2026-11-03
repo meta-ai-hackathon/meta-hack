@@ -30,13 +30,20 @@ import {
 // were deleted in between (the purge, in another tab) it writes nothing and
 // says so, so a delete is never undone by a slower tab.
 //
-// The purge deletes the key and the sealed answers together. Without the
-// key no copy of the ciphertext can ever be opened again, and the purge
-// reports success only when a read afterwards finds neither.
+// The purge deletes the key and the sealed answers together, including the
+// sealed Plaid institution-name map (HACK-140). Without the key no copy of
+// the ciphertext can ever be opened again, and the purge reports success
+// only when a read afterwards finds none of them.
 
 export const DEVICE_ANSWERS_ENVELOPE_KEY = "intake-answers";
 /** KV key for the sealed Rampart session table (HACK-107), sealed under the same device key. */
 export const DEVICE_SESSION_ENVELOPE_KEY = "rampart-session";
+/**
+ * KV key for the sealed Plaid institution-name map (HACK-140), sealed
+ * under the same device key. The names are pii:true and never leave the
+ * device; the purge deletes this envelope with the answers.
+ */
+export const DEVICE_PLAID_ORIGINS_ENVELOPE_KEY = "plaid-origins";
 export const DEVICE_ANSWERS_CRYPTO_KEY_KEY = "intake-answers-key";
 
 /** How many times a save re-applies its answer when other tabs keep saving. */
@@ -303,17 +310,24 @@ export async function purgeDeviceAnswers(deps: DeviceAnswerStoreDeps): Promise<b
     const deleted = await deps.kv.deleteMany([
       DEVICE_ANSWERS_ENVELOPE_KEY,
       DEVICE_SESSION_ENVELOPE_KEY,
+      DEVICE_PLAID_ORIGINS_ENVELOPE_KEY,
       DEVICE_ANSWERS_CRYPTO_KEY_KEY,
     ]);
     if (!deleted) {
       return false;
     }
-    const [envelope, session, key] = await deps.kv.getMany([
+    const [envelope, session, origins, key] = await deps.kv.getMany([
       DEVICE_ANSWERS_ENVELOPE_KEY,
       DEVICE_SESSION_ENVELOPE_KEY,
+      DEVICE_PLAID_ORIGINS_ENVELOPE_KEY,
       DEVICE_ANSWERS_CRYPTO_KEY_KEY,
     ]);
-    return envelope === undefined && session === undefined && key === undefined;
+    return (
+      envelope === undefined &&
+      session === undefined &&
+      origins === undefined &&
+      key === undefined
+    );
   } catch {
     return false;
   }

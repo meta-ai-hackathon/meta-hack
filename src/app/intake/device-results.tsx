@@ -237,7 +237,7 @@ const PROVENANCE_COPY: Readonly<Record<AnswerProvenance, string>> = {
   ai_drafted: "Drafted for you",
   source_verified: "From a source you verified",
   tax_return: "From your tax return",
-  user: "You corrected this",
+  user: "You confirmed this",
 };
 
 const STATE_COPY: Readonly<Record<FormFlowFieldView["state"], string>> = {

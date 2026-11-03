@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import type {
   ClientQuestion,
   IntakeClientState,
@@ -10,11 +10,24 @@ import {
   proposalsFromMonthlyDerived,
   type TaxProposal,
 } from "../../../lib/income/tax-proposal";
+import {
+  decryptEnvelope,
+  generateEphemeralBrowserKey,
+} from "../../../lib/plaid/envelope-client";
+import type { BrokerEnvelope } from "../../../lib/plaid/envelope-shared";
+import type { MinimizedPlaidPayload } from "../../../lib/plaid/client";
+import { plaidIncomeProposals, type PlaidProposalResult } from "../../../lib/income/plaid-proposal";
+import {
+  loadPlaidOriginsFromDevice,
+  savePlaidOriginsToDevice,
+  type PlaidOrigins,
+} from "../../../lib/plaid/origin-store";
 import { toggleNoneExclusive } from "./quick-questions";
+import { rosterFromAnswers } from "../../../lib/intake/roster";
 
 // The income stage (demo-core sprint, milestone income-capture, part 3):
 // the journey's fourth stage, between the talk stage's completion and the
-// results stage (VAL-INC-001). EXACTLY two real source cards (VAL-INC-002):
+// results stage (VAL-INC-001). Three real source cards (VAL-INC-002 as extended by HACK-140):
 //
 // 1. "Type it in yourself" — the manual card renders the income spec
 //    questions (the ones the flow engine's skip logic leaves visible),
@@ -28,8 +41,11 @@ import { toggleNoneExclusive } from "./quick-questions";
 //    until the person confirms or corrects each proposal
 //    (/api/intake/tax-return/confirm). Re-uploading replaces the findings.
 //
-// No bank or payment-puller cards, no promises of future integrations —
-// only paths that really work. The stage is always completable: the manual
+// 3. "Connect your bank (demo)" — the HACK-140 Plaid Sandbox blind
+//    broker: distinct Plaid consent first, ephemeral browser key, one
+//    encrypted fetch, deterministic proposals, confirm-or-correct before
+//    anything saves. Sandbox synthetic data only; declining changes
+//    nothing and the manual/file paths remain. The stage is always completable: the manual
 // card is always available, and an unreadable upload saves nothing and
 // points back to typing (VAL-INC-012).
 //
@@ -280,6 +296,33 @@ export function IncomeStage(props: {
   const [fileName, setFileName] = useState("");
   // Per-proposal decision: confirm (as parsed) or correct (typed value).
   const [corrections, setCorrections] = useState<Record<string, string>>({});
+  // Bank card (HACK-140): distinct consent, ephemeral key, decrypted result.
+  const [plaidConsent, setPlaidConsent] = useState(false);
+  const [plaidConnecting, setPlaidConnecting] = useState(false);
+  const [plaidStatus, setPlaidStatus] = useState("");
+  const [plaidResult, setPlaidResult] = useState<PlaidProposalResult | null>(null);
+  const [plaidPayload, setPlaidPayload] = useState<MinimizedPlaidPayload | null>(null);
+  const [plaidClassifications, setPlaidClassifications] = useState<Record<string, string>>({});
+  const [plaidMemberName, setPlaidMemberName] = useState("");
+  const [plaidSavedMembers, setPlaidSavedMembers] = useState<readonly { readonly name: string; readonly detail: string }[]>([]);
+  const [plaidCorrections, setPlaidCorrections] = useState<Record<string, string>>({});
+  // The institution name is pii:true and never reaches the server: Link
+  // metadata fills the in-page name, and the sealed device map (HACK-140)
+  // supplies it after a reload. It is keyed by the question it belongs to.
+  const [plaidInstitutionName, setPlaidInstitutionName] = useState("");
+  const [plaidOrigins, setPlaidOrigins] = useState<PlaidOrigins>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadPlaidOriginsFromDevice()
+      .then((origins) => {
+        if (!cancelled) setPlaidOrigins(origins);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const proposals = proposalsFromMonthlyDerived(upload?.monthlyDerived ?? null);
 
@@ -463,6 +506,135 @@ export function IncomeStage(props: {
     }
   }
 
+  async function connectBank(): Promise<void> {
+    if (!plaidConsent || plaidConnecting) return;
+    setPlaidConnecting(true);
+    setPlaidStatus("Opening the Plaid Sandbox test bank…");
+    try {
+      const ephemeral = await generateEphemeralBrowserKey();
+      const tokenResponse = await fetch("/api/intake/plaid/link-token", { method: "POST" });
+      if (!tokenResponse.ok) throw new Error("link-token");
+      const { linkToken, pullHandle } = (await tokenResponse.json()) as { linkToken: string; pullHandle: string };
+      await loadPlaidLinkScript();
+      if (!window.Plaid) throw new Error("plaid-missing");
+      const handler = window.Plaid.create({
+        token: linkToken,
+        onSuccess: async (_publicToken, metadata) => {
+          const institutionName = metadata?.institution?.name?.trim() ?? "";
+          setPlaidInstitutionName(institutionName);
+          try {
+            setPlaidStatus("Fetching your test bank income (Plaid Bank Income)…");
+            const pullResponse = await fetch("/api/intake/plaid/pull", {
+              method: "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ pullHandle, clientPublicKey: ephemeral.publicKeySpki }),
+            });
+            if (!pullResponse.ok) throw new Error("pull");
+            const { envelope } = (await pullResponse.json()) as { envelope: BrokerEnvelope };
+            const payload = (await decryptEnvelope(envelope, ephemeral.privateKey)) as MinimizedPlaidPayload;
+            setPlaidPayload(payload); setPlaidClassifications({});
+            setPlaidMemberName((payload.accountOwnerNames[0] ?? "").split(" ")[0] ?? "");
+            const result = plaidIncomeProposals(payload, {});
+            applyPlaidResult(result);
+            setPlaidStatus(result.proposals.length > 0
+              ? "Check what we found, then save."
+              : "We could not find a reliable monthly pattern in that test bank, so nothing is proposed. You can type your income instead.");
+          } catch { setPlaidStatus(READ_FAILED_NOTICE); }
+          finally { setPlaidConnecting(false); }
+        },
+        onExit: () => { setPlaidConnecting(false); setPlaidStatus("Bank connection closed — nothing was saved. You can type your income instead."); },
+      });
+      handler.open();
+    } catch { setPlaidConnecting(false); setPlaidStatus(READ_FAILED_NOTICE); }
+  }
+
+  function applyPlaidResult(result: PlaidProposalResult): void {
+    setPlaidResult(result);
+    setPlaidCorrections(Object.fromEntries(result.proposals.map((x) => [x.questionId, String(x.value)])));
+  }
+  function answerPlaidClassification(category: string, answer: string): void {
+    if (!plaidPayload) return;
+    const next = { ...plaidClassifications, [category]: answer };
+    setPlaidClassifications(next);
+    applyPlaidResult(plaidIncomeProposals(plaidPayload, next));
+  }
+  function resetPlaidPull(): void {
+    setPlaidPayload(null); setPlaidResult(null); setPlaidCorrections({});
+    setPlaidClassifications({}); setPlaidMemberName(""); setPlaidInstitutionName(""); setPlaidConsent(false);
+    setPlaidStatus("Connect the next person's bank when they are ready.");
+  }
+
+  function originBadge(
+    questionId: string,
+    provenance: string | undefined,
+  ): { readonly kind: string; readonly label: string } | null {
+    const institution = plaidOrigins[questionId];
+    if (institution) {
+      return { kind: "plaid_institution", label: `From ${institution}` };
+    }
+    if (provenance === "tax_return") {
+      return { kind: "tax_return", label: "From your tax return" };
+    }
+    if (provenance === "user") {
+      return { kind: "user", label: "You confirmed this" };
+    }
+    return null;
+  }
+
+  async function savePlaidFindings(): Promise<void> {
+    if (saveInFlight.current || plaidResult === null || plaidResult.proposals.length === 0 || plaidMemberName.trim() === "") { onNotice(NOTHING_DECIDED_NOTICE); return; }
+    const decided = plaidResult.proposals.map((proposal) => {
+      // An untouched prefilled input is a CONFIRM (provenance user); only a
+      // real edit is a correction (also user). The field is
+      // prefilled with String(proposal.value), so the comparison is exact.
+      const entered = plaidCorrections[proposal.questionId];
+      const corrected =
+        entered !== undefined && entered !== "" && entered !== String(proposal.value)
+          ? entered
+          : "";
+      if (corrected !== undefined && corrected !== "") {
+        const question = questions.find((c) => c.id === proposal.questionId);
+        return { questionId: proposal.questionId, action: "correct" as const, value: question?.type === "number" ? Number(corrected) : corrected };
+      }
+      return { questionId: proposal.questionId, action: "confirm" as const, value: proposal.value };
+    });
+    saveInFlight.current = true; setSaving(true);
+    try {
+      const response = await fetch("/api/intake/plaid/confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirmations: decided }) });
+      if (!response.ok) { onNotice(SAVE_FAILED_NOTICE); return; }
+      const fresh = (await response.json()) as { state: IntakeClientState };
+      onStateChange(fresh.state);
+      // A confirmed proposal keeps the institution name on this device;
+      // a corrected one drops it, because the value is now the person's,
+      // not the bank's. The map is sealed under the HACK-99 device key.
+      if (
+        decided.some((entry) => entry.action === "confirm") ||
+        Object.keys(plaidOrigins).length > 0
+      ) {
+        try {
+          const origins: Record<string, string | null> = {};
+          for (const entry of decided) {
+            origins[entry.questionId] =
+              entry.action === "confirm" ? plaidInstitutionName.trim() || null : null;
+          }
+          const persisted = await savePlaidOriginsToDevice(origins, {
+            expectStored: Object.keys(plaidOrigins).length > 0,
+          });
+          if (persisted.status === "saved") {
+            setPlaidOrigins(persisted.origins);
+          }
+        } catch {
+          // The answers saved; the bank name just won't survive a reload.
+        }
+      }
+      const name = plaidMemberName.trim();
+      const prev = plaidSavedMembers[plaidSavedMembers.length - 1];
+      setPlaidSavedMembers((list) => [...list, { name, detail: decided.map((d) => d.questionId + ": " + String(d.value)).join("; ") }]);
+      onNotice(prev && prev.name !== name ? "Saved for " + name + ". For now this replaced " + prev.name + "'s bank answers in the household income questions." : "Saved for " + name + ". Nothing was submitted.");
+    } catch { onNotice(SAVE_FAILED_NOTICE); }
+    finally { saveInFlight.current = false; setSaving(false); }
+  }
+
+
   return (
     <section
       data-income-stage
@@ -511,6 +683,10 @@ export function IncomeStage(props: {
         <ul className="flex flex-col gap-4">
           {questions.map((question) => {
             const draft = drafts[question.id] ?? { kind: "not-sure" as const };
+            const badge = originBadge(
+              question.id,
+              state.answers[question.id]?.provenance,
+            );
             return (
               <li
                 key={question.id}
@@ -551,14 +727,12 @@ export function IncomeStage(props: {
                       I&apos;m not sure
                     </button>
                   ) : null}
-                  {state.answers[question.id]?.provenance ? (
+                  {badge ? (
                     <span
-                      data-origin-badge={state.answers[question.id]?.provenance}
+                      data-origin-badge={badge.kind}
                       className="rounded-full border border-teal/40 bg-teal-soft px-2.5 py-0.5 text-xs font-medium text-teal"
                     >
-                      {state.answers[question.id]?.provenance === "tax_return"
-                        ? "From your tax return"
-                        : "You corrected this"}
+                      {badge.label}
                     </span>
                   ) : null}
                 </div>
@@ -714,8 +888,80 @@ export function IncomeStage(props: {
           </p>
         ) : null}
       </section>
+
+      {/* Card 3 — consented Plaid Sandbox bank pull (HACK-140 blind broker). */}
+      <section data-income-plaid-card aria-labelledby="income-plaid-heading" className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface p-4">
+        <div className="flex flex-col gap-1">
+          <h3 id="income-plaid-heading" className="text-lg font-semibold">Connect your bank (demo)</h3>
+          <p className="text-sm text-muted">Optional Plaid Sandbox demo with a test bank — not a real bank login. We fetch a Plaid Bank Income report once, show you what we find, and save nothing until you confirm. The one fetch passes through our server without being stored or logged, and the test connection is removed right after. Saying no changes nothing: you can upload a file or type your income instead.</p>
+        </div>
+        <label htmlFor="income-plaid-consent" className="flex min-h-11 items-start gap-2 text-base">
+          <input id="income-plaid-consent" type="checkbox" checked={plaidConsent} onChange={(e) => setPlaidConsent(e.target.checked)} data-income-plaid-consent className="mt-1 h-5 w-5 shrink-0 accent-teal" />
+          <span>I agree to connect a Plaid Sandbox test bank and fetch its Bank Income report once to propose income answers.</span>
+        </label>
+        <button type="button" data-income-plaid-connect onClick={() => void connectBank()} disabled={!plaidConsent || plaidConnecting} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{plaidConnecting ? "Connecting…" : "Connect test bank"}</button>
+        <p data-income-plaid-status aria-live="polite" className={plaidStatus === "" ? "hidden" : "rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"}>{plaidStatus}</p>
+        {plaidResult !== null ? (
+          <div className="flex flex-col gap-2" data-income-plaid-proposals>
+            <h4 className="text-base font-semibold">{plaidInstitutionName ? `From ${plaidInstitutionName}` : "From your test bank"} — confirm or correct each one</h4>
+            <p className="text-sm text-muted" data-income-plaid-basis>Based on {plaidResult.basis.depositCount} deposits from {plaidResult.basis.dateRange.start} to {plaidResult.basis.dateRange.end} ({plaidResult.basis.months.map((m) => `${m.month}: ${m.total.toLocaleString("en-US")}`).join("; ")}). Plaid Bank Income classified these into {plaidResult.basis.streamCount} income stream(s); see each one below.</p>
+            {plaidResult.basis.stripePayoutDepositCount > 0 ? <p className="text-sm text-muted" data-income-plaid-stripe-warning>Some deposits look like Stripe payouts. If you also add Stripe, do not count the same money twice.</p> : null}
+            {plaidResult.basis.streams.map((s) => <p key={s.category} className="text-sm text-muted" data-income-plaid-stream={s.category}>{s.category.replaceAll("_", " ")}: {s.count} deposit(s), {s.total.toLocaleString("en-US")} total -- {s.disposition.replaceAll("_", " ")}. {s.reason}</p>)}
+            {plaidResult.basis.seasonalNote ? <p className="text-sm text-muted" data-income-plaid-seasonal>{plaidResult.basis.seasonalNote}</p> : null}
+            {plaidResult.classificationQuestions.map((q) => <div key={q.category} className="flex flex-col gap-1" data-income-plaid-question={q.category}><label htmlFor={"income-plaid-classify-" + q.category} className="text-sm font-medium">{q.prompt}</label><select id={"income-plaid-classify-" + q.category} data-income-plaid-classify={q.category} className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" defaultValue="" onChange={(e) => answerPlaidClassification(q.category, e.target.value)}><option value="" disabled>Choose one…</option>{q.choices.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>)}
+            <div className="flex flex-col gap-1" data-income-plaid-member>
+              {plaidPayload && plaidPayload.accountOwnerNames.length > 0 ? <p className="text-sm text-muted" data-income-plaid-owner>Plaid name on this account: {plaidPayload.accountOwnerNames.join(", ")}</p> : null}
+              <label htmlFor="income-plaid-member-name" className="text-sm font-medium">Whose income is this?</label>
+              {rosterFromAnswers(state.answers, { includeUnverified: true }).length > 0 ? <select aria-label="Pick the household member" data-income-plaid-member-pick className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" defaultValue="" onChange={(e) => { const m = rosterFromAnswers(state.answers, { includeUnverified: true }).find((x) => x.id === e.target.value); if (m) setPlaidMemberName(m.displayName); }}><option value="" disabled>Pick the person…</option>{rosterFromAnswers(state.answers, { includeUnverified: true }).map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select> : null}
+              <input id="income-plaid-member-name" type="text" value={plaidMemberName} onChange={(e) => setPlaidMemberName(e.target.value)} placeholder="First name or nickname" data-income-plaid-member-name className="min-h-11 w-64 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" />
+            </div>
+            {plaidResult.proposals.length === 0 ? <p className="text-sm text-muted" data-income-plaid-no-proposals>Nothing here could be turned into a Medicaid number on its own -- see above for what we would need instead. You can also type your income below.</p> : null}
+            <ul className="flex flex-col gap-2">
+              {plaidResult.proposals.map((proposal) => (
+                <li key={proposal.questionId} data-income-plaid-proposal={proposal.questionId} className="flex flex-wrap items-center gap-2 rounded-xl border border-surface-border bg-background px-3 py-2">
+                  <label htmlFor={`income-plaid-correct-${proposal.questionId}`} className="text-sm font-medium">{proposal.questionId.replaceAll("_", " ")}</label>
+                  <input id={`income-plaid-correct-${proposal.questionId}`} type="text" inputMode="numeric" value={plaidCorrections[proposal.questionId] ?? String(proposal.value)} onChange={(e) => setPlaidCorrections((prev) => ({ ...prev, [proposal.questionId]: e.target.value }))} disabled={saving} data-income-plaid-correct={proposal.questionId} aria-label={"Edit " + proposal.questionId.replaceAll("_", " ")} className="min-h-11 w-36 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" />
+                  <span className="w-full text-sm text-muted">{proposal.caveat}</span>
+                  <span data-origin-badge="plaid_institution" className="rounded-full border border-teal/40 bg-teal-soft px-2.5 py-0.5 text-xs font-medium text-teal">{plaidInstitutionName ? `From ${plaidInstitutionName}` : "From your test bank"}</span>
+                </li>
+              ))}
+            </ul>
+            {plaidResult.proposals.length > 0 ? <button type="button" data-income-plaid-save onClick={() => void savePlaidFindings()} disabled={saving || plaidMemberName.trim() === ""} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{saving ? "Saving…" : "Save what I've decided"}</button> : null}
+          </div>
+        ) : null}
+        {plaidSavedMembers.length > 0 ? <div className="flex flex-col gap-2" data-income-plaid-saved-list>{plaidSavedMembers.map((s, i) => <p key={i} className="text-sm text-muted">Saved for {s.name} — {s.detail}</p>)}<button type="button" data-income-plaid-another onClick={resetPlaidPull} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal">{"Connect another person's bank"}</button></div> : null}
+      </section>
     </section>
   );
+}
+
+interface PlaidHandler { open: () => void; }
+interface PlaidLinkMetadata {
+  readonly institution?: { readonly name?: string };
+}
+interface PlaidCreateConfig {
+  token: string;
+  onSuccess: (publicToken: string, metadata?: PlaidLinkMetadata) => void | Promise<void>;
+  onExit?: () => void;
+}
+declare global {
+  interface Window {
+    Plaid?: { create: (config: PlaidCreateConfig) => PlaidHandler };
+  }
+}
+
+/** Load Plaid Link's CDN script once. Resolves immediately when already loaded (tests stub window.Plaid). */
+export function loadPlaidLinkScript(): Promise<void> {
+  if (typeof window !== "undefined" && window.Plaid) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[data-plaid-link]');
+    if (existing) { existing.addEventListener("load", () => resolve()); existing.addEventListener("error", () => reject(new Error("plaid"))); return; }
+    const script = document.createElement("script");
+    script.src = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
+    script.async = true; script.dataset.plaidLink = "true";
+    script.onload = () => resolve(); script.onerror = () => reject(new Error("plaid"));
+    document.head.appendChild(script);
+  });
 }
 
 /** One confirm-or-correct row for a tax-derived proposal. */

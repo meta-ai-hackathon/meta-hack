@@ -133,6 +133,19 @@ describe("incomeClientState (the results gate's income conjunct)", () => {
     );
   });
 
+  it("counts a confirmed bank value saved as user the same as the other income-stage paths", () => {
+    const answers = incomeAnswers({
+      job_income_amount: {
+        status: "known",
+        value: 2100,
+        provenance: "user",
+      },
+    });
+    expect(incomeClientState(visibleIncomeJobShape(), answers).handled).toBe(
+      true,
+    );
+  });
+
   it("is unhandled while any visible income question lacks a stored answer", () => {
     const answers = incomeAnswers({
       job_income_amount: { status: "known", value: 2400, provenance: "user" },

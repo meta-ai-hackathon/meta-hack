@@ -314,9 +314,9 @@ describe("ReviewSectionContent structure", () => {
       ),
     );
     expect(html).toContain("(From your tax return)");
-    expect(html).toContain("(You corrected this)");
+    expect(html).toContain("(You confirmed this)");
     // The labels are plain language, never promise language.
-    expect(findBannedClaims("From your tax return. You corrected this.")).toEqual([]);
+    expect(findBannedClaims("From your tax return. You confirmed this.")).toEqual([]);
   });
 
   it("never reads an unverified answer as confirmed", () => {
@@ -543,7 +543,12 @@ describe("ReviewSectionContent structure", () => {
     expect(Object.keys(SESSION_STATUS_COPY_FOR_TEST)).not.toContain("submitted");
   });
 
-  it("scans clean of banned claims across randomized review payloads", async () => {
+  it(
+    "scans clean of banned claims across randomized review payloads",
+    // Each run renders BOTH the sample and the real form payload and scans
+    // the HTML; 25 runs exceed Vitest's 5s default on a slower dev machine.
+    { timeout: 20000 },
+    async () => {
     const statuses = fc.constantFrom("known", "unknown", "unverified");
     await fc.assert(
       fc.asyncProperty(

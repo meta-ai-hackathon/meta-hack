@@ -3,14 +3,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findBannedClaims } from "../../../lib/honesty";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { IncomeStage } from "./income-stage";
+import { encryptForBrowser } from "../../../lib/plaid/envelope";
+
+const originStoreMock = vi.hoisted(() => ({
+  load: vi.fn(async () => ({}) as Record<string, string>),
+  save: vi.fn(async (updates: Record<string, string | null>) => ({
+    status: "saved" as const,
+    origins: Object.fromEntries(
+      Object.entries(updates).filter(
+        ([, value]) => typeof value === "string" && value !== "",
+      ),
+    ) as Record<string, string>,
+  })),
+}));
+vi.mock("../../../lib/plaid/origin-store", () => ({
+  loadPlaidOriginsFromDevice: originStoreMock.load,
+  savePlaidOriginsToDevice: originStoreMock.save,
+}));
 
 // The income stage (milestone income-capture part 3; VAL-INC-001/002/003/
-// 007/008/010/012/014): EXACTLY two real source cards — the manual card
-// (the income spec questions, prefilled, saved with provenance user) and
+// 007/008/010/012/014): three real source cards — the manual card
+// (the income spec questions, prefilled, saved with provenance user),
 // the tax-return upload (parse → findings with "From your tax return"
 // badges → confirm-or-correct before anything saves; a re-upload replaces
-// the findings). No bank/Stripe cards, no future-integration promises; the
-// stage never dead-ends; copy stays banned-claims clean.
+// the findings), and the consented Plaid Sandbox bank card (HACK-140;
+// Link stubbed in tests). The stage never dead-ends; copy stays banned-claims clean.
 
 function question(
   overrides: Partial<IntakeClientState["questions"][number]> & { id: string },
@@ -163,6 +180,15 @@ beforeEach(() => {
   answerState = null;
   confirmState = null;
   uploadResponse = parseResponse(true);
+  originStoreMock.load.mockResolvedValue({});
+  originStoreMock.save.mockImplementation(async (updates) => ({
+    status: "saved" as const,
+    origins: Object.fromEntries(
+      Object.entries(updates).filter(
+        ([, value]) => typeof value === "string" && value !== "",
+      ),
+    ) as Record<string, string>,
+  }));
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -178,6 +204,24 @@ beforeEach(() => {
         return uploadResponse;
       }
       if (url === "/api/intake/tax-return/confirm") {
+        return new Response(
+          JSON.stringify({ saved: [], state: confirmState ?? handledState() }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === "/api/intake/plaid/link-token") {
+        return new Response(JSON.stringify({ linkToken: "link-test", pullHandle: "user-test-x.sig" }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url === "/api/intake/plaid/pull") {
+        const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as { clientPublicKey: string; pullHandle: string };
+        // The UI must send the session-bound handle, never a raw Plaid user id.
+        if (typeof body.pullHandle !== "string") return new Response("{}", { status: 400 });
+        const payload = { accounts: [], accountOwnerNames: ["Alberta Charleson"], pulledAt: "2026-11-03T00:00:00.000Z", dateRange: { start: "2026-08-01", end: "2026-10-31" }, streams: [
+          { incomeCategory: "SALARY", incomeDescription: "ACME PAYROLL", payFrequency: "MONTHLY", totalAmount: 6300, transactionCount: 3, startDate: "2026-08-01", endDate: "2026-10-31", historicalMonths: [{ startDate: "2026-08-01", endDate: "2026-08-31", total: 2000 }, { startDate: "2026-09-01", endDate: "2026-09-30", total: 2200 }, { startDate: "2026-10-01", endDate: "2026-10-31", total: 2100 }] },
+        ] };
+        return new Response(JSON.stringify({ envelope: encryptForBrowser(body.clientPublicKey, JSON.stringify(payload)) }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url === "/api/intake/plaid/confirm") {
         return new Response(
           JSON.stringify({ saved: [], state: confirmState ?? handledState() }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -252,18 +296,17 @@ async function chooseFile(container: HTMLElement, act: (fn: () => Promise<void> 
   });
 }
 
-describe("the two source cards (VAL-INC-002)", () => {
-  it("renders exactly two cards: manual and tax-return upload — no bank/Stripe cards, no future promises", async () => {
+describe("the source cards (VAL-INC-002, HACK-140)", () => {
+  it("renders three cards: manual, tax-return upload, and Plaid Sandbox bank — no Stripe card, no future promises", async () => {
     const { container } = await renderStage();
     expect(q(container, "income-stage")).not.toBeNull();
     expect(q(container, "income-manual-card")).not.toBeNull();
     expect(q(container, "income-upload-card")).not.toBeNull();
-    // The card set is exactly two: no other card-shaped sections.
-    const cards = container.querySelectorAll("[data-income-manual-card], [data-income-upload-card]");
-    expect(cards).toHaveLength(2);
-    // No payment-puller vocabulary anywhere on the stage.
+    expect(q(container, "income-plaid-card")).not.toBeNull();
+    const cards = container.querySelectorAll("[data-income-manual-card], [data-income-upload-card], [data-income-plaid-card]");
+    expect(cards).toHaveLength(3);
     const text = container.textContent ?? "";
-    for (const banned of ["Stripe", "Plaid", "bank connection", "connect your bank", "coming soon"]) {
+    for (const banned of ["Stripe", "coming soon"]) {
       expect(text.toLowerCase()).not.toContain(banned.toLowerCase());
     }
   });
@@ -288,6 +331,58 @@ describe("the two source cards (VAL-INC-002)", () => {
     expect(status?.getAttribute("aria-live")).toBe("polite");
     expect(status?.textContent).toContain("4 of 4 income details are in");
     expect(status?.textContent).toContain("nothing is confirmed yet");
+  });
+});
+
+describe("the Plaid Sandbox bank card (HACK-140)", () => {
+  it("connect stays disabled until the distinct Plaid consent is checked", async () => {
+    const { container, act } = await renderStage();
+    const button = q(container, "income-plaid-connect") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    const consent = q(container, "income-plaid-consent") as HTMLInputElement;
+    await act(async () => { consent.click(); });
+    expect((q(container, "income-plaid-connect") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("pulls, decrypts, proposes with basis, and saves only on confirm", async () => {
+    (window as unknown as { Plaid: unknown }).Plaid = {
+      create: (config: {
+        onSuccess: (
+          t: string,
+          metadata?: { institution?: { name?: string } },
+        ) => Promise<void>;
+      }) => ({
+        open: () => {
+          void config.onSuccess("public-test", {
+            institution: { name: "First Platypus Bank" },
+          });
+        },
+      }),
+    };
+    const { container, act } = await renderStage();
+    await act(async () => { (q(container, "income-plaid-consent") as HTMLInputElement).click(); });
+    await act(async () => { (q(container, "income-plaid-connect") as HTMLButtonElement).click(); });
+    expect(q(container, "income-plaid-proposals")).not.toBeNull();
+    expect(container.textContent).toContain("From First Platypus Bank");
+    expect(q(container, "income-plaid-basis")?.textContent).toContain("3 deposits");
+    expect((container.querySelector('[data-income-plaid-correct="job_income_amount"]') as HTMLInputElement).value).toBe("2100");
+    expect((container.querySelector("[data-income-plaid-member-name]") as HTMLInputElement).value).toBe("Alberta");
+    expect(q(container, "income-plaid-owner")?.textContent).toContain("Alberta Charleson");
+    expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
+    await act(async () => { (q(container, "income-plaid-save") as HTMLButtonElement).click(); });
+    const confirm = posts.find((post) => post.url === "/api/intake/plaid/confirm");
+    expect(confirm).toBeDefined();
+    expect(JSON.parse(confirm?.body ?? "{}").confirmations).toEqual([
+      { questionId: "job_income_amount", action: "confirm", value: 2100 },
+      { questionId: "job_income_frequency", action: "confirm", value: "monthly" },
+    ]);
+    expect(originStoreMock.save).toHaveBeenCalledWith(
+      {
+        job_income_amount: "First Platypus Bank",
+        job_income_frequency: "First Platypus Bank",
+      },
+      { expectStored: false },
+    );
   });
 });
 
@@ -540,5 +635,46 @@ describe("the tax-return upload card (VAL-INC-007/008/010)", () => {
     expect(q(container, 'income-proposal="job_income_amount"')).toBeNull();
     // The manual card is still right there — the stage never dead-ends.
     expect(q(container, "income-manual-card")).not.toBeNull();
+  });
+});
+
+describe("the client-side Plaid origin (HACK-140)", () => {
+  it("shows the sealed institution name on a saved bank value", async () => {
+    originStoreMock.load.mockResolvedValue({
+      job_income_amount: "First Platypus Bank",
+    });
+    const state = incomeState({
+      answers: {
+        ...incomeState().answers,
+        job_income_amount: {
+          status: "known",
+          value: 2100,
+          provenance: "user",
+        },
+      },
+    });
+    const { container } = await renderStage(state);
+    const row = q(container, 'income-row="job_income_amount"');
+    expect(
+      row?.querySelector('[data-origin-badge="plaid_institution"]'),
+    ).not.toBeNull();
+    expect(row?.textContent).toContain("From First Platypus Bank");
+  });
+
+  it("falls back to the person-confirmed badge without a saved origin", async () => {
+    const state = incomeState({
+      answers: {
+        ...incomeState().answers,
+        job_income_amount: {
+          status: "known",
+          value: 2100,
+          provenance: "user",
+        },
+      },
+    });
+    const { container } = await renderStage(state);
+    const row = q(container, 'income-row="job_income_amount"');
+    expect(row?.querySelector('[data-origin-badge="user"]')).not.toBeNull();
+    expect(row?.textContent).toContain("You confirmed this");
   });
 });
