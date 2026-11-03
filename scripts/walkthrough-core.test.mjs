@@ -2426,6 +2426,37 @@ describe("JOURNEY_PLAN against the app's own flow engine (HACK-133)", { timeout:
     expect(walk.privateValues).toEqual(expect.arrayContaining(ROSTER_NAMES));
   });
 
+  it("the branch-only work-reporting answers tell the same story as the household list and the per-person work rows", async () => {
+    const { parseRoster } = await import("../src/lib/intake/roster");
+    const { parseWorkRows, suggestedWorkRows } = await import("../src/lib/intake/work-activities");
+    const planned = (id) => JOURNEY_PLAN.find((step) => step.id === id).value;
+    const roster = parseRoster(planned("household_roster"));
+    const rows = parseWorkRows(planned("wr_work_rows"));
+    expect(rows).not.toBeNull();
+    // The rows are the ones the editor offers from the persona's income
+    // answers, each for someone on the household list.
+    const answers = Object.fromEntries(
+      JOURNEY_PLAN.map((step) => [step.id, { status: step.status, value: step.value ?? null }]),
+    );
+    const offered = suggestedWorkRows(answers, roster);
+    expect(rows.map(({ memberId, activity }) => ({ memberId, activity }))).toEqual(
+      offered.map(({ memberId, activity }) => ({ memberId, activity })),
+    );
+    expect(roster.map((member) => member.id)).toEqual(
+      expect.arrayContaining(rows.map((row) => row.memberId)),
+    );
+    // The household-level reporting answers say the same: the kinds of
+    // work are the rows' activities, and one person works, so the hours
+    // reported are that person's own.
+    expect([...new Set(rows.map((row) => row.activity))].sort()).toEqual(
+      [...planned("wr_work_activity_types")].sort(),
+    );
+    expect(new Set(rows.map((row) => row.memberId)).size).toBe(1);
+    expect(planned("wr_work_activity_hours")).toBe(
+      rows.reduce((hours, row) => hours + row.hours, 0),
+    );
+  });
+
   it("PROPERTY: every plan-served journey completes on the real flow, whatever share of the persona's answers its session already holds", async () => {
     // The journeys reach the flow from different points: the wizard from
     // a fresh session, the sprint and typed journeys after their quick-

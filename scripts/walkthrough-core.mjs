@@ -194,10 +194,17 @@ export const JOURNEY_PLAN = [
   // it). The who is free-form private content; the hours number is NOT
   // tracked as a private value (digits-only needles over-match — the
   // structural leak check carries the boundary, per the vault-row
-  // deflake lesson).
-  { id: "wr_work_activity_who", status: "known", value: "Me and my sister", privateValue: "Me and my sister" },
-  { id: "wr_work_activity_types", status: "known", value: ["job_internship", "caregiving"] },
-  { id: "wr_work_activity_hours", status: "known", value: 30 },
+  // deflake lesson). It tells the same story as the household list and
+  // the per-person row below: the persona alone works, at the year-round
+  // job, 160 hours last month.
+  {
+    id: "wr_work_activity_who",
+    status: "known",
+    value: "Just me, at my regular job",
+    privateValue: "Just me, at my regular job",
+  },
+  { id: "wr_work_activity_types", status: "known", value: ["job_internship"] },
+  { id: "wr_work_activity_hours", status: "known", value: 160 },
   // Branch coverage too: the per-person work rows (HACK-128, #144), one
   // row per person and activity with that person's hours last month,
   // never summed across people. The row is the one the editor offers from
