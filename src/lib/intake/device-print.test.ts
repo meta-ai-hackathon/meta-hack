@@ -11,7 +11,8 @@ import type * as DevicePrint from "./device-print";
 // the compiler holds that surface to the real one; this file holds the
 // behavior: every page drawn once, in order, at its print size and label,
 // from a copy of the bytes with nothing that makes pdf.js fetch, with the
-// worker hook in place first, and nothing kept when anything goes wrong.
+// worker hook and the built-ins pdf.js needs in place first, a pdf.js that
+// stops answering given up on, and nothing kept when anything goes wrong.
 
 interface FakeCanvas {
   width: number;
@@ -24,6 +25,29 @@ interface RenderCall {
   readonly pageNumber: number;
   readonly params: Readonly<Record<string, unknown>>;
   cancelled: number;
+}
+
+/** A point where the fake pdf.js stops answering. */
+type Stall =
+  | { readonly at: "open" | "destroy" }
+  | { readonly at: "page" | "render"; readonly pageNumber: number };
+
+/** A promise that never settles: pdf.js that has stopped answering. */
+function never<T>(): Promise<T> {
+  return new Promise<T>(() => undefined);
+}
+
+function stallsAt(at: Stall["at"], pageNumber?: number): boolean {
+  const { stall } = engine;
+  return stall !== null && stall.at === at && (!("pageNumber" in stall) || stall.pageNumber === pageNumber);
+}
+
+/** Whether the built-ins pdf.js 6.4.x calls without bringing are there right now. */
+function builtinsNow() {
+  return {
+    withResolvers: typeof Promise.withResolvers === "function",
+    transferToFixedLength: typeof ArrayBuffer.prototype.transferToFixedLength === "function",
+  };
 }
 
 /** What the fake pdf.js is set to do, and what it was asked. */
@@ -40,8 +64,16 @@ const engine = {
   pages: [] as { width: number; height: number }[],
   /** A page whose drawing fails, by number. */
   failRenderAt: null as number | null,
+  /**
+   * Where pdf.js stops answering, if anywhere: opening the document,
+   * getting or drawing a page (by number), or tearing the document down.
+   * What stops answering never settles, unless it is cancelled.
+   */
+  stall: null as Stall | null,
   /** Called while a page draws, after its render task is handed back. */
   whileRendering: null as ((pageNumber: number) => void) | null,
+  /** Whether each built-in pdf.js needs was there when its modules loaded. */
+  builtinsAtLoad: [] as { module: "engine" | "worker"; withResolvers: boolean; transferToFixedLength: boolean }[],
   documents: [] as {
     options: Readonly<Record<string, unknown>>;
     workerHook: unknown;
@@ -64,8 +96,12 @@ function fakePage(pageNumber: number, size: { readonly width: number; readonly h
       const call: RenderCall = { pageNumber, params, cancelled: 0 };
       engine.renders.push(call);
       const drawn = Promise.withResolvers<void>();
-      // A page takes a moment to draw, as in pdf.js, and may be cancelled meanwhile.
+      // A page takes a moment to draw, as in pdf.js, and may be cancelled
+      // meanwhile. A stalled page never finishes on its own.
       setTimeout(() => {
+        if (stallsAt("render", pageNumber)) {
+          return;
+        }
         if (engine.failRenderAt === pageNumber) {
           drawn.reject(new Error(`page ${pageNumber} failed to draw`));
         } else {
@@ -106,15 +142,18 @@ function fakeEngine() {
       const pages = [...engine.pages];
       const document = {
         numPages: pages.length,
-        async getPage(pageNumber: number) {
+        getPage(pageNumber: number) {
           engine.pagesRequested.push(pageNumber);
-          return fakePage(pageNumber, pages[pageNumber - 1]);
+          return stallsAt("page", pageNumber)
+            ? never<ReturnType<typeof fakePage>>()
+            : Promise.resolve(fakePage(pageNumber, pages[pageNumber - 1]));
         },
       };
       return {
-        promise: Promise.resolve(document),
-        async destroy() {
+        promise: stallsAt("open") ? never<typeof document>() : Promise.resolve(document),
+        destroy() {
           record.destroyed += 1;
+          return stallsAt("destroy") ? never<void>() : Promise.resolve();
         },
       };
     },
@@ -125,6 +164,7 @@ function fakeEngine() {
 function mockEngine(): void {
   vi.doMock("pdfjs-dist/legacy/build/pdf.mjs", () => {
     engine.loads += 1;
+    engine.builtinsAtLoad.push({ module: "engine", ...builtinsNow() });
     if (engine.failLoad) {
       throw engine.failLoad;
     }
@@ -132,6 +172,7 @@ function mockEngine(): void {
   });
   vi.doMock("pdfjs-dist/legacy/build/pdf.worker.mjs", () => {
     engine.workerLoads += 1;
+    engine.builtinsAtLoad.push({ module: "worker", ...builtinsNow() });
     if (engine.failWorkerLoad) {
       throw engine.failWorkerLoad;
     }
@@ -160,7 +201,9 @@ function resetEngine(pages: readonly { width: number; height: number }[] = [LETT
   engine.globalWorkerOptions.workerPort = null;
   engine.pages = [...pages];
   engine.failRenderAt = null;
+  engine.stall = null;
   engine.whileRendering = null;
+  engine.builtinsAtLoad = [];
   engine.documents = [];
   engine.pagesRequested = [];
   engine.renders = [];
@@ -371,6 +414,83 @@ describe("when the drawing can't finish", () => {
     );
   });
 
+  it("gives up on a pdf.js that stops answering, wherever it stops, and keeps nothing", async () => {
+    // A browser missing something pdf.js needs can leave it waiting
+    // forever (one without transferToFixedLength never finishes a page).
+    // The watchdog turns that into a failure, so the person isn't left
+    // waiting on a button that never comes back.
+    const { renderPrintPreview } = await freshModule();
+    const stallArb = pageOfArb.chain(([count, page]) =>
+      fc.tuple(
+        fc.constant(count),
+        fc.constantFrom<Stall>({ at: "open" }, { at: "page", pageNumber: page }, { at: "render", pageNumber: page }),
+      ),
+    );
+    await fc.assert(
+      fc.asyncProperty(stallArb, async ([count, stall]) => {
+        resetEngine(Array.from({ length: count }, () => LETTER));
+        engine.stall = stall;
+        const canvases = canvasMaker();
+        const failure = await renderPrintPreview(new Uint8Array([1]), canvases.make, undefined, 20).then(
+          () => null,
+          (reason: unknown) => reason,
+        );
+        expect((failure as DOMException | null)?.name).toBe("TimeoutError");
+        // Every page started was drawn up to the stall, and nothing after it.
+        const stalledPage = "pageNumber" in stall ? stall.pageNumber : 0;
+        expect(engine.pagesRequested).toEqual(Array.from({ length: stalledPage }, (_, index) => index + 1));
+        expect(canvases.made).toHaveLength(stall.at === "render" ? stalledPage : Math.max(0, stalledPage - 1));
+        expectReleased(canvases.made);
+        // The stuck page was told to stop, and the document was torn down.
+        expect(engine.renders.map((render) => render.cancelled)).toEqual(
+          canvases.made.map((_, index) => (stall.at === "render" && index + 1 === stalledPage ? 1 : 0)),
+        );
+        expect(engine.documents[0].destroyed).toBe(1);
+      }),
+      { numRuns: 30 },
+    );
+  });
+
+  it("hands back the drawn pages when only the teardown stops answering", async () => {
+    const { renderPrintPreview } = await freshModule();
+    await fc.assert(
+      fc.asyncProperty(fc.integer({ min: 1, max: 6 }), async (count) => {
+        resetEngine(Array.from({ length: count }, () => LETTER));
+        engine.stall = { at: "destroy" };
+        const canvases = canvasMaker();
+        const preview = await renderPrintPreview(new Uint8Array([1]), canvases.make, undefined, 20);
+        expect(preview.pages).toHaveLength(count);
+        expect(engine.documents[0].destroyed).toBe(1);
+        for (const canvas of canvases.made) {
+          expect(canvas.removed).toBe(0);
+        }
+        preview.release();
+        expectReleased(canvases.made);
+      }),
+      { numRuns: 10 },
+    );
+  });
+
+  it("never fails or touches a drawing that finishes in time, even once its time is up", async () => {
+    const { DRAW_TIMEOUT_MS, renderPrintPreview } = await freshModule();
+    // A minute, many times what the DHB-5200 takes on a slow phone.
+    expect(DRAW_TIMEOUT_MS).toBe(60_000);
+    await fc.assert(
+      fc.asyncProperty(fc.integer({ min: 1, max: 8 }), async (count) => {
+        resetEngine(Array.from({ length: count }, () => LETTER));
+        const canvases = canvasMaker();
+        const preview = await renderPrintPreview(new Uint8Array([1]), canvases.make, undefined, 250);
+        expect(preview.pages).toHaveLength(count);
+        // Past the watchdog's time, the pages are still whole: it stopped
+        // when the drawing finished.
+        await new Promise((done) => setTimeout(done, 300));
+        expect(canvases.made.every((canvas) => canvas.width > 0 && canvas.removed === 0)).toBe(true);
+        expect(engine.renders.every((render) => render.cancelled === 0)).toBe(true);
+      }),
+      { numRuns: 3 },
+    );
+  });
+
   it("opens nothing when it is aborted before it starts", async () => {
     const { renderPrintPreview } = await freshModule();
     const canvases = canvasMaker();
@@ -411,6 +531,143 @@ describe("when the drawing can't finish", () => {
       expect(engine.documents).toHaveLength(1);
     },
   );
+});
+
+describe("the built-ins pdf.js needs", () => {
+  // pdf.js 6.4.x calls Promise.withResolvers and
+  // ArrayBuffer.prototype.transferToFixedLength without bringing them, and
+  // Safari before 17.4 has neither. Node has both, so these tests take them
+  // away the way such a browser would, and put the real ones back after.
+  const REAL = {
+    withResolvers: Object.getOwnPropertyDescriptor(Promise, "withResolvers")!,
+    transferToFixedLength: Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "transferToFixedLength")!,
+  };
+
+  async function inOlderBrowser<T>(body: () => Promise<T>): Promise<T> {
+    delete (Promise as { withResolvers?: unknown }).withResolvers;
+    delete (ArrayBuffer.prototype as { transferToFixedLength?: unknown }).transferToFixedLength;
+    try {
+      return await body();
+    } finally {
+      Object.defineProperty(Promise, "withResolvers", REAL.withResolvers);
+      Object.defineProperty(ArrayBuffer.prototype, "transferToFixedLength", REAL.transferToFixedLength);
+    }
+  }
+
+  /** The stand-ins the print module installs, taken from a browser without the real ones. */
+  async function standIns() {
+    return inOlderBrowser(async () => {
+      const { installMissingBuiltins } = await freshModule();
+      expect(builtinsNow()).toEqual({ withResolvers: false, transferToFixedLength: false });
+      installMissingBuiltins();
+      return {
+        withResolvers: Object.getOwnPropertyDescriptor(Promise, "withResolvers")!,
+        transferToFixedLength: Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "transferToFixedLength")!,
+      };
+    });
+  }
+
+  it("puts both in place before either pdf.js module loads, in a browser without them", async () => {
+    await inOlderBrowser(async () => {
+      const { renderPrintPreview } = await freshModule();
+      const preview = await renderPrintPreview(new Uint8Array([1]), canvasMaker().make);
+      expect(preview.pages).toHaveLength(1);
+      expect(engine.builtinsAtLoad).toEqual([
+        { module: "engine", withResolvers: true, transferToFixedLength: true },
+        { module: "worker", withResolvers: true, transferToFixedLength: true },
+      ]);
+    });
+  });
+
+  it("defines them the way built-in methods are, so nothing that lists a promise's or a buffer's keys meets them", async () => {
+    const installed = await standIns();
+    for (const descriptor of [installed.withResolvers, installed.transferToFixedLength]) {
+      expect(descriptor).toMatchObject({ writable: true, enumerable: false, configurable: true });
+      expect(typeof descriptor.value).toBe("function");
+    }
+  });
+
+  it("leaves a browser's own built-ins alone", async () => {
+    const { installMissingBuiltins, renderPrintPreview } = await freshModule();
+    installMissingBuiltins();
+    await renderPrintPreview(new Uint8Array([1]), canvasMaker().make);
+    expect(Promise.withResolvers).toBe(REAL.withResolvers.value);
+    expect(ArrayBuffer.prototype.transferToFixedLength).toBe(REAL.transferToFixedLength.value);
+  });
+
+  it("settles a promise exactly as Promise.withResolvers does, however it is settled", async () => {
+    const { withResolvers: standIn } = await standIns();
+    const steps = fc.array(fc.record({ settle: fc.constantFrom("resolve", "reject"), value: fc.anything() }), {
+      minLength: 1,
+      maxLength: 4,
+    });
+    async function outcome(make: () => PromiseWithResolvers<unknown>, settles: readonly { settle: "resolve" | "reject"; value: unknown }[]) {
+      const deferred = make();
+      for (const { settle, value } of settles) {
+        deferred[settle](value);
+      }
+      return deferred.promise.then(
+        (value) => ({ settled: "resolved", value }),
+        (value: unknown) => ({ settled: "rejected", value }),
+      );
+    }
+    await fc.assert(
+      fc.asyncProperty(steps, async (settles) => {
+        const real = await outcome(() => REAL.withResolvers.value.call(Promise), settles);
+        const filled = await outcome(() => standIn.value.call(Promise), settles);
+        expect(filled.settled).toBe(real.settled);
+        expect(Object.is(filled.value, real.value)).toBe(true);
+      }),
+    );
+  });
+
+  it("gives the same new buffer as transferToFixedLength, for any buffer and length", async () => {
+    const { transferToFixedLength: standIn } = await standIns();
+    const lengthArb = fc.oneof(
+      fc.constant(undefined),
+      fc.integer({ min: 0, max: 96 }),
+      fc.double({ min: 0, max: 96, noNaN: true }),
+      fc.constant(Number.NaN),
+    );
+    await fc.assert(
+      fc.property(fc.uint8Array({ maxLength: 64 }), fc.boolean(), lengthArb, (bytes, resizable, newLength) => {
+        const source = () => {
+          const buffer = resizable
+            ? new ArrayBuffer(bytes.length, { maxByteLength: bytes.length + 16 })
+            : new ArrayBuffer(bytes.length);
+          new Uint8Array(buffer).set(bytes);
+          return buffer;
+        };
+        const real = (REAL.transferToFixedLength.value as ArrayBuffer["transferToFixedLength"]).call(source(), newLength);
+        const original = source();
+        const filled = (standIn.value as ArrayBuffer["transferToFixedLength"]).call(original, newLength);
+        expect(filled.byteLength).toBe(real.byteLength);
+        expect(filled.resizable).toBe(false);
+        expect([...new Uint8Array(filled)]).toEqual([...new Uint8Array(real)]);
+        expect(filled).not.toBe(original);
+        // A copy: the original is still readable, which pdf.js never needs
+        // but doesn't mind.
+        expect([...new Uint8Array(original)]).toEqual([...bytes]);
+      }),
+    );
+  });
+
+  it("refuses what transferToFixedLength refuses: a negative length, a detached buffer, or no buffer", async () => {
+    const { transferToFixedLength: standIn } = await standIns();
+    const transfer = standIn.value as (this: unknown, newLength?: number) => ArrayBuffer;
+    await fc.assert(
+      fc.property(fc.uint8Array({ maxLength: 16 }), fc.integer({ min: -64, max: -1 }), (bytes, negative) => {
+        const buffer = new Uint8Array(bytes).buffer;
+        expect(() => transfer.call(buffer, negative)).toThrow(RangeError);
+        expect(() => REAL.transferToFixedLength.value.call(buffer, negative)).toThrow(RangeError);
+        structuredClone(buffer, { transfer: [buffer] });
+        expect(() => transfer.call(buffer)).toThrow(TypeError);
+        expect(() => REAL.transferToFixedLength.value.call(buffer)).toThrow(TypeError);
+      }),
+    );
+    expect(() => transfer.call(new Uint8Array(4))).toThrow(TypeError);
+    expect(() => transfer.call({ byteLength: 4 })).toThrow(TypeError);
+  });
 });
 
 describe("the print size", () => {

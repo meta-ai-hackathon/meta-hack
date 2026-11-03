@@ -24,6 +24,17 @@ import type * as PdfJs from "pdfjs-dist/legacy/build/pdf.mjs";
 // filled bytes directly and none of the locations it would request files
 // from: no worker source, standard fonts, CMaps, ICC profiles, or wasm. A
 // font the form doesn't embed is drawn with the system's own.
+//
+// pdf.js 6.4.x also calls two built-ins without bringing its own copies:
+// Promise.withResolvers, new in Safari 17.4 and Chrome 119, and
+// ArrayBuffer.prototype.transferToFixedLength, new in Safari 17.4 and
+// Chrome 114. Next.js builds this page for Safari 16.4 and Chrome 111 and
+// up. Without the first, pdf.js throws on every document, and without the
+// second it draws nothing and never finishes, so the engine load fills in
+// whichever is missing first. A browser's own versions are left alone. And
+// because a pdf.js that stops answering would otherwise leave the person
+// waiting forever, the drawing gives up after DRAW_TIMEOUT_MS and fails
+// the way any other failure does.
 
 /** The pdf.js module, as this file uses it. */
 type PdfJsEngine = typeof PdfJs;
@@ -86,6 +97,13 @@ export const MAX_TOTAL_PIXELS = 48_000_000;
 export const MAX_CANVAS_SIDE = 8_192;
 
 /**
+ * How long pdf.js may take to open and draw the whole form, once it has
+ * loaded. The DHB-5200 takes a few seconds even on a slow phone, so a
+ * drawing still running after this has stopped answering, and it fails.
+ */
+export const DRAW_TIMEOUT_MS = 60_000;
+
+/**
  * The scale one page is drawn at, from its size at scale 1 and how many
  * pages the form has: 150 DPI unless that would break one of the limits
  * above, in which case the largest scale that keeps to all of them.
@@ -120,14 +138,60 @@ function releasePages(pages: readonly PrintPage[]): void {
   }
 }
 
+/** Promise.withResolvers, for a browser without it: a promise and the two functions that settle it. */
+function withResolvers<T>(): PromiseWithResolvers<T> {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((settle, fail) => {
+    resolve = settle;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+/**
+ * ArrayBuffer.prototype.transferToFixedLength, for a browser without it: a
+ * new fixed-length buffer of `newLength` bytes (this buffer's length when
+ * left out) holding as much of this buffer as fits, and zeros after. It
+ * copies instead of moving, so this buffer stays as it was, which is all
+ * pdf.js needs: it only reads the new buffer.
+ */
+function transferToFixedLength(this: ArrayBuffer, newLength?: number): ArrayBuffer {
+  if (!(this instanceof ArrayBuffer)) {
+    throw new TypeError("transferToFixedLength needs an ArrayBuffer");
+  }
+  const moved = new ArrayBuffer(newLength === undefined ? this.byteLength : newLength);
+  new Uint8Array(moved).set(new Uint8Array(this, 0, Math.min(moved.byteLength, this.byteLength)));
+  return moved;
+}
+
+/**
+ * Fill in the built-ins pdf.js 6.4.x calls but doesn't bring, where the
+ * browser lacks them (see the top of this file). Each goes where the
+ * browser's own would be, defined the way built-in methods are, and only
+ * when missing, so a browser that has them keeps its own.
+ */
+export function installMissingBuiltins(): void {
+  const define = (target: object, name: string, value: unknown) =>
+    Object.defineProperty(target, name, { value, writable: true, configurable: true, enumerable: false });
+  if (typeof Promise.withResolvers !== "function") {
+    define(Promise, "withResolvers", withResolvers);
+  }
+  if (typeof ArrayBuffer.prototype.transferToFixedLength !== "function") {
+    define(ArrayBuffer.prototype, "transferToFixedLength", transferToFixedLength);
+  }
+}
+
 let engineLoad: Promise<PdfJsEngine> | null = null;
 
 /**
- * pdf.js, loaded once, with its worker hook installed before anything can
- * open a document. A load that fails (a dropped connection while the chunk
- * downloads, say) is not kept, so the next try loads it again.
+ * pdf.js, loaded once, with the built-ins it needs and its worker hook in
+ * place before anything can open a document. A load that fails (a dropped
+ * connection while the chunk downloads, say) is not kept, so the next try
+ * loads it again.
  */
 function loadEngine(): Promise<PdfJsEngine> {
+  installMissingBuiltins();
   engineLoad ??= Promise.all([
     import("pdfjs-dist/legacy/build/pdf.mjs"),
     // Imported for what it does when it loads: it sets
@@ -149,22 +213,62 @@ function nextTask(): Promise<void> {
 }
 
 /**
+ * `promise`, unless `stop` aborts first, in which case this rejects with
+ * the reason at once. Whatever `promise` was doing is left to finish or
+ * fail on its own.
+ */
+function unlessStopped<T>(promise: Promise<T>, stop: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const stopped = () => reject(stop.reason);
+    if (stop.aborted) {
+      stopped();
+      return;
+    }
+    stop.addEventListener("abort", stopped, { once: true });
+    promise.then(
+      (value) => {
+        stop.removeEventListener("abort", stopped);
+        resolve(value);
+      },
+      (error: unknown) => {
+        stop.removeEventListener("abort", stopped);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
  * Draw every page of the filled form onto its own canvas, in order. The
  * bytes are the person's filled application, read here and never kept:
  * pdf.js gets a copy, and the loading task, and the document with it, is
- * destroyed before this returns, whatever happens.
+ * destroyed whatever happens. This waits for that teardown unless the
+ * drawing was stopped, so a stuck pdf.js can't hold it up.
  *
- * Rejects when pdf.js can't load or can't draw the form, and when `signal`
- * aborts (the answers changed, or the page closed). Either way it releases
- * whatever it drew first, so only a full set of pages is ever handed back.
+ * Rejects when pdf.js can't load or can't draw the form, when `signal`
+ * aborts (the answers changed, or the page closed), and when pdf.js hasn't
+ * finished `timeoutMs` after it loaded (a TimeoutError). Either way it
+ * releases whatever it drew first, so only a full set of pages is ever
+ * handed back.
  */
 export async function renderPrintPreview(
   bytes: Uint8Array,
   createCanvas: PrintCanvasFactory,
   signal?: AbortSignal,
+  timeoutMs: number = DRAW_TIMEOUT_MS,
 ): Promise<PrintPreview> {
   const engine = await loadEngine();
   signal?.throwIfAborted();
+  // One switch for everything that stops the drawing: the caller, or the
+  // watchdog. AbortSignal.any would do this, but the browsers that need
+  // the built-ins above don't have it either.
+  const stop = new AbortController();
+  const stopForCaller = () => stop.abort(signal?.reason);
+  signal?.addEventListener("abort", stopForCaller, { once: true });
+  const watchdog = setTimeout(
+    () => stop.abort(new DOMException("pdf.js stopped answering while drawing the form", "TimeoutError")),
+    timeoutMs,
+  );
   const options: DocumentOptions & { readonly isEvalSupported: false } = {
     // A copy: pdf.js takes over the buffer it is given.
     data: new Uint8Array(bytes),
@@ -175,11 +279,11 @@ export async function renderPrintPreview(
   const task = engine.getDocument(options);
   const pages: PrintPage[] = [];
   try {
-    const pdf = await task.promise;
+    const pdf = await unlessStopped(task.promise, stop.signal);
     const pageCount = pdf.numPages;
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-      signal?.throwIfAborted();
-      const page = await pdf.getPage(pageNumber);
+      stop.signal.throwIfAborted();
+      const page = await unlessStopped(pdf.getPage(pageNumber), stop.signal);
       const viewport = page.getViewport({ scale: printScale(page.getViewport({ scale: 1 }), pageCount) });
       const size = canvasSize(viewport);
       const canvas = createCanvas(size.width, size.height);
@@ -190,24 +294,28 @@ export async function renderPrintPreview(
       // on-screen Print Form button.
       const render = page.render({ canvas, viewport, intent: "print" });
       const cancel = () => render.cancel();
-      signal?.addEventListener("abort", cancel);
+      stop.signal.addEventListener("abort", cancel, { once: true });
       try {
-        await render.promise;
+        await unlessStopped(render.promise, stop.signal);
       } finally {
-        signal?.removeEventListener("abort", cancel);
+        stop.signal.removeEventListener("abort", cancel);
       }
       page.cleanup();
       await nextTask();
     }
-    signal?.throwIfAborted();
+    stop.signal.throwIfAborted();
   } catch (error) {
     releasePages(pages);
     throw error;
   } finally {
     // Destroying the loading task destroys the document with it (pdf.js
     // 6.4.x has no separate destroy on the document). A failure to tear
-    // down can't hide the pages or the error above.
-    await task.destroy().catch(() => undefined);
+    // down can't hide the pages or the error above, and the watchdog keeps
+    // running until the teardown is done, so a teardown that never ends
+    // can't hold this up either.
+    await unlessStopped(task.destroy(), stop.signal).catch(() => undefined);
+    clearTimeout(watchdog);
+    signal?.removeEventListener("abort", stopForCaller);
   }
   return { pages, release: () => releasePages(pages) };
 }
