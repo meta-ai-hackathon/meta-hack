@@ -696,7 +696,7 @@ export async function buildMatchResponse(
       piiValues.length > 0 &&
       piiValues.some(
         (value) =>
-          value.carriedBy(card.explanation.text) &&
+          value.carriedByModelText(card.explanation.text) &&
           !value.inStatic.test(cardStaticCopy(rankedEntry.entry, card)),
       )
     ) {
@@ -740,10 +740,12 @@ const PLAIN_NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
  * of these separators (2026-10-30, 10/08/2026, 10:30, 1.5, 1,000). A letter
  * or a word after it is a unit (0hrs, 20-hour, 20/week), so the number
  * still stands as its own number there. These are the trigger's edges, and
- * the excusal's are stricter (standaloneNumberPattern). An answer inside a
- * range, ratio, or id ("20-30 hours", "20–30 hours" with an en dash, "v30")
- * is not caught yet, and public copy that glues the answer to a letter or
- * number outside ASCII ("1½ hours") still fails the match (HACK-124).
+ * the excusal's are stricter (standaloneNumberPattern). These edges miss an
+ * answer inside a range, ratio, or id ("20-30 hours", "v30"), so a model
+ * explanation is also read with a wider trigger (carriedByModelText). Public
+ * copy that glues the answer to a letter or number outside ASCII ("1½
+ * hours") still fails the match; the shipped card and prompt test in
+ * match.test.ts keeps such copy out of the KB.
  *
  * The trigger keeps ASCII letters and digits, so a leak glued to a letter
  * outside ASCII, behind a bidi mark, or before a superscript still shows
@@ -831,14 +833,35 @@ const OWN_NUMBER_QUESTION_IDS: ReadonlySet<string> = new Set(["wr_work_activity_
  * response carries ("0" inside 2026-10-30), so the trigger counts it only
  * where it stands as its own number, a unit or label glued on included, and
  * the excusal only where the public copy holds it as a token of its own.
+ *
+ * A model explanation gets a wider trigger (HACK-124). It is the one text
+ * in a response written by a model rather than taken from the spec or the
+ * KB, so it is read for the number anywhere its digits are not part of a
+ * longer number: inside a range, a ratio, or an id ("20-30 hours", "30/80",
+ * "v30"), whatever joins them. Dates and ids in a model explanation trip it
+ * too, which only swaps that card to the entry's fact copy.
  */
 interface PrivateValueMatcher {
   /** True when the value is matched as a whole number token. */
   readonly wholeNumber: boolean;
   /** The trigger: does this text carry the value? */
   readonly carriedBy: (text: string) => boolean;
+  /** The trigger for a model explanation, at least as wide as carriedBy. */
+  readonly carriedByModelText: (text: string) => boolean;
   /** The excusal: matches a public copy the value is part of. */
   readonly inStatic: RegExp;
+}
+
+/**
+ * A plain number answer anywhere its digits are not part of a longer
+ * number: no digit right next to it, and no decimal point or digit group
+ * comma joining it to one ("1,030" and "7.25" hold neither 30 nor 7).
+ */
+function digitsPattern(raw: string): RegExp {
+  return new RegExp(
+    `(?<!\\d)(?<!\\d[.,])${numberValuePattern(raw)}(?!\\d)(?![.,]\\d)`,
+    "u",
+  );
 }
 
 function privateValueMatcher(questionId: string, raw: string): PrivateValueMatcher {
@@ -848,16 +871,20 @@ function privateValueMatcher(questionId: string, raw: string): PrivateValueMatch
     PLAIN_NUMBER_PATTERN.test(raw)
   ) {
     const ownNumber = ownNumberPattern(raw);
+    const digits = digitsPattern(raw);
     return {
       wholeNumber: true,
       carriedBy: (text) => ownNumber.test(text),
+      carriedByModelText: (text) => ownNumber.test(text) || digits.test(text),
       inStatic: standaloneNumberPattern(raw),
     };
   }
   const lowered = raw.toLowerCase();
+  const carriedBy = (text: string) => text.toLowerCase().includes(lowered);
   return {
     wholeNumber: false,
-    carriedBy: (text) => text.toLowerCase().includes(lowered),
+    carriedBy,
+    carriedByModelText: carriedBy,
     inStatic: new RegExp(`\\b${escapeRegExpValue(raw)}\\b`, "i"),
   };
 }
@@ -1027,6 +1054,9 @@ export function assertNoPiiValuesInMatch(
   const serialized = JSON.stringify(response).toLowerCase();
   const numberScan = responseNumberScan(response).join("\n");
   const staticCopy = responseStaticCopy(response);
+  const modelText = response.matches
+    .filter((card) => card.explanation.source === "model")
+    .map((card) => card.explanation.text);
   for (const questionId of PII_QUESTION_IDS_IN_SPEC) {
     const stored = answers[questionId];
     if (!stored || stored.value === null || stored.value === undefined) {
@@ -1042,7 +1072,10 @@ export function assertNoPiiValuesInMatch(
         continue;
       }
       const matcher = privateValueMatcher(questionId, raw);
-      if (!matcher.carriedBy(matcher.wholeNumber ? numberScan : serialized)) {
+      if (
+        !matcher.carriedBy(matcher.wholeNumber ? numberScan : serialized) &&
+        !modelText.some((text) => matcher.carriedByModelText(text))
+      ) {
         continue;
       }
       if (!matcher.inStatic.test(staticCopy)) {
