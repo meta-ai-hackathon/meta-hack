@@ -212,6 +212,32 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
     label: "7fbeb3c review: promise after a help clause",
     text: "To help you stay covered, answer the letter. Then you will keep your Medicaid.",
   },
+  // What the follow-up review of that narrowing found getting through: a
+  // renewal or recertification that carries the coverage on, with an
+  // object, a no-gap tail, a keep-covered tail, a stretch of time, or a
+  // result clause. A renewal, recertification, or application that
+  // continues is spared only where what follows says where or when the
+  // process goes on.
+  { label: "7fbeb3c follow-up: will continue your benefits", text: "Good news: your renewal will continue your benefits." },
+  { label: "7fbeb3c follow-up: will continue your coverage", text: "Your renewal will continue your coverage for another year." },
+  {
+    label: "7fbeb3c follow-up: continues your coverage after a condition",
+    text: "Once the office has your form, your renewal continues your coverage for another 12 months.",
+  },
+  {
+    label: "7fbeb3c follow-up: will continue without a gap",
+    text: "If you send it in time, your renewal will continue without a gap in coverage.",
+  },
+  {
+    label: "7fbeb3c follow-up: is going to continue your NC Medicaid",
+    text: "Your renewal is going to continue your NC Medicaid for another year.",
+  },
+  { label: "7fbeb3c follow-up: continues your eligibility", text: "Your recertification continues your eligibility." },
+  { label: "7fbeb3c follow-up: will continue to keep you covered", text: "Your renewal will continue to keep you covered." },
+  { label: "7fbeb3c follow-up: continues your current coverage", text: "Your renewal continues your current coverage." },
+  { label: "7fbeb3c follow-up: will continue with no gap", text: "Your renewal will continue with no gap." },
+  { label: "7fbeb3c follow-up: will continue for another year", text: "Your renewal will continue for another year." },
+  { label: "7fbeb3c follow-up: continues, then a result clause", text: "Your renewal continues, so nothing changes." },
 ];
 
 // Honest sentences that must pass the detector untouched. Hedged uncertainty
@@ -322,6 +348,22 @@ const HONEST_SENTENCES: string[] = [
   "Your application will continue on the next page.",
   "Your renewal continues until the office decides.",
   "Your recertification is going to continue after you send the form.",
+  // Where or when a renewal, recertification, or application goes on, one
+  // per spared shape (follow-up review of the narrowing): the sentence
+  // ends, below or here, a page, step, section, or question, what happens
+  // first, or the office deciding.
+  "Your NC renewal will definitely continue.",
+  "Your application continues below.",
+  "Your application continues here.",
+  "Your application continues on page 2.",
+  "Your application continues to the review step.",
+  "Your application continues in the next section.",
+  "Your application continues at step 3.",
+  "Your application continues with the next question.",
+  "Your application continues once you sign it.",
+  "Your renewal continues when the office gets your form.",
+  "Your application continues where you left off.",
+  "Your renewal continues until the county decides.",
   // How to say what "is accepted" would have: the office as the subject.
   "The office accepts applications by mail.",
 ];
@@ -474,7 +516,7 @@ describe("banned-claims detector", () => {
     );
   });
 
-  it("counts continuing only with a coverage word as the subject, and continuing automatically or accepted with any subject (review of 7fbeb3c, property)", () => {
+  it("counts continuing with a coverage subject whatever follows, and with a renewal or application unless only where or when it goes on follows (review of 7fbeb3c and its follow-up, property)", () => {
     const processSubject = fc.constantFrom("application", "renewal", "recertification", "NC renewal");
     const coverageSubject = fc.constantFrom(
       "coverage",
@@ -495,24 +537,76 @@ describe("banned-claims detector", () => {
       "is going to continue",
     );
     const accepted = fc.constantFrom("is accepted", "was accepted", "has been accepted", "is already accepted");
-    const tail = fc.constantFrom(" on the next page.", " until the office decides.", ".");
+    // Where or when a process goes on: the sentence ends, below or here, a
+    // page, step, section, or question, what happens first, or the office
+    // deciding.
+    const goesOnTail = fc.constantFrom(
+      ".",
+      " on the next page.",
+      " on page 2.",
+      " below.",
+      " here.",
+      " to the review step.",
+      " in the next section.",
+      " at step 3.",
+      " with the next question.",
+      " after you send the form.",
+      " once the office has your form.",
+      " when you are ready.",
+      " where you left off.",
+      " until the office decides.",
+      " until the county decides.",
+    );
+    // What makes it coverage carrying on (follow-up review of the
+    // narrowing): an object, a no-gap or uninterrupted tail, a keep-covered
+    // tail, a stretch of time, or a result clause.
+    const carriesOnTail = fc.constantFrom(
+      " your coverage for another year.",
+      " your benefits.",
+      " your NC Medicaid.",
+      " your eligibility.",
+      " your current coverage.",
+      " the same benefits.",
+      " coverage for your kids.",
+      " without a gap in coverage.",
+      " with no gap.",
+      " uninterrupted.",
+      " to keep you covered.",
+      " to cover you.",
+      " for another 12 months.",
+      " until next year.",
+      " until you turn 65.",
+      " into next year.",
+      ", so nothing changes.",
+    );
     fc.assert(
-      fc.property(processSubject, coverageSubject, continuing, accepted, tail, (process, coverage, verb, outcome, end) => {
-        // A process going on is not coverage carrying on.
-        const goesOn = `Your ${process} ${verb}${end}`;
-        expect(findBannedClaims(goesOn), goesOn).toEqual([]);
-        for (const caught of [
-          // Coverage carrying on, in any tense.
-          `Your ${coverage} ${verb}${end}`,
-          // Going on by itself is the automatic renewal promise, whatever the subject.
-          `Your ${process} ${verb} automatically${end}`,
-          // Accepted is an outcome whatever the subject (the conservative call).
-          `Your ${process} ${outcome}${end}`,
-          `Your ${coverage} ${outcome}${end}`,
-        ]) {
-          expect(findBannedClaims(caught).length, caught).toBeGreaterThan(0);
-        }
-      }),
+      fc.property(
+        processSubject,
+        coverageSubject,
+        continuing,
+        accepted,
+        goesOnTail,
+        carriesOnTail,
+        (process, coverage, verb, outcome, goesOn, carriesOn) => {
+          // A process going on is not coverage carrying on.
+          const honest = `Your ${process} ${verb}${goesOn}`;
+          expect(findBannedClaims(honest), honest).toEqual([]);
+          for (const caught of [
+            // The same process carrying the coverage on.
+            `Your ${process} ${verb}${carriesOn}`,
+            // Coverage carrying on, in any tense, whatever follows.
+            `Your ${coverage} ${verb}${goesOn}`,
+            `Your ${coverage} ${verb}${carriesOn}`,
+            // Going on by itself is the automatic renewal promise, whatever the subject.
+            `Your ${process} ${verb} automatically${goesOn}`,
+            // Accepted is an outcome whatever the subject (the conservative call).
+            `Your ${process} ${outcome}${goesOn}`,
+            `Your ${coverage} ${outcome}${goesOn}`,
+          ]) {
+            expect(findBannedClaims(caught).length, caught).toBeGreaterThan(0);
+          }
+        },
+      ),
     );
   });
 

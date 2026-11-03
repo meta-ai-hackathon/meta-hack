@@ -99,6 +99,15 @@ const BANNED_FIXTURES = [
   "With our help you will stay covered.",
   "Answering that letter helped you stay covered.",
   "To help you stay covered, answer the letter. Then you will keep your Medicaid.",
+  // Follow-up review of the narrowing: a renewal or recertification that
+  // carries the coverage on stays caught.
+  "Good news: your renewal will continue your benefits.",
+  "Your renewal will continue your coverage for another year.",
+  "Once the office has your form, your renewal continues your coverage for another 12 months.",
+  "If you send it in time, your renewal will continue without a gap in coverage.",
+  "Your renewal is going to continue your NC Medicaid for another year.",
+  "Your recertification continues your eligibility.",
+  "Your renewal will continue to keep you covered.",
 ];
 
 // Honest sentences that must pass untouched. Hedged uncertainty stays
@@ -146,6 +155,11 @@ const CLEAN_TEXT_FIXTURES = [
   "Your application continues on the next page.",
   "Your application will continue on the next page.",
   "The office accepts applications by mail.",
+  // Follow-up review: where or when a renewal or application goes on.
+  "Your application continues below.",
+  "Your application continues to the review step.",
+  "Your renewal continues until the office decides.",
+  "Your recertification is going to continue after you send the form.",
 ];
 
 // A client-state fixture: the shape /api/intake/* and /api/session return.

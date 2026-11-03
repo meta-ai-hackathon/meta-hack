@@ -147,19 +147,31 @@ export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
   // Outcomes with the coverage, renewal, or application as the subject:
   // will be renewed or approved, will renew or continue, continues now, is
   // or was or has been approved, won't or will never end or stop, is safe,
-  // happens or continues automatically. Continuing counts only with a
-  // coverage word as the subject (coverage, benefits, Medicaid,
-  // eligibility, or health coverage, insurance, or care), in any tense
-  // (HACK-50 review): a renewal, recertification, or application that
-  // continues is a process going on, often a form going on to its next
-  // page, not coverage carrying on. Continuing automatically still counts
-  // with every subject, as happening automatically does. Accepted stays an
-  // outcome with every subject, the application included, which is the
-  // conservative call: the app never tells someone their application is
-  // accepted, even where the sentence means the office takes applications
-  // that way, because the person reads a decision. Honest copy makes the
-  // office the subject (the office accepts applications by mail).
-  /(?<!\b(?:if|whether|once|when|until|unless|how|do|does|did|will|would|can|could|should|are|don't|doesn't|didn't|won't|wouldn't|can't|couldn't|shouldn't|aren't|isn't)\s+|\byou\s+(?:told\s+us|said|reported)\s+|\b(?:(?:to|can|could|will|would|may|might|should|'ll)\s+help|helps|helping)\s+)\byour\s+(?:nc\s+)?(?:coverage|benefits|medicaid|eligibility|renewal|recertification|application|health\s+(?:coverage|insurance|care))\s+(?:(?:will|'ll|is\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?(?:be\s+(?:renewed|approved|re-?approved|continued|extended|accepted)|renew|carry\s+over|go\s+through|(?:happen|continue)\s+automatically)|(?<!\b(?:renewal|recertification|application)\s+)(?:(?:will|'ll|is\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?continue|(?:still\s+)?continues?)|(?:is|was|has\s+been)\s+(?:(?:already|definitely|certainly)\s+)?(?:approved|re-?approved|accepted|extended|confirmed|safe|automatic)|(?:was|has\s+been)\s+(?:(?:already|definitely|certainly)\s+)?renewed|is\s+(?:(?:already|definitely|certainly)\s+)?renewed(?!,?\s+(?:which\s+happens\s+)?(?:every|once|each|twice)\b)|(?:won't|will\s+not|will\s+never|'ll\s+not|'ll\s+never|isn't\s+going\s+to|is\s+not\s+going\s+to|aren't\s+going\s+to|are\s+not\s+going\s+to)\s+(?:end|stop|lapse|be\s+(?:cut|cancell?ed|terminated|ended|stopped|dropped|taken\s+away))|(?:still\s+)?(?:happens|renews|continues)\s+automatically)\b/i,
+  // happens or continues automatically. Continuing counts with a coverage
+  // word as the subject (coverage, benefits, Medicaid, eligibility, or
+  // health coverage, insurance, or care) whatever follows, in any tense.
+  // With a renewal, recertification, or application as the subject it
+  // counts too, except where the words after it say only where or when the
+  // process goes on (HACK-50 review), which is often a form going on to its
+  // next page, not coverage carrying on: the sentence ends there; below or
+  // here; on, onto, to, in, into, at, with, or from a page, screen, step,
+  // section, form, question, or part (the next one, say); after, before,
+  // once, when, or where you, we, or it act, or the office, county, state,
+  // agency, caseworker, form, or letter does; or until the office, county,
+  // state, agency, or caseworker acts. Anything else after it stays caught
+  // (the follow-up review of that narrowing): an object such as the
+  // coverage or the benefits, a no-gap or uninterrupted tail, a
+  // keep-covered tail, a stretch of time, or a comma and a result clause.
+  // Until spares only the office acting, since until with a person, an
+  // age, or a date says how long the coverage lasts. Continuing
+  // automatically counts with every subject, as happening automatically
+  // does. Accepted stays an outcome with every subject, the application
+  // included, which is the conservative call: the app never tells someone
+  // their application is accepted, even where the sentence means the
+  // office takes applications that way, because the person reads a
+  // decision. Honest copy makes the office the subject (the office accepts
+  // applications by mail).
+  /(?<!\b(?:if|whether|once|when|until|unless|how|do|does|did|will|would|can|could|should|are|don't|doesn't|didn't|won't|wouldn't|can't|couldn't|shouldn't|aren't|isn't)\s+|\byou\s+(?:told\s+us|said|reported)\s+|\b(?:(?:to|can|could|will|would|may|might|should|'ll)\s+help|helps|helping)\s+)\byour\s+(?:nc\s+)?(?:coverage|benefits|medicaid|eligibility|renewal|recertification|application|health\s+(?:coverage|insurance|care))\s+(?:(?:will|'ll|is\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?(?:be\s+(?:renewed|approved|re-?approved|continued|extended|accepted)|renew|carry\s+over|go\s+through|(?:happen|continue)\s+automatically)|(?<!\b(?:renewal|recertification|application)\s+)(?:(?:will|'ll|is\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?continue|(?:still\s+)?continues?)|(?:(?:will|'ll|is\s+going\s+to)\s+(?:(?:definitely|certainly|absolutely|still)\s+)?continue|(?:still\s+)?continues?)(?!\s*(?:[.!?]|$)|\s+(?:below|here)\b|\s+(?:on|onto|to|in|into|at|with|from)\s+(?:(?:the|this|that|your)\s+)?(?:(?:next|following|previous|review|last|first)\s+)?(?:page|screen|step|section|form|question|part)s?\b|\s+(?:after|before|once|when|where)\s+(?:you|we|it|the\s+(?:office|county|state|agency|caseworker|form|letter))\b|\s+until\s+the\s+(?:office|county|state|agency|caseworker)\b)|(?:is|was|has\s+been)\s+(?:(?:already|definitely|certainly)\s+)?(?:approved|re-?approved|accepted|extended|confirmed|safe|automatic)|(?:was|has\s+been)\s+(?:(?:already|definitely|certainly)\s+)?renewed|is\s+(?:(?:already|definitely|certainly)\s+)?renewed(?!,?\s+(?:which\s+happens\s+)?(?:every|once|each|twice)\b)|(?:won't|will\s+not|will\s+never|'ll\s+not|'ll\s+never|isn't\s+going\s+to|is\s+not\s+going\s+to|aren't\s+going\s+to|are\s+not\s+going\s+to)\s+(?:end|stop|lapse|be\s+(?:cut|cancell?ed|terminated|ended|stopped|dropped|taken\s+away))|(?:still\s+)?(?:happens|renews|continues)\s+automatically)\b/i,
   // Being renewed or recertified, as a promise, automatically or not. The
   // reported past ("were renewed") stays allowed, as "were approved" does
   // above.
