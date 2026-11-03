@@ -33,8 +33,8 @@ import { toAnswerMap } from "../../lib/intake/client-store";
 //   flow engine runs here over the sealed on-device store, and the person
 //   can delete everything from the device. Copy follows what the browser
 //   actually managed to keep. Once the questions are done, the match, the
-//   form review, and the filled form to print are computed here from the
-//   same answers (HACK-115, device-results.tsx).
+//   form review, and the filled form to print or download are computed here
+//   from the same answers (HACK-115, device-results.tsx).
 // - "server" (the default, for the consent-declined conversation page,
 //   whose match and review sections still read the server session until
 //   HACK-95 moves them on-device): answers go to the /api/intake routes.

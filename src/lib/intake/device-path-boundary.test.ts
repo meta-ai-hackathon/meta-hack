@@ -225,6 +225,9 @@ const DOWNLOAD_NAMES = ["createObjectURL", "Blob", "download"];
 /** The download module's one function the page calls. */
 const DOWNLOAD_FUNCTION = "saveFilledFormToDevice";
 
+/** The one module allowed to load the download module: the page, from its download button. */
+const DOWNLOAD_CALLER = "app/intake/device-results.tsx";
+
 /**
  * The data-action of the page's download button. It isn't the bare word
  * "download", which the save check reads as a download attribute wherever
@@ -701,6 +704,23 @@ describe("the on-device intake path", () => {
     // Likewise the download module: on the path, using exactly what a download needs.
     expect(files.has(DOWNLOAD_MODULE), `${DOWNLOAD_MODULE} is on the path`).toBe(true);
     expect(new Set(savingConstructs(DOWNLOAD_MODULE)), DOWNLOAD_MODULE).toEqual(new Set(DOWNLOAD_NAMES));
+  });
+
+  it("lets only the page load the download module, to call it from its download button's click handler alone", () => {
+    // The rules allow the copy only when the person chooses to download it,
+    // so nothing else on the path may reach the module, and the page may
+    // reach it only from a press of Download a copy.
+    for (const file of files) {
+      if (file === DOWNLOAD_CALLER || file === DOWNLOAD_MODULE) {
+        continue;
+      }
+      expect(localImports(file), `${file} loads the download module`).not.toContain(DOWNLOAD_MODULE);
+    }
+    expect(localImports(DOWNLOAD_CALLER)).toContain(DOWNLOAD_MODULE);
+    const page = downloadCalls(DOWNLOAD_CALLER);
+    expect(page.problems).toEqual([]);
+    // Non-vacuous: the page does call it.
+    expect(page.calls).toBe(1);
   });
 
   it("logs nothing about the downloaded copy", () => {

@@ -361,11 +361,12 @@ describe("the device results, for any answers on the device", () => {
     );
   }, RENDER_TIMEOUT_MS);
 
-  it("offer the filled form to show and print, never to download, and embed no document", () => {
-    // The owner's decision on HACK-115 (Nov 3): the filled form is printed,
-    // never saved to the device. Whatever the answers, the end of /intake
-    // offers to show it, with the note on what that does, and nothing on
-    // the screen downloads or embeds a file.
+  it("offer to show the filled form first, with nothing on the screen that downloads or embeds a file", () => {
+    // Whatever the answers, the end of /intake offers to show the filled
+    // form, with the note on what that does. Nothing on the screen downloads
+    // or embeds a file: a copy is downloaded only from the pages, once the
+    // person has asked for them, and only when they press Download a copy
+    // (device-results.test.tsx).
     fc.assert(
       fc.property(deviceAnswersArb, (state) => {
         const { root } = render(state);
@@ -374,14 +375,10 @@ describe("the device results, for any answers on the device", () => {
         expect(show[0].textContent).toBe(DEVICE_RESULTS_COPY.showFormButton);
         expect(root.textContent).toContain(DEVICE_RESULTS_COPY.showFormNote);
         expect(root.querySelectorAll("[download], iframe, frame, embed, object")).toHaveLength(0);
-        // The page's own words never offer a download. The knowledge base's
-        // sourced facts may (the agency's paper route starts with its blank
-        // form), so the match cards and official links are left out here.
-        const ownWords = root.cloneNode(true) as HTMLElement;
-        ownWords.querySelectorAll("[data-match-card], [data-handoff-links]").forEach((sourced) => sourced.remove());
-        expect(ownWords.textContent).not.toMatch(/download/i);
-        // The pages appear only once the person asks for them.
+        // The pages, and the download button beside them, appear only once
+        // the person asks for them.
         expect(root.querySelector("[data-print-preview], [data-print-pages], canvas")).toBeNull();
+        expect(root.querySelector('[data-action="download-copy"]')).toBeNull();
       }),
       { numRuns: 20 },
     );
@@ -409,20 +406,19 @@ describe("the device results copy", () => {
   // renderings above never see it: every string is checked here as well.
   const strings = Object.entries(DEVICE_RESULTS_COPY);
 
-  it("carries no banned claim, no download wording, and no em dash", () => {
+  it("carries no banned claim and no em dash", () => {
     for (const [key, text] of strings) {
       expect(findBannedClaims(text), key).toEqual([]);
-      expect(text, key).not.toMatch(/download/i);
       expect(text, key).not.toContain("—");
     }
   });
 
-  it("says where the form is filled, that no answer leaves, that the filled form isn't kept, and that printing is how it goes in", () => {
+  it("says where the form is filled, that no answer leaves, and that the filled form is saved only as a copy the person downloads", () => {
     const note = DEVICE_RESULTS_COPY.showFormNote;
     expect(note).toContain("in this browser");
     expect(note).toContain("None of your answers are sent anywhere");
-    expect(note).toContain("the filled form isn't saved to this device");
-    expect(note).toContain("Printing the form is how you sign it and send it in");
+    expect(note).toContain("so you can print it or download a copy");
+    expect(note).toContain("the filled form is saved to this device only if you download a copy");
     // The answers themselves may be saved in this browser (the save for
     // later section says so, on the same screen), so the note never says
     // nothing at all is saved.
@@ -431,5 +427,24 @@ describe("the device results copy", () => {
     expect(DEVICE_RESULTS_COPY.leftBlankHeading).toBe("Left blank on the form below");
     expect(DEVICE_RESULTS_COPY.conflictsHeading).toBe("Check these on the form below");
     expect(DEVICE_RESULTS_COPY.conflictsBody).toContain("on the printed form");
+  });
+
+  it("tells the person at the download what the file holds, that it isn't encrypted, and to delete it on a shared computer", () => {
+    // The conditions the rules set for the person's own downloaded copy
+    // (.github/claude-review/rules.md, Real data rules).
+    const disclosure = DEVICE_RESULTS_COPY.fileDisclosure;
+    expect(disclosure).toContain("the answers filled in on the form, private ones included");
+    expect(disclosure).toContain("isn't encrypted");
+    expect(disclosure).toContain("on a shared computer, delete it once you've printed or sent it");
+    expect(DEVICE_RESULTS_COPY.downloadNote).toContain(disclosure);
+    expect(DEVICE_RESULTS_COPY.downloadNote).toContain("none of your answers are sent anywhere");
+    // Saving the form as a PDF from the print window gives the same kind
+    // of file, so the note by Print says the same.
+    expect(DEVICE_RESULTS_COPY.printNote).toContain(disclosure);
+    expect(DEVICE_RESULTS_COPY.printNote).toContain("Saving the form as a PDF there instead saves a file to this device");
+    // Never that the copy is sent, or submitted, anywhere.
+    for (const text of [DEVICE_RESULTS_COPY.downloadNote, DEVICE_RESULTS_COPY.downloaded]) {
+      expect(text).not.toMatch(/\bsubmitted\b|\bwe (?:send|sent|keep|kept)\b/i);
+    }
   });
 });

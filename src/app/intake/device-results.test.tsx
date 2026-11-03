@@ -9,16 +9,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The step-by-step page to the end (HACK-115), driven through the DOM: a
 // person answers every question, sees the match and the review of the
 // filled form, types the answers the questions don't ask, and shows the
-// filled DHB-5200 on the page to print it. Everything is computed in the
-// browser. The only requests the page makes are the cookie-only check for
-// answers saved on the server before (server-answers-notice.tsx) and the
-// GET for the blank form, and no request URL or body carries an answer.
-// Nothing is saved to the device: no object URL, no download, nothing that
-// embeds the PDF, and nothing new in the browser's storage. A reload resumes
-// from IndexedDB, straight back to the review, and the form fills again
-// from the answers kept on the device. The print rules in globals.css are
-// matched against the page as it renders, so only the filled pages go on
-// paper, and leaving the page, by any route, takes them off the screen.
+// filled DHB-5200 on the page to print it or download a copy. Everything is
+// computed in the browser. The only requests the page makes are the
+// cookie-only check for answers saved on the server before
+// (server-answers-notice.tsx) and the GET for the blank form, and no request
+// URL or body carries an answer. Nothing is saved to the device but the
+// copy the person downloads, only when they press Download a copy: no
+// object URL or download before that, nothing that embeds the PDF, and
+// nothing new in the browser's storage. The copy is the very form the pages
+// show, its URL is revoked a moment after the press, and the bytes kept for
+// it are wiped whenever the pages go. A reload resumes from IndexedDB,
+// straight back to the review, and the form fills again from the answers
+// kept on the device. The print rules in globals.css are matched against
+// the page as it renders, so only the filled pages go on paper, and leaving
+// the page, by any route, takes them off the screen.
 //
 // pdf.js itself is a stand-in here (jsdom has no canvas): it reads the page
 // count and sizes of the bytes it is given with pdf-lib, records them, and
@@ -218,6 +222,14 @@ let device: ReturnType<typeof fakeIndexedDb>;
 let requests: { url: string; init?: RequestInit }[];
 /** Every attempt to hand the browser a file: object URLs and clicked download links. */
 let saves: string[];
+/** Each file a clicked download link handed the browser, by name. */
+let downloads: { name: string; blob: Blob }[];
+/** The file behind the last object URL made. */
+let pendingBlob: Blob | null;
+/** Every object URL revoked. */
+let revoked: string[];
+/** The filled bytes of every fill, as the page got them, to see what becomes of them. */
+let filledBytes: Uint8Array[];
 let printed: number;
 /** Whether window.print() starts printing, as a browser does, or is ignored, as some in-app browsers do. */
 let printOpens: boolean;
@@ -227,6 +239,10 @@ beforeEach(() => {
   device = fakeIndexedDb();
   requests = [];
   saves = [];
+  downloads = [];
+  pendingBlob = null;
+  revoked = [];
+  filledBytes = [];
   printed = 0;
   printOpens = true;
   pdfjs.failLoad = false;
@@ -252,17 +268,27 @@ beforeEach(() => {
   vi.stubGlobal("crypto", webcrypto);
   Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
   // Anything that would hand the browser a file is recorded, so a test can
-  // show nothing ever did.
+  // show nothing did until the person asked, and what the browser got then.
   Object.defineProperty(URL, "createObjectURL", {
     configurable: true,
-    value: () => {
+    value: (blob: Blob) => {
       saves.push("createObjectURL");
+      pendingBlob = blob;
       return "blob:filled-form";
+    },
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    value: (url: string) => {
+      revoked.push(url);
     },
   });
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
     if (this.hasAttribute("download") || this.href.startsWith("blob:")) {
       saves.push(`download ${this.download}`);
+      if (pendingBlob !== null && this.href === "blob:filled-form") {
+        downloads.push({ name: this.download, blob: pendingBlob });
+      }
     }
   });
   // A browser that prints fires beforeprint as its print window opens, and
@@ -284,8 +310,41 @@ afterEach(() => {
   vi.resetModules();
   vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
   vi.doUnmock("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  vi.doUnmock("../../lib/intake/device-fill");
+  delete (navigator as { userActivation?: unknown }).userActivation;
   document.body.replaceChildren();
 });
+
+/**
+ * Keep the bytes of every fill the page makes, as the fill hands them over,
+ * so a test can see the page wipe them. The fill itself is the real one.
+ * Registered again on each visit, as the stand-in pdf.js is.
+ */
+function mockFill(): void {
+  vi.doMock("../../lib/intake/device-fill", async (importOriginal) => {
+    const real = await importOriginal<typeof import("../../lib/intake/device-fill")>();
+    return {
+      ...real,
+      async fillFormOnDevice(...args: Parameters<typeof real.fillFormOnDevice>) {
+        const result = await real.fillFormOnDevice(...args);
+        if (result.kind === "filled") {
+          filledBytes.push(result.outcome.bytes);
+        }
+        return result;
+      },
+    };
+  });
+}
+
+/** A file's bytes, read the way a page reads a Blob (jsdom's Blob has no arrayBuffer()). */
+function blobBytes(blob: Blob): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(blob);
+  });
+}
 
 /** What the browser keeps for this site: storage keys, by where they are kept. */
 function browserStorage(): Record<string, string[]> {
@@ -299,10 +358,20 @@ function browserStorage(): Record<string, string[]> {
   };
 }
 
-/** Nothing anywhere on the page could save the filled form or show it as a document. */
-function expectNothingSaved() {
-  expect(saves).toEqual([]);
+/**
+ * Nothing anywhere on the page saved the filled form, since the first
+ * `since` saves (the person's own downloads, when a test makes any), and
+ * nothing could save it or show it as a document.
+ */
+function expectNothingSaved(since = 0) {
+  expect(saves.slice(since)).toEqual([]);
   expect(document.querySelectorAll("a[download], iframe, frame, embed, object")).toHaveLength(0);
+}
+
+/** Filled bytes let go of: every byte wiped, so nothing of the form is left in them. */
+function expectWiped(bytes: Uint8Array | undefined) {
+  expect(bytes?.length ?? 0).toBeGreaterThan(0);
+  expect(bytes?.every((byte) => byte === 0)).toBe(true);
 }
 
 /** A canvas let go of: shrunk to nothing and off the page. */
@@ -319,6 +388,7 @@ function expectReleased(canvases: readonly HTMLCanvasElement[]) {
 async function visit() {
   vi.resetModules();
   mockPdfJs();
+  mockFill();
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { default: IntakePage } = await import("./page");
@@ -424,7 +494,27 @@ async function visit() {
     await waitFor(() => text().includes(DEVICE_RESULTS_COPY.ready), "the announcement");
     await waitFor(() => pages().length > 0, "the pages");
     const { options, bytes } = pdfjs.documents[pdfjs.documents.length - 1];
-    return { options, form: (await PDFDocument.load(bytes)).getForm(), pages: pages() };
+    return { options, bytes, form: (await PDFDocument.load(bytes)).getForm(), pages: pages() };
+  }
+  /**
+   * Press Download a copy, and read the form the browser was handed, with
+   * the object URLs revoked by the end of the press.
+   */
+  async function download() {
+    const before = downloads.length;
+    const button = container.querySelector<HTMLButtonElement>('[data-action="download-copy"]');
+    if (!button) {
+      throw new Error("no download button");
+    }
+    await act(async () => {
+      button.click();
+    });
+    const revokedAtPress = [...revoked];
+    await settle();
+    expect(downloads).toHaveLength(before + 1);
+    const { name, blob } = downloads[downloads.length - 1];
+    const bytes = await blobBytes(blob);
+    return { name, type: blob.type, bytes, revokedAtPress, form: (await PDFDocument.load(bytes)).getForm() };
   }
   const unmount = async () => {
     await act(async () => root.unmount());
@@ -441,6 +531,7 @@ async function visit() {
     answerEverything,
     pages,
     showForm,
+    download,
     unmount,
     copy: DEVICE_RESULTS_COPY,
   };
@@ -500,7 +591,7 @@ function expectNoAnswerInRequests(values: readonly string[]) {
 }
 
 describe("/intake to the review and the filled form, on the device", () => {
-  it("shows the match, the review, and the filled DHB-5200 to print, saves nothing, and resumes after a reload", async () => {
+  it("shows the match, the review, and the filled DHB-5200 to print or download, saves a copy only when asked, and resumes after a reload", async () => {
     const page = await visit();
     await page.answerEverything();
     expect(page.text()).toContain("All questions answered for now");
@@ -593,13 +684,48 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(browserStorage()).toEqual(storedBefore);
     expect(storedBefore.indexedDB).toEqual(["kv/intake-answers", "kv/intake-answers-key"]);
 
+    // Download a copy, beside Print. The note that describes the button
+    // says what the file holds, private answers included, that it isn't
+    // encrypted, and to delete it on a shared computer.
+    const downloadButton = preview!.querySelector<HTMLButtonElement>('[data-action="download-copy"]')!;
+    expect(downloadButton.textContent).toBe(page.copy.downloadButton);
+    expect(downloadButton.parentElement).toBe(preview!.querySelector('[data-action="print"]')?.parentElement);
+    const downloadNote = document.getElementById(downloadButton.getAttribute("aria-describedby") ?? "");
+    expect(downloadNote?.textContent).toBe(page.copy.downloadNote);
+    expect(preview!.contains(downloadNote)).toBe(true);
+    for (const disclosure of ["private ones included", "isn't encrypted", "on a shared computer, delete it"]) {
+      expect(downloadNote?.textContent).toContain(disclosure);
+    }
+    // The press hands the browser one file: the very form the pages show,
+    // as a PDF. The link goes at once, the URL a moment later, and no
+    // request goes anywhere and nothing goes in the browser's storage.
+    const requestsBefore = requests.length;
+    const copy = await page.download();
+    expect(saves).toEqual(["createObjectURL", "download dhb-5200.pdf"]);
+    expect(copy.name).toBe("dhb-5200.pdf");
+    expect(copy.type).toBe("application/pdf");
+    expect(copy.bytes).toEqual(first.bytes);
+    expect(copy.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
+    expect(copy.form.getTextField("3 Date of Birth mmddyyyy").getText()).toBe("07/19/1984");
+    await page.waitFor(() => page.text().includes(page.copy.downloaded), "the word that the copy is downloading");
+    expect(document.querySelectorAll("a[download], a[href^='blob:']")).toHaveLength(0);
+    expect(copy.revokedAtPress).toEqual([]);
+    await page.waitFor(() => revoked.length > 0, "the download URL to be revoked");
+    expect(revoked).toEqual(["blob:filled-form"]);
+    expect(requests).toHaveLength(requestsBefore);
+    expect(browserStorage()).toEqual(storedBefore);
+    const downloaded = saves.length;
+
     // A change to a typed answer drops the pages: they no longer match,
-    // and the word that they are ready goes with them.
+    // and the word that they are ready goes with them, and so do the
+    // download button and the bytes kept for it.
     const shown = first.pages.map(({ canvases }) => canvases[0]);
     await page.type(nameInput!, `${TYPED_NAME} Jr.`);
     expect(page.pages()).toEqual([]);
     expect(page.container.querySelector("[data-print-preview]")).toBeNull();
+    expect(page.container.querySelector('[data-action="download-copy"]')).toBeNull();
     expectReleased(shown);
+    expectWiped(filledBytes[0]);
     expect(page.text()).not.toContain(page.copy.ready);
 
     // The only requests: the cookie-only check, then the blank form, bodiless and cookieless.
@@ -608,10 +734,11 @@ describe("/intake to the review and the filled form, on the device", () => {
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
     expect(device.stores.get("kv")?.has("intake-answers")).toBe(true);
 
-    // Shown again, then the page goes away: its pages go with it.
+    // Shown again, then the page goes away: its pages and bytes go with it.
     const again = await page.showForm();
     await page.unmount();
     expectReleased(again.pages.map(({ canvases }) => canvases[0]));
+    expectWiped(filledBytes[1]);
 
     // A reload: the answers come back from IndexedDB, straight to the review.
     const reloaded = await visit();
@@ -632,7 +759,8 @@ describe("/intake to the review and the filled form, on the device", () => {
       "/forms/dhb-5200.pdf",
     ]);
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
-    expectNothingSaved();
+    // The one copy saved is the one the person asked for.
+    expectNothingSaved(downloaded);
     await reloaded.unmount();
   }, 60_000);
 
@@ -671,12 +799,14 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.unmount();
   }, 60_000);
 
-  it("with the filled form shown, a delete takes its pages too and claims only what it did", async () => {
+  it("after a download, a delete takes the pages and their bytes and says the downloaded copy stays on the device", async () => {
     const page = await visit();
     await page.answerEverything();
     await page.type(page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!, TYPED_NAME);
     const filled = await page.showForm();
     expect(filled.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
+    const copy = await page.download();
+    expect(copy.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
 
     const { act } = await import("react");
     const { DEVICE_INTAKE_COPY } = await import("../../lib/intake/device-intake");
@@ -693,25 +823,30 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.waitFor(() => page.text().includes(DEVICE_INTAKE_COPY.deleted), "the delete confirmation");
 
     // The answers and their key are gone from the browser, and the typed
-    // name and the filled pages with the screen.
+    // name, the filled pages, and the bytes kept for a download with the
+    // screen.
     expect(device.stores.get("kv")?.has("intake-answers")).toBe(false);
     expect(device.stores.get("kv")?.has("intake-answers-key")).toBe(false);
     expect(page.container.querySelector("[data-device-results]")).toBeNull();
     expect(page.text()).not.toContain(TYPED_NAME);
     expectReleased(filled.pages.map(({ canvases }) => canvases[0]));
-    // The confirmation claims only this browser. A copy of the filled form
-    // downloaded or saved as a PDF is a file outside the delete, so it says
-    // such a file stays on the device until the person deletes it.
-    expectNothingSaved();
-    expect(DEVICE_INTAKE_COPY.deleted).toContain("in this browser");
+    expectWiped(filledBytes.at(-1));
+    // The copy downloaded is a file outside the delete. The confirmation
+    // claims only this browser and says the copy stays until the person
+    // deletes it, and nothing more was saved.
+    expect(downloads).toHaveLength(1);
+    expectNothingSaved(2);
+    expect(DEVICE_INTAKE_COPY.deleted).toContain("None of your answers are left in this browser");
     expect(DEVICE_INTAKE_COPY.deleted).toContain(
       "If you downloaded a copy of the filled form, or saved it as a PDF when printing, that file stays on this device until you delete it.",
     );
+    expect(page.text()).toContain(DEVICE_INTAKE_COPY.deleted);
+    expect(page.text()).not.toContain("left on this device");
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
     await page.unmount();
   }, 60_000);
 
-  it("in a browser that can't save, a clear takes the filled pages and says none were kept", async () => {
+  it("in a browser that can't save, a clear takes the filled pages and their bytes and says a downloaded copy stays", async () => {
     vi.stubGlobal("indexedDB", undefined);
     const page = await visit();
     const { DEVICE_INTAKE_COPY } = await import("../../lib/intake/device-intake");
@@ -720,6 +855,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.type(page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!, TYPED_NAME);
     const filled = await page.showForm();
     expect(filled.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
+    await page.download();
 
     await page.click(page.container.querySelector<HTMLButtonElement>("[data-delete-from-device]")!);
     const confirm = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -730,10 +866,12 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(page.container.querySelector("[data-device-results]")).toBeNull();
     expect(page.text()).not.toContain(TYPED_NAME);
     expectReleased(filled.pages.map(({ canvases }) => canvases[0]));
-    expectNothingSaved();
+    expectWiped(filledBytes.at(-1));
+    expect(downloads).toHaveLength(1);
+    expectNothingSaved(2);
     // The clear claims only this browser, as the delete does: answers are
-    // kept per browser, and a downloaded copy or a Save as PDF from the
-    // print window is a file on the device the clear can't reach, so it
+    // kept per browser, and the downloaded copy, or a Save as PDF from the
+    // print window, is a file on the device the clear can't reach, so it
     // says that file stays and never says there was nothing on the device.
     expect(DEVICE_INTAKE_COPY.clearedNothingStored).toContain(
       "This browser can't save answers, so none were kept in it",
@@ -741,6 +879,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(DEVICE_INTAKE_COPY.clearedNothingStored).toContain(
       "If you downloaded a copy of the filled form, or saved it as a PDF when printing, that file stays on this device until you delete it.",
     );
+    expect(page.text()).toContain(DEVICE_INTAKE_COPY.clearedNothingStored);
     expect(page.text()).not.toContain("nothing on the device");
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME, "1200", "Quillfeather"]);
     await page.unmount();
@@ -972,6 +1111,9 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(page.pages()).toEqual([]);
     expect(pdfjs.drawnOn).toHaveLength(1);
     expectReleased(pdfjs.drawnOn);
+    // The bytes filled from the old answers are wiped, never kept for a download.
+    expectWiped(filledBytes[0]);
+    expect(page.container.querySelector('[data-action="download-copy"]')).toBeNull();
     // Nothing failed: the person changed an answer. Nothing says the form
     // is being filled in or is ready, either.
     expect(page.text()).not.toContain(page.copy.failed);
@@ -991,6 +1133,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     // from the old answers go at once.
     vi.resetModules();
     mockPdfJs();
+    mockFill();
     const React = await import("react");
     const { createRoot } = await import("react-dom/client");
     const { DeviceResults } = await import("./device-results");
@@ -1031,9 +1174,54 @@ describe("/intake to the review and the filled form, on the device", () => {
     });
     expect(container.querySelector("[data-print-preview]")).toBeNull();
     expectReleased(shown);
+    expectWiped(filledBytes[0]);
     expectNothingSaved();
     await act(async () => root.unmount());
     container.remove();
+  }, 60_000);
+
+  it("saves a copy only when the person presses Download a copy, never when the browser says no one did", async () => {
+    // The rules allow the copy only at the person's own choice. Showing the
+    // form, printing it, and leaving it on screen save nothing, and a press
+    // the browser says no one made (a script's click, say) saves nothing
+    // either, and the page says so.
+    const view = await results();
+    expect(view.downloadButton()).toBeNull();
+    await view.show();
+    await view.waitFor(() => view.canvases().length === 21, "the pages");
+    await view.act(async () => {
+      view.container.querySelector<HTMLButtonElement>('[data-action="print"]')!.click();
+      await new Promise((done) => setTimeout(done, 50));
+    });
+    expect(printed).toBe(1);
+    expectNothingSaved();
+    expect(view.downloadButton()?.textContent).toBe(view.copy.downloadButton);
+
+    const activation = { isActive: false };
+    Object.defineProperty(navigator, "userActivation", { value: activation, configurable: true });
+    await view.act(async () => {
+      view.downloadButton()!.click();
+    });
+    expectNothingSaved();
+    await view.waitFor(() => view.status() === view.copy.downloadNotStarted, "the notice that nothing was saved");
+
+    // The person's own press saves one copy: the form on screen.
+    activation.isActive = true;
+    await view.act(async () => {
+      view.downloadButton()!.click();
+    });
+    expect(saves).toEqual(["createObjectURL", "download dhb-5200.pdf"]);
+    // The URL outlives the press, so a browser that starts the download a
+    // moment later still gets it, and then it is revoked.
+    expect(revoked).toEqual([]);
+    expect(await blobBytes(downloads[0].blob)).toEqual(pdfjs.documents[0].bytes);
+    await view.waitFor(() => view.status() === view.copy.downloaded, "the word that the copy is downloading");
+    await view.waitFor(() => revoked.length === 1, "the download URL to be revoked");
+    // Only the blank form was asked for, and leaving takes the bytes too.
+    expect(requests.map((request) => request.url)).toEqual(["/forms/dhb-5200.pdf"]);
+    await view.unmount();
+    expectWiped(filledBytes[0]);
+    expectNothingSaved(2);
   }, 60_000);
 
   it("prints only the filled pages, one to a sheet, each sized to fit its sheet both ways", async () => {
@@ -1139,6 +1327,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     await view.act(async () => {
       window.dispatchEvent(new Event("pagehide"));
       expectReleased(shown);
+      expectWiped(filledBytes[0]);
     });
     expect(view.container.querySelector("[data-print-preview]")).toBeNull();
     expect(view.status()).not.toContain(view.copy.ready);
@@ -1169,14 +1358,16 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(pdfjs.drawnOn).toHaveLength(21);
     expect(view.container.querySelector("[data-print-preview]")).toBeNull();
     expectReleased(pdfjs.drawnOn);
+    expectWiped(filledBytes[0]);
     expect(view.status()).toBe("");
     expectNothingSaved();
     await view.unmount();
   }, 60_000);
 
   it("says how to print when the browser ignores Print, and takes it back if printing starts after all", async () => {
-    // Some in-app browsers ignore window.print(). With the download gone,
-    // a button that silently did nothing would leave the person no way out.
+    // Some in-app browsers ignore window.print(). A button that silently
+    // did nothing would leave the person guessing, so the page says what
+    // else to do.
     printOpens = false;
     const view = await results();
     await view.show();
@@ -1189,6 +1380,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     // The browser gets a moment to start printing first.
     expect(view.status()).not.toBe(view.copy.printUnavailable);
     await view.waitFor(() => view.status() === view.copy.printUnavailable, "the print notice");
+    expect(view.copy.printUnavailable).toContain("download a copy and print it from another app");
     expect(view.copy.printUnavailable).toContain("open this page in a browser such as Safari or Chrome");
     expect(view.copy.printUnavailable).toContain("Answers saved in this browser don't move to another one");
     // Printing that starts late takes the notice back.
@@ -1217,6 +1409,7 @@ describe("/intake to the review and the filled form, on the device", () => {
 async function results() {
   vi.resetModules();
   mockPdfJs();
+  mockFill();
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { DEVICE_RESULTS_COPY, DeviceResults, PRINT_CHECK_MS } = await import("./device-results");
@@ -1259,6 +1452,7 @@ async function results() {
       }
     },
     canvases: () => [...container.querySelectorAll<HTMLCanvasElement>("[data-print-page] canvas")],
+    downloadButton: () => container.querySelector<HTMLButtonElement>('[data-action="download-copy"]'),
     status: () => container.querySelector(STATUS_LINE)?.textContent ?? "",
     async unmount() {
       await act(async () => root.unmount());

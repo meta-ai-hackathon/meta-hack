@@ -10,7 +10,8 @@ import { DEVICE_FORM_ENTRY, deviceFillValues } from "./device-form";
 // filled form: the questions never wait on the PDF library. The values come
 // from deviceFillValues and the drawing is fill-core's, the same code the
 // server's fill route runs. The filled bytes go to the print preview
-// (device-print.ts) and are never saved.
+// (device-print.ts), and to the browser as a file only when the person
+// presses Download a copy (device-download.ts).
 
 export type DeviceFillResult =
   | { readonly kind: "filled"; readonly outcome: FillOutcome }

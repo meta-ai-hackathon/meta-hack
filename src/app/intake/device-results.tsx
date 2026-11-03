@@ -25,34 +25,45 @@ import {
   deviceMatch,
   reviewAnswersForForm,
 } from "../../lib/intake/device-form";
+import { saveFilledFormToDevice } from "../../lib/intake/device-download";
 import type { PrintPreview } from "../../lib/intake/device-print";
 import { loadDeviceTemplate } from "../../lib/intake/device-template";
 import type { MatchCard, MatchSourceCitation } from "../../lib/match-core";
 
 // What the step-by-step page shows once the questions are done (HACK-115):
 // the benefit match, the review of the application form, and the filled
-// form, ready to print. All of it is computed in this browser from the
-// answers on this device (lib/intake/device-form.ts). The match explains
-// each program with the program's own sourced facts only.
+// form, ready to print or to download a copy of. All of it is computed in
+// this browser from the answers on this device (lib/intake/device-form.ts).
+// The match explains each program with the program's own sourced facts
+// only.
 //
 // Showing the filled form fetches the blank public form, loads the PDF fill
 // (lib/intake/device-fill.ts) and the print preview
 // (lib/intake/device-print.ts), both kept out of the page's first load,
 // fills the form here, and draws its pages on this page so the person can
 // check them and print them to sign and send in. No answer is sent
-// anywhere, and the filled form is never saved to the device: no file, no
-// download, and nothing in the browser's storage. The owner chose printing
-// over a download on HACK-115 (Nov 3), because a downloaded PDF is an
-// unencrypted copy of every answer that deleting the answers can't reach.
-// The pages last only while they match the answers: a change to any
-// answer, typed ones included, drops them, and so does leaving the page,
-// whether for another screen of the app or another site (pagehide, so a
-// page the browser keeps for Back comes back without them), and a drop
-// releases their canvases. Answers typed here for the form's other fields
-// live only in this page's memory, held by the wizard so going back to a
-// question doesn't lose them. With the pages, the page lists what the form
-// left blank and any question the person checked more than one box for,
-// which the fill prints as given and flags.
+// anywhere. The person signs and sends in the form themselves, so they can
+// also download a copy to print, sign, send in, and keep: the owner decided
+// on HACK-115 that the download is vital, and .github/claude-review/rules.md
+// sets its conditions. Only a press of Download a copy saves one, made from
+// the same filled bytes the pages were drawn from, through
+// lib/intake/device-download.ts, the one module on the device path allowed
+// to hand the browser a file. The note beside the button says the file
+// holds the filled-in answers, private ones included, that it isn't
+// encrypted, and to delete it on a shared computer. Nothing else is saved to
+// the device: nothing goes in the browser's storage, and no copy is kept
+// anywhere else.
+//
+// The pages and those bytes last only while they match the answers: a
+// change to any answer, typed ones included, drops them, and so does
+// leaving the page, whether for another screen of the app or another site
+// (pagehide, so a page the browser keeps for Back comes back without them),
+// and so does a delete, which takes this screen away. A drop releases the
+// canvases and wipes the bytes. Answers typed here for the form's other
+// fields live only in this page's memory, held by the wizard so going back
+// to a question doesn't lose them. With the pages, the page lists what the
+// form left blank and any question the person checked more than one box
+// for, which the fill prints as given and flags.
 //
 // The show button keeps focus while the form is prepared (it is marked
 // busy rather than disabled), the status line says what is happening, and
@@ -62,8 +73,19 @@ import type { MatchCard, MatchSourceCitation } from "../../lib/match-core";
 //
 // Private answers never appear on this screen as text: the review shows
 // their status and provenance, and the match never carries them. The
-// filled pages show them only as the drawn form the person prints, and a
-// page's screen reader label names the page, never what is on it.
+// filled pages show them only as the drawn form the person prints or
+// downloads, and a page's screen reader label names the page, never what is
+// on it.
+
+/**
+ * What a saved copy of the filled form is, said wherever the page offers one
+ * (rules.md, Real data rules): beside Download a copy, and beside Print,
+ * whose window can save the form as a PDF, the same kind of file.
+ */
+const FILE_DISCLOSURE =
+  "The file holds the answers filled in on the form, private ones " +
+  "included. It's an ordinary file that isn't encrypted, so on a shared " +
+  "computer, delete it once you've printed or sent it.";
 
 export const DEVICE_RESULTS_COPY = {
   matchHeading: "Benefits that may be worth pursuing",
@@ -83,8 +105,9 @@ export const DEVICE_RESULTS_COPY = {
     "submits for you. Preparing it is not a benefits decision; only the " +
     "agency decides that.",
   typedNote:
-    "Used only for the form you print. This page keeps it only while " +
-    "it's open, and deleting your answers clears it.",
+    "Used only for the filled form you print or download. This page keeps " +
+    "it only while it's open, and deleting your answers clears it from " +
+    "this page.",
   answerAbove: "Answer this question",
   stillNeededHeading: "Still needed on the form",
   stillNeededBody: "These are left blank on the prepared form. Nothing is guessed.",
@@ -94,9 +117,9 @@ export const DEVICE_RESULTS_COPY = {
   // browser, as the save for later section says.
   showFormNote:
     "This fills in the official form with your answers here in this " +
-    "browser and shows it below. None of your answers are sent anywhere, " +
-    "and the filled form isn't saved to this device. Printing the form is " +
-    "how you sign it and send it in.",
+    "browser and shows it below, so you can print it or download a copy. " +
+    "None of your answers are sent anywhere, and the filled form is saved " +
+    "to this device only if you download a copy.",
   ready:
     "Your filled form is ready below. It was filled in this browser, and " +
     "none of your answers were sent anywhere.",
@@ -115,22 +138,33 @@ export const DEVICE_RESULTS_COPY = {
   unreadableBoxesBody:
     "Each of these is a box on the form, so its answer is the word checked " +
     "or unchecked. Fix it or leave it empty, then show the filled form again.",
-  previewHeading: "Your filled form, ready to print",
+  previewHeading: "Your filled form, ready to print or download",
   previewBody:
     "These are the pages of your application with your answers filled in, " +
-    "private ones included. Check them, print them, then sign the form and " +
-    "send it in yourself. They stay only on this page, and they go away " +
-    "when you change an answer or leave.",
+    "private ones included. Check them, then print them or download a " +
+    "copy, sign the form, and send it in yourself. The pages stay only on " +
+    "this page, and they go away when you change an answer or leave.",
   printButton: "Print the form",
   printNote:
     "When the print window opens, choose a printer. Saving the form as a " +
-    "PDF there would leave a copy of every answer on this device as an " +
-    "ordinary file.",
+    `PDF there instead saves a file to this device. ${FILE_DISCLOSURE}`,
   printUnavailable:
-    "This browser didn't open a print window. To print your form, open " +
-    "this page in a browser such as Safari or Chrome. Answers saved in " +
-    "this browser don't move to another one, so you'll answer the " +
-    "questions again there.",
+    "This browser didn't open a print window. To print your form, download " +
+    "a copy and print it from another app, or open this page in a browser " +
+    "such as Safari or Chrome. Answers saved in this browser don't move to " +
+    "another one, so you'll answer the questions again there.",
+  fileDisclosure: FILE_DISCLOSURE,
+  downloadButton: "Download a copy",
+  downloadNote:
+    "A copy saves to this device as a PDF file, to keep, print, or send in. " +
+    `${FILE_DISCLOSURE} The copy is made here in this browser, and none of ` +
+    "your answers are sent anywhere.",
+  downloaded:
+    "Your copy of the filled form is downloading. It was made in this " +
+    "browser, and none of your answers were sent anywhere.",
+  downloadNotStarted:
+    "The download didn't start, so no copy was saved. Press Download a copy " +
+    "to try again.",
   leftBlankHeading: "Left blank on the form below",
   coverageHeading: "Every field, accounted for",
   coverageDetails: "Why each blank field stays blank",
@@ -337,14 +371,32 @@ function createPrintCanvas(width: number, height: number): HTMLCanvasElement {
   return canvas;
 }
 
+/** The name a downloaded copy of the filled form saves under. */
+const DOWNLOAD_FILE_NAME = `${DEVICE_FORM_ENTRY.id}.pdf`;
+
 /** The filled form on screen, with what its fill left blank or flagged. */
 interface FilledForm {
   readonly drawn: PrintPreview;
+  /**
+   * The filled PDF the pages were drawn from, for a copy the person
+   * downloads. It lives only in this page's memory and is wiped with the
+   * pages.
+   */
+  readonly bytes: Uint8Array;
   readonly leftBlank: readonly ToResolveItem[];
   readonly conflicts: readonly FillConflict[];
   /** The answers it was filled from, typed ones included. */
   readonly answers: ClientAnswerState;
   readonly typed: Readonly<Record<string, string>>;
+}
+
+/**
+ * Let go of a filled form: release its canvases and wipe its bytes, so
+ * nothing of it outlasts its pages. Safe to call more than once.
+ */
+function releaseFilled(form: FilledForm): void {
+  form.drawn.release();
+  form.bytes.fill(0);
 }
 
 /**
@@ -406,9 +458,10 @@ export function DeviceResults(props: {
     setFilled(null);
   }
 
-  // Pages that leave the screen are released at once: replaced, dropped
-  // for a change, or gone with this screen. Pages the person just asked for
-  // take focus to their heading, so a screen reader lands on them.
+  // Pages that leave the screen are released at once, and the bytes kept
+  // for a download wiped with them: replaced, dropped for a change, or gone
+  // with this screen. Pages the person just asked for take focus to their
+  // heading, so a screen reader lands on them.
   useEffect(() => {
     onScreen.current = filled;
     if (filled === null) {
@@ -418,7 +471,7 @@ export function DeviceResults(props: {
       focusPreview.current = false;
       previewHeading.current?.focus();
     }
-    return () => filled.drawn.release();
+    return () => releaseFilled(filled);
   }, [filled]);
 
   // Leaving drops the pages too, so a screen the app brings back (React
@@ -434,12 +487,16 @@ export function DeviceResults(props: {
   );
 
   // So does leaving for another site or closing the tab. The browser may
-  // keep the page to show again on Back, so the canvases are released at
-  // once, before it is put away, rather than on the next render.
+  // keep the page to show again on Back, so the canvases are released and
+  // the bytes wiped at once, before it is put away, rather than on the next
+  // render.
   useEffect(() => {
     const leave = () => {
       leaves.current += 1;
-      onScreen.current?.drawn.release();
+      if (onScreen.current !== null) {
+        releaseFilled(onScreen.current);
+        onScreen.current = null;
+      }
       setFilled(null);
     };
     window.addEventListener("pagehide", leave);
@@ -509,6 +566,20 @@ export function DeviceResults(props: {
     }, PRINT_CHECK_MS);
   }
 
+  // The person's own press of Download a copy, and nothing else, saves a
+  // copy: the same filled form the pages show, handed to the browser as a
+  // file by the one module allowed to (device-download.ts). It is called
+  // right here, in the press, never after a wait or from anywhere else.
+  function downloadCopy(): void {
+    // Pages let go of on leaving, which a page brought back from the
+    // browser's cache may still show for a moment, have nothing to save.
+    if (filled === null || onScreen.current !== filled) {
+      return;
+    }
+    const saved = saveFilledFormToDevice(filled.bytes, DOWNLOAD_FILE_NAME);
+    announce(saved ? DEVICE_RESULTS_COPY.downloaded : DEVICE_RESULTS_COPY.downloadNotStarted);
+  }
+
   async function showFilledForm(): Promise<void> {
     if (busy) {
       return;
@@ -524,6 +595,10 @@ export function DeviceResults(props: {
     setFilled(null);
     setBusy(true);
     announce(DEVICE_RESULTS_COPY.showingForm);
+    // The filled bytes, until the pages drawn from them are on screen. Any
+    // way out before that wipes them.
+    let bytes: Uint8Array | null = null;
+    let shown = false;
     try {
       const [template, { fillFormOnDevice }, { renderPrintPreview }] = await Promise.all([
         loadDeviceTemplate(DEVICE_FORM_ENTRY),
@@ -543,7 +618,8 @@ export function DeviceResults(props: {
         announce(DEVICE_RESULTS_COPY.unreadableForm);
         return;
       }
-      const drawn = await renderPrintPreview(result.outcome.bytes, createPrintCanvas, signal);
+      bytes = result.outcome.bytes;
+      const drawn = await renderPrintPreview(bytes, createPrintCanvas, signal);
       // Pages drawn from answers that have since changed, or for a page the
       // person has left, are never shown.
       if (signal.aborted || leaves.current !== leavesBefore) {
@@ -553,11 +629,13 @@ export function DeviceResults(props: {
       focusPreview.current = true;
       setFilled({
         drawn,
+        bytes,
         leftBlank: result.outcome.toResolve,
         conflicts: result.outcome.conflicts,
         answers,
         typed,
       });
+      shown = true;
       announce(DEVICE_RESULTS_COPY.ready);
     } catch {
       // An answer changed or the screen went away while the form was being
@@ -567,6 +645,9 @@ export function DeviceResults(props: {
         announce(DEVICE_RESULTS_COPY.failed);
       }
     } finally {
+      if (!shown) {
+        bytes?.fill(0);
+      }
       setBusy(false);
     }
   }
@@ -776,15 +857,32 @@ export function DeviceResults(props: {
           </h2>
           <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.previewBody}</p>
           <div className="flex flex-col gap-2">
-            <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.printNote}</p>
-            <button
-              type="button"
-              onClick={printForm}
-              data-action="print"
-              className="self-start rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal"
-            >
-              {DEVICE_RESULTS_COPY.printButton}
-            </button>
+            <p id="device-print-note" data-print-note className="text-sm text-muted">
+              {DEVICE_RESULTS_COPY.printNote}
+            </p>
+            <p id="device-download-note" data-download-note className="text-sm text-muted">
+              {DEVICE_RESULTS_COPY.downloadNote}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={printForm}
+                data-action="print"
+                aria-describedby="device-print-note"
+                className="rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal"
+              >
+                {DEVICE_RESULTS_COPY.printButton}
+              </button>
+              <button
+                type="button"
+                onClick={downloadCopy}
+                data-action="download-copy"
+                aria-describedby="device-download-note"
+                className="rounded-full border border-surface-border bg-surface px-4 py-2 text-sm font-semibold hover:bg-teal-soft"
+              >
+                {DEVICE_RESULTS_COPY.downloadButton}
+              </button>
+            </div>
           </div>
           {filled.leftBlank.length > 0 ? (
             <div data-left-blank className="flex flex-col gap-1">
