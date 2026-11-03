@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -585,6 +585,38 @@ function namesIn(file: string, source = readFileSync(join(SRC, file), "utf8")): 
   return names;
 }
 
+/**
+ * Whether a file loads the download module at runtime, up front or with
+ * import(): a local specifier that resolves to it, or that names it in a
+ * spelling the bundler may follow and this check can't, such as with a .js
+ * extension. A local specifier that resolves to nothing else is skipped
+ * here, since the files off the path mention such paths in comments.
+ */
+function loadsDownloadModule(file: string, source = readFileSync(join(SRC, file), "utf8")): boolean {
+  return runtimeSpecifiers(source).some(
+    (specifier) =>
+      isLocal(specifier) &&
+      (resolveLocal(file, specifier) === DOWNLOAD_MODULE || /(?:^|\/)device-download(?:\.[cm]?[jt]sx?)?$/.test(specifier)),
+  );
+}
+
+/** A test file, which the bundler never ships. */
+const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
+
+/** Every module under src the app can ship, by path relative to src: its code, without tests or type declarations. */
+function shippedModules(directory = SRC): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...shippedModules(path));
+    } else if (CODE_FILE.test(entry.name) && !TEST_FILE.test(entry.name) && !entry.name.endsWith(".d.ts")) {
+      found.push(relative(SRC, path));
+    }
+  }
+  return found;
+}
+
 function reachable(entries: readonly string[]): Set<string> {
   const seen = new Set<string>();
   const queue = [...entries];
@@ -708,15 +740,38 @@ describe("the on-device intake path", () => {
 
   it("lets only the page load the download module, to call it from its download button's click handler alone", () => {
     // The rules allow the copy only when the person chooses to download it,
-    // so nothing else on the path may reach the module, and the page may
-    // reach it only from a press of Download a copy.
-    for (const file of files) {
+    // so no other module in the app may reach the download module, on the
+    // path or off it, and the page may reach it only from a press of
+    // Download a copy. Tests aren't shipped, so they may load it.
+    const shipped = shippedModules();
+    // Non-vacuous: every module on the path is among those read, and so
+    // are the modules off it.
+    for (const file of [...files, "app/intake/conversation/review-section.tsx", "app/intake/server-answers-notice.tsx"]) {
+      expect(shipped, file).toContain(file);
+    }
+    for (const file of shipped) {
       if (file === DOWNLOAD_CALLER || file === DOWNLOAD_MODULE) {
         continue;
       }
-      expect(localImports(file), `${file} loads the download module`).not.toContain(DOWNLOAD_MODULE);
+      expect(loadsDownloadModule(file), `${file} loads the download module`).toBe(false);
     }
     expect(localImports(DOWNLOAD_CALLER)).toContain(DOWNLOAD_MODULE);
+    expect(loadsDownloadModule(DOWNLOAD_CALLER)).toBe(true);
+    // Non-vacuous: an import of it from a module off the path is found,
+    // however the import is spelled.
+    for (const specifier of [
+      "../../../lib/intake/device-download",
+      "@/lib/intake/device-download",
+      "../../../lib/intake/device-download.ts",
+      "../../../lib/intake/device-download.js",
+    ]) {
+      for (const statement of [
+        `import { saveFilledFormToDevice } from '${specifier}';`,
+        `const { saveFilledFormToDevice } = await import("${specifier}");`,
+      ]) {
+        expect(loadsDownloadModule("app/intake/conversation/review-section.tsx", statement), statement).toBe(true);
+      }
+    }
     const page = downloadCalls(DOWNLOAD_CALLER);
     expect(page.problems).toEqual([]);
     // Non-vacuous: the page does call it.
