@@ -19,7 +19,8 @@ export const DEVICE_DB_STORE = "kv";
 
 /**
  * How long opening or reading device storage may take before the page
- * gives up and offers the calendar file only (review fix: a browser that
+ * gives up and says it can't keep a reminder here, offering the calendar
+ * file instead only while that download is on (review fix: a browser that
  * never settles the request left the tracker on its loading line forever).
  */
 export const DEVICE_STORAGE_TIMEOUT_MS = 5000;
@@ -217,9 +218,10 @@ let sharedStore: Promise<ReminderStoreDeps | null> | undefined;
  * The reminder store's dependencies in this browser, or null when the
  * browser cannot keep a sealed reminder (no IndexedDB, no Web Crypto, which
  * needs a secure https or localhost page, or storage that does not open in
- * time). Callers then offer the calendar file only. One connection is
- * shared by the banner and the tracker for the page's life; a failed open
- * is retried on the next call.
+ * time). Callers then say so, and offer the calendar file only while that
+ * download is on (calendar-file-gate.ts). One connection is shared by the
+ * banner and the tracker for the page's life; a failed open is retried on
+ * the next call.
  */
 export function openDeviceReminderStore(): Promise<ReminderStoreDeps | null> {
   if (sharedStore === undefined) {
@@ -242,9 +244,10 @@ export interface PersistableStorage {
  * Ask the browser to keep this site's storage instead of evicting it under
  * storage pressure (review fix). Chromium and Firefox honor this; Safari's
  * rule of clearing a site's script storage after about a week without a
- * visit does not change, which is why the tracker's copy points to the
- * calendar file as the reminder that lasts. Resolves to whether the
- * browser agreed; never rejects.
+ * visit does not change, which is why the tracker's copy points to what
+ * lasts: the calendar file while that download is on, and the person's own
+ * letter while it is off. Resolves to whether the browser agreed; never
+ * rejects.
  */
 export async function requestPersistentStorage(
   storage: PersistableStorage | undefined = globalThis.navigator?.storage,

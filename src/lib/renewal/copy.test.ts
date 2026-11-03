@@ -3,18 +3,24 @@ import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../honesty";
 import { addDays, formatLongDate, fromEpochDay, parseIsoDate, toEpochDay, type CalendarDate } from "./calendar-date";
 import {
+  BROWSER_CAN_CLEAR_NOTE,
   DATE_CHOICE_HELP,
   CALENDAR_TRACKER_POINTER,
   DATE_CHOICE_LABELS,
   DOWNLOADED_NOTICE,
   DOWNLOAD_FAILED_NOTICE,
   KEEP_SAVED_BUTTON,
+  LINES_WITHOUT_CALENDAR_FILE,
+  LINES_WITH_CALENDAR_FILE,
+  NOSCRIPT_NOTE,
   NO_DATE_INTRO,
   PRIVACY_NOTE,
   REMOVE_FAILED_NOTICE,
   PASSED_BANNER_NOTE,
   SAVE_CHANGED_NOTICE,
+  SAVE_FAILED_NOTICE,
   STATIC_RENEWAL_COPY,
+  STORAGE_UNAVAILABLE_NOTE,
   UNKNOWN_DATE_NOTE,
   UNKNOWN_DATE_WHILE_SAVED_NOTE,
   ageAnswerSentence,
@@ -23,6 +29,8 @@ import {
   bannerMessage,
   calendarAlarmText,
   calendarDescription,
+  calendarFileLineTexts,
+  calendarFileLines,
   calendarSummary,
   entryStatusFlag,
   estimateSentence,
@@ -36,7 +44,7 @@ import {
   unknownDateNote,
 } from "./copy";
 import { AGE_ANSWERS } from "./estimate";
-import type { ReminderPhase } from "./reminder";
+import { REPORTED_DATE_KINDS, type ReminderPhase } from "./reminder";
 import { PILOT_RENEWAL_FACTS } from "./renewal-facts";
 
 // The honesty gate on every renewal sentence (HACK-50). All copy, fixed and
@@ -333,5 +341,59 @@ describe("renewal copy stays hedged and labeled", () => {
         expect(`${message} ${later}`).not.toMatch(/earliest/i);
       }),
     );
+  });
+});
+
+describe("the lines the calendar file download gate picks between (HACK-50 review)", () => {
+  const CALENDAR_FILE_MENTION = /calendar|\.ics\b|download/i;
+
+  it("while the download is offered, are exactly the lines from before the gate", () => {
+    expect(calendarFileLines(true)).toBe(LINES_WITH_CALENDAR_FILE);
+    expect(LINES_WITH_CALENDAR_FILE).toEqual({
+      noDateIntro: NO_DATE_INTRO,
+      privacyNote: PRIVACY_NOTE,
+      browserCanClearNote: BROWSER_CAN_CLEAR_NOTE,
+      storageUnavailableNote: STORAGE_UNAVAILABLE_NOTE,
+      noscriptNote: NOSCRIPT_NOTE,
+      saveFailedNotice: SAVE_FAILED_NOTICE,
+      savedNotice,
+    });
+  });
+
+  it("mention the calendar file in every line exactly when it is offered, for every kind of date", () => {
+    for (const offered of [true, false]) {
+      const texts = calendarFileLineTexts(calendarFileLines(offered));
+      expect(texts).toHaveLength(6 + REPORTED_DATE_KINDS.length);
+      for (const text of texts) {
+        expect(CALENDAR_FILE_MENTION.test(text), text).toBe(offered);
+      }
+    }
+  });
+
+  it("while it is not, still say everything else each line said", () => {
+    const lines = calendarFileLines(false);
+    expect(lines).toBe(LINES_WITHOUT_CALENDAR_FILE);
+    expect(lines.noDateIntro).toMatch(/^Do you have a letter or notice with a date on it\?/);
+    expect(lines.noDateIntro).toMatch(/Saving here sends nothing anywhere\.$/);
+    expect(lines.privacyNote).toMatch(/^This site keeps your date only on this device\./);
+    expect(PRIVACY_NOTE.startsWith(lines.privacyNote)).toBe(true);
+    expect(lines.browserCanClearNote).toMatch(/^This browser can clear the saved date on its own\./);
+    expect(lines.storageUnavailableNote).toMatch(/^This browser can't save a private reminder right now/);
+    expect(lines.noscriptNote).toMatch(/needs JavaScript, which is off in this browser\. The official facts below work without it\.$/);
+    expect(lines.saveFailedNotice).toMatch(/^The reminder could not be saved on this device\./);
+    for (const kind of REPORTED_DATE_KINDS) {
+      // The saved notice says the same thing up to its pointer to the file.
+      expect(savedNotice(kind).startsWith(`${lines.savedNotice(kind)} `)).toBe(true);
+    }
+    expect(lines.savedNotice("renewal_due")).toMatch(/30 days before the date\.$/);
+    expect(lines.savedNotice("approval")).toMatch(/30 days before each estimate\.$/);
+  });
+
+  it("while it is not, pass the banned-claim gate as part of the fixed copy", () => {
+    const texts = calendarFileLineTexts(LINES_WITHOUT_CALENDAR_FILE);
+    expect(STATIC_RENEWAL_COPY).toEqual(expect.arrayContaining([...texts]));
+    for (const text of texts) {
+      expect(findBannedClaims(text), text).toEqual([]);
+    }
   });
 });

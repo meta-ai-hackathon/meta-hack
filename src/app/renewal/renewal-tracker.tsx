@@ -6,7 +6,6 @@ import { StatusRegion } from "../../components/status-region";
 import { deviceLocalMoment, deviceToday } from "../../lib/renewal/calendar-date";
 import {
   AGE_QUESTION_HELP,
-  BROWSER_CAN_CLEAR_NOTE,
   CHANGE_BUTTON,
   DATE_CHOICE_HELP,
   DATE_CHOICE_LABELS,
@@ -20,22 +19,17 @@ import {
   KEEP_PROMPT_NOTE,
   KEEP_SAVED_BUTTON,
   LOADING_NOTE,
-  NOSCRIPT_NOTE,
-  NO_DATE_INTRO,
   NO_ESTIMATE_NOTE,
-  PRIVACY_NOTE,
   REMOVED_NOTICE,
   REMOVE_BUTTON,
   REMOVE_FAILED_NOTICE,
   SAVE_BUTTON,
   SAVE_CHANGED_NOTICE,
-  SAVE_FAILED_NOTICE,
   SECTION_HEADING,
-  STORAGE_UNAVAILABLE_NOTE,
   UNSUPPORTED_NOTICE,
   ageChoiceLabels,
   ageQuestionLegend,
-  savedNotice,
+  calendarFileLines,
   unknownDateNote,
   type DateChoice,
 } from "../../lib/renewal/copy";
@@ -74,9 +68,10 @@ import { useDeviceToday } from "../../lib/renewal/use-device-today";
 import { ReportedDateView } from "./renewal-view";
 
 // The renewal tracker's client side (BN-22 / HACK-50): the person's own
-// date, entered, sealed on this device, turned into a calendar file, or
-// removed. Nothing in this component calls fetch or any route: the date
-// lives in React state, the encrypted device store, and a blob: download.
+// date, entered, sealed on this device, turned into a calendar file while
+// that download is on (calendar-file-gate.ts), or removed. Nothing in this
+// component calls fetch or any route: the date lives in React state, the
+// encrypted device store, and, with the download on, a blob: download.
 // The form renders only after mount, so a click before hydration can never
 // submit the date to the server in a URL, and the date input has no `name`
 // for the same reason.
@@ -103,7 +98,21 @@ interface CalendarIdentity {
 
 const getRandomValues = (array: Uint8Array<ArrayBuffer>) => globalThis.crypto.getRandomValues(array);
 
-export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
+export function RenewalTracker({
+  facts,
+  calendarFileDownload,
+}: {
+  facts: RenewalFactsView;
+  /**
+   * Whether to offer the calendar file. The page passes
+   * CALENDAR_FILE_DOWNLOAD_ENABLED (calendar-file-gate.ts), which stays off
+   * until a person records the HACK-50 decision. Off, no control shows, the
+   * file is never built, and no line mentions it; on, the tracker is
+   * exactly what it was before the gate.
+   */
+  calendarFileDownload: boolean;
+}) {
+  const lines = calendarFileLines(calendarFileDownload);
   const today = useDeviceToday();
   const [storage, setStorage] = useState<Storage>({ state: "checking" });
   const [saved, setSaved] = useState<RenewalReminder | null>(null);
@@ -206,7 +215,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
       return;
     }
     if (storage.state !== "ready") {
-      setNotice(STORAGE_UNAVAILABLE_NOTE);
+      setNotice(lines.storageUnavailableNote);
       return;
     }
     const identity = formIdentity();
@@ -232,19 +241,19 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
       }
       setSaved(reminder);
       setEditing(false);
-      setNotice(savedNotice(reminder.kind));
+      setNotice(lines.savedNotice(reminder.kind));
       focusHeading();
       // Ask the browser to keep the reminder (review fix), once a visit and
       // only after the date is saved. The note by the save button said
       // beforehand that the browser may ask, since Firefox shows a
-      // permission prompt. The notice above still points to the calendar
-      // file, which no browser clears.
+      // permission prompt. While the calendar file is offered, the notice
+      // above also points to it, since no browser clears it.
       if (!askedToKeep) {
         setAskedToKeep(true);
         void requestPersistentStorage();
       }
     } catch {
-      setNotice(SAVE_FAILED_NOTICE);
+      setNotice(lines.saveFailedNotice);
     } finally {
       setBusy(false);
     }
@@ -254,6 +263,11 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
     reminder: Pick<RenewalReminder, "kind" | "reportedDate" | "ageAnswer">,
     calendarId: string,
   ) {
+    // The one place the file is built and handed over. With the download
+    // off no control leads here, and this returns first all the same.
+    if (!calendarFileDownload) {
+      return;
+    }
     const outcome = offerFile(
       () => {
         const now = new Date();
@@ -365,7 +379,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
           </p>
           <noscript>
             <p data-renewal-noscript className="text-zinc-700 dark:text-zinc-300">
-              {NOSCRIPT_NOTE}
+              {lines.noscriptNote}
             </p>
           </noscript>
           {/* Without JavaScript the check never runs, so its line would say
@@ -377,19 +391,21 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
         </>
       ) : null}
       {storage.state === "unavailable" ? (
-        <p className="text-zinc-700 dark:text-zinc-300">{STORAGE_UNAVAILABLE_NOTE}</p>
+        <p className="text-zinc-700 dark:text-zinc-300">{lines.storageUnavailableNote}</p>
       ) : null}
       {showSummary && saved && today ? (
         <div className="flex flex-col gap-4">
           <ReportedDateView facts={facts} reminder={saved} today={today} />
           <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => handleDownload(saved, saved.calendarId)}
-              className="rounded-md bg-zinc-900 px-4 py-2 text-base font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-            >
-              {DOWNLOAD_BUTTON}
-            </button>
+            {calendarFileDownload ? (
+              <button
+                type="button"
+                onClick={() => handleDownload(saved, saved.calendarId)}
+                className="rounded-md bg-zinc-900 px-4 py-2 text-base font-semibold text-zinc-50 hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              >
+                {DOWNLOAD_BUTTON}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={handleChange}
@@ -408,7 +424,10 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
           </div>
         </div>
       ) : null}
-      {storage.state !== "checking" && !showSummary ? (
+      {/* With storage unavailable and the download off, the form could
+          neither save nor offer a file, so it stays hidden and the note
+          above says why. */}
+      {storage.state !== "checking" && !showSummary && (storage.state === "ready" || calendarFileDownload) ? (
         <form
           noValidate
           data-renewal-form
@@ -418,7 +437,7 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
             void handleSave();
           }}
         >
-          <p className="text-zinc-700 dark:text-zinc-300">{NO_DATE_INTRO}</p>
+          <p className="text-zinc-700 dark:text-zinc-300">{lines.noDateIntro}</p>
           <fieldset
             className="flex flex-col gap-2"
             aria-describedby={kindError ? "renewal-kind-help renewal-kind-error" : "renewal-kind-help"}
@@ -532,13 +551,15 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
                     {SAVE_BUTTON}
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={handleDownloadFromForm}
-                  className="rounded-md border border-zinc-400 px-4 py-2 text-base font-medium hover:bg-zinc-100 dark:border-zinc-500 dark:hover:bg-zinc-800"
-                >
-                  {DOWNLOAD_BUTTON}
-                </button>
+                {calendarFileDownload ? (
+                  <button
+                    type="button"
+                    onClick={handleDownloadFromForm}
+                    className="rounded-md border border-zinc-400 px-4 py-2 text-base font-medium hover:bg-zinc-100 dark:border-zinc-500 dark:hover:bg-zinc-800"
+                  >
+                    {DOWNLOAD_BUTTON}
+                  </button>
+                ) : null}
               </div>
             </>
           )}
@@ -558,10 +579,10 @@ export function RenewalTracker({ facts }: { facts: RenewalFactsView }) {
       ) : null}
       {storage.state === "ready" ? (
         <p data-renewal-can-clear className="text-sm text-zinc-600 dark:text-zinc-400">
-          {BROWSER_CAN_CLEAR_NOTE}
+          {lines.browserCanClearNote}
         </p>
       ) : null}
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">{PRIVACY_NOTE}</p>
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">{lines.privacyNote}</p>
     </section>
   );
 }

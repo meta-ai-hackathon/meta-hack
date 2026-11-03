@@ -3,6 +3,7 @@ import { formatLongDate, type CalendarDate } from "./calendar-date";
 import type { AgeAnswer, AgeAnswerValue, AgeRange } from "./estimate";
 import {
   REMINDER_WINDOW_DAYS,
+  REPORTED_DATE_KINDS,
   REPORTED_YEAR_MAX,
   REPORTED_YEAR_MIN,
   type ReminderStatus,
@@ -155,14 +156,19 @@ export const CHANGE_BUTTON = "Change the date";
 export const KEEP_SAVED_BUTTON = "Keep the saved date";
 export const REMOVE_BUTTON = "Remove the reminder from this device";
 
-/** What saving did, for the kind of date saved (review fix: approval dates are in the past). */
-export function savedNotice(kind: ReportedDateKind): string {
+/** What saving put on the device, and when its reminder starts (review fix: approval dates are in the past). */
+function savedOnDeviceLine(kind: ReportedDateKind): string {
   const when =
     kind === "renewal_due"
       ? `starting ${REMINDER_WINDOW_DAYS} days before the date`
       : `starting ${REMINDER_WINDOW_DAYS} days before each estimate`;
+  return `Your date is saved on this device. A reminder shows on this site ${when}.`;
+}
+
+/** What saving did, for the kind of date saved, while the calendar file is offered. */
+export function savedNotice(kind: ReportedDateKind): string {
   return (
-    `Your date is saved on this device. A reminder shows on this site ${when}. ` +
+    `${savedOnDeviceLine(kind)} ` +
     "Download the calendar file too: it keeps reminding you even if this " +
     "browser clears the date."
   );
@@ -427,6 +433,77 @@ export function calendarAlarmText(date: CalendarDate, fromEstimate: boolean): st
     : `You told us your renewal is due on ${formatLongDate(date)}.`;
 }
 
+/**
+ * The tracker's lines that point to the calendar file, in the two versions
+ * the download gate picks between (calendar-file-gate.ts): as written while
+ * the download is offered, and with the file left out while it is not
+ * (HACK-50 review). Every other line reads the same either way.
+ */
+export interface CalendarFileLines {
+  readonly noDateIntro: string;
+  readonly privacyNote: string;
+  readonly browserCanClearNote: string;
+  readonly storageUnavailableNote: string;
+  readonly noscriptNote: string;
+  readonly saveFailedNotice: string;
+  readonly savedNotice: (kind: ReportedDateKind) => string;
+}
+
+/** While the download is offered: the lines exactly as they read before the gate. */
+export const LINES_WITH_CALENDAR_FILE: CalendarFileLines = {
+  noDateIntro: NO_DATE_INTRO,
+  privacyNote: PRIVACY_NOTE,
+  browserCanClearNote: BROWSER_CAN_CLEAR_NOTE,
+  storageUnavailableNote: STORAGE_UNAVAILABLE_NOTE,
+  noscriptNote: NOSCRIPT_NOTE,
+  saveFailedNotice: SAVE_FAILED_NOTICE,
+  savedNotice,
+};
+
+/** What stands in for the calendar file while it is not offered: the letter itself. */
+const KEEP_THE_LETTER = "Keep your letter or notice, because it has the date.";
+
+/** While it is not: the same lines with every mention of the file taken out. */
+export const LINES_WITHOUT_CALENDAR_FILE: CalendarFileLines = {
+  noDateIntro:
+    "Do you have a letter or notice with a date on it? Save it here to see a " +
+    "reminder on this site as the date gets close. Saving here sends nothing " +
+    "anywhere.",
+  privacyNote:
+    "This site keeps your date only on this device. It is saved encrypted in " +
+    "this browser and is never sent to us. Anyone who uses this browser could " +
+    "see the reminder, so remove it if you share this device.",
+  browserCanClearNote:
+    "This browser can clear the saved date on its own. Some browsers do it " +
+    `after about a week without a visit to this site. ${KEEP_THE_LETTER}`,
+  storageUnavailableNote:
+    "This browser can't save a private reminder right now (it may be in " +
+    `private mode or blocking storage). ${KEEP_THE_LETTER}`,
+  noscriptNote:
+    "Saving a reminder needs JavaScript, which is off in this browser. The " +
+    "official facts below work without it.",
+  saveFailedNotice: `The reminder could not be saved on this device. ${KEEP_THE_LETTER}`,
+  savedNotice: savedOnDeviceLine,
+};
+
+/** The lines for whether the calendar file download is offered. */
+export function calendarFileLines(offered: boolean): CalendarFileLines {
+  return offered ? LINES_WITH_CALENDAR_FILE : LINES_WITHOUT_CALENDAR_FILE;
+}
+
+/** Every string one version of the lines can show, saved notices for each kind of date included. */
+export function calendarFileLineTexts(lines: CalendarFileLines): readonly string[] {
+  return [
+    lines.noDateIntro,
+    lines.privacyNote,
+    lines.browserCanClearNote,
+    lines.storageUnavailableNote,
+    lines.noscriptNote,
+    lines.saveFailedNotice,
+    ...REPORTED_DATE_KINDS.map((kind) => lines.savedNotice(kind)),
+  ];
+}
+
 /** Every fixed string above, for the honesty scan. */
 export const STATIC_RENEWAL_COPY: readonly string[] = [
   ...Object.values(DATE_CHOICE_LABELS),
@@ -481,4 +558,5 @@ export const STATIC_RENEWAL_COPY: readonly string[] = [
   calendarSummary(true),
   CALENDAR_TRACKER_POINTER,
   ...Object.values(FACTS_SUBHEADINGS),
+  ...calendarFileLineTexts(LINES_WITHOUT_CALENDAR_FILE),
 ];

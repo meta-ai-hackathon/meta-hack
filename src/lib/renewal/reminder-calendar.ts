@@ -18,7 +18,9 @@ import type { RenewalBannerFacts } from "./renewal-facts";
  * The calendar file for a reported date (BN-22 / HACK-50): one all-day
  * event for a reported due date, or one per schedule estimate for an
  * approval date, each with alerts 30, 7, and 1 days before. Pure: the
- * caller supplies the clock and the device's local moment.
+ * caller supplies the clock and the device's local moment. The tracker
+ * offers the file only while CALENDAR_FILE_DOWNLOAD_ENABLED is on
+ * (calendar-file-gate.ts), which waits on the HACK-50 decision.
  *
  * The event names no program and carries no link, in its title, notes, or
  * alerts (third review): a calendar that syncs keeps its own copy, so a

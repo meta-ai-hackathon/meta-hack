@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CALENDAR_FILE_DOWNLOAD_ENABLED } from "../../lib/renewal/calendar-file-gate";
 import { PAGE_TITLE, pageIntro } from "../../lib/renewal/copy";
 import { PILOT_RENEWAL_FACTS } from "../../lib/renewal/renewal-facts";
 import { RenewalTracker } from "./renewal-tracker";
@@ -12,7 +13,9 @@ export const metadata: Metadata = {
 
 // The renewal tracker page (BN-22 / HACK-50). The knowledge-base facts
 // render on the server, each labeled and sourced; the person's own date is
-// handled entirely in the browser by RenewalTracker.
+// handled entirely in the browser by RenewalTracker. Its calendar file
+// download is gated (calendar-file-gate.ts) until a person records on
+// HACK-50 whether a plaintext calendar file is allowed.
 export default function RenewalPage() {
   const facts = PILOT_RENEWAL_FACTS;
   return (
@@ -23,7 +26,7 @@ export default function RenewalPage() {
           {pageIntro(facts.programName)}
         </p>
       </div>
-      <RenewalTracker facts={facts} />
+      <RenewalTracker facts={facts} calendarFileDownload={CALENDAR_FILE_DOWNLOAD_ENABLED} />
       <RenewalFactsSection facts={facts} />
     </div>
   );

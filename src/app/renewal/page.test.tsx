@@ -1,9 +1,18 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../../lib/honesty";
-import { LOADING_NOTE, NOSCRIPT_NOTE, PRIVACY_NOTE } from "../../lib/renewal/copy";
+import { CALENDAR_FILE_DOWNLOAD_ENABLED } from "../../lib/renewal/calendar-file-gate";
+import {
+  DOWNLOAD_BUTTON,
+  LINES_WITHOUT_CALENDAR_FILE,
+  LOADING_NOTE,
+  calendarFileLines,
+} from "../../lib/renewal/copy";
 import RenewalPage, { metadata } from "./page";
 import { HIDE_LOADING_WITHOUT_SCRIPT_CSS } from "./renewal-tracker";
+
+/** The tracker's lines for the download as the page ships it. */
+const LINES = calendarFileLines(CALENDAR_FILE_DOWNLOAD_ENABLED);
 
 // The renewal page shell (HACK-50) and the tracker's server render: the
 // facts are on the page without JavaScript, the person's date section is
@@ -39,14 +48,23 @@ describe("Renewal page", () => {
   it("server-renders the date section as a shell: no form, no inputs, a mounted status region", () => {
     expect(html).toContain("data-renewal-tracker");
     expect(html).toContain(LOADING_NOTE);
-    expect(html).toContain(PRIVACY_NOTE);
+    expect(html).toContain(LINES.privacyNote);
     expect(html).not.toContain("<form");
     expect(html).not.toContain("<input");
     expect(html).toContain('role="status"');
   });
 
   it("explains itself when JavaScript is off, instead of only 'checking' forever (review fix)", () => {
-    expect(html).toMatch(new RegExp(`<noscript><p[^>]*>${NOSCRIPT_NOTE}</p></noscript>`));
+    expect(html).toMatch(new RegExp(`<noscript><p[^>]*>${LINES.noscriptNote}</p></noscript>`));
+  });
+
+  it("offers no calendar file and never mentions one while the download is gated off (HACK-50 review)", () => {
+    // Off until a person records on HACK-50 whether a plaintext calendar
+    // file is allowed. Turning it on is that decision, and changes this test.
+    expect(CALENDAR_FILE_DOWNLOAD_ENABLED).toBe(false);
+    expect(LINES).toBe(LINES_WITHOUT_CALENDAR_FILE);
+    expect(html).not.toMatch(/calendar|\.ics\b/i);
+    expect(html).not.toContain(DOWNLOAD_BUTTON);
   });
 
   it("hides the loading line when JavaScript is off, so it does not claim to be checking (second review fix)", () => {

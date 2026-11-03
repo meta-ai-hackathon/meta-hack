@@ -210,7 +210,10 @@ describe("runtime: the whole client path with the network trapped", () => {
       await clearReminder(deps);
     }
     renderToStaticMarkup(createElement(RenewalFactsSection, { facts }));
-    renderToStaticMarkup(createElement(RenewalTracker, { facts }));
+    // With the calendar file download gated off (HACK-50 review) and on.
+    for (const calendarFileDownload of [false, true]) {
+      renderToStaticMarkup(createElement(RenewalTracker, { facts, calendarFileDownload }));
+    }
     expect(trapped).toEqual([]);
     expect(logged()).toEqual([]);
   });
