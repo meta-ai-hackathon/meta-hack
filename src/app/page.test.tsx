@@ -1,3 +1,4 @@
+import { Children, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { findBannedClaims } from "../lib/honesty";
@@ -84,6 +85,19 @@ describe("Home page (the round-2 entry shell, VAL-FIX-003)", () => {
     const html = renderToStaticMarkup(<Home />);
     expect(html).toContain('href="/renewal"');
     expect(html).toContain(TRACKER_LINK_HEADING);
+  });
+
+  it("keeps every block of the full-width frame inside the page gutter (VAL-FIX-006, HACK-50)", () => {
+    // The frame has no padding of its own, so each block carries the
+    // 20px gutter (36px from 761px) itself. A block without it, like the
+    // renewal tracker link right after the VAL-FIX-006 merge, sits flush
+    // against the edge of the screen.
+    const blocks = Children.toArray(Home().props.children) as ReactElement<{ className?: string }>[];
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const block of blocks) {
+      const classes = (block.props.className ?? "").split(/\s+/);
+      expect(classes, block.props.className).toEqual(expect.arrayContaining(["px-5", "min-[761px]:px-9"]));
+    }
   });
 
   it("keeps a hierarchical heading outline with no skipped levels", () => {
