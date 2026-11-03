@@ -219,19 +219,26 @@ tracker if their renewal is done. The banner reads the saved reminder again
 whenever the person comes back to a tab, so a save or a remove in another
 tab shows up there too. A saved reminder that cannot be read is announced,
 never dropped silently. Browsers can clear site data
-on their own, so the page also builds a calendar file (`.ics`) in the
-browser, the reminder that lasts: alerts at 9 AM 30, 7, and 1 days before,
-marked private, and no program name or link in its title, notes, or alerts,
-so a synced event carries only the neutral title, the date, and a pointer
-to the tracker on the device where the file was made. The file is a plain
-copy of the date that the person chooses to download, and their calendar
-app may sync it. Each event keeps one UID with a SEQUENCE that never goes
-down while the device's clock runs forward (it counts seconds, so two files
-made in the same second share one), so a calendar app that honors UIDs can
-update it; events a newer file leaves out are not removed, so the download
-notice asks people to delete old ones. No route, log, analytics call, or
-model call receives the date; `src/lib/renewal/no-network.test.ts` scans for
-and traps every way it could.
+on their own, so the page can also build a calendar file (`.ics`) in the
+browser as the reminder that lasts, but that download is gated off for now.
+The file is a plain copy of the date in the downloads folder, and a
+calendar app that syncs keeps its own copy, while every other copy of the
+date is sealed with a key that exists only on the device. Whether a
+download the person chooses is allowed waits on a decision a person records
+on HACK-50. Until then `CALENDAR_FILE_DOWNLOAD_ENABLED` in
+`src/lib/renewal/calendar-file-gate.ts` stays false: the tracker shows no
+download control, never builds the file, and no line of its copy mentions
+one, and the in-app reminder and the banner work as described above. With
+the gate on, the file has alerts at 9 AM 30, 7, and 1 days before, is
+marked private, and has no program name or link in its title, notes, or
+alerts, so a synced event carries only the neutral title, the date, and a
+pointer to the tracker on the device where the file was made. Each event
+keeps one UID with a SEQUENCE that never goes down while the device's clock
+runs forward (it counts seconds, so two files made in the same second share
+one), so a calendar app that honors UIDs can update it; events a newer file
+leaves out are not removed, so the download notice asks people to delete
+old ones. No route, log, analytics call, or model call receives the date;
+`src/lib/renewal/no-network.test.ts` scans for and traps every way it could.
 
 ### Walkthrough CLI
 
