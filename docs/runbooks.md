@@ -117,7 +117,8 @@ wizard" mid-demo, or "Use the wizard instead" at the top of the page, since both
 again at question 1. Since HACK-115 it ends at "All questions answered for now" with the
 match, the form review, and "Show the filled form", which draws the filled DHB-5200 on the
 page with "Print the form" and "Download a copy" beside it. The copy is made in the browser
-and saves only when the person presses that button (`docs/save-resume.md`). It also shows
+and saves only when the person presses that button (`docs/save-resume.md`). If the browser
+can't draw the pages, "Download a copy" still appears on its own. It also shows
 an "Answers saved on the app's server" notice that counts the chat session's answers and
 offers to delete them, chat included.
 Don't press "Delete them from the app's server" if the person is going back to the chat.

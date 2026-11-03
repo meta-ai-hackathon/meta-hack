@@ -161,7 +161,8 @@ person asks, the filled DHB-5200 drawn on the page to print or to download a
 copy of. All three are computed in the browser from the answers sealed on
 the device (`src/lib/intake/device-form.ts`, shown by
 `src/app/intake/device-results.tsx`). No request carries an answer, and the
-filled form reaches the device only as a copy the person downloads.
+filled form reaches the device only as a copy the person downloads, or as a
+PDF the person saves from the print window.
 
 - **The match:** the same deterministic scoring the server runs
   (`src/lib/match-core.ts`, which `src/lib/match.ts` re-exports), with every
@@ -222,16 +223,19 @@ filled form reaches the device only as a copy the person downloads.
   only that rule. The pages go, and their canvases are released, when any
   answer changes, typed ones included, when the person leaves for another
   screen of the app or another site (on `pagehide`, so a page the browser
-  keeps for Back comes back without them), and with every delete. The note
+  keeps for Back comes back without them), and with every delete. Pages
+  drawn just as an answer changes or the page is left, which React drops
+  before it ever puts them on screen, are released the same way. The note
   by the Print button asks the person to choose a printer, and says that
   saving the form as a PDF there saves a file to this device, with the
   same words the download note uses about the file. Some in-app browsers
   ignore `window.print()`, so when no print starts after a press, the page
-  says to download a copy and print it from another app, or to open the
-  page in a browser such as Safari or Chrome, and that answers saved in
-  this browser don't move there. Each page prints on its own sheet, sized
-  to fit the sheet's printable area both ways, so narrow margins, headers
-  and footers, or a landscape sheet don't split it. While the form is
+  says to open the page in a browser such as Safari or Chrome, that answers
+  saved in this browser don't move there, and, after that, to try Download
+  a copy and print the file from another app, since a browser that ignores
+  Print may drop a downloaded file too. Each page prints on its own sheet,
+  sized to fit the sheet's printable area both ways, so narrow margins,
+  headers and footers, or a landscape sheet don't split it. While the form is
   prepared, the show button keeps focus (it is marked busy rather than
   disabled) and the status line says so; once the pages are drawn, focus
   moves to their heading.
@@ -256,13 +260,28 @@ filled form reaches the device only as a copy the person downloads.
   note by the button says the file holds the answers filled in on the form,
   private ones included, that it is an ordinary file that isn't encrypted,
   and that on a shared computer it should be deleted once printed or sent.
-  The note by the show button says the filled form is saved to the device
-  only if the person downloads a copy: the answers themselves may be saved
-  in this browser, as the save for later section says on the same screen,
-  so it never claims nothing at all is saved. A downloaded copy is a file
-  outside this browser's storage, so every delete and purge message on the
-  page says that a copy downloaded, or saved as a PDF from the print
-  window, stays on the device until the person deletes it.
+  The page can't see what the browser does with the file, so after a press
+  it says the browser should now save the copy or ask where to save it,
+  and to open the page in Safari or Chrome if no file appears. That word
+  goes with the pages, as the word that they are ready does. The note by
+  the show button says the filled form is saved to the device only if the
+  person downloads a copy or saves it as a PDF when printing: the answers
+  themselves may be saved in this browser, as the save for later section
+  says on the same screen, so it never claims nothing at all is saved. A
+  downloaded copy is a file outside this browser's storage, so every delete
+  and purge message on the page, the device's own and those of the notice
+  for answers saved on the app's server, says that a copy downloaded, or
+  saved as a PDF from the print window, stays on the device until the
+  person deletes it.
+- **When the pages can't be drawn:** the download needs only the filled
+  form, so when the form fills but this browser can't draw its pages
+  (pdf.js didn't load, a canvas was refused, or the drawing never finished),
+  the page says so and offers Download a copy on its own, with the same
+  note, so the person can still get the form. There is no Print button
+  then, since there are no pages to print and nothing marks the page for
+  the print rules. The bytes kept for it are wiped on the same changes as
+  the pages', and showing the filled form again tries the drawing once
+  more.
 - **pdf.js on the page:** the print preview is the only device module that
   loads `pdfjs-dist`, and both it and pdf.js load only when the person asks
   to see the filled form. pdf.js runs on the page's own thread: the module
@@ -307,20 +326,21 @@ filled form reaches the device only as a copy the person downloads.
 | Rejected answers create no orphan sessions | `src/app/api/intake/answer/route.test.ts` |
 | Disavowed pii values are deleted | `src/lib/vault.test.ts` + `src/lib/intake/store.test.ts` (full-population disavow property) |
 | Device mode sends no answer anywhere | `src/app/intake/intake-wizard.device.test.tsx` (the wizard driven through the DOM with `fetch` failing the run) + `src/lib/intake/device-intake.test.ts` (a full journey) + `src/lib/intake/device-path-boundary.test.ts` (no server module, Node built-in, or request on the path) |
-| What the page says matches what the browser kept | `src/lib/intake/device-intake.test.ts` (unsupported, failed open, failed read, failed and stalled saves, other tabs) + `src/app/intake/intake-wizard.device.test.tsx` (focus and announcements in the delete flow, the double-click guard) |
+| What the page says matches what the browser kept | `src/lib/intake/device-intake.test.ts` (unsupported, failed open, failed read, failed and stalled saves, other tabs, including a delete in another tab that a roster change's re-prune finds) + `src/app/intake/intake-wizard.device.test.tsx` (focus and announcements in the delete flow, the double-click guard) |
 | Device storage holds no plaintext and resumes exactly | `src/lib/intake/device-answer-store.test.ts` (properties over saved answer sequences) + `src/lib/device-kv.test.ts` (sealed store over a fake IndexedDB) |
 | A device delete is verified and never undone by another tab | `src/lib/intake/device-answer-store.test.ts` (purge and racing-save properties) |
 | Answers saved on the server can be found and deleted | `src/app/intake/server-answers-notice.test.tsx` (cookie-only check, confirmed purge, every purge outcome, a failed Check again, overlapping Check again presses, no answer in any request) |
 | Only Save and finish later asks the browser to keep the store, after saying so | `src/lib/intake/device-intake.test.ts` (answering never asks; it asks only when the device holds answers) + `src/app/intake/intake-wizard.device.test.tsx` (the note describes the button, one request a visit) |
 | `/intake` reaches the match, the review, and the filled form with no answer in any request, and a reload resumes them | `src/app/intake/device-results.test.tsx` (the page driven through the DOM over a fake IndexedDB, with every request recorded) + `src/lib/intake/device-path-boundary.test.ts` (no server module, Node built-in, or request on the path besides the blank form's GET) |
 | The end of `/intake` shows no banned claim and no private answer, for any answers | `src/app/intake/device-results.markup.test.tsx` (properties over generated device answers: the rendered text, attributes, and markup, plus labelled and described inputs with spellcheck off and a heading outline that never skips a level) |
-| The filled form reaches the device only as the copy the person downloads | `src/lib/intake/device-path-boundary.test.ts` (read from the parsed code of every module on the path: no object URL, Blob, File, response or canvas Blob, download attribute, share sheet, embedding element, file picker or file system, image file, browser storage, cookie, or service worker, whether named in code or in a string, with only the two sealed answer stores allowed their own storage and only `device-download.ts` allowed exactly an object URL, a Blob, and a download link; only the page loads that module, and only its download button's click handler calls it, a reading checked against generated pages; pdf.js loads only in the print preview, on demand, with nothing that would send it to the network) + `src/app/intake/device-results.test.tsx` (the page driven to the filled pages: nothing handed to the browser as a file until Download a copy is pressed, nothing new in its storage, Print calls the browser's print) |
+| The filled form reaches the device only as the copy the person downloads | `src/lib/intake/device-path-boundary.test.ts` (read from the parsed code of every module on the path: no object URL, Blob, File, response or canvas Blob, download attribute, share sheet, embedding element, file picker or file system, image file, browser storage, cookie, or service worker, whether named in code or in a string, with only the two sealed answer stores allowed their own storage and only `device-download.ts` allowed exactly an object URL, a Blob, and a download link; of every module the app ships, only the page loads that module, and only its download button's click handler calls it, a reading checked against generated pages; no module on the path writes to the console; pdf.js loads only in the print preview, on demand, with nothing that would send it to the network) + `src/app/intake/device-results.test.tsx` (the page driven to the filled pages: nothing handed to the browser as a file until Download a copy is pressed, nothing new in its storage, Print calls the browser's print) |
 | A downloaded copy is the form on screen, saved only at the person's press, with nothing sent or kept | `src/app/intake/device-results.test.tsx` (the press saves one PDF whose bytes are the ones the pages were drawn from, with no request and nothing in the browser's storage, its link off the page and its URL revoked a moment later; showing, printing, or a press the browser says no one made saves nothing; the note that describes the button says what the file holds, that it isn't encrypted, and to delete it on a shared computer) + `src/lib/intake/device-download.test.ts` (properties: exactly the bytes as a PDF under the name asked for, one click of a link taken away at once, the URL revoked only once its lifetime is up, a copy the caller can wipe, nothing made when the browser says no one is acting on the page) |
-| Delete and purge copy says a downloaded copy stays on the device | `src/lib/intake/device-intake.test.ts` (every delete and purge message) + `src/app/intake/device-results.test.tsx` (a delete and a clear after a download) |
+| Delete and purge copy says a downloaded copy stays on the device | `src/lib/intake/device-intake.test.ts` (every delete and purge message) + `src/app/intake/server-answers-notice.test.tsx` (the server answers delete's confirming step and each outcome that says what was or wasn't removed) + `src/app/intake/device-results.test.tsx` (a delete and a clear after a download) |
+| Where the pages can't be drawn, the filled form can still be downloaded | `src/app/intake/device-results.test.tsx` (with pdf.js failing to load: no pages, no Print button, and no print marks, Download a copy offered with its note, saving the form the fill made, its bytes wiped on an answer change, on leaving, and with the screen, and the pages shown on the next try) |
 | Print puts only the filled pages on paper, one to a sheet, with or without `:has()` | `src/app/intake/device-results.test.tsx` (the print rules in `src/app/globals.css`, read with the browser's CSS parser and applied to the rendered page as the cascade does, once without the rules that use `:has()` and once with them: everything beside the pages is hidden, the typed answers included, nothing in them is, a break after every page but the last, and each canvas sized to fit the printable width and height; the `:has()` rule alone still hides the rest if a mark is missing, and the marks come and go with the pages) |
 | The print preview draws every page, in order, and keeps nothing when it can't finish | `src/lib/intake/device-print.test.ts` (properties with pdf.js faked: each page drawn once at its print size and label from a copy of the bytes, the worker hook and the missing built-ins in place first, the stand-in built-ins behaving as the real ones, the loading task destroyed, every canvas released after a failure, an abort, or a pdf.js that stops answering, on a fake clock so a busy machine can't move the watchdog, a failed pdf.js load retried; the print size never past the budget's DPI or pixel limits, full or small, the small budget for an iPhone, iPad, or iPod or a device with 4 GB or less, read from the browser by default) |
-| The filled pages never outlast the answers they show | `src/app/intake/device-results.test.tsx` (a typed change, an answer change, a change while the pages draw, leaving the page for another screen or another site, a drawing still running when the page is left, and a delete each drop the pages, release their canvases, and wipe the bytes kept for a download, and the word that they are ready goes with them) |
-| A print press the browser ignores says how to print instead | `src/app/intake/device-results.test.tsx` (with `window.print()` ignored, the page says to download a copy and print it from another app or to open the page in another browser, and a print that starts late takes that back) |
+| The filled pages never outlast the answers they show | `src/app/intake/device-results.test.tsx` (a typed change, an answer change, a change while the pages draw, leaving the page for another screen or another site, a drawing still running when the page is left, a keypress or a `pagehide` between a drawing finishing and React's render, and a delete each drop the pages, release their canvases, and wipe the bytes kept for a download, and the word that they are ready, or that a copy should be saving, goes with them; a press of Download a copy between leaving and the next render saves nothing) |
+| A print press the browser ignores says how to print instead | `src/app/intake/device-results.test.tsx` (with `window.print()` ignored, the page says to open the page in another browser such as Safari or Chrome, and then to try Download a copy and print the file from another app, and a print that starts late takes that back) |
 | A box answer that isn't checked or unchecked holds the filled form back instead of printing an unchecked box | `src/lib/intake/device-review-answers.test.ts` (property over typed answers: box answers reach the fill only as checked or unchecked, any other text is listed) + `src/app/intake/device-results.test.tsx` (yes typed into a box: nothing fetched or filled, the box listed, then filled as fixed) |
 | Answers typed into the review survive a trip to a question and go with every delete | `src/app/intake/device-results.test.tsx` (property: generated typed answers are all still there after answering a question from the review; a delete here, in another tab, or found by a save leaves the review empty when the questions are answered again) |
 | The device's fill and review match the server's for the same answers | `src/lib/intake/device-form.test.ts` (properties over generated answer sets saved through the server store and on the device: the same field values, provenance, to-resolve and not-applicable lists, conflict flags, and the review route's view and coverage report) |
