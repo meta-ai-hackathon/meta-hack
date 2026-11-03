@@ -475,6 +475,12 @@ export async function answerOnDevice(
     case "saved": {
       const base = intakeOf(intake.store, "kept", true, result.state);
       const next = await withReprunedWorkRows(await withReprunedAttribution(base, questionId), questionId);
+      if (!next.stored) {
+        // A re-prune's own write found the answers deleted in another tab
+        // after this save landed, and came back empty. The page starts
+        // fresh, exactly as when the save itself finds the delete.
+        return { kind: "purged", intake: next, notice: DEVICE_INTAKE_COPY.purgedElsewhere };
+      }
       return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, next) };
     }
     case "purged":
