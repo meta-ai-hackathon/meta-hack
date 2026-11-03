@@ -296,6 +296,77 @@ describe("grounded prompt builders", () => {
     );
   });
 
+  it("grounds the NC process questions the smoke test saw refused (HACK-125)", () => {
+    // The Nov 2 production smoke test asked what to bring, how to apply, how
+    // long a decision takes and where to apply online, and the model refused
+    // each one because the grounding held only the rules.
+    const grounding = activeKbGrounding();
+    const nc = KB_ENTRIES.find((entry) => entry.id === "nc_medicaid");
+    expect(nc).toBeDefined();
+    const { facts } = nc!;
+    const groundedFacts = [
+      ...facts.required_documents.items,
+      ...(facts.steps?.items ?? []),
+      ...facts.deadlines.items.map((item) => item.due),
+      ...(facts.submission_steps?.items ?? []).map((step) => step.detail),
+      ...(facts.after_you_apply?.items ?? []).map((step) => step.detail),
+      ...facts.official_links.items.map((link) => link.url),
+    ];
+    expect(groundedFacts.length).toBeGreaterThan(0);
+    for (const fact of groundedFacts) {
+      expect(grounding).toContain(fact);
+    }
+  });
+
+  it("grounds every fact group of an active entry and none of a stale one (property, HACK-125)", () => {
+    const markerArb = fc.stringMatching(/^[a-z]{10}$/);
+    fc.assert(
+      fc.property(
+        fc.array(markerArb, { minLength: 9, maxLength: 9 }),
+        fc.constantFrom("stale", "withdrawn") as fc.Arbitrary<KbEntry["status"]>,
+        (raw, inactiveStatus) => {
+          const m = raw.map((marker, index) => `marker${index}${marker}`);
+          const group = { sourceId: "synthetic_source", retrievedAt: "2026-10-29" };
+          const step = (id: string, label: string, detail: string) => ({
+            id,
+            label,
+            detail,
+            sourceId: "synthetic_source",
+          });
+          const base = makeEntry("active", m[0]!);
+          const entry: KbEntry = {
+            ...base,
+            facts: {
+              ...base.facts,
+              required_documents: { ...group, items: [m[1]!] },
+              steps: { ...group, items: [m[2]!] },
+              deadlines: { ...group, items: [{ label: "When", due: m[3]! }] },
+              official_links: {
+                ...group,
+                items: [{ label: m[4]!, url: `https://example.org/${m[5]}` }],
+              },
+              submission_steps: {
+                retrievedAt: "2026-10-29",
+                items: [step("send_it", "Send it", m[6]!)],
+              },
+              after_you_apply: {
+                retrievedAt: "2026-10-29",
+                items: [step("wait", m[7]!, m[8]!)],
+              },
+            },
+          };
+          const active = activeKbGrounding([entry]);
+          const inactive = activeKbGrounding([{ ...entry, status: inactiveStatus }]);
+          for (const marker of m) {
+            expect(active).toContain(marker);
+            expect(inactive).not.toContain(marker);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
   it("keeps the extraction format sentences for option-less questions", () => {
     // The walkthrough's live journeys caught this: a yes/no question with
     // no option list gave the extractor no format to hit, so it echoed the
