@@ -241,11 +241,11 @@ describe("QuestionView per-person attribution (HACK-135)", () => {
     const html = renderView(q, {
       attributionContext: {
         members: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }],
-        situations: [{ id: "wr_income_580", label: "Household makes at least $580 a month" }],
+        situations: [{ id: "wr_income_580", label: "Does your household make at least $580 in monthly income?" }],
       },
       value: [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }],
     });
-    expect(html).toContain("Household makes at least $580 a month");
+    expect(html).toContain("Does your household make at least $580 in monthly income?");
     expect(html).toContain("Sam");
     expect(html).toContain("Both months");
   });
