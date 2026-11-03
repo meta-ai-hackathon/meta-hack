@@ -133,7 +133,7 @@ export function draftAttribution(value: unknown, context?: AttributionContext): 
       out.push({ memberId: e.memberId, situationId: e.situationId, months: e.months });
     }
   }
-  return out;
+  return context ? pruneAttribution(out, context) : out;
 }
 
 /** Drop entries naming a removed member or a no-longer-applicable situation. */

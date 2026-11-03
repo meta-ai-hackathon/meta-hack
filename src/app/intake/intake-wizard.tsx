@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ClientQuestion, IntakeClientState } from "../../lib/intake/client-state";
 import {
   DEVICE_INTAKE_COPY,
@@ -91,9 +91,6 @@ function displayValue(question: ClientQuestion, value: unknown): string {
   }
   if (question.type === "boolean") {
     return value === true ? "Yes" : "No";
-  }
-  if (question.type === "attribution" && Array.isArray(value)) {
-    return value.map((e) => (e && typeof e === "object" ? `${String((e as {memberId: unknown}).memberId)}: ${String((e as {situationId: unknown}).situationId)} (${String((e as {months: unknown}).months)})` : "")).filter(Boolean).join(", ");
   }
   if (question.type === "roster" && Array.isArray(value)) {
     return value.map((m) => (m && typeof m === "object" && "displayName" in m ? String((m as {displayName: unknown}).displayName) : "")).filter(Boolean).join(", ");
@@ -239,6 +236,10 @@ export function IntakeWizard(props: {
   // The on-device intake (persistence "device"): the store handle and every
   // answer, pii values included. Only its pii-stripped view is rendered.
   const [deviceIntake, setDeviceIntake] = useState<DeviceIntake | null>(null);
+  const attributionContext = useMemo(
+    () => (deviceIntake ? attributionContextFromAnswers(toAnswerMap(deviceIntake.answers)) : undefined),
+    [deviceIntake],
+  );
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Where focus goes after a delete: back into the questions, or back to
@@ -852,7 +853,7 @@ export function IntakeWizard(props: {
       </div>
       {screenStatus}
       <QuestionView
-        attributionContext={deviceIntake ? attributionContextFromAnswers(toAnswerMap(deviceIntake.answers)) : undefined}
+        attributionContext={attributionContext}
         question={question}
         answer={answer}
         value={draftValue}
