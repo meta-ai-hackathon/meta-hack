@@ -398,8 +398,10 @@ export async function renderPrintPreview(
       pages.push({ pageNumber, pageCount, label: printPageLabel(pageNumber, pageCount), canvas });
       // The print intent draws what a printer gets: every field the form
       // marks for printing, in the appearance pdf-lib wrote for its answer
-      // (the default annotation mode draws those), without the form's own
-      // on-screen Print Form button.
+      // (the default annotation mode draws those). The form's interactive
+      // Print Form button has no print flag, so it isn't drawn, but the
+      // DHB-5200 also has a gray "Print Form" box in page 1's own content,
+      // so that box still shows on the preview and on paper.
       const render = page.render({ canvas, viewport, intent: "print" });
       const cancel = () => render.cancel();
       stop.signal.addEventListener("abort", cancel, { once: true });
