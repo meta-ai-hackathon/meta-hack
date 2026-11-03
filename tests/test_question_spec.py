@@ -34,6 +34,7 @@ WORK_REQUIREMENTS_IDS = [
     "wr_veteran_100_disabled",
     "wr_applied_last_month",
     "wr_applied_last_month_which",
+    "wr_who_months",
     "wr_medical_travel_1hr",
     "wr_hospital_care_24hr",
     "wr_student_enrolled",
@@ -88,6 +89,7 @@ SENSITIVE_WORK_REQUIREMENTS_IDS = [
     "wr_veteran_100_disabled",
     "wr_applied_last_month",
     "wr_applied_last_month_which",
+    "wr_who_months",
     "wr_medical_travel_1hr",
     "wr_hospital_care_24hr",
     "wr_student_enrolled",
@@ -168,7 +170,7 @@ class TestQuestionSpec(unittest.TestCase):
 
     def test_text_and_address_questions_are_pii(self):
         for q in self.questions:
-            if q["type"] in ("text", "address", "roster"):
+            if q["type"] in ("text", "address", "roster", "attribution"):
                 self.assertTrue(
                     q["pii"],
                     f"{q['id']}: free-text question of type {q['type']} must be pii: true",

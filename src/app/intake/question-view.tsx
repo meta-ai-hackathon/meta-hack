@@ -7,6 +7,13 @@ import {
 } from "../../lib/intake/work-requirements";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import {
+  MONTH_LABELS,
+  MONTH_VALUES,
+  draftAttribution,
+  setAttribution,
+  type Months,
+} from "../../lib/intake/attribution";
+import {
   AGE_BAND_LABELS,
   MAX_ROSTER_MEMBERS,
   MAX_MEMBER_NAME_LENGTH,
@@ -32,6 +39,8 @@ import { Field } from "../../components/field";
 
 export interface QuestionViewProps {
   question: ClientQuestion;
+  /** Roster + applicable situations for the attribution editor (device mode). */
+  attributionContext?: import("../../lib/intake/attribution").AttributionContext;
   /** Stored answer for this question, when one exists. */
   answer?: ClientAnswer;
   /** Draft value being edited (undefined = nothing entered yet). */
@@ -68,6 +77,7 @@ function isChoiceType(type: ClientQuestion["type"]): boolean {
 
 export function QuestionView({
   question,
+  attributionContext,
   answer,
   value,
   onValueChange,
@@ -159,6 +169,49 @@ export function QuestionView({
             {option.label}
           </label>
         ))}
+      </fieldset>
+    );
+  } else if (question.type === "attribution") {
+    const entries = draftAttribution(value);
+    const members = attributionContext?.members ?? [];
+    const situations = attributionContext?.situations ?? [];
+    control = (
+      <fieldset aria-describedby={describedBy} className="flex flex-col gap-3">
+        <legend className="mb-1 text-base font-medium">
+          {question.prompt} {requiredMark}
+        </legend>
+        {question.help ? <p id={helpId} className="text-sm text-muted">{question.help}</p> : null}
+        {members.length === 0 || situations.length === 0 ? (
+          <p className="text-sm text-muted">
+            There is no household list or situation to attach yet. You can skip this question - it never blocks your application.
+          </p>
+        ) : (
+          situations.map((situation) => (
+            <div key={situation.id} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3">
+              <p className="text-base font-medium">{situation.label}</p>
+              {members.map((member) => {
+                const entry = entries.find((e) => e.memberId === member.id && e.situationId === situation.id);
+                return (
+                  <label key={member.id} className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${situation.id}-${member.id}`}>
+                    {member.displayName}
+                    <select
+                      id={`${question.id}-${situation.id}-${member.id}`}
+                      value={entry?.months ?? ""}
+                      disabled={busy}
+                      onChange={(e) => onValueChange(setAttribution(entries, member.id, situation.id, e.target.value === "" ? null : (e.target.value as Months)))}
+                      className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
+                    >
+                      <option value="">Does not apply / not picked yet</option>
+                      {MONTH_VALUES.map((v) => (
+                        <option key={v} value={v}>{MONTH_LABELS[v]}</option>
+                      ))}
+                    </select>
+                  </label>
+                );
+              })}
+            </div>
+          ))
+        )}
       </fieldset>
     );
   } else if (question.type === "roster") {

@@ -91,6 +91,7 @@ export const PII_QUESTION_IDS = [
   "wr_veteran_100_disabled",
   "wr_applied_last_month",
   "wr_applied_last_month_which",
+  "wr_who_months",
   "wr_medical_travel_1hr",
   "wr_hospital_care_24hr",
   "wr_student_enrolled",

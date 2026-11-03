@@ -18,6 +18,8 @@ import {
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { StatusRegion } from "../../components/status-region";
 import { QuestionView } from "./question-view";
+import { attributionContextFromAnswers } from "../../lib/intake/attribution";
+import { toAnswerMap } from "../../lib/intake/client-store";
 
 // Intake wizard (BN-09 / HACK-37): one question per screen, in spec order,
 // driven by the flow engine. Every screen saves immediately (no explicit
@@ -847,6 +849,7 @@ export function IntakeWizard(props: {
       </div>
       {screenStatus}
       <QuestionView
+        attributionContext={deviceIntake ? attributionContextFromAnswers(toAnswerMap(deviceIntake.answers)) : undefined}
         question={question}
         answer={answer}
         value={draftValue}

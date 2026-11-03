@@ -82,6 +82,8 @@ function validDraft(question: Question): unknown {
       return question.options![0].value;
     case "multi_select":
       return [question.options![0].value];
+    case "attribution":
+      return [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }];
     case "roster":
       return [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }];
   }

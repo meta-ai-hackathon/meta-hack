@@ -234,3 +234,23 @@ describe("QuestionView household roster (HACK-134)", () => {
     expect(html).toContain("Person 1: first name or nickname");
   });
 });
+
+describe("QuestionView per-person attribution (HACK-135)", () => {
+  it("renders who + which-months controls per situation and member", () => {
+    const q = QUESTIONS.find((x) => x.id === "wr_who_months")!;
+    const html = renderView(q, {
+      attributionContext: {
+        members: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }],
+        situations: [{ id: "wr_income_580", label: "Household makes at least $580 a month" }],
+      },
+      value: [{ memberId: "member-1", situationId: "wr_income_580", months: "both" }],
+    });
+    expect(html).toContain("Household makes at least $580 a month");
+    expect(html).toContain("Sam");
+    expect(html).toContain("Both months");
+  });
+  it("shows a skip-friendly note when there is nothing to attribute yet", () => {
+    const q = QUESTIONS.find((x) => x.id === "wr_who_months")!;
+    expect(renderView(q)).toContain("never blocks your application");
+  });
+});
