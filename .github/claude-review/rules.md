@@ -47,6 +47,9 @@ The team adopted these on Oct 29 2026, when the demo moved to real people and re
 - Income-verification data is consent-bound end to end (HACK-92): bank and payment pulls happen only after their own consent. Statements and transactions are PII: they are never sent to any model (including a voice model or any other LLM), never logged, and never stored anywhere server-side; they are held only on the user's device (or encrypted with a key that exists only there) and leave it only inside the consented fax transmission.
 - Never describe the current server-side vault as privacy-preserving; it does not satisfy the on-device rule until a zero-knowledge store exists where only the client holds the key (HACK-87).
 - Apart from the sanctioned captures and sends above (intake pii into the server vault under the HACK-116 decision, and the consented no-retention voice and fax APIs), form and answer data leaves the device only via the consented fax at the end and the user's own downloaded form above, and never anywhere else: no analytics, no error trackers, no logs, no other APIs. Conversation audio under the voice consent rule is a separate channel: it carries no form data and does not relax this rule.
+- Reading or filling from the on-device vault is local and needs no API consent; consent gates only the sends above.
+- A voice or fax channel may be enabled only after its provider's no-retention verification and its consent flow are recorded on its ticket; until then the channel stays disabled.
+- The fax is only the user's instructed sending mechanism, used after the user's own submit action plus explicit third-party-fax consent. The app never signs, certifies, or submits on anyone's behalf (HACK-66 as narrowed, HACK-75).
 - The user previews and signs the application. A flow that submits, faxes, or signs for the user without that step is a P1.
 - The team never acts as the applicant's authorized representative. Copy, forms, or code that makes the team or the app the authorized representative is a P1.
 
@@ -55,7 +58,7 @@ The team adopted these on Oct 29 2026, when the demo moved to real people and re
 These come from `src/lib/honesty.ts`.
 
 - Never weaken the banned-claims gate — its patterns, copy, or tests — to get a screen to pass; weakening it is a P1 under the quality-gates rule above.
-- The app never promises an outcome. Eligibility or approval determinations ("you are eligible", "you will be approved", "you qualify", "guaranteed") are a P1. Hedged uncertainty such as "you may be eligible" is fine. The banned shapes are in `BANNED_CLAIM_PATTERNS`.
+- The app never promises an outcome. Eligibility or approval determinations ("you are eligible", "you will be approved", "you qualify", "guaranteed") are a P1, and so is suggesting a person will receive anything: eligibility is decided solely by the agency. Hedged uncertainty such as "you may be eligible" is fine, and the permitted framing is "this may be worth pursuing" with source-linked reasons. The banned shapes are in `BANNED_CLAIM_PATTERNS`.
 - Every answer carries one of three statuses: `known`, `unknown`, or `unverified`. Hiding uncertainty, for example showing an unverified answer as confirmed, is a P2.
 - Prepared is never submitted. The app sets only `draft`, `prepared`, and `handed_off`, and submission exists only as the user reported states (`user_reported_submitted`, `user_reported_decided`). Copy or code that says the app submitted an application, or that sets a user reported state itself, is a P1.
 
