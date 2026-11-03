@@ -130,7 +130,12 @@ export function attributionContextFromAnswers(answers: AnswerMap): AttributionCo
   const retainSituationIds = new Set<string>();
   const exempt = answers["wr_exempt_situations"];
   if (exempt?.status === "unknown") {
-    for (const id of allSituationIds()) retainSituationIds.add(id);
+    // Only the exempt list's own option values are retained: an unknown
+    // exempt list says nothing about the separate exemption questions or
+    // the $580 screen, whose known "no" answers still withdraw theirs.
+    for (const option of QUESTION_BY_ID["wr_exempt_situations"]?.options ?? []) {
+      if (option.value !== "none") retainSituationIds.add(option.value);
+    }
   }
   for (const id of EXEMPTION_QUESTION_IDS) {
     if (answers[id]?.status === "unknown") retainSituationIds.add(id);

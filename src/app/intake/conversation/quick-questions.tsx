@@ -572,7 +572,7 @@ function QuestionCard(props: {
           <p id={`${question.id}-qq-help`} className="text-sm text-muted">{question.help}</p>
         ) : null}
         <p className="text-sm text-muted">
-          In the step-by-step questions you can say who each situation applies to and which months. You can skip this here - it never blocks your application.
+          When your answers are kept on this device, the step-by-step questions let you say who each situation applies to and which months. You can skip this here - it never blocks your application.
         </p>
       </div>
     );
