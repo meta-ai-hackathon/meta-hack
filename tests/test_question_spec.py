@@ -168,7 +168,7 @@ class TestQuestionSpec(unittest.TestCase):
 
     def test_text_and_address_questions_are_pii(self):
         for q in self.questions:
-            if q["type"] in ("text", "address"):
+            if q["type"] in ("text", "address", "roster"):
                 self.assertTrue(
                     q["pii"],
                     f"{q['id']}: free-text question of type {q['type']} must be pii: true",
