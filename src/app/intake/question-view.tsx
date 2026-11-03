@@ -222,6 +222,15 @@ export function QuestionView({
 
   return (
     <div className="flex flex-col gap-4" data-intake-question={question.id}>
+      {isWorkRequirements ? (
+        <p
+          id={proofNoteId}
+          data-intake-proof-note
+          className="text-sm text-muted"
+        >
+          {NO_PROOF_NEEDED_NOTE}
+        </p>
+      ) : null}
       {control}
       {choice ? (
         <>
@@ -243,15 +252,6 @@ export function QuestionView({
             </p>
           ) : null}
         </>
-      ) : null}
-      {isWorkRequirements ? (
-        <p
-          id={proofNoteId}
-          data-intake-proof-note
-          className="text-sm text-muted"
-        >
-          {NO_PROOF_NEEDED_NOTE}
-        </p>
       ) : null}
       {answer ? (
         <div className="flex flex-col items-start gap-1">

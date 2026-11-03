@@ -91,9 +91,9 @@ describe("the no-proof-needed reassurance (HACK-129)", () => {
         /never (need|ask)|no proof will|records (will be |are )?checked/i,
       );
     }
-    // The sensitive variant scopes itself to the health/caregiving cards.
+    // The sensitive variant scopes itself to the work-requirements cards.
     expect(NO_PROOF_NEEDED_NOTE_SENSITIVE).toContain(
-      "health and caregiving questions",
+      "work-requirements questions below",
     );
   });
 });

@@ -80,12 +80,12 @@ export const NO_PROOF_NEEDED_NOTE =
 
 /**
  * Scoped variant for the sensitive group (HACK-129 review): that group can
- * also hold non-work-requirements cards, so this wording names the health
- * and caregiving questions it applies to instead of saying "these
+ * also hold non-work-requirements cards, so this wording names the
+ * work-requirements questions it applies to instead of saying "these
  * questions" over the whole group. Same honesty guardrail as above.
  */
 export const NO_PROOF_NEEDED_NOTE_SENSITIVE =
-  "For the health and caregiving questions below, you don't need any " +
+  "For the work-requirements questions below, you don't need any " +
   "paperwork or a doctor's note to answer. Answer with what you know " +
   "now \u2014 the state may ask for proof later.";
 

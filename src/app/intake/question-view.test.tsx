@@ -72,6 +72,11 @@ describe("QuestionView across the whole spec", () => {
     // Non-WR screens never reference a proof note.
     const other = QUESTIONS.find((q) => q.id === "household_size")!;
     expect(renderView(other)).not.toContain("proof-note");
+    // The note renders before the question prompt, so it is seen before
+    // the person starts answering (not below the controls).
+    expect(choiceHtml.indexOf("data-intake-proof-note")).toBeLessThan(
+      choiceHtml.indexOf(choice.prompt),
+    );
   });
 
   it("renders every question with prompt, help, and a not-sure control", () => {
