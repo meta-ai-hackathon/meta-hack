@@ -2,7 +2,7 @@
 
 import type { ClientAnswer, ClientQuestion } from "../../lib/intake/serialize";
 import {
-  NO_PROOF_NEEDED_NOTE,
+  NO_PROOF_NEEDED_NOTE_SINGLE,
   isWorkRequirementsQuestionId,
 } from "../../lib/intake/work-requirements";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
@@ -228,7 +228,7 @@ export function QuestionView({
           data-intake-proof-note
           className="text-sm text-muted"
         >
-          {NO_PROOF_NEEDED_NOTE}
+          {NO_PROOF_NEEDED_NOTE_SINGLE}
         </p>
       ) : null}
       {control}

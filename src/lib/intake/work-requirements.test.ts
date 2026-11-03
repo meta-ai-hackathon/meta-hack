@@ -9,6 +9,7 @@ import {
   INCOME_580_QUESTION_ID,
   NO_PROOF_NEEDED_NOTE,
   NO_PROOF_NEEDED_NOTE_SENSITIVE,
+  NO_PROOF_NEEDED_NOTE_SINGLE,
   isWorkRequirementsQuestionId,
   matchIncome580,
 } from "./work-requirements";
@@ -83,7 +84,11 @@ describe("the no-proof-needed reassurance (HACK-129)", () => {
   });
 
   it("promises only that answering needs no paperwork; proof may come later", () => {
-    for (const note of [NO_PROOF_NEEDED_NOTE, NO_PROOF_NEEDED_NOTE_SENSITIVE]) {
+    for (const note of [
+      NO_PROOF_NEEDED_NOTE,
+      NO_PROOF_NEEDED_NOTE_SENSITIVE,
+      NO_PROOF_NEEDED_NOTE_SINGLE,
+    ]) {
       expect(note).toContain("doctor's note");
       expect(note).toContain("may ask for proof later");
       // Guardrails: never a never-proof promise, never a records-first claim.
@@ -95,6 +100,8 @@ describe("the no-proof-needed reassurance (HACK-129)", () => {
     expect(NO_PROOF_NEEDED_NOTE_SENSITIVE).toContain(
       "work-requirements questions below",
     );
+    // The wizard variant is singular: one question per screen.
+    expect(NO_PROOF_NEEDED_NOTE_SINGLE).toContain("answer this question");
   });
 });
 

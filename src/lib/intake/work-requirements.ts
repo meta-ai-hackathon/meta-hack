@@ -79,6 +79,16 @@ export const NO_PROOF_NEEDED_NOTE =
   "proof later.";
 
 /**
+ * Singular variant for the step-by-step wizard (HACK-129 review): it shows
+ * one question per screen, so "these questions" would have no referent.
+ * Same honesty guardrail as above.
+ */
+export const NO_PROOF_NEEDED_NOTE_SINGLE =
+  "You don't need any paperwork or a doctor's note to answer this " +
+  "question. Answer with what you know now \u2014 the state may ask for " +
+  "proof later.";
+
+/**
  * Scoped variant for the sensitive group (HACK-129 review): that group can
  * also hold non-work-requirements cards, so this wording names the
  * work-requirements questions it applies to instead of saying "these
