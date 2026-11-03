@@ -196,12 +196,15 @@ const BANNED_FIXTURES: { label: string; text: string }[] = [
   { label: "is renewed, then a promise", text: "Your coverage is renewed, so nothing changes." },
   // What the narrowing after the review of 7fbeb3c keeps caught: an
   // application that is accepted (an outcome, kept on purpose), continuing
-  // with a coverage word as the subject, help as a noun, the past
-  // "helped", and a promise in the main clause after a help clause.
+  // with a coverage word as the subject, a renewal that continues
+  // automatically, help as a noun, the past "helped", and a promise in the
+  // main clause after a help clause.
   { label: "7fbeb3c review: application is accepted", text: "Your application is accepted." },
   { label: "7fbeb3c review: application has been accepted", text: "Your application has been accepted." },
   { label: "7fbeb3c review: eligibility continues", text: "Your eligibility continues." },
   { label: "7fbeb3c review: health coverage is going to continue", text: "Your health coverage is going to continue." },
+  { label: "7fbeb3c review: renewal continues automatically", text: "Your renewal continues automatically." },
+  { label: "7fbeb3c review: application will continue automatically", text: "Your application will continue automatically." },
   { label: "7fbeb3c review: help as a noun", text: "With our help you will stay covered." },
   { label: "7fbeb3c review: help as a noun, present", text: "With help you keep your Medicaid." },
   { label: "7fbeb3c review: helped reports the coverage", text: "Answering that letter helped you stay covered." },
@@ -471,7 +474,7 @@ describe("banned-claims detector", () => {
     );
   });
 
-  it("counts continuing only with a coverage word as the subject, and accepted with any subject (review of 7fbeb3c, property)", () => {
+  it("counts continuing only with a coverage word as the subject, and continuing automatically or accepted with any subject (review of 7fbeb3c, property)", () => {
     const processSubject = fc.constantFrom("application", "renewal", "recertification", "NC renewal");
     const coverageSubject = fc.constantFrom(
       "coverage",
@@ -501,6 +504,8 @@ describe("banned-claims detector", () => {
         for (const caught of [
           // Coverage carrying on, in any tense.
           `Your ${coverage} ${verb}${end}`,
+          // Going on by itself is the automatic renewal promise, whatever the subject.
+          `Your ${process} ${verb} automatically${end}`,
           // Accepted is an outcome whatever the subject (the conservative call).
           `Your ${process} ${outcome}${end}`,
           `Your ${coverage} ${outcome}${end}`,

@@ -94,6 +94,8 @@ const BANNED_FIXTURES = [
   // Review of 7fbeb3c: what the narrowing keeps caught.
   "Your application is accepted.",
   "Your eligibility continues.",
+  "Your renewal continues automatically.",
+  "Your renewal still continues automatically.",
   "With our help you will stay covered.",
   "Answering that letter helped you stay covered.",
   "To help you stay covered, answer the letter. Then you will keep your Medicaid.",
