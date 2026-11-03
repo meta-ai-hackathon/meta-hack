@@ -8,6 +8,8 @@ import type {
 import type { AnswerStatus } from "../../../lib/honesty";
 import {
   INCOME_580_QUESTION_ID,
+  NO_PROOF_NEEDED_NOTE,
+  isWorkRequirementsQuestionId,
   matchIncome580,
 } from "../../../lib/intake/work-requirements";
 
@@ -118,6 +120,8 @@ interface GroupSpec {
   readonly id: string;
   readonly heading: string;
   readonly questionIds: readonly string[];
+  /** Reassurance rendered once under the group heading (HACK-129). */
+  readonly note?: string;
 }
 
 /**
@@ -170,6 +174,7 @@ const GROUP_SPECS: readonly GroupSpec[] = [
     // not here.
     id: "work-requirements",
     heading: "Work requirements",
+    note: NO_PROOF_NEEDED_NOTE,
     questionIds: [
       "wr_exempt_situations",
       "wr_applied_last_month",
@@ -217,6 +222,8 @@ const OTHER_GROUP: GroupSpec = {
 export interface QuickQuestionGroup {
   readonly id: string;
   readonly heading: string;
+  /** Reassurance under the heading, when this group carries one. */
+  readonly note?: string;
   readonly sensitive: boolean;
   /** The remaining, still-unanswered questions of this group, spec order. */
   readonly questions: readonly ClientQuestion[];
@@ -249,6 +256,14 @@ export function groupRemainingQuestions(
     groups.push({
       id: spec.id,
       heading: spec.heading,
+      // HACK-129: the sensitive group also carries the reassurance when
+      // it holds work-requirements questions (its health/caregiving cards
+      // are exemption screens); answering never requires paperwork.
+      note:
+        spec.note ??
+        (questions.some((q) => isWorkRequirementsQuestionId(q.id))
+          ? NO_PROOF_NEEDED_NOTE
+          : undefined),
       sensitive: spec.id === SENSITIVE_GROUP.id,
       questions,
     });
@@ -738,6 +753,11 @@ export function QuickQuestionsStage(props: {
           <h3 id={`qq-group-${group.id}-heading`} className="text-lg font-semibold">
             {group.heading}
           </h3>
+          {group.note ? (
+            <p data-qq-group-note={group.id} className="text-sm text-muted">
+              {group.note}
+            </p>
+          ) : null}
           <ul className="flex flex-col gap-3">
             {group.questions.map((question) => (
               <QuestionCard

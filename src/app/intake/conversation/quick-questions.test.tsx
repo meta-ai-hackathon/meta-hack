@@ -909,6 +909,20 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
   const q = (container: HTMLElement, attr: string): Element | null =>
     container.querySelector(`[data-${attr}]`);
 
+  it("shows the no-proof-needed note under the work-requirements and sensitive group headings (HACK-129)", async () => {
+    const { container } = await renderWrState(wrStageState());
+    for (const groupId of ["work-requirements", "sensitive"]) {
+      const note = container.querySelector(`[data-qq-group-note="${groupId}"]`);
+      expect(note, groupId).not.toBeNull();
+      expect(note?.textContent).toContain("doctor's note");
+      expect(note?.textContent).toContain("may ask for proof later");
+    }
+    // Groups without work-requirements questions carry no such note.
+    expect(
+      container.querySelector('[data-qq-group-note="household"]'),
+    ).toBeNull();
+  });
+
   it("renders the work-requirements group BEFORE the sensitive group, whose cards carry why-we-ask notes, optional marks, and skips (VAL-WR-006)", async () => {
     const { container } = await renderWrState(wrStageState());
     const groupIds = [...container.querySelectorAll("[data-qq-group]")].map(

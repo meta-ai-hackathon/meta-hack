@@ -7,6 +7,8 @@ import { QUESTION_BY_ID } from "./spec";
 import {
   INCOME_580_MONTHLY_THRESHOLD,
   INCOME_580_QUESTION_ID,
+  NO_PROOF_NEEDED_NOTE,
+  isWorkRequirementsQuestionId,
   matchIncome580,
 } from "./work-requirements";
 
@@ -38,6 +40,31 @@ function merge(...maps: readonly AnswerMap[]): AnswerMap {
 function sources(...values: string[]): AnswerMap {
   return { income_sources: { status: "known", value: values } };
 }
+
+describe("the no-proof-needed reassurance (HACK-129)", () => {
+  it("classifies exactly the spec's wr_* questions as work-requirements", () => {
+    // Spec-wide invariant: the predicate must agree with the wr_ prefix
+    // on every question the spec actually defines (no drift either way).
+    const misses = Object.keys(QUESTION_BY_ID).filter(
+      (id) => isWorkRequirementsQuestionId(id) !== id.startsWith("wr_"),
+    );
+    expect(misses).toEqual([]);
+    expect(
+      Object.keys(QUESTION_BY_ID).some((id) =>
+        isWorkRequirementsQuestionId(id),
+      ),
+    ).toBe(true);
+  });
+
+  it("promises only that answering needs no paperwork; proof may come later", () => {
+    expect(NO_PROOF_NEEDED_NOTE).toContain("doctor's note");
+    expect(NO_PROOF_NEEDED_NOTE).toContain("may ask for proof later");
+    // Guardrails: never a never-proof promise, never a records-first claim.
+    expect(NO_PROOF_NEEDED_NOTE).not.toMatch(
+      /never (need|ask)|no proof will|records (will be |are )?checked/i,
+    );
+  });
+});
 
 describe("matchIncome580 (VAL-WR-008, the documented rule)", () => {
   it("proposes for the spec question it names — a yes/no screen, asked directly otherwise", () => {

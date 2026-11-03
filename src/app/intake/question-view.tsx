@@ -1,6 +1,10 @@
 "use client";
 
 import type { ClientAnswer, ClientQuestion } from "../../lib/intake/serialize";
+import {
+  NO_PROOF_NEEDED_NOTE,
+  isWorkRequirementsQuestionId,
+} from "../../lib/intake/work-requirements";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { Field } from "../../components/field";
 
@@ -226,6 +230,11 @@ export function QuestionView({
             </p>
           ) : null}
         </>
+      ) : null}
+      {isWorkRequirementsQuestionId(question.id) ? (
+        <p data-intake-proof-note className="text-sm text-muted">
+          {NO_PROOF_NEEDED_NOTE}
+        </p>
       ) : null}
       {answer ? (
         <div className="flex flex-col items-start gap-1">

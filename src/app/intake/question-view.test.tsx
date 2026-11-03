@@ -39,6 +39,21 @@ function collectMisses(cases: Array<[string, boolean]>): string[] {
 }
 
 describe("QuestionView across the whole spec", () => {
+  it("shows the no-proof-needed note on work-requirements questions only (HACK-129)", () => {
+    const misses = collectMisses(
+      QUESTIONS.map((question) => {
+        const html = renderView(question).replace(/&#x27;/g, "'");
+        const hasNote = html.includes("data-intake-proof-note");
+        return [
+          question.id,
+          hasNote === question.id.startsWith("wr_") &&
+            (!hasNote || html.includes("doctor's note")),
+        ] as [string, boolean];
+      }),
+    );
+    expect(misses).toEqual([]);
+  });
+
   it("renders every question with prompt, help, and a not-sure control", () => {
     const misses = collectMisses(
       QUESTIONS.map((question) => {
