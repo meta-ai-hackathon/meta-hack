@@ -1300,15 +1300,72 @@ describe("number answers in the pii gate (HACK-121)", () => {
     ).not.toThrow();
   });
 
-  // Known gap: a range, a ratio, a digit group, or an id ("20-30 hours",
-  // "30/80", "1,030", "v30", "hours-30", and the same with an en dash, a
-  // minus sign or an invisible joiner) has the same shape as the dates
-  // and ids every response carries (2026-10-30, 10/08/2026, dhb-5200), so
-  // the token rule reads the answer there as part of a longer token.
-  // Catching those needs a rule that knows the date and id shapes.
-  it.todo(
-    "catches the hours answer inside a range, a ratio, a digit group or an id (HACK-124)",
-  );
+  // A range, a ratio, or an id ("20-30 hours", "30/80", "v30", "hours-30",
+  // and the same with an en dash, a minus sign or an invisible joiner) has
+  // the shape of the dates and ids every response carries (2026-10-30,
+  // dhb-5200), so the token rule reads the answer there as part of a longer
+  // token. A model explanation is also read with the wider trigger, which
+  // catches them (HACK-124).
+  const INSIDE_LONGER_TOKEN: readonly ((value: string) => string)[] = [
+    (value) => `${value}-99 hours`,
+    (value) => `9-${value} hours`,
+    (value) => `${value}\u201399 hours`,
+    (value) => `9\u2212${value}`,
+    (value) => `${value}/80`,
+    (value) => `30/${value}`,
+    (value) => `v${value}`,
+    (value) => `hours-${value}`,
+    (value) => `id_${value}`,
+    (value) => `9\u200b${value}`,
+  ];
+
+  it("catches the hours answer inside a range, a ratio or an id in a model explanation (property, HACK-124)", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        numberAnswerArb,
+        fc.nat({ max: INSIDE_LONGER_TOKEN.length - 1 }),
+        async (value, shape) => {
+          const explanation = `Keep a record of ${INSIDE_LONGER_TOKEN[shape]!(value)} of work.`;
+          const hours: AnswerMap = {
+            wr_work_activity_hours: { status: "known", value },
+          };
+          // The gate: a model explanation carrying the shape throws, since
+          // the generated copy excuses nothing.
+          const response = generatedResponse(
+            ["Medicaid", "work", "form", "apply", "official", explanation, "hours"],
+            2,
+            5,
+            "2026-10-30",
+          );
+          expect(() => assertNoPiiValuesInMatch(response, hours)).toThrow();
+          // The degrade step mirrors it, so a built match never throws.
+          const answers = withHours(value);
+          const built = await buildMatchResponse(answers, {
+            explainer: explainWith("model", explanation),
+            explanationCache: new Map(),
+          });
+          expect(() => assertNoPiiValuesInMatch(built, answers)).not.toThrow();
+        },
+      ),
+      { numRuns: 150 },
+    );
+  });
+
+  it("swaps a model explanation with the answer in a range for the fact copy (HACK-124)", async () => {
+    // 387 appears nowhere in the NC entry's copy, so nothing excuses it.
+    const answers = withHours("387");
+    const built = await buildMatchResponse(answers, {
+      explainer: explainWith("model", "Many people report 300-387 hours a quarter."),
+      explanationCache: new Map(),
+    });
+    expect(built.matches[0]!.explanation.source).toBe("facts");
+    // A longer number that only contains the digits is not the answer.
+    const kept = await buildMatchResponse(withHours("30"), {
+      explainer: explainWith("model", "The program served 1,030 people and 17.30 is a rate."),
+      explanationCache: new Map(),
+    });
+    expect(kept.matches[0]!.explanation.source).toBe("model");
+  });
 
   // A number answer the way String() and the vault write it: whole hours
   // and tenths, from 0 up.
@@ -1338,6 +1395,17 @@ describe("number answers in the pii gate (HACK-121)", () => {
     (value, digit) => `${digit}.${value}`,
     (value, digit) => `${digit},${value}`,
   ];
+
+  // EMBEDDED from here on holds the value only inside a longer number, which
+  // no trigger reads as the answer. The shapes before it are dates and ids,
+  // which the wider model explanation trigger does read (HACK-124).
+  const FIRST_LONGER_NUMBER = 10;
+
+  function holdsDateOrId(pieces: readonly Piece[]): boolean {
+    return pieces.some(
+      (piece) => "embedded" in piece && piece.embedded < FIRST_LONGER_NUMBER,
+    );
+  }
 
   // The value standing as its own number, the way a leak would print it.
   const OWN_NUMBER: readonly ((value: string) => string)[] = [
@@ -1493,7 +1561,9 @@ describe("number answers in the pii gate (HACK-121)", () => {
             },
           };
           const check = () => assertNoPiiValuesInMatch(response, answers);
-          if (leak) {
+          // The model explanation (copy field 5) is also read with the wider
+          // trigger, so a date or id there carries the value too.
+          if (leak || holdsDateOrId(fields[5]!)) {
             expect(check).toThrow();
           } else {
             expect(check).not.toThrow();
@@ -1523,9 +1593,10 @@ describe("number answers in the pii gate (HACK-121)", () => {
           // The build degrades any explanation the gate would reject, so a
           // cached model explanation can never pin the session to a 500.
           expect(() => assertNoPiiValuesInMatch(response, answers)).not.toThrow();
-          if (leak === undefined) {
-            // Digits inside dates, ids, and longer numbers keep the model
-            // copy.
+          if (leak === undefined && !holdsDateOrId(pieces)) {
+            // Digits inside longer numbers keep the model copy. A date or id
+            // may not, since the wider trigger reads the value there unless
+            // the NC copy excuses it (HACK-124).
             expect(response.matches[0]!.explanation.source).toBe("model");
           }
         },
