@@ -25,14 +25,27 @@ describe("AppShell (BN-07)", () => {
     const html = renderToStaticMarkup(<AppShell><p>Page content</p></AppShell>);
     // The product frame is edge-to-edge (no centered max-width, no dead
     // gutters) and the header takes the prototype's exact geometry:
-    // 84px tall with 24px 36px padding on wide viewports (the 760px rule
-    // drops it to 75px with 18px 20px padding, single-column on phones).
+    // 84px MINIMUM height with 24px 36px padding on wide viewports (the
+    // 760px rule drops it to 75px with 18px 20px padding, single-column
+    // on phones). HACK-155: the 84px is a floor, not a fixed height — at
+    // 250% text the header grows with its content instead of clipping the
+    // "Text size and contrast" label and the High contrast checkbox.
     expect(html).not.toContain("max-w-[85rem]");
-    expect(html).toContain("min-[1101px]:h-[5.25rem]");
+    expect(html).toContain("min-[1101px]:min-h-[5.25rem]");
+    expect(html).not.toContain(":h-[5.25rem]");
     expect(html).toContain("min-[761px]:px-9");
     expect(html).toContain("min-[761px]:py-6");
     expect(html).toContain("min-h-[75px]");
     expect(html).toContain("px-5");
+  });
+
+  it("keeps the brand logo round at huge text: the disc cannot shrink (HACK-155)", () => {
+    const html = renderToStaticMarkup(<AppShell><p>Page content</p></AppShell>);
+    // At 250% the flex row squeezes items; a squeezed round disc renders
+    // as an oval (the ticket's stretched-logo report). The logo disc
+    // itself carries shrink-0 (the class attribute pairs it with
+    // rounded-full — the checkbox's shrink-0 does not count).
+    expect(html).toMatch(/class="(?=[^"]*shrink-0)(?=[^"]*rounded-full)[^"]*"/);
   });
 
   it("provides the main landmark as the skip target", () => {

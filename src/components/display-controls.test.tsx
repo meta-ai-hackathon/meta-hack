@@ -47,4 +47,15 @@ describe("DisplayControls", () => {
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-live="polite"');
   });
+
+  it("wraps the stepper and contrast rows so Bigger never leaves the screen (HACK-155)", () => {
+    // At 375 px and 250% the one-line "Smaller 250% Bigger" row is ~578px
+    // wide; without wrapping it pushed the Bigger button off screen and
+    // made every page scroll sideways. The section-level wrap alone cannot
+    // fix that (the row is one flex item) — each control row wraps too.
+    const html = markup(<DisplayControls />);
+    const section = html.slice(html.indexOf("data-display-controls"));
+    const wrapRows = section.match(/flex flex-wrap items-center gap-2"/g) ?? [];
+    expect(wrapRows.length).toBeGreaterThanOrEqual(2);
+  });
 });

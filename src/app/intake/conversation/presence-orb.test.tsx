@@ -124,6 +124,19 @@ describe("the presence orb (VAL-VJS-005)", () => {
     expect(frame).toContain("height:");
   });
 
+  it("never lets a flex row squeeze the frame to zero width (HACK-155)", () => {
+    // At 250% text on a phone the session bar squeezed the frame to 0px
+    // wide while the absolutely-positioned halo still painted ~190px —
+    // the decorative orb then spilled past the viewport. The frame cannot
+    // shrink below its own square.
+    const css = readFileSync(cssPath, "utf8");
+    const frame = css.slice(
+      css.indexOf(".presence-orb-frame {"),
+      css.indexOf("}", css.indexOf(".presence-orb-frame {")),
+    );
+    expect(frame).toContain("flex-shrink: 0");
+  });
+
   it("defines orb motion ONLY inside the no-preference block (reduced-motion static variant)", () => {
     const css = readFileSync(cssPath, "utf8");
     const marker = "@media (prefers-reduced-motion: no-preference)";

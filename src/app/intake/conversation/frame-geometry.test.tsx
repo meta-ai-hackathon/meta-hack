@@ -227,6 +227,19 @@ describe("the talk-stage frame geometry (VAL-FIX-006)", () => {
     expect(grid).toContain("pt-7");
   });
 
+  it("wraps the session bar so the orb never forces sideways scroll at 250% text (HACK-155)", async () => {
+    const { container, act } = await renderChat();
+    await beginTalkStage(container, act);
+    // At 375 px and 250% the one-line "Conversation" + orb row is wider
+    // than the viewport; the row must wrap (the decorative orb drops
+    // under the title) instead of widening the stage.
+    const bar = container.querySelector(
+      "#conversation-transcript-heading",
+    )?.parentElement;
+    expect(bar).not.toBeNull();
+    expect(bar?.className).toContain("flex-wrap");
+  });
+
   it("renders the Coming Together sidebar as a right rail: border-left, 23px left padding, collapsed into the flow below 1101px", async () => {
     const { container, act } = await renderChat();
     await beginTalkStage(container, act);

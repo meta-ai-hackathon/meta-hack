@@ -1705,7 +1705,7 @@ export function ConversationChat() {
             className="flex min-w-0 flex-col gap-3"
             data-endpoint-timing={endpointEvidence ?? undefined}
           >
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <h2 id="conversation-transcript-heading" className="font-display text-2xl font-bold">
                 Conversation
               </h2>

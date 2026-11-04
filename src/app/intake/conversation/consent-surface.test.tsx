@@ -79,6 +79,15 @@ describe("ConsentPanel copy (VAL-CONSENT-002)", () => {
     }
   });
 
+  it("wraps each toggle row so the switch and its copy stack at 250% text (HACK-155)", () => {
+    // At 375 px and 250% the one-line switch+copy row is wider than the
+    // panel; without wrapping, both consent rows spilled past the
+    // viewport. Each row wraps so the copy drops under its switch.
+    const html = panelMarkup();
+    const rows = html.match(/class="flex flex-wrap items-start gap-x-2[^"]*"/g) ?? [];
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+  });
+
   it("offers the zero-send alternative: the step-by-step form reaches no AI provider", () => {
     const html = panelMarkup();
     expect(html).toContain("data-consent-decline");
