@@ -328,6 +328,12 @@ describe("RampartShield properties", () => {
   });
 
   it("the sealed store never holds a mapped raw value (persistent + plaintext-free)", async () => {
+    // The store keeps the session only as `sealed1.<iv base64>.<ciphertext
+    // base64>`. A three letter value can turn up inside that much random
+    // base64 by chance, with nothing leaked, so each envelope is masked
+    // before the search. The mask must be found, which keeps a store that
+    // persisted nothing from passing.
+    const sealedEnvelope = /sealed1\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+/g;
     await fc.assert(
       fc.asyncProperty(fc.array(valueArb, { minLength: 1, maxLength: 4 }), async (values) => {
         const { kv, store } = memoryKv();
@@ -340,7 +346,8 @@ describe("RampartShield properties", () => {
           const out = await shield.protectTyped(value);
           expect(out.kind).toBe("tokenized");
         }
-        const dump = JSON.stringify([...store.entries()]);
+        const dump = JSON.stringify([...store.entries()]).replace(sealedEnvelope, "<sealed>");
+        expect(dump).toContain("<sealed>");
         for (const value of values) {
           expect(dump).not.toContain(value);
         }
