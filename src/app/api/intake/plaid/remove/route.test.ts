@@ -9,11 +9,20 @@ vi.mock("../../../../../lib/intake/store", () => ({
         : null,
 }));
 const removeUser = vi.fn(async () => undefined);
-vi.mock("../../../../../lib/plaid/client", () => ({
-  PlaidClient: class {
-    removeUser = removeUser;
-  },
-}));
+vi.mock("../../../../../lib/plaid/client", () => {
+  class PlaidApiError extends Error {
+    constructor(readonly code: string) {
+      super("Plaid request failed.");
+    }
+  }
+  return {
+    PlaidClient: class {
+      removeUser = removeUser;
+    },
+    PlaidApiError,
+  };
+});
+import { PlaidApiError } from "../../../../../lib/plaid/client";
 import { POST as remove } from "./route";
 import { sealPlaidUserId } from "../../../../../lib/plaid/user-handle";
 
@@ -57,11 +66,20 @@ describe("plaid user cleanup route", () => {
   });
 
   it("stays idempotent when Plaid already removed the user", async () => {
-    removeUser.mockRejectedValueOnce(new Error("USER_NOT_FOUND"));
+    removeUser.mockRejectedValueOnce(new PlaidApiError("USER_NOT_FOUND"));
     const res = await remove(
       request({ pullHandle: sealPlaidUserId(SESSION, "user-sandbox-x") }),
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ removed: true });
+  });
+
+  it("reports a real removal failure instead of claiming success", async () => {
+    removeUser.mockRejectedValueOnce(new Error("network down"));
+    const res = await remove(
+      request({ pullHandle: sealPlaidUserId(SESSION, "user-sandbox-x") }),
+    );
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.code).toBe("internal");
   });
 });

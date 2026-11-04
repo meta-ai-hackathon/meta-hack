@@ -400,6 +400,9 @@ export function IncomeStage(props: {
         }
         onStateChange((await response.json()) as IntakeClientState);
       }
+      // The manual card now owns every visible income answer; a bank badge
+      // left over from an earlier pull would misstate where it came from.
+      await clearPlaidOriginsFor(questions.map((question) => question.id));
       onNotice(
         "Saved — your income details are in. Nothing was submitted; the official program decides.",
       );
@@ -495,6 +498,7 @@ export function IncomeStage(props: {
       }
       const fresh = (await response.json()) as { state: IntakeClientState };
       onStateChange(fresh.state);
+      await clearPlaidOriginsFor(decided.map((entry) => entry.questionId));
       onNotice(
         "Saved — your tax return's figures are in as you confirmed them. Nothing was submitted.",
       );
@@ -519,15 +523,20 @@ export function IncomeStage(props: {
       // one fetch, but a Link exit (or a failed pull) never fetches — so the
       // exit path calls the idempotent remove route with this handle.
       let pullHandle: string | null = mintedHandle;
-      const releaseTestUser = () => {
+      const releaseTestUser = async (): Promise<boolean> => {
         const handle = pullHandle;
-        if (handle === null) return;
+        if (handle === null) return true;
         pullHandle = null;
-        void fetch("/api/intake/plaid/remove", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ pullHandle: handle }),
-        }).catch(() => undefined);
+        try {
+          const response = await fetch("/api/intake/plaid/remove", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ pullHandle: handle }),
+          });
+          return response.ok;
+        } catch {
+          return false;
+        }
       };
       await loadPlaidLinkScript();
       if (!window.Plaid) throw new Error("plaid-missing");
@@ -553,10 +562,10 @@ export function IncomeStage(props: {
             setPlaidStatus(result.proposals.length > 0
               ? "Check what we found, then save."
               : "We could not find a reliable monthly pattern in that test bank, so nothing is proposed. You can type your income instead.");
-          } catch { releaseTestUser(); setPlaidStatus(READ_FAILED_NOTICE); }
+          } catch { void releaseTestUser(); setPlaidStatus(READ_FAILED_NOTICE); }
           finally { setPlaidConnecting(false); }
         },
-        onExit: () => { releaseTestUser(); setPlaidConnecting(false); setPlaidStatus("Bank connection closed — the test connection was removed and nothing was saved. You can type your income instead."); },
+        onExit: () => { void releaseTestUser().then((removed) => { setPlaidConnecting(false); setPlaidStatus(removed ? "Bank connection closed — the test connection was removed and nothing was saved. You can type your income instead." : "Bank connection closed — nothing was saved, but we could not confirm the test connection was removed. You can type your income instead."); }); },
       });
       handler.open();
     } catch { setPlaidConnecting(false); setPlaidStatus(READ_FAILED_NOTICE); }
@@ -580,19 +589,49 @@ export function IncomeStage(props: {
 
   function originBadge(
     questionId: string,
-    provenance: string | undefined,
+    answer: { status: string; provenance?: string } | undefined,
   ): { readonly kind: string; readonly label: string } | null {
     const institution = plaidOrigins[questionId];
-    if (institution) {
+    // The bank badge is valid only while the stored answer is still the one
+    // the bank card wrote: an untouched bank amount is `unverified`, and a
+    // bank frequency is `user`-confirmed. A later manual or tax-return save
+    // also clears the sealed origin (clearPlaidOriginsFor below), so a stale
+    // name can never claim the wrong source.
+    const bankShaped =
+      answer !== undefined &&
+      (questionId.endsWith("_amount")
+        ? answer.status === "unverified"
+        : answer.provenance === "user");
+    if (institution && bankShaped) {
       return { kind: "plaid_institution", label: `From ${institution}` };
     }
-    if (provenance === "tax_return") {
+    if (answer?.provenance === "tax_return") {
       return { kind: "tax_return", label: "From your tax return" };
     }
-    if (provenance === "user") {
+    if (answer?.provenance === "user") {
       return { kind: "user", label: "You confirmed this" };
     }
     return null;
+  }
+
+  /** Another save path owns these answers now: drop the sealed bank names. */
+  async function clearPlaidOriginsFor(
+    questionIds: readonly string[],
+  ): Promise<void> {
+    if (questionIds.length === 0 || Object.keys(plaidOrigins).length === 0) {
+      return;
+    }
+    try {
+      const persisted = await savePlaidOriginsToDevice(
+        Object.fromEntries(questionIds.map((id) => [id, null])),
+        { expectStored: true },
+      );
+      if (persisted.status === "saved") {
+        setPlaidOrigins(persisted.origins);
+      }
+    } catch {
+      // The answer saved; a stale bank name is the only risk.
+    }
   }
 
   async function savePlaidFindings(): Promise<void> {
@@ -700,7 +739,7 @@ export function IncomeStage(props: {
             const draft = drafts[question.id] ?? { kind: "not-sure" as const };
             const badge = originBadge(
               question.id,
-              state.answers[question.id]?.provenance,
+              state.answers[question.id],
             );
             return (
               <li

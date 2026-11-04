@@ -4,7 +4,7 @@ import {
   readSessionCookie,
 } from "../../../../../lib/intake/store";
 import { AppError, userMessageFor } from "../../../../../lib/telemetry";
-import { PlaidClient } from "../../../../../lib/plaid/client";
+import { PlaidApiError, PlaidClient } from "../../../../../lib/plaid/client";
 import { openPlaidUserId } from "../../../../../lib/plaid/user-handle";
 
 // POST /api/intake/plaid/remove (HACK-140, review P3): cleanup for the
@@ -13,9 +13,11 @@ import { openPlaidUserId } from "../../../../../lib/plaid/user-handle";
 // after its one fetch. This route covers the case the pull never ran, so
 // the card's "test connection is removed right after" copy stays true.
 //
-// It is idempotent: a user the pull already removed still reports success
-// (Plaid's /user/remove fails for an unknown user; the cleanup still holds).
-// It writes no database rows and logs no payload, user_id, token, or handle.
+// It is idempotent for the one expected no-op: Plaid's USER_NOT_FOUND means
+// the user is already gone, so that error (and only that one) still reports
+// success. Any other failure is a real cleanup failure and returns an error,
+// so the card never claims removal it could not confirm. It writes no
+// database rows and logs no payload, user_id, token, or handle.
 export async function POST(request: Request): Promise<Response> {
   try {
     const sessionId = await loadSession(
@@ -43,9 +45,13 @@ export async function POST(request: Request): Promise<Response> {
     if (!userId) {
       throw new AppError("validation_error", userMessageFor("validation_error"));
     }
-    await new PlaidClient()
-      .removeUser(userId)
-      .catch(() => undefined);
+    try {
+      await new PlaidClient().removeUser(userId);
+    } catch (error) {
+      if (!(error instanceof PlaidApiError) || error.code !== "USER_NOT_FOUND") {
+        throw new AppError("internal", userMessageFor("internal"));
+      }
+    }
     return Response.json(
       { removed: true },
       { headers: { "cache-control": "no-store" } },

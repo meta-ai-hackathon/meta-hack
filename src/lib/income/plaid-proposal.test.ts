@@ -22,9 +22,28 @@ describe("plaidIncomeProposals (Bank Income, NC MA-3306)", () => {
     expect(r.basis.streams).toContainEqual(expect.objectContaining({ category: "GIG_ECONOMY", disposition: "needs_documents" }));
   });
   it("non-countable excluded with reasons", () => {
-    const r = plaidIncomeProposals(payload([stream("MILITARY", 900), stream("CHILD_SUPPORT", 600), stream("TAX_REFUND", 1500)]));
+    const r = plaidIncomeProposals(payload([stream("CHILD_SUPPORT", 600), stream("TAX_REFUND", 1500)]));
     expect(r.proposals).toEqual([]);
-    for (const c of ["MILITARY", "CHILD_SUPPORT", "TAX_REFUND"]) expect(r.basis.streams).toContainEqual(expect.objectContaining({ category: c, disposition: "excluded_noncountable" }));
+    for (const c of ["CHILD_SUPPORT", "TAX_REFUND"]) expect(r.basis.streams).toContainEqual(expect.objectContaining({ category: c, disposition: "excluded_noncountable" }));
+  });
+  it("MILITARY asks veterans-benefit vs military-pay; pay proposes wages", () => {
+    const p = payload([stream("MILITARY", 3000)]);
+    const unanswered = plaidIncomeProposals(p);
+    expect(unanswered.proposals).toEqual([]);
+    expect(unanswered.classificationQuestions.map((q) => q.category)).toContain("MILITARY");
+    expect(unanswered.basis.streams).toContainEqual(expect.objectContaining({ category: "MILITARY", disposition: "needs_classification" }));
+    const veterans = plaidIncomeProposals(p, { MILITARY: "veterans_benefit" });
+    expect(veterans.proposals).toEqual([]);
+    expect(veterans.basis.streams).toContainEqual(expect.objectContaining({ category: "MILITARY", disposition: "excluded_noncountable" }));
+    const pay = plaidIncomeProposals(p, { MILITARY: "military_pay" });
+    expect(pay.proposals.find((x) => x.questionId === "job_income_amount")?.value).toBe(1000);
+  });
+  it("marks a second benefit stream as NOT included instead of proposed", () => {
+    const r = plaidIncomeProposals(payload([stream("UNEMPLOYMENT", 1200, 3, "WEEKLY"), stream("RETIREMENT", 900, 3, "MONTHLY")]));
+    expect(r.proposals.filter((p) => p.questionId === "benefits_income_amount")).toHaveLength(1);
+    const retirement = r.basis.streams.find((s) => s.category === "RETIREMENT");
+    expect(retirement?.disposition).toBe("needs_documents");
+    expect(retirement?.reason).toMatch(/NOT included/i);
   });
   it("unemployment proposes benefits with award-letter caveat", () => {
     const r = plaidIncomeProposals(payload([stream("UNEMPLOYMENT", 1200, 3, "WEEKLY")]));

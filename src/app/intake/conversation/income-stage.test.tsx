@@ -472,6 +472,18 @@ describe("the manual card (VAL-INC-003/012)", () => {
     expect(handledState().income.handled).toBe(true);
   });
 
+  it("clears a saved bank origin when the manual card saves the questions", async () => {
+    originStoreMock.load.mockResolvedValue({ job_income_amount: "First Platypus Bank" });
+    const { container, act } = await renderStage();
+    await act(async () => {
+      q(container, "income-save-manual")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(originStoreMock.save).toHaveBeenCalledWith(
+      expect.objectContaining({ job_income_amount: null }),
+      { expectStored: true },
+    );
+  });
+
   it("saves an 'I'm not sure' row through the standard tri-state path with no value", async () => {
     const { container, act } = await renderStage();
     await act(async () => {
@@ -671,10 +683,11 @@ describe("the client-side Plaid origin (HACK-140)", () => {
     const state = incomeState({
       answers: {
         ...incomeState().answers,
+        // The bank confirm writes untouched amounts as unverified (review
+        // P2); the sealed origin badge belongs to exactly that shape.
         job_income_amount: {
-          status: "known",
+          status: "unverified",
           value: 2100,
-          provenance: "user",
         },
       },
     });
@@ -684,6 +697,20 @@ describe("the client-side Plaid origin (HACK-140)", () => {
       row?.querySelector('[data-origin-badge="plaid_institution"]'),
     ).not.toBeNull();
     expect(row?.textContent).toContain("From First Platypus Bank");
+  });
+
+  it("does not keep the bank badge on an amount another path saved", async () => {
+    originStoreMock.load.mockResolvedValue({ job_income_amount: "First Platypus Bank" });
+    const state = incomeState({
+      answers: {
+        ...incomeState().answers,
+        job_income_amount: { status: "known", value: 2100, provenance: "user" },
+      },
+    });
+    const { container } = await renderStage(state);
+    const row = q(container, 'income-row="job_income_amount"');
+    expect(row?.querySelector('[data-origin-badge="plaid_institution"]')).toBeNull();
+    expect(row?.querySelector('[data-origin-badge="user"]')).not.toBeNull();
   });
 
   it("falls back to the person-confirmed badge without a saved origin", async () => {
