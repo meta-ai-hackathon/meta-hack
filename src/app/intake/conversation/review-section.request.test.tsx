@@ -61,3 +61,79 @@ describe("ReviewSection's review request", () => {
     expect(source).not.toMatch(/\/api\/forms\/[a-z0-9][a-z0-9-]*\/review/);
   });
 });
+
+describe("ReviewSection's appearance gate (HACK-153)", () => {
+  const payload = (prefilled: number): string =>
+    JSON.stringify({
+      hasSession: true,
+      form: {
+        id: "dhb-5200",
+        title: "Application for Health Coverage",
+        version: "1.0.0",
+        sourceUrl: "https://example.org/form.pdf",
+        retrievedAt: "2026-10-30",
+      },
+      fields: [
+        ...Array.from({ length: prefilled }, (_, index) => ({
+          fieldName: `filled-${index}`,
+          question: `Filled question ${index}`,
+          state: "prefilled",
+          specQuestionId: null,
+          required: false,
+          piiLikely: false,
+          value: `value ${index}`,
+        })),
+        ...Array.from({ length: 3 }, (_, index) => ({
+          fieldName: `asked-${index}`,
+          question: `Asked question ${index}`,
+          state: "asked",
+          specQuestionId: null,
+          required: false,
+          piiLikely: false,
+        })),
+      ],
+      toResolve: [],
+      counts: { prefilled, asked: 3, notApplicable: 0 },
+      sessionStatus: "draft",
+      portalLinks: [],
+    });
+
+  it("stays off the page until the answers can fill something", async () => {
+    // After the first message nothing can be filled yet: the review (355
+    // field cards in the ticket's repro) must not appear at all until at
+    // least one answer fills a field.
+    const fetchSpy = vi.fn(() =>
+      Promise.resolve(new Response(payload(0), { status: 200 })),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const React = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { ReviewSection } = await import("./review-section");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await React.act(async () => {
+      root.render(React.createElement(ReviewSection, { refreshKey: 0 }));
+      for (let i = 0; i < 10; i += 1) {
+        await new Promise((done) => setTimeout(done, 0));
+      }
+    });
+    expect(container.querySelector("[data-review-section]")).toBeNull();
+
+    // Once an answer fills a field, the review appears.
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(payload(1), { status: 200 })),
+    );
+    await React.act(async () => {
+      root.render(React.createElement(ReviewSection, { refreshKey: 1 }));
+      for (let i = 0; i < 10; i += 1) {
+        await new Promise((done) => setTimeout(done, 0));
+      }
+    });
+    expect(container.querySelector("[data-review-section]")).not.toBeNull();
+    await React.act(async () => {
+      root.unmount();
+    });
+  });
+});

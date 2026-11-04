@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import realEntryJson from "../../../../kb/entries/nc-medicaid.json";
 import { buildFormFlow } from "../../../lib/forms/flow";
 import { getFormRegistryEntry } from "../../../lib/forms/registry";
+import { personShowsField } from "../../../lib/forms/review-layout";
 import {
   HANDOFF_WHERE_LABELS,
   handoffCompanion,
@@ -298,12 +299,12 @@ describe("HandoffSection inside the review section", () => {
         sourceUrl: entry.source.url,
         retrievedAt: entry.source.retrievedAt,
       },
+      householdSize: 3,
       fields: view.fields,
       toResolve: view.toResolve,
       counts: view.counts,
       sessionStatus,
-      portalLinks: [{ label: "Official application portal", url: "https://example.org/apply" }],
-      steps: [{ title: "Submit it yourself", detail: "The app never submits for you." }],
+      portalLinks: [{ label: "Official application portal", url: "https://example.org/apply", retrievedAt: "2026-10-30" }],
     };
   }
 
@@ -311,17 +312,25 @@ describe("HandoffSection inside the review section", () => {
     const doc = render(<ReviewSectionContent data={reviewData("sample-application-form", status)} />);
     expect(doc.querySelector("[data-next-action]")).toBeNull();
     expect(doc.querySelector("[data-handoff-step]")).toBeNull();
-    // The existing handoff pieces are still there, unchanged.
-    expect(doc.querySelector("[data-handoff-steps]")).not.toBeNull();
+    // The unsourced generic steps are GONE (HACK-119) — the sourced
+    // companion is the only steps list. The portal links render dated.
+    expect(doc.querySelector("[data-handoff-steps]")).toBeNull();
     expect(doc.querySelector("[data-portal-links]")).not.toBeNull();
   });
 
-  it.each(SESSION_STATUSES)("mounts exactly one next step inside the handoff (%s)", (status) => {
+  it.each(SESSION_STATUSES)("mounts exactly one next step, leading the handoff (%s)", (status) => {
     const data = reviewData(FORM, status);
+    const html = renderToStaticMarkup(<ReviewSectionContent data={data} />);
     const doc = render(<ReviewSectionContent data={data} />);
     const callouts = doc.querySelectorAll("[data-next-action]");
     expect(callouts).toHaveLength(1);
     expect(callouts[0]!.closest("[data-handoff]")).not.toBeNull();
+    // HACK-119: the next-step box LEADS — it renders before the handoff's
+    // buttons in the document order.
+    const nextActionAt = html.indexOf("data-next-action");
+    const prepareAt = html.indexOf('data-action="prepare"');
+    expect(nextActionAt).toBeGreaterThan(-1);
+    expect(nextActionAt).toBeLessThan(prepareAt);
     // The review section has not downloaded anything yet on first render.
     expect(callouts[0]!.getAttribute("data-next-action")).toBe(
       nextHandoffAction({
@@ -330,8 +339,6 @@ describe("HandoffSection inside the review section", () => {
         stillNeededCount: data.toResolve.length,
       }).kind,
     );
-    // The existing handoff pieces are still there, unchanged.
-    expect(doc.querySelector("[data-handoff-steps]")).not.toBeNull();
     expect(doc.querySelector("[data-portal-links]")).not.toBeNull();
   });
 
@@ -474,21 +481,31 @@ describe("HandoffSection inside the review section", () => {
         expect(nextAction()).toBe("mark_handed_off");
         expect(container.querySelector("[data-where]")?.textContent).toBe("In the app");
         expect(handOff()?.disabled).toBe(false);
-        // The fill's blanks joined the still-needed list above. They belong
-        // to the payload they were filled from: a refreshed review (the
-        // next message's answers landed) drops them until the person
+        // The fill's blanks are marked in the collapsed remaining list —
+        // the private answers the page doesn't hold among them (what is
+        // blank on the file is what the list shows). They belong to the
+        // payload they were filled from: a refreshed review (the next
+        // message's answers landed) drops the marks until the person
         // downloads again — a stale row never lingers (claude-review P2,
         // PR #150).
-        const mergedRows = container.querySelectorAll("[data-form-to-resolve] li").length;
+        const marked = container.querySelectorAll("[data-left-blank-reason]").length;
+        expect(marked).toBeGreaterThan(0);
         await act(async () => {
           root.render(<ReviewSectionContent data={{ ...reviewData(FORM, "prepared") }} />);
         });
-        expect(container.querySelectorAll("[data-form-to-resolve] li").length).toBeLessThan(
-          mergedRows,
-        );
-        expect(container.querySelectorAll("[data-form-to-resolve] li").length).toBe(
-          reviewData(FORM, "prepared").toResolve.length,
-        );
+        expect(container.querySelectorAll("[data-left-blank-reason]").length).toBe(0);
+        // And the collapsed list's rows return to the review's own
+        // remaining fields (asked + not applicable), person-scoped — the
+        // signature field excepted: it renders as its own visible step.
+        const refreshed = reviewData(FORM, "prepared").fields.filter(
+          (field) =>
+            field.state !== "prefilled" &&
+            field.fieldName !== "Signature" &&
+            personShowsField(field.question, 3),
+        ).length;
+        expect(
+          container.querySelectorAll("[data-review-remaining] [data-review-field]").length,
+        ).toBe(refreshed);
       } finally {
         await act(async () => {
           root.unmount();
@@ -499,11 +516,12 @@ describe("HandoffSection inside the review section", () => {
       }
     }, 15_000);
 
-    it("names the blocking box question in the announcement, and fills nothing", async () => {
-      // A box answer typed in any other word stops the fill before
-      // anything is drawn (review-fill's rule). The announcement names
-      // the blocking question — "fix the ones listed" is nothing without
-      // the list (claude-review P2, PR #150).
+    it("fills a yes/no field from its pair, and never a free-text box", async () => {
+      // The box questions render as Yes/No pairs (HACK-153): the pair's
+      // choice is the word the fill trusts, so the old failure mode —
+      // "yes" typed into a free-text box, printing an unchecked box that
+      // counted as filled — cannot be typed on this surface anymore (the
+      // word-check itself stays pinned at review-fill's level).
       const realForm = readFileSync(
         path.join(REPO_ROOT, "src/lib/forms/fixtures/dhb-5200-ia-9-2020.pdf"),
       );
@@ -528,39 +546,27 @@ describe("HandoffSection inside the review section", () => {
         await act(async () => {
           root.render(<ReviewSectionContent data={reviewData(FORM, "prepared")} />);
         });
-        const input = container.querySelector<HTMLInputElement>(
-          'input[id$="form-answer-Employed_2"]',
-        );
-        expect(input).not.toBeNull();
-        // jsdom carries no value through a synthetic event: set it the way
-        // React reads it, through the native setter, then let the change flow.
-        const setter = Object.getOwnPropertyDescriptor(
-          HTMLInputElement.prototype,
-          "value",
-        )?.set;
+        // The Employed_2 row has a Yes/No pair and no text input.
+        const row = container.querySelector('[data-review-field="Employed_2"]');
+        expect(row).not.toBeNull();
+        const textInput = row!.querySelector('input[type="text"]');
+        expect(textInput).toBeNull();
+        const yes = row!.querySelector<HTMLInputElement>('input[type="radio"][value="checked"]');
+        expect(yes).not.toBeNull();
         await act(async () => {
-          setter?.call(input, "yes");
-          input?.dispatchEvent(new Event("input", { bubbles: true }));
-        });
-        await act(async () => {
+          yes!.click();
           container.querySelector<HTMLButtonElement>('[data-action="download"]')?.click();
-        });
-        expect(fetchSpy).toHaveBeenCalledTimes(1);
-        expect(clickSpy).not.toHaveBeenCalled();
-        // The announcement lands on a timer (the StatusRegion must change
-        // its text to speak): wait for it, bounded.
-        const regions = () => container.querySelectorAll('[role="status"]');
-        for (let tick = 0; tick < 100; tick += 1) {
-          if (regions()[regions().length - 1]?.textContent !== "") {
-            break;
-          }
-          await act(async () => {
+          // The real form fills in the browser here (355 fields checked
+          // over the 21-page template), which takes the fill a moment:
+          // wait for the download it produces, bounded.
+          for (let tick = 0; tick < 500 && clickSpy.mock.calls.length === 0; tick += 1) {
             await new Promise((done) => setTimeout(done, 10));
-          });
-        }
-        expect(regions()[regions().length - 1]?.textContent).toContain(
-          "Is Person 2 employed?",
-        );
+          }
+        });
+        // The pair's Yes checked the form's box, from a draft that needed
+        // no word-fixing: the one request was the blank form's GET.
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(clickSpy).toHaveBeenCalled();
       } finally {
         await act(async () => {
           root.unmount();

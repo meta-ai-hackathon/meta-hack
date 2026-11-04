@@ -306,9 +306,17 @@ export const MATCH_UNAVAILABLE_NOTICE =
 export function MatchSection({
   refreshKey,
   stagger = false,
+  onMatchesKnown,
 }: {
   refreshKey: number;
   stagger?: boolean;
+  /**
+   * Called whenever a load settles, with whether the match found at least
+   * one program — the also-prepare section gates its entry point on it
+   * (HACK-153: no second-form offer before a match exists), so it must
+   * hear "no" on a failure too.
+   */
+  onMatchesKnown?: (hasMatches: boolean) => void;
 }) {
   const [data, setData] = useState<MatchDataView | null>(null);
   const [failed, setFailed] = useState(false);
@@ -330,10 +338,12 @@ export function MatchSection({
         if (!cancelled) {
           setData(payload);
           setFailed(false);
+          onMatchesKnown?.(payload.matches.length > 0);
         }
       } catch {
         if (!cancelled) {
           setFailed(true);
+          onMatchesKnown?.(false);
         }
       }
     }
@@ -341,6 +351,9 @@ export function MatchSection({
     return () => {
       cancelled = true;
     };
+    // The load re-runs when the conversation moves; the callback is the
+    // parent's stable setter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
   return (

@@ -165,11 +165,13 @@ function answerRemaining(count: number): HandoffAction {
     // The review shows on the voice results stage, where the transcript
     // is gone, and on the step-by-step path, which has no conversation,
     // so this copy names no part of the page that only some paths show.
+    // The remaining fields sit collapsed in the review section BELOW the
+    // next-step box (HACK-153), so "below" is where they are.
     detail:
-      `The form still lists ${items} as needed, shown in the list above. ` +
-      "Answer what you can, and anything you leave blank you can write in " +
-      "by hand on the printed form. When it looks right, mark your package " +
-      "prepared.",
+      `The form still lists ${items} as needed, shown in the collapsed ` +
+      "list below. Answer what you can, and anything you leave blank you " +
+      "can write in by hand on the printed form. When it looks right, " +
+      "mark your package prepared.",
   };
 }
 
