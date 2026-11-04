@@ -127,14 +127,14 @@ drives three surfaces:
   fields (571 fillable, 355 taking your answers), a to-resolve list of
   everything still needed, and the ordered handoff steps — the app
   prepares, you review and submit yourself.
-- **Download** (`POST /api/forms/<formId>/fill`) fills the registered
-  template and returns the PDF as an attachment, generated on the fly and
-  never persisted server-side. Unknown answers stay visibly blank and are
-  listed as to-resolve; contradictory checks inside a mapped Yes/No pair
-  or check-one group are flagged for you to resolve, never silently
-  picked. The registry covers all 614 fields across all 21 pages of the
-  real NC DHB-5200; the per-field inventory is in
-  `docs/dhb5200-field-inventory.md`.
+- **Download** fills the blank form in your browser, on the device, from
+  the values the page already holds — no answers ride any request, and the
+  filled PDF is generated on the fly and never persisted server-side. A
+  vault-held answer the page doesn't hold stays visibly blank and is listed
+  as to-resolve; contradictory checks inside a mapped Yes/No pair or
+  check-one group are flagged for you to resolve, never silently picked.
+  The registry covers all 614 fields across all 21 pages of the real NC
+  DHB-5200; the per-field inventory is in `docs/dhb5200-field-inventory.md`.
 
 ### Two applications from one interview
 

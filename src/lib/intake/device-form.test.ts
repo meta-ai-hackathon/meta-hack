@@ -15,10 +15,7 @@ import { GET as matchRoute } from "../../app/api/match/route";
 import { GET as reviewRoute } from "../../app/api/forms/[formId]/review/route";
 import { closeDb } from "../db";
 import {
-  collectFillValues,
   detectCheckConflicts,
-  fillForSession,
-  parseFormValues,
   skippedFieldNames,
 } from "../forms/fill";
 import { formRegistryEntries } from "../forms/registry";
@@ -43,7 +40,9 @@ import {
   deviceFormCoverage,
   deviceFormReview,
   deviceMatch,
+  reviewAnswersForForm,
 } from "./device-form";
+import { fillReviewOnDevice } from "./review-fill";
 import { QUESTIONS, type Question } from "./spec";
 import { saveAnswer } from "./store";
 
@@ -51,11 +50,18 @@ import { saveAnswer } from "./store";
 // server's own, for the same answers. Each generated answer set is saved
 // twice: through the server store (answer rows plus the vault, as the
 // conversation page keeps them) and into a device answer state (as the
-// step-by-step page keeps them). The real fill, review, and match code on
-// each side must then agree: the same field values and provenance, the same
+// step-by-step page keeps them). The real review and match code on each
+// side must then agree: the same field values and provenance, the same
 // to-resolve and not-applicable lists, the same conflict flags for boxes
 // checked on both sides of a question, the same review view, and the same
 // facts-only match the consent-declined route returns.
+//
+// The FILLS now agree on the values the client holds (the server fill
+// route retired on HACK-138): the review payload's views drive
+// fillReviewOnDevice, the device state drives fillFormOnDevice, and every
+// field both surfaces hold reads back the same on the printed form. A
+// private field the payload structurally omits fills only on the device
+// that holds it and degrades to blank + to-resolve on the review path.
 
 const LOCAL_DATABASE_URL =
   "postgresql://postgres:benefits_dev@localhost:5432/benefits_navigator";
@@ -255,11 +261,6 @@ function deviceState(answers: Readonly<Record<string, GeneratedAnswer>>): Client
   return state;
 }
 
-/** What the server's review sends with a download: the typed answers that aren't blank. */
-function sentWithDownload(typed: Readonly<Record<string, string>>): Record<string, string> {
-  return Object.fromEntries(Object.entries(typed).filter(([, value]) => value.trim() !== ""));
-}
-
 /**
  * One field's value as a PDF viewer would read it, by the field's own kind
  * in the PDF. That can differ from the registry's: the DSS-8207 registers
@@ -304,35 +305,128 @@ describe("the device form against the server's, for the same answers", () => {
     expect(flagged.length).toBeGreaterThan(10);
   });
 
-  it("fills the same fields with the same values and lists the same fields to resolve", async () => {
+  it("both download fills print the same values for the answers the client holds", async () => {
     await fc.assert(
       fc.asyncProperty(caseArb, async ({ entry, answers, typed }) => {
-        const sessionId = await seedServer(answers);
         const state = deviceState(answers);
-        const formValues = parseFormValues(entry, sentWithDownload(typed));
 
-        // What goes onto the form, and the skip logic it runs under.
-        const server = await collectFillValues(sessionId, entry, formValues);
-        const device = deviceFillValues(state, typed, entry);
-        expect(device).toEqual(server);
-        expect(skippedFieldNames(entry, device!.answerMap)).toEqual(
-          skippedFieldNames(entry, server.answerMap),
+        // Both download paths run the page's box word-trust first: a box
+        // answer that isn't the word checked or unchecked is named back and
+        // nothing fills, so the parity below only covers fillable drafts.
+        const { values: pageTyped, unreadable } = reviewAnswersForForm(
+          typed,
+          entry,
         );
+        if (unreadable.length > 0) {
+          return;
+        }
 
-        // The filled PDFs themselves.
-        const serverFill = await fillForSession(templateFor(entry), entry, sessionId, formValues);
-        const deviceFill = await fillFormOnDevice(templateFor(entry), state, typed, entry);
+        // The conversation page's download: the review payload's views (the
+        // client-held values) plus the typed drafts drive the review fill.
+        const views = deviceFormReview(state, entry).fields;
+        const reviewFill = await fillReviewOnDevice(
+          templateFor(entry),
+          views,
+          pageTyped,
+          entry,
+        );
+        // The step-by-step page's download: the device state drives the
+        // device fill.
+        const deviceFill = await fillFormOnDevice(
+          templateFor(entry),
+          state,
+          pageTyped,
+          entry,
+        );
         expect(deviceFill.kind).toBe("filled");
         if (deviceFill.kind !== "filled") {
           return;
         }
-        expect(deviceFill.outcome.filled).toEqual(serverFill.filled);
-        expect(deviceFill.outcome.toResolve).toEqual(serverFill.toResolve);
-        expect(deviceFill.outcome.conflicts).toEqual(serverFill.conflicts);
+        if (reviewFill.kind !== "filled") {
+          throw new Error(`expected a review fill, got ${reviewFill.kind}`);
+        }
+
+        // Every field the review payload carries (prefilled, non-private)
+        // is filled on BOTH surfaces with the person's own provenance —
+        // the two download surfaces agree on the values the client holds.
+        const shared = views.filter(
+          (field) =>
+            field.state === "prefilled" &&
+            !field.piiLikely &&
+            field.value !== undefined,
+        );
+        const deviceFilled = new Set(
+          deviceFill.outcome.filled.map((item) => item.fieldName),
+        );
+        const reviewFilled = new Set(
+          reviewFill.outcome.filled.map((item) => item.fieldName),
+        );
+        for (const field of shared) {
+          expect(deviceFilled.has(field.fieldName), field.fieldName).toBe(true);
+          expect(reviewFilled.has(field.fieldName), field.fieldName).toBe(true);
+        }
+
+        // On the AcroForm forms the printed values agree field for field.
         if (entry.kind === "acroform") {
-          expect(await readFields(deviceFill.outcome.bytes, entry)).toEqual(
-            await readFields(serverFill.bytes, entry),
+          const deviceFields = await readFields(deviceFill.outcome.bytes, entry);
+          const reviewFields = await readFields(reviewFill.outcome.bytes, entry);
+          for (const field of shared) {
+            expect(deviceFields[field.fieldName]).toEqual(
+              reviewFields[field.fieldName],
+            );
+          }
+        }
+
+        // A field the review marks ASKED (the person still owes the answer)
+        // and does not hold privately is filled from the same information on
+        // both surfaces: neither holds a value for it, and neither may skip
+        // it (the device's fill-time skip map sees no more than the
+        // review's), so BOTH list it to-resolve. Conflict flags and
+        // not-applicable handling are pinned per fill (fill-core's own
+        // suite, review-fill.test.ts): the two surfaces hold different
+        // truths — the payload structurally omits private values, and the
+        // fill-time skip map is allowlist-redacted — so their to-resolve
+        // lists legitimately differ beyond this shared core (a field gated
+        // by a private answer the form's allowlist doesn't admit prints
+        // blank on BOTH surfaces and lands in the device's to-resolve even
+        // when the review marks it not-needed).
+        const reviewToResolve = new Set(
+          reviewFill.outcome.toResolve.map((item) => item.fieldName),
+        );
+        const deviceToResolveNames = new Set(
+          deviceFill.outcome.toResolve.map((item) => item.fieldName),
+        );
+        const askedNonPrivate = views.filter(
+          (field) => field.state === "asked" && !field.piiLikely,
+        );
+        for (const field of askedNonPrivate) {
+          expect(reviewToResolve.has(field.fieldName), field.fieldName).toBe(
+            true,
           );
+          expect(
+            deviceToResolveNames.has(field.fieldName),
+            field.fieldName,
+          ).toBe(true);
+          expect(deviceFilled.has(field.fieldName), field.fieldName).toBe(
+            false,
+          );
+          expect(reviewFilled.has(field.fieldName), field.fieldName).toBe(
+            false,
+          );
+        }
+
+        // A private field the payload structurally omits fills only on the
+        // device that holds it; on the review path it degrades to blank and
+        // is honestly named to-resolve.
+        for (const field of views) {
+          if (field.state !== "prefilled" || !field.piiLikely) {
+            continue;
+          }
+          expect(reviewFilled.has(field.fieldName), field.fieldName).toBe(false);
+          expect(
+            reviewToResolve.has(field.fieldName),
+            field.fieldName,
+          ).toBe(true);
         }
       }),
       { numRuns: 30 },

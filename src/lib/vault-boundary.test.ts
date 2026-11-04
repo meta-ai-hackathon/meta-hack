@@ -44,18 +44,7 @@ const EXEMPT_FILES = new Set([
   // the serialization boundary (lib/intake/serialize.ts) strips every pii
   // value before anything reaches a page, payload, or log.
   "lib/intake/store.ts",
-  // The forms pipeline (Mission v2 M4) is the SECOND sanctioned vault
-  // accessor (VAL-PDF-006): the fill reads pii values ONLY via
-  // readVaultFieldsForFill, whose permit is derived in vault.ts from the
-  // committed form-registry entry's per-form fill allowlist — a form may
-  // read exactly the vault fields its reviewed registry entry names, and no
-  // caller can hand-read an arbitrary list. Filled values flow into the
-  // returned PDF bytes only: never into prompts, logs, or any client payload
-  // other than the person's own downloaded application. Only the fill module
-  // is admitted — every other forms file (parse/flow/registry/display) stays
-  // outside the boundary exactly like the rest of src/.
-  "lib/forms/fill.ts",
-  // The session purge (Mission v2.1 M7, HACK-80) is the THIRD sanctioned
+  // The session purge (Mission v2.1 M7, HACK-80) is the other sanctioned
   // vault accessor: the person's delete-my-answers control must empty the
   // vault for their session, which only the vault module may do — via
   // purgeSessionVault, a session-scoped DELETE that removes every stored
@@ -64,6 +53,13 @@ const EXEMPT_FILES = new Set([
   // caller's transaction connection so a half-finished purge can never
   // happen. Nothing the purge removes is ever logged (counts only).
   "lib/purge.ts",
+  // The forms pipeline was the THIRD sanctioned accessor (VAL-PDF-006: the
+  // fill read pii values only via readVaultFieldsForFill, whose permit was
+  // derived from the committed form-registry entry) until the owner's
+  // HACK-138 decision (2026-11-04) retired the server fill route and its
+  // vault-reading collection path with it. The forms tree now sits OUTSIDE
+  // the boundary exactly like the rest of src/ — the scan below covers it,
+  // so a forms file reaching for the vault fails CI.
 ]);
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
@@ -168,21 +164,19 @@ describe("import boundary (VAL-PII-001)", () => {
     expect(violations).toEqual([]);
   });
 
-  it("admits only the fill module among the forms files, and scanned them", () => {
-    // The forms admission is scoped: exactly one forms file is exempt, and
-    // the scan provably walked every other forms module so a stray vault
-    // import in parse/flow/registry/answers cannot slip through unscanned.
+  it("admits no forms file, and scans them all", () => {
+    // The forms admission is gone with the server fill route (HACK-138):
+    // no forms file is exempt, and the scan provably walked every forms
+    // module — fill.ts included, now as an ordinary boundary file — so a
+    // stray vault import in parse/flow/registry/fill cannot slip through
+    // unscanned.
     const { scanned } = scanForVaultImports(SRC_ROOT);
-    expect(EXEMPT_FILES.has("lib/forms/fill.ts")).toBe(true);
-    // The fill module itself exists in the tree and was scanned.
+    expect(EXEMPT_FILES.has("lib/forms/fill.ts")).toBe(false);
+    // The forms tree exists in the scan and was walked.
     expect(scanned).toContain("lib/forms/fill.ts");
     for (const relative of scanned) {
-      if (
-        relative.startsWith("lib/forms/") &&
-        relative !== "lib/forms/fill.ts" &&
-        !relative.endsWith(".test.ts")
-      ) {
-        expect(EXEMPT_FILES.has(relative)).toBe(false);
+      if (relative.startsWith("lib/forms/") && !relative.endsWith(".test.ts")) {
+        expect(EXEMPT_FILES.has(relative), relative).toBe(false);
       }
     }
   });

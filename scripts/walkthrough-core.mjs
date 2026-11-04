@@ -23,8 +23,6 @@ import {
 import {
   CONVERSATION_PLAN,
   FORM_JOURNEY_PLAN,
-  SAMPLE_FORM_UNMAPPED_ANSWERS,
-  SPRINT_FORM_UNMAPPED_ANSWERS,
 } from "./walkthrough-plans.mjs";
 
 export const DEFAULT_URL = "http://localhost:3100";
@@ -972,48 +970,50 @@ export class Walkthrough {
   }
 
   /**
-   * POST /api/forms/<formId>/fill — the PDF download leg. Unmapped field
-   * answers ride the multipart request (memory-only on the server, never
-   * stored); the filled bytes come back as an attachment. The filled PDF
-   * is the person's own download and carries their answers BY DESIGN, so
-   * this leg shape-checks the response (content type, %PDF magic, size)
-   * instead of running the text detectors over binary bytes.
+   * GET /forms/<formId>.pdf — the blank public template the browser's
+   * on-device fill loads (HACK-138: the server fill route is retired; the
+   * page fills the downloaded blank from the values it already holds, the
+   * sanctioned construction). This leg fetches the exact bytes that fill
+   * consumes — bodiless, no cookies, no referrer, exactly the request the
+   * page makes — and shape-checks them (content type, %PDF magic, size).
+   * The answers themselves ride NO request: there is no fill endpoint left
+   * to receive them.
    */
-  async fillForm(formId, unmappedAnswers) {
-    const form = new FormData();
-    if (unmappedAnswers !== undefined && unmappedAnswers !== null) {
-      form.set("answers", JSON.stringify(unmappedAnswers));
-    }
+  async downloadBlankTemplate(formId) {
     const response = await this.transport(
       this.base,
-      `/api/forms/${formId}/fill`,
-      { method: "POST", body: form, cookie: this.cookie },
+      `/forms/${formId}.pdf`,
+      { method: "GET" },
       this.timeoutMs,
     );
     if (response.status !== 200) {
       throw new WalkthroughError(
-        `form fill failed: ${response.status} ${this.maskPrivateValues(response.text.slice(0, 200))}`,
+        `blank form template fetch failed: ${response.status} `
+          + this.maskPrivateValues(response.text.slice(0, 200)),
       );
     }
     const contentType = response.response?.headers?.get?.("content-type") ?? "";
     if (!contentType.includes("application/pdf")) {
       throw new WalkthroughError(
-        `fill returned content-type "${contentType}" — expected a filled PDF attachment`,
+        `template returned content-type "${contentType}" — expected the blank PDF`,
       );
     }
     if (!response.text.startsWith("%PDF")) {
-      throw new WalkthroughError("fill response is not a PDF (missing %PDF header)");
+      throw new WalkthroughError(
+        "template response is not a PDF (missing %PDF header)",
+      );
     }
     if (response.text.length < 1000) {
       throw new WalkthroughError(
-          `fill response is suspiciously small (${response.text.length} chars) `
-            + "— refusing to call it a filled PDF",
+          `template response is suspiciously small (${response.text.length} chars) `
+            + "— refusing to call it the blank form",
       );
     }
     this.log(
-      `PDF       POST /api/forms/${formId}/fill → ${response.status}, ` +
-          `filled PDF downloaded (~${Math.round(response.text.length / 1024)} KB, `
-            + "generated on the fly, never persisted server-side)",
+      `PDF       GET /forms/${formId}.pdf → ${response.status}, `
+          + `blank form downloaded (~${Math.round(response.text.length / 1024)} KB, `
+          + "bodiless, no cookies) — the page fills it on the device from the "
+          + "values it already holds; no answers ride any request",
     );
   }
 
@@ -1358,17 +1358,16 @@ export class Walkthrough {
    * select route → typed turns driving the conversation
    * (realistic tri-state mix) → match → review with the skip behavior →
    * save → exit → resume via the session token (+ stored history) → the
-   * PDF download leg. Resolves true when completed cleanly, false when a
-   * violation stopped the walk.
+   * blank-template download leg the page's on-device fill loads. Resolves
+   * true when completed cleanly, false when a violation stopped the walk.
    *
-   * @param {{plan?: object[], formId?: string, unmappedAnswers?: object,
-   *   }} [options] injectable for the unit tests
+   * @param {{plan?: object[], formId?: string}} [options] injectable for
+   *   the unit tests
    */
   async runConversation(options = {}) {
     const {
       plan = CONVERSATION_PLAN,
       formId = SAMPLE_FORM_ID,
-      unmappedAnswers = SAMPLE_FORM_UNMAPPED_ANSWERS,
     } = options;
     this.log(
       `WALKTHROUGH target ${this.base} — conversational journey (text mode): `
@@ -1453,7 +1452,7 @@ export class Walkthrough {
       "          stored history carries the delivered reply — transcript and state agree",
     );
 
-    await this.fillForm(formId, unmappedAnswers);
+    await this.downloadBlankTemplate(formId);
     if (this.violations.length > 0) {
       return this.reportViolations();
     }
@@ -1467,19 +1466,18 @@ export class Walkthrough {
    * The v2 FORM-DRIVEN journey: health → create session → answer the
    * form's questions through the conversation → the prepared-package
    * review, where mapped fields pre-fill from the conversation's answers
-   * and skipped questions are honestly not-applicable → fill → download
-   * the filled PDF. Resolves true when completed cleanly, false when a
-   * violation stopped the walk.
+   * and skipped questions are honestly not-applicable → the blank-template
+   * download the page fills on the device. Resolves true when completed
+   * cleanly, false when a violation stopped the walk.
    */
   async runFormJourney(options = {}) {
     const {
       plan = FORM_JOURNEY_PLAN,
       formId = SAMPLE_FORM_ID,
-      unmappedAnswers = SAMPLE_FORM_UNMAPPED_ANSWERS,
     } = options;
     this.log(
       `WALKTHROUGH target ${this.base} — form-driven journey: `
-        + "conversation → pre-fill → review → filled PDF",
+        + "conversation → pre-fill → review → blank form for the on-device fill",
     );
     await this.startSession();
     if (this.violations.length > 0) {
@@ -1516,7 +1514,7 @@ export class Walkthrough {
         + `${fields.filter((field) => field.state === "not_applicable").length} not applicable`,
     );
 
-    await this.fillForm(formId, unmappedAnswers);
+    await this.downloadBlankTemplate(formId);
     if (this.violations.length > 0) {
       return this.reportViolations();
     }
@@ -1828,7 +1826,7 @@ export class Walkthrough {
    * @param {{plan?: object[], consent?: "voice"|"declined", dbVerify?:
    *   boolean, audioGenerator?: (text: string) => Promise<Uint8Array>,
    *   dbRunner?: (sessionId: string) => Promise<Record<string, number>>,
-   *   unmappedAnswers?: object, uploadBytes?: Uint8Array}} [options]
+   *   uploadBytes?: Uint8Array}} [options]
    *   injectables for the unit tests
    */
   async runSprintJourney(options = {}) {
@@ -1838,7 +1836,6 @@ export class Walkthrough {
       dbVerify = false,
       audioGenerator = (text) => scriptedWavBytes(text),
       dbRunner = psqlRowCounts,
-      unmappedAnswers = SPRINT_FORM_UNMAPPED_ANSWERS,
       uploadBytes,
     } = options;
     const declined = consent === "declined";
@@ -1925,7 +1922,7 @@ export class Walkthrough {
         `REUSE     ${formId}: ${prefilledCount} field(s) pre-filled from this `
           + "session's answers — no answered question re-asked",
       );
-      await this.fillForm(formId, unmappedAnswers[formId]);
+      await this.downloadBlankTemplate(formId);
       if (this.violations.length > 0) {
         return this.reportViolations();
       }

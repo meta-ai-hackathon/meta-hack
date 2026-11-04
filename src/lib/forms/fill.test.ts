@@ -1,44 +1,39 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import postgres from "postgres";
+import { describe, expect, it } from "vitest";
 import { PDFDocument } from "@cantoo/pdf-lib";
-import { closeDb } from "../db";
-import { runMigrations } from "../migrate";
 import { setLogSink, type LogLine } from "../telemetry";
 import {
-  saveAnswer,
-} from "../intake/store";
+  EMPTY_CLIENT_ANSWERS,
+  saveClientAnswer,
+  type ClientAnswerState,
+} from "../intake/client-store";
+import { fillFormOnDevice } from "../intake/device-fill";
 import { getFormRegistryEntry } from "./registry";
 import {
-  collectFillValues,
-  fillForSession,
+  checkedFormValues,
   fillFormPdf,
   MAX_FORM_VALUES,
-  parseFormValues,
   skippedFieldNames,
   type FillValue,
 } from "./fill";
 
-// Forms fill tests (Mission v2 M4, VAL-PDF-003/004/005/006/007): round-trip
-// on the committed AcroForm sample and its flat variant, skip-logic respect,
-// provenance per filled field, visibly-blank unknowns with a to-resolve
-// list, and the vault crossing through the per-form allowlist. Filled bytes
-// are only ever in memory; no log line carries a value.
-
-const LOCAL_DATABASE_URL =
-  "postgresql://postgres:benefits_dev@localhost:5432/benefits_navigator";
-const TEST_DB_NAME = "benefits_navigator_vitest_forms_fill";
-
-function databaseFrom(url: string, database: string): string {
-  const parsed = new URL(url);
-  parsed.pathname = `/${database}`;
-  return parsed.toString();
-}
-
-const databaseUrl = process.env.DATABASE_URL ?? LOCAL_DATABASE_URL;
-const adminUrl = databaseFrom(databaseUrl, "postgres");
-const testUrl = databaseFrom(databaseUrl, TEST_DB_NAME);
+// Forms fill tests (VAL-PDF-003/004/005/007): round-trip on the committed
+// AcroForm sample and its flat variant, skip-logic respect, provenance per
+// filled field, visibly-blank unknowns with a to-resolve list, and clean
+// rejections for templates the fill cannot serve. Filled bytes are only
+// ever in memory; no log line carries a value.
+//
+// VEHICLE CHANGE (HACK-138, owner decision 2026-11-04): the server fill
+// route and its vault-reading collection path are retired, so the
+// round-trip exercises the on-device fill (device-fill.ts, the
+// step-by-step page's download) over the device's own answer state — the
+// same value assembly and drawing the review-page download runs
+// (review-fill.ts, pinned in its own suite). The meaning is unchanged:
+// values round-trip, provenance rides, unknowns stay visibly blank, and
+// nothing is ever persisted. The vault-crossing tests retired with the
+// crossing machinery; the vault boundary itself is pinned in
+// vault-boundary.test.ts and vault.test.ts.
 
 const FIXTURES = path.resolve(import.meta.dirname, "fixtures");
 const acroformTemplate = () =>
@@ -53,47 +48,38 @@ const encryptedTemplate = () =>
 const ENTRY = getFormRegistryEntry("sample-application-form");
 const FLAT_ENTRY = getFormRegistryEntry("sample-application-form-flat");
 
-let admin: postgres.Sql;
-let testDb: postgres.Sql;
-
-beforeAll(async () => {
-  admin = postgres(adminUrl, { max: 1 });
-  await admin.unsafe(`DROP DATABASE IF EXISTS ${TEST_DB_NAME} WITH (FORCE)`);
-  await admin.unsafe(`CREATE DATABASE ${TEST_DB_NAME}`);
-  testDb = postgres(testUrl, { max: 1 });
-  process.env.DATABASE_URL = testUrl;
-  process.env.MODEL_API_KEY = "sentinel-test-key-never-log";
-  await runMigrations(testDb);
-  setLogSink(() => undefined);
-});
-
-afterAll(async () => {
-  await admin.unsafe(`DROP DATABASE IF EXISTS ${TEST_DB_NAME} WITH (FORCE)`);
-  await Promise.all([admin.end({ timeout: 1 }), testDb.end({ timeout: 1 })]);
-  await closeDb();
-});
-
-async function createSession(): Promise<string> {
-  const [person] =
-    await testDb`INSERT INTO person DEFAULT VALUES RETURNING id`;
-  const [session] =
-    await testDb`INSERT INTO session (person_id) VALUES (${person.id}) RETURNING id`;
-  return String(session.id);
+/** The known answer set as the device keeps it (the step-by-step page's state). */
+function deviceState(
+  answers: Record<string, { status: "known" | "unknown" | "unverified"; value: unknown }>,
+): ClientAnswerState {
+  let state = EMPTY_CLIENT_ANSWERS;
+  for (const [questionId, answer] of Object.entries(answers)) {
+    state = saveClientAnswer(state, {
+      questionId,
+      status: answer.status,
+      value: answer.value,
+      provenance: "user_supplied",
+    });
+  }
+  return state;
 }
 
-/** Save a full known answer set through the ordinary store (vault routing included). */
-async function saveKnownAnswerSet(sessionId: string): Promise<void> {
-  await saveAnswer(sessionId, "household_size", "known", 3);
-  // housing_status = shelter SKIPS housing_cost in the spec's own skip logic
-  // (no rent in a shelter) — the flow never asks it, so we never answer it.
-  await saveAnswer(sessionId, "date_of_birth", "known", "1990-01-01");
-  await saveAnswer(sessionId, "housing_status", "known", "shelter");
-  await saveAnswer(sessionId, "phone_contact", "known", "555-0100");
-  await saveAnswer(sessionId, "email_contact", "known", "person@example.com");
-  await saveAnswer(sessionId, "mailing_situation", "known", "shelter");
-  await saveAnswer(sessionId, "shelter_mail_consent", "known", true);
-  await saveAnswer(sessionId, "id_status", "known", "need_id");
-  await saveAnswer(sessionId, "id_issue_detail", "known", "my ID was lost");
+/** A full known answer set, the same one the flows use (skip logic included). */
+function knownAnswerSet() {
+  return {
+    household_size: { status: "known" as const, value: 3 },
+    // housing_status = shelter SKIPS housing_cost in the spec's own skip
+    // logic (no rent in a shelter) — the flow never asks it, so we never
+    // answer it.
+    date_of_birth: { status: "known" as const, value: "1990-01-01" },
+    housing_status: { status: "known" as const, value: "shelter" },
+    phone_contact: { status: "known" as const, value: "555-0100" },
+    email_contact: { status: "known" as const, value: "person@example.com" },
+    mailing_situation: { status: "known" as const, value: "shelter" },
+    shelter_mail_consent: { status: "known" as const, value: true },
+    id_status: { status: "known" as const, value: "need_id" },
+    id_issue_detail: { status: "known" as const, value: "my ID was lost" },
+  };
 }
 
 const SENTINEL_NAME = "FILL-SENTINEL-ZQX";
@@ -108,12 +94,18 @@ function expectedValues(): Record<string, string> {
   };
 }
 
-describe("AcroForm round-trip (VAL-PDF-003)", () => {
+describe("AcroForm round-trip on the device fill (VAL-PDF-003)", () => {
   it("fills every expected field with the expected value", async () => {
-    const sessionId = await createSession();
-    await saveKnownAnswerSet(sessionId);
-    const outcome = await fillForSession(acroformTemplate(), ENTRY, sessionId);
-    const pdf = await PDFDocument.load(outcome.bytes);
+    const outcome = await fillFormOnDevice(
+      acroformTemplate(),
+      deviceState(knownAnswerSet()),
+      {},
+      ENTRY,
+    );
+    if (outcome.kind !== "filled") {
+      throw new Error(`expected a fill, got ${outcome.kind}`);
+    }
+    const pdf = await PDFDocument.load(outcome.outcome.bytes);
     const form = pdf.getForm();
     const expected = expectedValues();
     for (const [fieldName, expectedValue] of Object.entries(expected)) {
@@ -132,49 +124,70 @@ describe("AcroForm round-trip (VAL-PDF-003)", () => {
   });
 
   it("fills a mapped non-pii answer when the flow does not skip it", async () => {
-    const sessionId = await createSession();
-    await saveAnswer(sessionId, "housing_status", "known", "rental_or_own");
-    await saveAnswer(sessionId, "housing_cost", "known", 900);
-    const outcome = await fillForSession(acroformTemplate(), ENTRY, sessionId);
-    const pdf = await PDFDocument.load(outcome.bytes);
+    const outcome = await fillFormOnDevice(
+      acroformTemplate(),
+      deviceState({
+        housing_status: { status: "known", value: "rental_or_own" },
+        housing_cost: { status: "known", value: 900 },
+      }),
+      {},
+      ENTRY,
+    );
+    if (outcome.kind !== "filled") {
+      throw new Error(`expected a fill, got ${outcome.kind}`);
+    }
+    const pdf = await PDFDocument.load(outcome.outcome.bytes);
     expect(pdf.getForm().getTextField("monthly_rent_amount").getText()).toBe(
       "900",
     );
     expect(
-      outcome.filled.find((item) => item.fieldName === "monthly_rent_amount")
-        ?.provenance,
+      outcome.outcome.filled.find(
+        (item) => item.fieldName === "monthly_rent_amount",
+      )?.provenance,
     ).toBe("user_supplied");
   });
 
   it("records a provenance label for every filled field", async () => {
-    const sessionId = await createSession();
-    await saveKnownAnswerSet(sessionId);
-    const outcome = await fillForSession(acroformTemplate(), ENTRY, sessionId);
+    const outcome = await fillFormOnDevice(
+      acroformTemplate(),
+      deviceState(knownAnswerSet()),
+      {},
+      ENTRY,
+    );
+    if (outcome.kind !== "filled") {
+      throw new Error(`expected a fill, got ${outcome.kind}`);
+    }
     const provenance = new Map(
-      outcome.filled.map((item) => [item.fieldName, item.provenance]),
+      outcome.outcome.filled.map((item) => [item.fieldName, item.provenance]),
     );
     for (const fieldName of Object.keys(expectedValues())) {
       expect(provenance.get(fieldName)).toBe("user_supplied");
     }
     expect(provenance.get("mail_consent")).toBe("user_supplied");
     expect(provenance.get("id_problem_explanation")).toBe("user_supplied");
-    // Unmapped fields with no stored answer are NOT in the filled set.
+    // Unmapped fields with no typed answer are NOT in the filled set.
     expect(provenance.has("applicant_name")).toBe(false);
     expect(provenance.has("case_number")).toBe(false);
   });
 
   it("leaves unknown fields visibly blank and lists them as to-resolve", async () => {
-    const sessionId = await createSession();
-    await saveAnswer(sessionId, "household_size", "known", 2);
-    const outcome = await fillForSession(acroformTemplate(), ENTRY, sessionId);
-    const pdf = await PDFDocument.load(outcome.bytes);
+    const outcome = await fillFormOnDevice(
+      acroformTemplate(),
+      deviceState({ household_size: { status: "known", value: 2 } }),
+      {},
+      ENTRY,
+    );
+    if (outcome.kind !== "filled") {
+      throw new Error(`expected a fill, got ${outcome.kind}`);
+    }
+    const pdf = await PDFDocument.load(outcome.outcome.bytes);
     const form = pdf.getForm();
     // Visibly blank: no text in the fields nothing knew (getText is
     // undefined for an untouched field).
     expect(form.getTextField("applicant_date_of_birth").getText() ?? "").toBe("");
     expect(form.getTextField("contact_phone").getText() ?? "").toBe("");
     expect(form.getCheckBox("mail_consent").isChecked()).toBe(false);
-    const toResolveNames = outcome.toResolve.map((item) => item.fieldName);
+    const toResolveNames = outcome.outcome.toResolve.map((item) => item.fieldName);
     expect(toResolveNames).toContain("applicant_date_of_birth");
     expect(toResolveNames).toContain("applicant_name");
     expect(toResolveNames).toContain("case_number");
@@ -183,47 +196,66 @@ describe("AcroForm round-trip (VAL-PDF-003)", () => {
     // housing_cost is to-resolve, not skipped — the fail-open contract).
     expect(toResolveNames).toContain("monthly_rent_amount");
     // Each to-resolve item carries the plain-language question (BN-21).
-    for (const item of outcome.toResolve) {
+    for (const item of outcome.outcome.toResolve) {
       expect(item.question).not.toBe("");
     }
   });
 
-  it("an in-request unmapped answer fills and carries provenance", async () => {
-    const sessionId = await createSession();
-    // Unmapped answers ride the fill request and live only in memory —
-    // the real data rules forbid a server-side store for them.
-    const outcome = await fillForSession(acroformTemplate(), ENTRY, sessionId, {
-      applicant_name: SENTINEL_NAME,
-    });
-    const pdf = await PDFDocument.load(outcome.bytes);
+  it("a typed unmapped answer fills and carries provenance", async () => {
+    // The answers typed into the review fill and live only in the person's
+    // own copy — nothing stores them.
+    const outcome = await fillFormOnDevice(
+      acroformTemplate(),
+      deviceState({}),
+      { applicant_name: SENTINEL_NAME },
+      ENTRY,
+    );
+    if (outcome.kind !== "filled") {
+      throw new Error(`expected a fill, got ${outcome.kind}`);
+    }
+    const pdf = await PDFDocument.load(outcome.outcome.bytes);
     expect(pdf.getForm().getTextField("applicant_name").getText()).toBe(
       SENTINEL_NAME,
     );
     expect(
-      outcome.filled.find((item) => item.fieldName === "applicant_name")
+      outcome.outcome.filled.find((item) => item.fieldName === "applicant_name")
         ?.provenance,
     ).toBe("user_supplied");
     // The mapped-but-unanswered fields stay to-resolve.
-    expect(outcome.toResolve.map((item) => item.fieldName)).toContain(
+    expect(outcome.outcome.toResolve.map((item) => item.fieldName)).toContain(
       "applicant_date_of_birth",
     );
-    // Without the in-request values the field stays blank + to-resolve.
-    const without = await fillForSession(acroformTemplate(), ENTRY, sessionId);
-    expect(
-      without.toResolve.map((item) => item.fieldName),
-    ).toContain("applicant_name");
+    // Without the typed value the field stays blank + to-resolve.
+    const without = await fillFormOnDevice(
+      acroformTemplate(),
+      deviceState({}),
+      {},
+      ENTRY,
+    );
+    if (without.kind !== "filled") {
+      throw new Error(`expected a fill, got ${without.kind}`);
+    }
+    expect(without.outcome.toResolve.map((item) => item.fieldName)).toContain(
+      "applicant_name",
+    );
   });
 
   it("conditional fields respect the flow's skip logic", async () => {
-    const sessionId = await createSession();
-    await saveKnownAnswerSet(sessionId);
+    const outcome = await fillFormOnDevice(
+      acroformTemplate(),
+      deviceState(knownAnswerSet()),
+      {},
+      ENTRY,
+    );
+    if (outcome.kind !== "filled") {
+      throw new Error(`expected a fill, got ${outcome.kind}`);
+    }
+    const pdf = await PDFDocument.load(outcome.outcome.bytes);
+    const form = pdf.getForm();
     // Within the known set: housing_status = shelter skips housing_cost
     // (spec skip logic) — monthly_rent_amount stays blank, NOT to-resolve.
-    const outcome = await fillForSession(acroformTemplate(), ENTRY, sessionId);
-    const pdf = await PDFDocument.load(outcome.bytes);
-    const form = pdf.getForm();
     expect(form.getTextField("monthly_rent_amount").getText() ?? "").toBe("");
-    const toResolveNames = outcome.toResolve.map((item) => item.fieldName);
+    const toResolveNames = outcome.outcome.toResolve.map((item) => item.fieldName);
     expect(toResolveNames).not.toContain("monthly_rent_amount");
     expect(skippedFieldNames(ENTRY, {
       housing_status: { status: "known", value: "shelter" },
@@ -231,17 +263,23 @@ describe("AcroForm round-trip (VAL-PDF-003)", () => {
   });
 
   it("id-issue and mail-consent conditionals follow their skip conditions", async () => {
-    const sessionId = await createSession();
-    // id_status = have_id SKIPS id_issue_detail; mailing_situation not
-    // shelter SKIPS shelter_mail_consent.
-    await saveAnswer(sessionId, "id_status", "known", "have_id");
-    await saveAnswer(sessionId, "mailing_situation", "known", "family_or_friend");
-    const outcome = await fillForSession(acroformTemplate(), ENTRY, sessionId);
-    const pdf = await PDFDocument.load(outcome.bytes);
+    const outcome = await fillFormOnDevice(
+      acroformTemplate(),
+      deviceState({
+        id_status: { status: "known", value: "have_id" },
+        mailing_situation: { status: "known", value: "family_or_friend" },
+      }),
+      {},
+      ENTRY,
+    );
+    if (outcome.kind !== "filled") {
+      throw new Error(`expected a fill, got ${outcome.kind}`);
+    }
+    const pdf = await PDFDocument.load(outcome.outcome.bytes);
     const form = pdf.getForm();
     expect(form.getTextField("id_problem_explanation").getText() ?? "").toBe("");
     expect(form.getCheckBox("mail_consent").isChecked()).toBe(false);
-    const toResolveNames = outcome.toResolve.map((item) => item.fieldName);
+    const toResolveNames = outcome.outcome.toResolve.map((item) => item.fieldName);
     // Skipped by design: blank, and NOT to-resolve.
     expect(toResolveNames).not.toContain("id_problem_explanation");
     expect(toResolveNames).not.toContain("mail_consent");
@@ -265,12 +303,43 @@ describe("AcroForm round-trip (VAL-PDF-003)", () => {
     ).rejects.toMatchObject({ code: "validation_error" });
   });
 
-  it("values with characters the standard fonts cannot render degrade to to-resolve", async () => {
-    const sessionId = await createSession();
-    await saveAnswer(sessionId, "date_of_birth", "known", "1990-01-01");
-    const outcome = await fillForSession(acroformTemplate(), ENTRY, sessionId);
-    const pdf = await PDFDocument.load(outcome.bytes);
-    // The date crossed the vault and filled fine (WinAnsi-safe).
+  it("bad templates fill nothing on the device either", async () => {
+    // VAL-PDF-004's clean taxonomy rejection lives at the machinery gate
+    // (the two cases above). The device fills have no upload path at all —
+    // only the committed registered templates reach them (pinned to pass
+    // that very gate) — so the honest on-device pin is the fail-closed
+    // behavior on a bad template, NOT parity with the route's rejection:
+    // encrypted bytes never open (unreadable_form, nothing filled), and
+    // XFA bytes carry no fillable AcroForm fields (nothing fills and
+    // nothing is fabricated — every field lands in to-resolve).
+    const encrypted = await fillFormOnDevice(
+      encryptedTemplate(),
+      deviceState({}),
+      {},
+      ENTRY,
+    );
+    expect(encrypted.kind).toBe("unreadable_form");
+    const xfa = await fillFormOnDevice(xfaTemplate(), deviceState({}), {}, ENTRY);
+    if (xfa.kind !== "filled") {
+      throw new Error(`expected an empty fill, got ${xfa.kind}`);
+    }
+    expect(xfa.outcome.filled).toEqual([]);
+    expect(xfa.outcome.toResolve.length).toBeGreaterThan(0);
+  });
+
+  it("a mapped non-pii date answer fills in its canonical display", async () => {
+    const outcome = await fillFormOnDevice(
+      acroformTemplate(),
+      deviceState({
+        date_of_birth: { status: "known", value: "1990-01-01" },
+      }),
+      {},
+      ENTRY,
+    );
+    if (outcome.kind !== "filled") {
+      throw new Error(`expected a fill, got ${outcome.kind}`);
+    }
+    const pdf = await PDFDocument.load(outcome.outcome.bytes);
     expect(pdf.getForm().getTextField("applicant_date_of_birth").getText()).toBe(
       "1990-01-01",
     );
@@ -300,46 +369,21 @@ describe("AcroForm round-trip (VAL-PDF-003)", () => {
   });
 });
 
-describe("vault crossing through the per-form allowlist (VAL-PDF-006)", () => {
-  it("collects pii values only via readVaultFields with the entry's allowlist", async () => {
-    const sessionId = await createSession();
-    await saveKnownAnswerSet(sessionId);
-    const { values } = await collectFillValues(sessionId, ENTRY);
-    // Vault-sourced values arrive display-ready with the row's provenance.
-    expect(values.applicant_date_of_birth?.display).toBe("1990-01-01");
-    expect(values.applicant_date_of_birth?.source).toBe("vault");
-    expect(values.contact_phone?.display).toBe("555-0100");
-    expect(values.housing_situation?.display).toBe("In a shelter");
-    expect(values.mail_consent?.display).toBe("checked");
-    // Non-pii values come from the answer table.
-    expect(values.household_size_count?.source).toBe("spec_answer");
-    expect(values.household_size_count?.display).toBe("3");
-  });
-
-  it("a mapped pii question missing from the allowlist fails closed", async () => {
-    const sessionId = await createSession();
-    await saveAnswer(sessionId, "phone_contact", "known", "555-0100");
-    const narrowEntry = {
-      ...ENTRY,
-      vaultFieldAllowlist: ENTRY.vaultFieldAllowlist.filter(
-        (field) => field !== "phone_contact",
-      ),
-    };
-    const { values } = await collectFillValues(sessionId, narrowEntry);
-    // Fail-closed: the value stays in the vault; the field goes unfilled.
-    expect(values.contact_phone).toBeUndefined();
-  });
-});
-
 describe("flat PDF fill via coordinate fallback (VAL-PDF-007)", () => {
   it("draws expected values at the registry coordinates", async () => {
-    const sessionId = await createSession();
-    await saveKnownAnswerSet(sessionId);
-    const outcome = await fillForSession(flatTemplate(), FLAT_ENTRY, sessionId);
+    const outcome = await fillFormOnDevice(
+      flatTemplate(),
+      deviceState(knownAnswerSet()),
+      {},
+      FLAT_ENTRY,
+    );
+    if (outcome.kind !== "filled") {
+      throw new Error(`expected a fill, got ${outcome.kind}`);
+    }
     // Re-parse the output with pdfjs and confirm the drawn values.
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     const doc = await pdfjs.getDocument({
-      data: outcome.bytes.slice(),
+      data: outcome.outcome.bytes.slice(),
     }).promise;
     const page = await doc.getPage(1);
     const content = await page.getTextContent();
@@ -353,32 +397,40 @@ describe("flat PDF fill via coordinate fallback (VAL-PDF-007)", () => {
   });
 
   it("records provenance for drawn fields and leaves unknowns blank", async () => {
-    const sessionId = await createSession();
-    await saveAnswer(sessionId, "household_size", "known", 4);
-    const outcome = await fillForSession(flatTemplate(), FLAT_ENTRY, sessionId);
+    const outcome = await fillFormOnDevice(
+      flatTemplate(),
+      deviceState({ household_size: { status: "known", value: 4 } }),
+      {},
+      FLAT_ENTRY,
+    );
+    if (outcome.kind !== "filled") {
+      throw new Error(`expected a fill, got ${outcome.kind}`);
+    }
     expect(
-      outcome.filled.find((item) => item.fieldName === "household_size_count")
-        ?.provenance,
+      outcome.outcome.filled.find(
+        (item) => item.fieldName === "household_size_count",
+      )?.provenance,
     ).toBe("user_supplied");
-    expect(outcome.toResolve.map((item) => item.fieldName)).toContain(
-      "applicant_name",
-    );
+    expect(
+      outcome.outcome.toResolve.map((item) => item.fieldName),
+    ).toContain("applicant_name");
     // Unchecked boolean: visibly blank — no X drawn for mail_consent.
-    expect(outcome.filled.map((item) => item.fieldName)).not.toContain(
-      "mail_consent",
-    );
+    expect(
+      outcome.outcome.filled.map((item) => item.fieldName),
+    ).not.toContain("mail_consent");
   });
 });
 
 describe("no value ever reaches a log line (VAL-PDF-005)", () => {
   it("the fill pipeline logs counts only — no values, no field ids", async () => {
-    const sessionId = await createSession();
-    await saveKnownAnswerSet(sessionId);
     const lines: LogLine[] = [];
     setLogSink((line) => lines.push(JSON.parse(line) as LogLine));
-    await fillForSession(acroformTemplate(), ENTRY, sessionId, {
-      applicant_name: SENTINEL_NAME,
-    });
+    await fillFormOnDevice(
+      acroformTemplate(),
+      deviceState(knownAnswerSet()),
+      { applicant_name: SENTINEL_NAME },
+      ENTRY,
+    );
     setLogSink(() => undefined);
     for (const line of lines) {
       const serialized = JSON.stringify(line);
@@ -391,9 +443,14 @@ describe("no value ever reaches a log line (VAL-PDF-005)", () => {
   });
 });
 
-describe("parseFormValues (in-request form answers)", () => {
+describe("typed answer checks (the on-device drafts)", () => {
+  // The fill route's in-request answer validation retired with the route;
+  // the same checks (fill-core's checkedFormValues) now guard the answers
+  // typed into the device review and the conversation review, and the
+  // callers degrade null to their own invalid-answers result.
+
   it("accepts bounded values for unmapped fields only", () => {
-    const parsed = parseFormValues(ENTRY, {
+    const parsed = checkedFormValues(ENTRY, {
       applicant_name: "Jane Tester",
       case_number: "A-1234",
     });
@@ -403,41 +460,41 @@ describe("parseFormValues (in-request form answers)", () => {
     });
   });
 
-  it("rejects a spec-mapped field name — mapped answers cannot ride the request", () => {
-    expect(() =>
-      parseFormValues(ENTRY, { applicant_date_of_birth: "1990-01-01" }),
-    ).toThrow();
-    expect(() => parseFormValues(ENTRY, { made_up_field: "x" })).toThrow();
+  it("rejects a spec-mapped field name — mapped answers live in the stores", () => {
+    expect(
+      checkedFormValues(ENTRY, { applicant_date_of_birth: "1990-01-01" }),
+    ).toBeNull();
+    expect(checkedFormValues(ENTRY, { made_up_field: "x" })).toBeNull();
   });
 
   it("rejects non-string, empty, and oversized values, and non-object payloads", () => {
-    expect(() => parseFormValues(ENTRY, { applicant_name: 42 })).toThrow();
-    expect(() => parseFormValues(ENTRY, { applicant_name: "   " })).toThrow();
-    expect(() =>
-      parseFormValues(ENTRY, { applicant_name: "x".repeat(201) }),
-    ).toThrow();
-    expect(() => parseFormValues(ENTRY, ["not", "an", "object"])).toThrow();
-    expect(() => parseFormValues(ENTRY, "a string")).toThrow();
-    expect(parseFormValues(ENTRY, null)).toEqual({});
+    expect(checkedFormValues(ENTRY, { applicant_name: 42 })).toBeNull();
+    expect(checkedFormValues(ENTRY, { applicant_name: "   " })).toBeNull();
+    expect(
+      checkedFormValues(ENTRY, { applicant_name: "x".repeat(201) }),
+    ).toBeNull();
+    expect(checkedFormValues(ENTRY, ["not", "an", "object"] as unknown as Record<string, string>)).toBeNull();
+    expect(checkedFormValues(ENTRY, "a string" as unknown as Record<string, string>)).toBeNull();
+    expect(checkedFormValues(ENTRY, null)).toEqual({});
   });
 
   // Full-form mapping (VAL-FIX-007, owner decision): the review-and-
-  // complete step carries an in-request answer for EVERY mapped field of
-  // the real DHB-5200 (the full-form persona rides the fill route) — the
-  // old cap (50) was below the form's mapped-field count, so the cap now
-  // covers every field the committed template has (614) with headroom.
-  // Pinned here so the number is a reviewed decision, not a magic value.
+  // complete step carries a typed answer for EVERY mapped field of the
+  // real DHB-5200 (the full-form persona rides the typed drafts) — the old
+  // cap (50) was below the form's mapped-field count, so the cap now covers
+  // every field the committed template has (614) with headroom. Pinned here
+  // so the number is a reviewed decision, not a magic value.
   it("carries a full-form persona: the cap covers every mapped field with headroom", () => {
     expect(MAX_FORM_VALUES).toBe(650);
-    // Boundary behavior on a synthetic spec-null entry: 650 in-request
-    // answers parse; 651 is a taxonomy error.
+    // Boundary behavior on a synthetic spec-null entry: 650 typed answers
+    // pass; 651 is refused (null).
     const wideEntry = {
       ...ENTRY,
       fields: Array.from({ length: 651 }, (_, index) => ({
         name: `persona_field_${index}`,
         type: "text" as const,
         label: `Persona field ${index}`,
-        question: `Synthetic persona field ${index} for the in-request cap boundary (not committed data).`,
+        question: `Synthetic persona field ${index} for the typed-answer cap boundary (not committed data).`,
         specQuestionId: null,
         piiLikely: true,
         required: false,
@@ -448,9 +505,9 @@ describe("parseFormValues (in-request form answers)", () => {
     const values = Object.fromEntries(
       Array.from({ length: 650 }, (_, index) => [`persona_field_${index}`, "x"]),
     );
-    expect(Object.keys(parseFormValues(wideEntry, values))).toHaveLength(650);
-    expect(() =>
-      parseFormValues(wideEntry, { ...values, persona_field_650: "x" }),
-    ).toThrow();
+    expect(Object.keys(checkedFormValues(wideEntry, values) ?? {})).toHaveLength(650);
+    expect(
+      checkedFormValues(wideEntry, { ...values, persona_field_650: "x" }),
+    ).toBeNull();
   });
 });

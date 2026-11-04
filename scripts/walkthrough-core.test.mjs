@@ -24,8 +24,6 @@ import {
 import {
   CONVERSATION_PLAN,
   FORM_JOURNEY_PLAN,
-  SAMPLE_FORM_UNMAPPED_ANSWERS,
-  SPRINT_FORM_UNMAPPED_ANSWERS,
 } from "./walkthrough-plans.mjs";
 
 // The walkthrough CLI's own logic, unit-tested the way its sibling
@@ -825,8 +823,8 @@ function v2JourneyRoutes({ formId = "form-x", historyTurns, finalState } = {}) {
       ]),
     },
     {
-      method: "POST",
-      path: `/api/forms/${formId}/fill`,
+      method: "GET",
+      path: `/forms/${formId}.pdf`,
       respondNext: queue([
         {
           status: 200,
@@ -977,14 +975,12 @@ describe("the typed journeys' work-requirements capture phase", () => {
   });
 });
 
-const MINI_UNMAPPED = { name_field: "Jamie Watts" };
-
 describe("v2 conversational journey (VAL-WALK2-001 / VAL-X2-001 contract)", () => {
   it("walks every leg cleanly: turns, match, review, save, resume, history, PDF", async () => {
     const transport = fakeTransport(v2JourneyRoutes());
     const walk = new Walkthrough("http://fake.test", 1000, transport);
     await expect(
-      walk.runConversation({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+      walk.runConversation({ plan: MINI_PLAN, formId: "form-x" }),
     ).resolves.toBe(true);
     expect(walk.violations).toEqual([]);
     expect(exitCodeForRun(true)).toBe(EXIT_OK);
@@ -999,7 +995,7 @@ describe("v2 conversational journey (VAL-WALK2-001 / VAL-X2-001 contract)", () =
       "POST /api/session",
       "GET /api/session",
       "GET /api/conversation/history",
-      "POST /api/forms/form-x/fill",
+      "GET /forms/form-x.pdf",
       "GET /api/health",
     ]);
     // The last assistant turn stored server-side is the one delivered.
@@ -1026,7 +1022,7 @@ describe("v2 conversational journey (VAL-WALK2-001 / VAL-X2-001 contract)", () =
     ]);
     const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
     await expect(
-      walk.runConversation({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+      walk.runConversation({ plan: MINI_PLAN, formId: "form-x" }),
     ).resolves.toBe(false);
     expect(walk.violations.map((violation) => violation.kind)).toContain("assistant_banned_claim");
     expect(exitCodeForRun(false)).toBe(EXIT_VIOLATION);
@@ -1078,7 +1074,7 @@ describe("v2 conversational journey (VAL-WALK2-001 / VAL-X2-001 contract)", () =
       return Promise.resolve();
     });
     await expect(
-      walk.runConversation({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+      walk.runConversation({ plan: MINI_PLAN, formId: "form-x" }),
     ).resolves.toBe(true);
     // The retry resumed with the cookie from the error response, and the
     // wait was the full backoff — a shorter wait would hammer a
@@ -1101,7 +1097,7 @@ describe("v2 conversational journey (VAL-WALK2-001 / VAL-X2-001 contract)", () =
       return Promise.resolve();
     });
     await expect(
-      walk.runConversation({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+      walk.runConversation({ plan: MINI_PLAN, formId: "form-x" }),
     ).rejects.toBeInstanceOf(WalkthroughError);
     expect(slept).toEqual(Array.from({ length: TURN_ATTEMPTS - 1 }, () => TURN_RETRY_WAIT_MS));
     // The cookie from the failed attempts is still captured — a manual
@@ -1138,7 +1134,7 @@ describe("v2 conversational journey (VAL-WALK2-001 / VAL-X2-001 contract)", () =
     });
     let message = "";
     try {
-      await walk.runConversation({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED });
+      await walk.runConversation({ plan: MINI_PLAN, formId: "form-x" });
     } catch (error) {
       message = error.message;
     }
@@ -1185,7 +1181,7 @@ describe("v2 conversational journey (VAL-WALK2-001 / VAL-X2-001 contract)", () =
     ]);
     const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
     await expect(
-      walk.runConversation({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+      walk.runConversation({ plan: MINI_PLAN, formId: "form-x" }),
     ).resolves.toBe(false);
     expect(walk.violations.map((violation) => violation.kind)).toContain("redaction_failure");
   });
@@ -1200,7 +1196,7 @@ describe("v2 conversational journey (VAL-WALK2-001 / VAL-X2-001 contract)", () =
     });
     const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
     await expect(
-      walk.runConversation({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+      walk.runConversation({ plan: MINI_PLAN, formId: "form-x" }),
     ).resolves.toBe(false);
     expect(walk.violations.map((violation) => violation.kind)).toContain("pii_echo");
   });
@@ -1241,7 +1237,7 @@ describe("v2 conversational journey (VAL-WALK2-001 / VAL-X2-001 contract)", () =
     ]);
     const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
     await expect(
-      walk.runConversation({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+      walk.runConversation({ plan: MINI_PLAN, formId: "form-x" }),
     ).rejects.toBeInstanceOf(WalkthroughError);
   });
 });
@@ -1251,7 +1247,7 @@ describe("v2 form-driven journey (VAL-WALK2-003 contract)", () => {
     const transport = fakeTransport(v2JourneyRoutes());
     const walk = new Walkthrough("http://fake.test", 1000, transport);
     await expect(
-      walk.runFormJourney({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+      walk.runFormJourney({ plan: MINI_PLAN, formId: "form-x" }),
     ).resolves.toBe(true);
     expect(walk.violations).toEqual([]);
     const paths = transport.calls.map((call) => `${call.method} ${call.path}`);
@@ -1261,7 +1257,7 @@ describe("v2 form-driven journey (VAL-WALK2-003 contract)", () => {
       "POST /api/conversation/turn",
       "POST /api/conversation/turn",
       "GET /api/forms/form-x/review",
-      "POST /api/forms/form-x/fill",
+      "GET /forms/form-x.pdf",
       "GET /api/health",
     ]);
   });
@@ -1309,13 +1305,13 @@ describe("v2 form-driven journey (VAL-WALK2-003 contract)", () => {
     ]);
     const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
     await expect(
-      walk.runFormJourney({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+      walk.runFormJourney({ plan: MINI_PLAN, formId: "form-x" }),
     ).rejects.toThrow(/still needs/);
   });
 
-  it("a fill that returns a non-PDF body is a journey error", async () => {
+  it("a template download that returns a non-PDF body is a journey error", async () => {
     const routes = v2JourneyRoutes();
-    routeOf(routes, "POST", "/api/forms/form-x/fill").respondNext = queue([
+    routeOf(routes, "GET", "/forms/form-x.pdf").respondNext = queue([
       {
         status: 200,
         text: "<html>server error</html>",
@@ -1329,7 +1325,7 @@ describe("v2 form-driven journey (VAL-WALK2-003 contract)", () => {
     ]);
     const walk = new Walkthrough("http://fake.test", 1000, fakeTransport(routes));
     await expect(
-      walk.runFormJourney({ plan: MINI_PLAN, formId: "form-x", unmappedAnswers: MINI_UNMAPPED }),
+      walk.runFormJourney({ plan: MINI_PLAN, formId: "form-x" }),
     ).rejects.toBeInstanceOf(WalkthroughError);
   });
 });
@@ -1366,10 +1362,6 @@ describe("v2 journey plans (scripts/walkthrough-plans.mjs)", () => {
         expect(step.text.includes(step.privateValue), step.id).toBe(true);
       }
     }
-  });
-
-  it("the sample form's unmapped answers stay off the mapped fields", () => {
-    expect(Object.keys(SAMPLE_FORM_UNMAPPED_ANSWERS).sort()).toEqual(["applicant_name", "case_number"]);
   });
 });
 
@@ -1700,13 +1692,13 @@ function sprintJourneyRoutes() {
       ]),
     },
     {
-      method: "POST",
-      path: "/api/forms/dhb-5200/fill",
+      method: "GET",
+      path: "/forms/dhb-5200.pdf",
       respondNext: queue([pdfResponse()]),
     },
     {
-      method: "POST",
-      path: "/api/forms/dss-8207/fill",
+      method: "GET",
+      path: "/forms/dss-8207.pdf",
       respondNext: queue([pdfResponse()]),
     },
     {
@@ -1744,10 +1736,6 @@ const SPRINT_TALK_PLAN = [
   },
 ];
 
-const SPRINT_UNMAPPED = {
-  "dhb-5200": { Signature: "Jamie Watts" },
-  "dss-8207": { "Date Signed": "11/02/2026" },
-};
 
 const fakeAudioGenerator = (record) => async (text) => {
   record.push(text);
@@ -1767,7 +1755,6 @@ describe("sprint cross-journey (VAL-SPRINT-001: five stages, both consent paths)
     await expect(
       walk.runSprintJourney({
         plan: SPRINT_TALK_PLAN,
-        unmappedAnswers: SPRINT_UNMAPPED,
         audioGenerator: fakeAudioGenerator(spokenTexts),
         uploadBytes: FAKE_UPLOAD_BYTES,
       }),
@@ -1790,9 +1777,9 @@ describe("sprint cross-journey (VAL-SPRINT-001: five stages, both consent paths)
       // Stage 5: the results stage — one session, both applications.
       "GET /api/match",
       "GET /api/forms/dhb-5200/review",
-      "POST /api/forms/dhb-5200/fill",
+      "GET /forms/dhb-5200.pdf",
       "GET /api/forms/dss-8207/review",
-      "POST /api/forms/dss-8207/fill",
+      "GET /forms/dss-8207.pdf",
       // The visible purge: refusal first, then the confirmed erasure.
       "POST /api/session/purge",
       "POST /api/session/purge",
@@ -1827,7 +1814,6 @@ describe("sprint cross-journey (VAL-SPRINT-001: five stages, both consent paths)
     await expect(
       walk.runSprintJourney({
         plan: SPRINT_TALK_PLAN,
-        unmappedAnswers: SPRINT_UNMAPPED,
         consent: "declined",
         uploadBytes: FAKE_UPLOAD_BYTES,
       }),
@@ -1847,9 +1833,9 @@ describe("sprint cross-journey (VAL-SPRINT-001: five stages, both consent paths)
       "POST /api/intake/tax-return/confirm",
       "GET /api/match",
       "GET /api/forms/dhb-5200/review",
-      "POST /api/forms/dhb-5200/fill",
+      "GET /forms/dhb-5200.pdf",
       "GET /api/forms/dss-8207/review",
-      "POST /api/forms/dss-8207/fill",
+      "GET /forms/dss-8207.pdf",
       "POST /api/session/purge",
       "POST /api/session/purge",
       "GET /api/session",
@@ -1869,7 +1855,6 @@ describe("sprint cross-journey (VAL-SPRINT-001: five stages, both consent paths)
     const walk = new Walkthrough("http://fake.test", 1000, transport);
     await walk.runSprintJourney({
       plan: SPRINT_TALK_PLAN,
-      unmappedAnswers: SPRINT_UNMAPPED,
       consent: "declined",
     });
     const transcript = walk.lines.join("\n");
@@ -1898,7 +1883,6 @@ describe("sprint cross-journey (VAL-SPRINT-001: five stages, both consent paths)
     await expect(
       walk.runSprintJourney({
         plan: SPRINT_TALK_PLAN,
-        unmappedAnswers: SPRINT_UNMAPPED,
         audioGenerator: fakeAudioGenerator([]),
         uploadBytes: FAKE_UPLOAD_BYTES,
       }),
@@ -1917,7 +1901,6 @@ describe("sprint cross-journey (VAL-SPRINT-001: five stages, both consent paths)
     await expect(
       walk.runSprintJourney({
         plan: SPRINT_TALK_PLAN,
-        unmappedAnswers: SPRINT_UNMAPPED,
         audioGenerator: fakeAudioGenerator([]),
         uploadBytes: FAKE_UPLOAD_BYTES,
       }),
@@ -1935,7 +1918,6 @@ describe("sprint cross-journey (VAL-SPRINT-003: purge completeness)", () => {
     await expect(
       walk.runSprintJourney({
         plan: SPRINT_TALK_PLAN,
-        unmappedAnswers: SPRINT_UNMAPPED,
         audioGenerator: fakeAudioGenerator([]),
         uploadBytes: FAKE_UPLOAD_BYTES,
       }),
@@ -1957,7 +1939,6 @@ describe("sprint cross-journey (VAL-SPRINT-003: purge completeness)", () => {
     await expect(
       walk.runSprintJourney({
         plan: SPRINT_TALK_PLAN,
-        unmappedAnswers: SPRINT_UNMAPPED,
         audioGenerator: fakeAudioGenerator([]),
         uploadBytes: FAKE_UPLOAD_BYTES,
       }),
@@ -1979,7 +1960,6 @@ describe("sprint cross-journey (VAL-SPRINT-003: purge completeness)", () => {
     await expect(
       walk.runSprintJourney({
         plan: SPRINT_TALK_PLAN,
-        unmappedAnswers: SPRINT_UNMAPPED,
         audioGenerator: fakeAudioGenerator([]),
         uploadBytes: FAKE_UPLOAD_BYTES,
         dbVerify: true,
@@ -2007,7 +1987,6 @@ describe("sprint cross-journey (VAL-SPRINT-003: purge completeness)", () => {
     await expect(
       violatingWalk.runSprintJourney({
         plan: SPRINT_TALK_PLAN,
-        unmappedAnswers: SPRINT_UNMAPPED,
         audioGenerator: fakeAudioGenerator([]),
         uploadBytes: FAKE_UPLOAD_BYTES,
         dbVerify: true,
@@ -2053,18 +2032,6 @@ describe("sprint CLI plumbing", () => {
     expect(help).toContain("--db-verify");
   });
 
-  it("the sprint fill answers cover exactly the two real forms' in-request fields", () => {
-    expect([...Object.keys(SPRINT_FORM_UNMAPPED_ANSWERS)].sort()).toEqual(
-      [...SPRINT_FORM_IDS].sort(),
-    );
-    for (const answers of Object.values(SPRINT_FORM_UNMAPPED_ANSWERS)) {
-      expect(Object.keys(answers).length).toBeGreaterThan(0);
-      for (const value of Object.values(answers)) {
-        expect(typeof value).toBe("string");
-        expect(value.trim().length).toBeGreaterThan(0);
-      }
-    }
-  });
 });
 
 describe("the scripted voice turn (VAL-SPRINT-001's voice-consented talk)", () => {
@@ -2302,7 +2269,7 @@ function flowBackedApp(logic, { held = [] } = {}) {
     if (review) {
       return jsonResponse(200, reviewBody(review[1], Object.keys(answers).length > 0 ? 2 : 0));
     }
-    if (/^POST \/api\/forms\/[^/]+\/fill$/.test(route)) {
+    if (/^GET \/forms\/[^/]+\.pdf$/.test(route)) {
       return pdfResponse();
     }
     throw new Error(`flowBackedApp: no route for ${route}`);
@@ -2327,7 +2294,6 @@ const PLAN_SERVED_JOURNEYS = Object.freeze({
   "sprint --consent declined": (walk) =>
     walk.runSprintJourney({
       consent: "declined",
-      unmappedAnswers: SPRINT_UNMAPPED,
       uploadBytes: FAKE_UPLOAD_BYTES,
     }),
   "quick-questions phase of conversation, form and sprint voice": async (walk) => {
@@ -2347,7 +2313,6 @@ const PLAN_SERVED_JOURNEYS = Object.freeze({
     walk.runSprintJourney({
       consent: "voice",
       audioGenerator: fakeAudioGenerator([]),
-      unmappedAnswers: SPRINT_UNMAPPED,
       uploadBytes: FAKE_UPLOAD_BYTES,
     }),
 });

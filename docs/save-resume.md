@@ -182,18 +182,19 @@ PDF the person saves from the print window.
   answer, and for every field left blank by design, why and on which page
   of the printed form. It is built from the committed registry, so it holds
   no answer.
-- **The fill:** the same value assembly and PDF fill the server's fill route
-  runs (`src/lib/forms/fill-core.ts`, which `src/lib/forms/fill.ts`
-  re-exports), done with `@cantoo/pdf-lib` in the browser over the device
-  answers and the on-device vault view (`vaultValues` in
+- **The fill:** the same value assembly and PDF fill both download surfaces
+  run (`src/lib/forms/fill-core.ts`, re-exported by `src/lib/forms/fill.ts`
+  for the node-side machinery), done with `@cantoo/pdf-lib` in the browser
+  over the device answers and the on-device vault view (`vaultValues` in
   `src/lib/intake/client-store.ts`). The form reads private answers only
   through its registry entry's vault field allowlist. Every field the
   registry gives a non-mapped disposition stays blank, yes/no pairs fill by
   their export values, and the fill flags any question with more than one
   box checked without picking a side; the page lists those above the filled
   pages. The device lays its answers out the way the server keeps the same
-  answers, so the filled form matches the server's fill of those answers
-  field for field. The PDF step (`src/lib/intake/device-fill.ts`) is the
+  answers, so its filled form matches the review payload's values field for
+  field (property-proven in `src/lib/intake/device-form.test.ts`). The PDF
+  step (`src/lib/intake/device-fill.ts`) is the
   only device module that loads pdf-lib, and the page loads it only when
   the person asks to see the filled form, so the questions never wait on
   it.
