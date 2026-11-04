@@ -58,11 +58,11 @@ describe("UI string banned-claims scan", () => {
     // identifiers, so a hit is always a copy (or comment) regression on a
     // user-facing surface.
     const retired: readonly (readonly [RegExp, string])[] = [
-      [/Use the wizard instead/, 'the conversation link "Use the wizard instead"'],
-      [/Open the wizard/, 'the error fallback "Open the wizard"'],
-      [/the wizard below/, 'the shield notice "the wizard below"'],
-      [/Use the form instead/, 'the home link "Use the form instead"'],
-      [/the step-by-step questions/, 'the path named "the step-by-step questions"'],
+      [/Use the wizard instead/i, 'the conversation link "Use the wizard instead"'],
+      [/Open the wizard/i, 'the error fallback "Open the wizard"'],
+      [/the wizard below/i, 'the shield notice "the wizard below"'],
+      [/Use the form instead/i, 'the home link "Use the form instead"'],
+      [/the step-by-step questions/i, 'the path named "the step-by-step questions"'],
       [/a few plain-language/i, 'the "a few" question-count promise'],
     ];
     const violations: string[] = [];

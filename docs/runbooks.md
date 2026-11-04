@@ -9,8 +9,8 @@ with no model key: a typed turn, two saved answers, the review, the filled PDF, 
 and `pnpm walkthrough`.
 
 The one move to remember is to turn sharing off on the same page when the assistant stops
-answering. The step-by-step form takes over in place, keep every answer the chat
-already saved, and still end at the review and the filled DHB-5200. The "Open the step-by-step form"
+answering. The step-by-step form takes over in place, keeps every answer the chat
+already saved, and still ends at the review and the filled DHB-5200. The "Open the step-by-step form"
 link in the error and the "Use the step-by-step form instead" link at the top of the page go somewhere
 else (see the first runbook).
 
@@ -95,7 +95,7 @@ text runs on the same API, so voice turns fail the same way.
 
 The person waits up to about a minute (three tries of up to 20 seconds each), then sees
 an amber alert: "Our assistant is unavailable right now. You can keep filling in your
-answers." Under it, "Open the wizard" links to `/intake`. The match card keeps working
+answers." Under it, "Open the step-by-step form" links to `/intake`. The match card keeps working
 and explains the program from the knowledge base's own facts instead of the model.
 
 To keep going without losing anything:
@@ -112,7 +112,7 @@ To keep going without losing anything:
    sharing typed words, then "Continue with these choices".
 
 The amber alert stays on screen after the switch. Ignore it. Don't follow "Open the
-wizard" mid-demo, or "Use the wizard instead" at the top of the page, since both go to
+step-by-step form" mid-demo, or "Use the step-by-step form instead" at the top of the page, since both go to
 `/intake`. It keeps answers only on the device, doesn't see what the chat saved, and starts
 again at question 1. Since HACK-115 it ends at "All questions answered for now" with the
 match, the form review, and "Show the filled form", which draws the filled DHB-5200 on the
@@ -129,14 +129,14 @@ six answers, sharing went back on, a second typed turn failed the same way, and 
 sharing off again resumed at the same question with 6 of 35 answered. The fill route then
 returned the DHB-5200 as a PDF, and a drafted name was filled into it. The browser made no
 request to any other host. Tests pin the rest: `src/app/api/conversation/turn/route.test.ts`
-(model and speech-to-text failures return the error with the wizard link and save nothing)
+(model and speech-to-text failures return the error with the step-by-step-form link and save nothing)
 and `src/lib/match.test.ts` (the explanation falls back to the entry's facts).
 
 ## Too many turns at once
 
 This happens after 12 typed or spoken turns within one minute in one session, or when the
 model API refuses three tries in a row for load. The alert says "That was a lot of
-activity at once. Please wait a moment and try again." with the same "Open the wizard"
+activity at once. Please wait a moment and try again." with the same "Open the step-by-step form"
 link.
 
 Wait a minute and send again. If it keeps happening, turn sharing off as above.
@@ -239,11 +239,11 @@ stayed at 6 of 35.
 
 This happens when Postgres is unreachable or `DATABASE_URL` is missing. The chat page
 shows "We could not load your earlier conversation just now." The step-by-step form on
-it show "Something went wrong on our side. Please try again." The match, review and delete
+it shows "Something went wrong on our side. Please try again." The match, review and delete
 sections don't appear. `/api/health` still answers `{"ok":true}`.
 
 `/intake` keeps working because it saves answers on the device, so show the intake there.
-"Use the wizard instead" at the top of the chat page goes to it. Since HACK-115 it ends with
+"Use the step-by-step form instead" at the top of the chat page goes to it. Since HACK-115 it ends with
 the match, the form review, and a preview of the filled DHB-5200 to print or download a copy
 of, all made in the browser. Then check the Vercel Postgres store and the deployment's
 environment variables.
