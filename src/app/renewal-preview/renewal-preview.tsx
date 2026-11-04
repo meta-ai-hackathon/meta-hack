@@ -144,8 +144,10 @@ export function RenewalPreview() {
       </p>
       <h1 className="font-display text-4xl font-bold tracking-tight">{RENEWAL_PREVIEW_COPY.heading}</h1>
 
+      {/* The question and review headings point at this label, so a screen
+          reader that lands on a heading also hears where the person is. */}
       {label === null ? null : (
-        <p data-step-label className="text-sm font-medium text-muted">
+        <p id="renewal-step-label" data-step-label className="text-sm font-medium text-muted">
           {label}
         </p>
       )}
@@ -164,7 +166,13 @@ export function RenewalPreview() {
 
       {typeof step === "object" ? (
         <section aria-labelledby="renewal-step-heading" data-check={PREVIEW_CHECKS[step.check].id} className="flex flex-col gap-4">
-          <h2 id="renewal-step-heading" ref={heading} tabIndex={-1} className="font-display text-2xl font-bold">
+          <h2
+            id="renewal-step-heading"
+            ref={heading}
+            tabIndex={-1}
+            aria-describedby="renewal-step-label"
+            className="font-display text-2xl font-bold"
+          >
             {PREVIEW_CHECKS[step.check].question}
           </h2>
           <div className="flex flex-col gap-1 rounded-xl border border-surface-border bg-surface p-4">
@@ -197,7 +205,13 @@ export function RenewalPreview() {
 
       {step === "review" ? (
         <section aria-labelledby="renewal-step-heading" data-review className="flex flex-col gap-4">
-          <h2 id="renewal-step-heading" ref={heading} tabIndex={-1} className="font-display text-2xl font-bold">
+          <h2
+            id="renewal-step-heading"
+            ref={heading}
+            tabIndex={-1}
+            aria-describedby="renewal-step-label"
+            className="font-display text-2xl font-bold"
+          >
             {RENEWAL_PREVIEW_COPY.reviewHeading}
           </h2>
           {/* Anything the person said changed shows "Needs updating" in place of

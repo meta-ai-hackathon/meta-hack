@@ -53,6 +53,12 @@ function text(): string {
   return container.textContent ?? "";
 }
 
+/** What a screen reader reads as the element's description, from its aria-describedby. */
+function description(element: Element | null): string | undefined {
+  const id = element?.getAttribute("aria-describedby");
+  return id ? (document.getElementById(id)?.textContent ?? undefined) : undefined;
+}
+
 /** Words for things the app never does on the person's behalf: prepared is never submitted. */
 const NOT_AN_APP_ACTION = /submit|send|\bfil(e|ing)\b|\bsign|renew/i;
 
@@ -158,7 +164,7 @@ describe("the one-click renewal concept preview", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("leaves the first screen's focus alone, even when React runs effects twice, then moves focus to each new step's heading", () => {
+  it("leaves the first screen's focus alone, even when React runs effects twice, then moves focus to each new step's heading, which announces its step", () => {
     fc.assert(
       fc.property(answerMixes, (changes) => {
         act(() => root.unmount());
@@ -176,9 +182,11 @@ describe("the one-click renewal concept preview", () => {
         press("start");
         changes.forEach((didChange, index) => {
           expect(document.activeElement?.textContent).toBe(PREVIEW_CHECKS[index].question);
+          expect(description(document.activeElement)).toBe(`Step ${index + 1} of 4`);
           press(didChange ? "changed" : "no-change");
         });
         expect(document.activeElement?.textContent).toBe(RENEWAL_PREVIEW_COPY.reviewHeading);
+        expect(description(document.activeElement)).toBe("Step 4 of 4");
         act(() => container.querySelector<HTMLInputElement>("[data-confirm-check]")!.click());
         press("confirm");
         expect(document.activeElement?.textContent).toBe(RENEWAL_PREVIEW_COPY.doneHeading);
