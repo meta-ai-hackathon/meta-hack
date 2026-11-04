@@ -65,4 +65,15 @@ describe("Conversation page shell", () => {
     const html = renderToStaticMarkup(<ConversationPage />);
     expect(html).not.toContain("data-mic-blocked-guidance");
   });
+
+  it("claims only what is true about private answers in the intro (HACK-158, VAL-UX-005)", () => {
+    const html = renderToStaticMarkup(<ConversationPage />);
+    // The old over-claim promised private details NEVER show on screen —
+    // false for typed names and free text, which stay visible as typed.
+    expect(html).not.toContain("never show up on this screen");
+    // The honest claim: answers to PRIVATE questions are the withheld
+    // ones, and they show as the You-told-us chip.
+    expect(html).toContain("answers to private questions show as");
+    expect(html).toContain("You told us");
+  });
 });

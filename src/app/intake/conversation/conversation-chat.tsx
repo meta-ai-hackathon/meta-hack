@@ -32,6 +32,7 @@ import {
 import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { takeStoredEntryMode } from "../../../lib/entry-mode";
 import { talkPathSavesQuestion } from "../../../lib/intake/talk-path";
+import { splitRedactedTranscript } from "../../../lib/intake/transcript-chips";
 import {
   RampartShield,
   type RampartShieldStatus,
@@ -236,6 +237,29 @@ function revealHistory(
         ? (shield?.reveal(turn.transcript) ?? turn.transcript)
         : turn.transcript,
   }));
+}
+
+/**
+ * The person's own bubble content (HACK-158, VAL-UX-005): the transcript
+ * is the server's REDACTED text — a private answer stands in it as the
+ * bracket marker the redaction stored — so the marker renders as the
+ * same small "You told us" chip the answers list uses, never as raw
+ * bracket text. Typed words and free text around a marker remain
+ * visible exactly as typed (redaction expansion is HACK-103, out of
+ * scope; what is stored and sent is unchanged).
+ */
+function UserTranscript({ transcript }: { readonly transcript: string }) {
+  return (
+    <>
+      {splitRedactedTranscript(transcript).map((segment, index) =>
+        segment.kind === "redacted" ? (
+          <AnswerStatusBadge key={index} status="known" />
+        ) : (
+          <span key={index}>{segment.text}</span>
+        ),
+      )}
+    </>
+  );
 }
 
 let localTurnId = 0;
@@ -1761,7 +1785,7 @@ export function ConversationChat() {
                   >
                     <span className="sr-only">You said:</span>
                     <span className="rounded-3xl rounded-br-lg bg-foreground px-4 py-2.5 text-background">
-                      {turn.transcript}
+                      <UserTranscript transcript={turn.transcript} />
                     </span>
                     {turn.themes && turn.themes.length > 0 ? (
                       <span className="flex flex-wrap justify-end gap-1">
@@ -2077,8 +2101,8 @@ export function ConversationChat() {
           className="rounded-2xl border border-surface-border bg-surface p-3.5 text-base"
         />
         <p id="conversation-input-help" className="text-sm text-muted">
-          Private details stay private: the transcript below shows them only as
-          &ldquo;you told us&rdquo; marks, never the values themselves.
+          Answers to private questions show as &ldquo;You told us&rdquo;
+          marks.
         </p>
         <button
           type="submit"

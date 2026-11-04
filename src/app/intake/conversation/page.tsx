@@ -28,9 +28,8 @@ export default function ConversationPage() {
         </h1>
         <p className="max-w-xl text-lg text-muted">
           Tell us about your situation in your own words. The assistant asks
-          one question at a time, your answers save as you go, and private
-          details never show up on this screen — they are marked as
-          &ldquo;you told us&rdquo; instead.
+          one question at a time, your answers save as you go, and answers
+          to private questions show as &ldquo;You told us&rdquo; here.
         </p>
       </div>
       <ConversationChat />
