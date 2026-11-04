@@ -1,4 +1,4 @@
-import { PDFDocument } from "@cantoo/pdf-lib";
+import { ParseSpeeds, PDFDocument } from "@cantoo/pdf-lib";
 import { fillLoadedPdf, type FillOutcome } from "../forms/fill-core";
 import type { FormRegistryEntry } from "../forms/registry-core";
 import type { ClientAnswerState } from "./client-store";
@@ -41,7 +41,12 @@ export async function fillFormOnDevice(
   }
   let pdf: PDFDocument;
   try {
-    pdf = await PDFDocument.load(templateBytes);
+    // Parse fast (the same option review-fill.ts takes): the fork's
+    // default Slow speed yields a `setTimeout` tick per ~100 parsed
+    // objects, and a browser throttles background tabs' timers to about
+    // one a second — a 21-page form's parse would take minutes of ticks.
+    // Fast parses without the ticks, in one go.
+    pdf = await PDFDocument.load(templateBytes, { parseSpeed: ParseSpeeds.Fast });
   } catch {
     return { kind: "unreadable_form" };
   }
@@ -53,6 +58,14 @@ export async function fillFormOnDevice(
   );
   return {
     kind: "filled",
-    outcome: { bytes: await pdf.save(), filled, toResolve, conflicts },
+    // Saved in one go, too: the writer's default yields a `setTimeout`
+    // tick per 50 objects, which a throttled background tab stretches to
+    // minutes.
+    outcome: {
+      bytes: await pdf.save({ objectsPerTick: Infinity }),
+      filled,
+      toResolve,
+      conflicts,
+    },
   };
 }
