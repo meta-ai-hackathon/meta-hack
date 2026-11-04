@@ -5,6 +5,8 @@ import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   StatePicker,
+  commitCandidate,
+  matchesQuery,
   visibleOptions,
   type PickerOption,
 } from "./state-picker";
@@ -254,6 +256,81 @@ describe("StatePicker (HACK-142)", () => {
     await renderPicker({ disabled: true });
     expect(input().disabled).toBe(true);
   });
+
+  // HACK-164 (VAL-UX-001): typing the full state name and pressing
+  // Continue used to show the needed-to-continue error, because typing
+  // only filtered. The blur a Continue press causes now commits the
+  // typed input: the exact (case-insensitive) match, or the only match
+  // left. The Enter and click pick paths above stay untouched.
+  describe("typed-input commit on blur (HACK-164)", () => {
+    /** Blur wrapped in act, so the commit's re-render flushes before asserting. */
+    const blurInput = async (): Promise<void> => {
+      await React.act(async () => {
+        input().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 0));
+      });
+    };
+
+    it("commits the typed full name on blur — the blur a Continue press causes picks it", async () => {
+      const { act, rerender } = await renderPicker();
+      await act(() => type("north carolina"));
+      await blurInput();
+      expect(onChange).toHaveBeenCalledWith("NC");
+      expect(input().value).toBe("North Carolina");
+      await rerender({ value: "NC" });
+      expect(chip()).toContain("Picked: North Carolina");
+    });
+
+    it("commits the only remaining match on blur, even though nothing was typed exactly", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("alabam"));
+      await blurInput();
+      expect(onChange).toHaveBeenCalledWith("AL");
+    });
+
+    it("prefers the exact case-insensitive match when several options filter-match", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("SOUTH CAROLINA"));
+      await blurInput();
+      expect(onChange).toHaveBeenCalledWith("SC");
+      expect(input().value).toBe("South Carolina");
+    });
+
+    it("commits the value code typed exactly", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("nc"));
+      await blurInput();
+      expect(onChange).toHaveBeenCalledWith("NC");
+    });
+
+    it("leaves an ambiguous query unpicked on blur and keeps the reset behavior", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north"));
+      await blurInput();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(chip()).toContain("No state picked yet");
+      // The existing blur reset (the query yields to the picked label)
+      // still holds when nothing committed.
+      expect(input().value).toBe("");
+    });
+
+    it("leaves a zero-match query unpicked on blur", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("zzz"));
+      await blurInput();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(chip()).toContain("No state picked yet");
+    });
+
+    it("does not re-report an already-picked value on blur", async () => {
+      const { act } = await renderPicker({ value: "NC" });
+      await act(() => type("north carolina"));
+      await blurInput();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(input().value).toBe("North Carolina");
+      expect(chip()).toContain("Picked: North Carolina");
+    });
+  });
 });
 
 describe("StatePicker filter properties (fast-check)", () => {
@@ -310,6 +387,96 @@ describe("StatePicker filter properties (fast-check)", () => {
         for (const option of options) {
           expect(visibleOptions(options, option.label.toUpperCase())).toContain(option);
           expect(visibleOptions(options, option.label.toLowerCase())).toContain(option);
+        }
+      }),
+    );
+  });
+});
+
+describe("StatePicker commit properties (fast-check, HACK-164)", () => {
+  // The same option-list arbitrary as the filter properties above.
+  const optionLists = fc
+    .array(
+      fc.tuple(
+        fc.string({ minLength: 2, maxLength: 3 }).filter((value) => value.toLowerCase() !== value.toUpperCase()),
+        fc.string({ minLength: 2, maxLength: 20 }).filter((label) => !label.includes("\u0000")),
+      ),
+      { maxLength: 25 },
+    )
+    .map((tuples) =>
+      tuples.map(([value, label], index) => ({
+        value: `${value}${index}`,
+        label: `${label} ${index}`,
+      })),
+    );
+  const queries = fc.string({ maxLength: 12 }).filter(
+    (query) => !query.includes("\u0000"),
+  );
+
+  it("the commit never invents an option: it is a real option, and only an exact or unique match", () => {
+    fc.assert(
+      fc.property(optionLists, queries, (options, query) => {
+        const candidate = commitCandidate(options, query);
+        if (candidate === undefined) {
+          return;
+        }
+        // The committed value is one of the spec's own options — the
+        // answer route's option validation always holds.
+        expect(options.includes(candidate)).toBe(true);
+        const normalized = query.trim().toLowerCase();
+        const exact = options.filter(
+          (option) =>
+            option.label.toLowerCase() === normalized ||
+            option.value.toLowerCase() === normalized,
+        );
+        if (exact.length > 0) {
+          // An exact match wins, and only when one really exists.
+          expect(
+            exact.some((option) => option.value === candidate.value),
+          ).toBe(true);
+        } else {
+          // Without an exact match, the commit is the ONLY filter match.
+          const matches = options.filter((option) =>
+            matchesQuery(option, normalized),
+          );
+          expect(matches).toHaveLength(1);
+          expect(matches[0]!.value).toBe(candidate.value);
+        }
+      }),
+    );
+  });
+
+  it("an option's own name, typed in any case, always commits to it — Continue never dead-ends on a correctly typed name", () => {
+    fc.assert(
+      fc.property(optionLists, fc.constantFrom("lower", "upper"), (options, casing) => {
+        for (const option of options) {
+          const typed =
+            casing === "lower"
+              ? option.label.toLowerCase()
+              : option.label.toUpperCase();
+          expect(commitCandidate(options, typed)?.value).toBe(option.value);
+        }
+      }),
+    );
+  });
+
+  it("an ambiguous query with no exact match never commits (typing cannot sneak a pick past the person)", () => {
+    fc.assert(
+      fc.property(optionLists, queries, (options, query) => {
+        const normalized = query.trim().toLowerCase();
+        const exact = options.some(
+          (option) =>
+            option.label.toLowerCase() === normalized ||
+            option.value.toLowerCase() === normalized,
+        );
+        if (exact || normalized === "") {
+          return;
+        }
+        const matches = options.filter((option) =>
+          matchesQuery(option, normalized),
+        );
+        if (matches.length !== 1) {
+          expect(commitCandidate(options, query)).toBeUndefined();
         }
       }),
     );
