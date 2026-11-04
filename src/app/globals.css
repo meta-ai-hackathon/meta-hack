@@ -152,6 +152,54 @@ html {
   transition: font-size 150ms ease-in-out;
 }
 
+/* HACK-155 (VAL-UX-007): reflow at the huge-text corner. At 375 px and
+   250% the root font is 40 px, so one heading word ("application",
+   "Conversation") was wider than the ~275 px content column and pages
+   scrolled sideways (627-727 px). Two scoped fixes, and ONLY here:
+
+   1. Display headings are capped with vw on phones while the zoom is
+      active. min(original-size, Nvw) keeps the exact designed size at
+      every zoom step once the viewport is wide enough, and only bounds
+      the corner where a single word would otherwise overflow. One cap
+      per shipped heading size class (h1 text-4xl; h2 text-3xl/2xl/xl;
+      h3 text-2xl/xl).
+   2. Text inside main breaks anywhere as the last-resort reflow
+      (overflow-wrap is inherited): a word that still cannot fit its line
+      breaks instead of widening the page. Normal-size rendering and
+      desktop widths are untouched. */
+@media (max-width: 760px) {
+  html[data-text-zoom] h1.text-4xl {
+    font-size: min(2.25rem, 13vw);
+  }
+
+  html[data-text-zoom] h2.text-3xl {
+    font-size: min(1.875rem, 12vw);
+  }
+
+  html[data-text-zoom] :is(h2.text-2xl, h3.text-2xl) {
+    font-size: min(1.5rem, 11vw);
+  }
+
+  html[data-text-zoom] :is(h2.text-xl, h3.text-xl) {
+    font-size: min(1.25rem, 10vw);
+  }
+
+  html[data-text-zoom] main {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* The same word-safety for links at every size: a long source URL
+   (medicaid.ncdhhs.gov/apply) wraps instead of overflowing its card.
+   break-word (not anywhere) so the rule never lowers a link's
+   min-content width — a button-styled link in a flex row keeps its
+   natural size at every zoom step (claude-review P3, PR #163); inside
+   the app's shrinkable panels the URL still breaks when its line
+   overflows. */
+main a {
+  overflow-wrap: break-word;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -223,6 +271,10 @@ progress {
   position: relative;
   width: 5rem;
   height: 5rem;
+  /* HACK-155: a flex row at 250% text squeezed the frame to 0px wide
+     while the absolutely-positioned halo still painted — the decorative
+     orb spilled past the viewport. The frame holds its square. */
+  flex-shrink: 0;
 }
 
 .presence-orb-halo {

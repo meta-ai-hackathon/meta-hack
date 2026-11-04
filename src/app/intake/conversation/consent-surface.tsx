@@ -103,7 +103,7 @@ export function ConsentPanel(props: ConsentPanelProps) {
             htmlFor="consent-ai-toggle"
             className="flex flex-col gap-1 font-medium"
           >
-            <span className="flex items-start gap-2">
+            <span className="flex flex-wrap items-start gap-x-2 gap-y-2">
               <input
                 id="consent-ai-toggle"
                 type="checkbox"
@@ -148,7 +148,7 @@ export function ConsentPanel(props: ConsentPanelProps) {
             htmlFor="consent-voice-toggle"
             className="flex flex-col gap-1 font-medium"
           >
-            <span className="flex items-start gap-2">
+            <span className="flex flex-wrap items-start gap-x-2 gap-y-2">
               <input
                 id="consent-voice-toggle"
                 type="checkbox"

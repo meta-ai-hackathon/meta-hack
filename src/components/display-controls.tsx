@@ -80,7 +80,12 @@ export function DisplayControls() {
       className="flex flex-wrap items-center gap-x-6 gap-y-3"
     >
       <p className="text-base font-semibold">Text size and contrast</p>
-      <div className="flex items-center gap-2">
+      {/* HACK-155: each control row wraps too. The section-level wrap
+          alone cannot save a phone at 250% text — the one-line
+          "Smaller 250% Bigger" row was ~578px wide there, a single flex
+          item the section could not break, and the Bigger button left the
+          screen. With flex-wrap the buttons flow under their label. */}
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           data-zoom-out
@@ -109,7 +114,7 @@ export function DisplayControls() {
           Bigger
         </button>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <input
           id="display-high-contrast"
           type="checkbox"

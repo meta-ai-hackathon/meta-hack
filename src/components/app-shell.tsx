@@ -19,11 +19,13 @@ import { DisplayControls } from "./display-controls";
  * Lovable prototype geometry): the frame spans edge-to-edge — no centered
  * max-width, no dead gutters — and the header takes the prototype's exact
  * shape: 84px tall with 24px 36px padding, brand left and controls right.
- * The height is set in rem (`h-[5.25rem]` = 84px at the default text
- * size) so the HACK-84 huge-text zoom grows the header WITH its content
- * instead of clipping it (claude-review P2); the 760px breakpoint rule
- * drops the paddings to 18px 20px with a 75px height floor (the controls
- * wrap on phones — the height grows, it never clips).
+ * HACK-155: the height is a FLOOR, not a fixed height (`min-h-[5.25rem]`
+ * = 84px at the default text size), so the header grows with its content
+ * at the huge-text zoom instead of clipping the "Text size and contrast"
+ * label and the High contrast checkbox (the old fixed `h-[5.25rem]` cut
+ * both off at 1200 px and 250%). The 760px breakpoint rule drops the
+ * paddings to 18px 20px with a 75px height floor (the controls wrap on
+ * phones — the height grows, it never clips).
  */
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -38,15 +40,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         data-app-header
         className="border-b border-surface-border bg-background"
       >
-        <div className="flex min-h-[75px] w-full flex-col justify-center gap-3 px-5 py-[18px] min-[761px]:flex-row min-[761px]:items-center min-[761px]:justify-between min-[761px]:gap-8 min-[761px]:px-9 min-[761px]:py-6 min-[1101px]:h-[5.25rem]">
+        <div className="flex min-h-[75px] w-full flex-col justify-center gap-3 px-5 py-[18px] min-[761px]:flex-row min-[761px]:items-center min-[761px]:justify-between min-[761px]:gap-8 min-[761px]:px-9 min-[761px]:py-6 min-[1101px]:min-h-[5.25rem]">
           <Link
             href="/"
             data-brand-link
-            className="flex items-center gap-2.5 self-start"
+            className="flex flex-wrap items-center gap-2.5 self-start"
           >
             <span
               aria-hidden="true"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-teal font-display text-lg font-bold text-teal-contrast"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal font-display text-lg font-bold text-teal-contrast"
             >
               T
             </span>
