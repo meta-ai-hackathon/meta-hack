@@ -9,4 +9,4 @@ pypdf==6.18.1
 # Claude PR review bot runtime (anthropic SDK), so its tests and types run in CI
 -r requirements-review.txt
 # Property-based tests for the review bot (skills/property-based-testing/SKILL.md)
-hypothesis==6.170.13
+hypothesis==6.170.14
