@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { DisplayControls } from "./display-controls";
+import { DisplayMenu } from "./display-menu";
 
 /**
  * App shell (BN-07): the skip link is the first tab stop on every page and
@@ -24,8 +24,12 @@ import { DisplayControls } from "./display-controls";
  * at the huge-text zoom instead of clipping the "Text size and contrast"
  * label and the High contrast checkbox (the old fixed `h-[5.25rem]` cut
  * both off at 1200 px and 250%). The 760px breakpoint rule drops the
- * paddings to 18px 20px with a 75px height floor (the controls wrap on
- * phones — the height grows, it never clips).
+ * paddings to 18px 20px with a 75px height floor.
+ *
+ * HACK-166: the display controls open from one button (DisplayMenu), so
+ * the logo and that button share one row at every width. On a phone the
+ * controls used to wrap under the logo and make the header 199px tall.
+ * The row still wraps at huge text rather than clipping.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -40,11 +44,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         data-app-header
         className="border-b border-surface-border bg-background"
       >
-        <div className="flex min-h-[75px] w-full flex-col justify-center gap-3 px-5 py-[18px] min-[761px]:flex-row min-[761px]:items-center min-[761px]:justify-between min-[761px]:gap-8 min-[761px]:px-9 min-[761px]:py-6 min-[1101px]:min-h-[5.25rem]">
+        <div className="flex min-h-[75px] w-full flex-row flex-wrap items-center justify-between gap-3 px-5 py-[18px] min-[761px]:gap-8 min-[761px]:px-9 min-[761px]:py-6 min-[1101px]:min-h-[5.25rem]">
           <Link
             href="/"
             data-brand-link
-            className="flex flex-wrap items-center gap-2.5 self-start"
+            className="flex flex-wrap items-center gap-2.5"
           >
             <span
               aria-hidden="true"
@@ -56,7 +60,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               Tenet
             </span>
           </Link>
-          <DisplayControls />
+          <DisplayMenu />
         </div>
       </header>
       <main id="main-content" tabIndex={-1} className="flex flex-1 flex-col">
