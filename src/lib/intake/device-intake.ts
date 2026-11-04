@@ -64,6 +64,18 @@ import { WORK_ROWS_QUESTION_ID, currentWorkRows, parseWorkRows } from "./work-ac
  */
 export type DeviceKeeping = "kept" | "unsupported" | "unavailable" | "stopped";
 
+/**
+ * A copy of the filled form the person downloads from the end of /intake
+ * (HACK-115), or saves as a PDF from its print window, is an ordinary file
+ * outside this browser's storage, so no delete here reaches it, and no
+ * delete of the answers on the app's server does either. Every delete and
+ * purge message on /intake says so (rules.md, Real data rules): these
+ * below, and the server answers notice's (server-answers-notice.tsx).
+ */
+export const DOWNLOADED_COPY_STAYS =
+  "If you downloaded a copy of the filled form, or saved it as a PDF when " +
+  "printing, that file stays on this device until you delete it.";
+
 export const DEVICE_INTAKE_COPY = {
   pageIntro:
     "A few plain-language questions, one at a time. You can stop at any " +
@@ -109,8 +121,8 @@ export const DEVICE_INTAKE_COPY = {
     "This browser is taking too long to save, so this answer might not be " +
     "kept. Answers from now on last only until you close this page.",
   purgedElsewhere:
-    "Your answers were deleted from this device in another tab or window, " +
-    "so the questions start fresh.",
+    "Your answers were deleted from this browser in another tab or window, " +
+    `so the questions start fresh. ${DOWNLOADED_COPY_STAYS}`,
   updatedElsewhere: "Updated with changes made in another tab or window.",
   busy:
     "Your answers are being changed in another tab right now, so this one " +
@@ -128,16 +140,18 @@ export const DEVICE_INTAKE_COPY = {
   deleteButton: "Delete my answers from this device",
   deleteConfirm:
     "This deletes every answer saved in this browser for this form. It " +
-    "can't be undone.",
+    `can't be undone. ${DOWNLOADED_COPY_STAYS}`,
   deleteYes: "Yes, delete them",
   deleteNo: "Keep them",
-  deleted: "Deleted. None of your answers are left on this device.",
+  // The delete reaches this browser's storage, so that is all it claims,
+  // and it says a downloaded copy of the filled form is still on the device.
+  deleted: `Deleted. None of your answers are left in this browser. ${DOWNLOADED_COPY_STAYS}`,
   clearedNothingStored:
-    "Cleared from this page. This browser can't save answers, so there was " +
-    "nothing on the device to delete.",
+    "Cleared from this page. This browser can't save answers, so none were " +
+    `kept in it. ${DOWNLOADED_COPY_STAYS}`,
   deleteUnconfirmed:
     "We couldn't confirm your answers were deleted from this device. To be " +
-    "sure, clear this site's data in your browser settings.",
+    `sure, clear this site's data in your browser settings. ${DOWNLOADED_COPY_STAYS}`,
   privateKept: "Saved privately — not shown again.",
   privateNotKept: "Noted privately for this visit — not shown again.",
 } as const;
@@ -463,6 +477,12 @@ export async function answerOnDevice(
     case "saved": {
       const base = intakeOf(intake.store, "kept", true, result.state);
       const next = await withReprunedWorkRows(await withReprunedAttribution(base, questionId), questionId);
+      if (!next.stored) {
+        // A re-prune's own write found the answers deleted in another tab
+        // after this save landed, and came back empty. The page starts
+        // fresh, exactly as when the save itself finds the delete.
+        return { kind: "purged", intake: next, notice: DEVICE_INTAKE_COPY.purgedElsewhere };
+      }
       return { kind: "saved", intake: next, notice: answerNotice(status, next.view.progress, next) };
     }
     case "purged":

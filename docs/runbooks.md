@@ -113,10 +113,14 @@ To keep going without losing anything:
 
 The amber alert stays on screen after the switch. Ignore it. Don't follow "Open the
 wizard" mid-demo, or "Use the wizard instead" at the top of the page, since both go to
-`/intake`. It keeps answers only on the device, doesn't see what the chat saved, starts
-again at question 1, and ends at a list of answers ("All questions answered for now")
-with no form review and no PDF. It also shows an "Answers saved on the app's server"
-notice that counts the chat session's answers and offers to delete them, chat included.
+`/intake`. It keeps answers only on the device, doesn't see what the chat saved, and starts
+again at question 1. Since HACK-115 it ends at "All questions answered for now" with the
+match, the form review, and "Show the filled form", which draws the filled DHB-5200 on the
+page with "Print the form" and "Download a copy" beside it. The copy is made in the browser
+and saves only when the person presses that button (`docs/save-resume.md`). If the browser
+can't draw the pages, "Download a copy" still appears on its own. It also shows
+an "Answers saved on the app's server" notice that counts the chat session's answers and
+offers to delete them, chat included.
 Don't press "Delete them from the app's server" if the person is going back to the chat.
 
 Rehearsed on 2026-10-31 with the app on port 3301 and no model key. A typed turn returned
@@ -239,9 +243,10 @@ it show "Something went wrong on our side. Please try again." The match, review 
 sections don't appear. `/api/health` still answers `{"ok":true}`.
 
 `/intake` keeps working because it saves answers on the device, so show the intake there.
-"Use the wizard instead" at the top of the chat page goes to it. It ends without the
-review or the PDF. Then check the Vercel Postgres store and the deployment's environment
-variables.
+"Use the wizard instead" at the top of the chat page goes to it. Since HACK-115 it ends with
+the match, the form review, and a preview of the filled DHB-5200 to print or download a copy
+of, all made in the browser. Then check the Vercel Postgres store and the deployment's
+environment variables.
 
 Rehearsed on 2026-10-31 with `DATABASE_URL` pointed at a closed port. The chat page and its
 questions failed as described, and `/intake` saved an answer with "Saved on this device."

@@ -424,6 +424,72 @@ describe("other tabs and windows", () => {
     expect(result).toMatchObject({ kind: "purged", notice: DEVICE_INTAKE_COPY.purgedElsewhere });
     expect(disk.store.size).toBe(0);
   });
+
+  it("a delete in another tab that a roster change's re-prune finds is told as a delete, not a save", async () => {
+    // The roster save lands, then another tab deletes everything before
+    // the re-prune of the attribution (HACK-135) or the work rows (HACK-128)
+    // writes. The re-prune finds the delete, so the page starts fresh and
+    // says the answers were deleted elsewhere, and the wizard clears what
+    // was typed into the review, as for any delete made elsewhere.
+    const twoMembers = [
+      { id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" },
+      { id: "member-2", displayName: "Jo", relationship: "child", ageBand: "under_14" },
+    ];
+    const pruned: Readonly<Record<string, readonly [string, unknown][]>> = {
+      attribution: [
+        ["wr_income_580", "yes"],
+        [
+          "wr_who_months",
+          [
+            { memberId: "member-1", situationId: "wr_income_580", months: "both" },
+            { memberId: "member-2", situationId: "wr_income_580", months: "last_month" },
+          ],
+        ],
+      ],
+      "work rows": [
+        [
+          "wr_work_rows",
+          [
+            { memberId: "member-1", activity: "job_internship", hours: 40 },
+            { memberId: "member-2", activity: "community_service", hours: 10 },
+          ],
+        ],
+      ],
+    };
+    for (const [what, answers] of Object.entries(pruned)) {
+      const disk = memoryKv();
+      let deleteAfterNextSave = false;
+      const kv: DeviceKv = {
+        ...disk.kv,
+        setMany: async (entries, guard) => {
+          const written = await disk.kv.setMany(entries, guard);
+          if (deleteAfterNextSave) {
+            deleteAfterNextSave = false;
+            // Another tab's Delete my answers lands right after this write.
+            disk.store.clear();
+          }
+          return written;
+        },
+      };
+      let intake = (await loadDeviceIntake(opener(kv))).intake;
+      for (const [questionId, value] of [["household_roster", twoMembers] as const, ...answers]) {
+        const saved = await answerOnDevice(intake, questionId, "known", value);
+        expect(saved.kind, `${what}: ${questionId}`).toBe("saved");
+        if (saved.kind === "saved") {
+          intake = saved.intake;
+        }
+      }
+      deleteAfterNextSave = true;
+      const result = await answerOnDevice(intake, "household_roster", "known", twoMembers.slice(0, 1));
+      expect(result, what).toMatchObject({ kind: "purged", notice: DEVICE_INTAKE_COPY.purgedElsewhere });
+      if (result.kind === "purged") {
+        expect(result.intake.answers, what).toEqual(EMPTY_CLIENT_ANSWERS);
+        expect(result.intake.stored, what).toBe(false);
+      }
+      // Nothing came back to the device after the delete.
+      expect(disk.store.size, what).toBe(0);
+    }
+  });
 });
 
 describe("honest copy", () => {
@@ -461,6 +527,19 @@ describe("honest copy", () => {
     // No line says answers are kept safe from other people using the browser.
     for (const line of Object.values(DEVICE_INTAKE_COPY)) {
       expect(line).not.toMatch(/locked|never leaves this browser|any time/i);
+    }
+  });
+
+  it("says in every delete and purge message that a downloaded copy of the filled form stays on the device", () => {
+    // The person may download a copy of the filled form at the end of
+    // /intake (HACK-115), or save it as a PDF from the print window. That
+    // file is outside this browser's storage, so no delete here reaches it,
+    // and the rules (.github/claude-review/rules.md) require the delete and
+    // purge copy to say a downloaded copy stays until the person deletes it.
+    for (const key of ["deleteConfirm", "deleted", "clearedNothingStored", "deleteUnconfirmed", "purgedElsewhere"] as const) {
+      expect(DEVICE_INTAKE_COPY[key], key).toContain(
+        "If you downloaded a copy of the filled form, or saved it as a PDF when printing, that file stays on this device until you delete it.",
+      );
     }
   });
 });

@@ -18,7 +18,9 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/forms/**": ["./src/lib/forms/fixtures/**"],
   },
-  // pdfjs-dist (server-side only; the client never imports it) is BUNDLED
+  // pdfjs-dist runs on the server for the tax return reader, and in the
+  // browser only for /intake's print preview (src/lib/intake/device-print.ts,
+  // loaded on demand, on the page's own thread). On the server it is BUNDLED
   // into the server chunks rather than externalized, and the tax-parse
   // loader imports the worker module itself (pdf.js's globalThis.pdfjsWorker
   // hook) so no runtime import of the sibling pdf.worker.mjs ever runs:

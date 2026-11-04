@@ -17,6 +17,7 @@ import {
 } from "../../lib/intake/device-intake";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { StatusRegion } from "../../components/status-region";
+import { DeviceResults } from "./device-results";
 import { QuestionView } from "./question-view";
 import { attributionContextFromAnswers } from "../../lib/intake/attribution";
 import { workContextFromAnswers } from "../../lib/intake/work-activities";
@@ -31,7 +32,9 @@ import { toAnswerMap } from "../../lib/intake/client-store";
 // - "device" (the step-by-step page): answers never leave the browser. The
 //   flow engine runs here over the sealed on-device store, and the person
 //   can delete everything from the device. Copy follows what the browser
-//   actually managed to keep.
+//   actually managed to keep. Once the questions are done, the match, the
+//   form review, and the filled form to print or download are computed here
+//   from the same answers (HACK-115, device-results.tsx).
 // - "server" (the default, for the consent-declined conversation page,
 //   whose match and review sections still read the server session until
 //   HACK-95 moves them on-device): answers go to the /api/intake routes.
@@ -237,6 +240,11 @@ export function IntakeWizard(props: {
   // The on-device intake (persistence "device"): the store handle and every
   // answer, pii values included. Only its pii-stripped view is rendered.
   const [deviceIntake, setDeviceIntake] = useState<DeviceIntake | null>(null);
+  // What the person types into the form review at the end (HACK-115) for
+  // the fields no question asks. It lives here, in this page's memory and
+  // nowhere else, so going from the review to a question and back keeps
+  // it. It is never stored, and every delete of the answers clears it too.
+  const [reviewTyped, setReviewTyped] = useState<Readonly<Record<string, string>>>({});
   const workContext = useMemo(
     () => (deviceIntake ? workContextFromAnswers(toAnswerMap(deviceIntake.answers)) : undefined),
     [deviceIntake],
@@ -433,6 +441,11 @@ export function IntakeWizard(props: {
     message: string,
     options: { readonly keepDraft: boolean },
   ): void {
+    if (!options.keepDraft) {
+      // A delete in another tab: what was typed into the review goes with
+      // the answers, as the draft does.
+      setReviewTyped({});
+    }
     setDeviceIntake(intake);
     setWizard({ phase: "ready", state: intake.view });
     const currentId =
@@ -542,6 +555,7 @@ export function IntakeWizard(props: {
     setWizard({ phase: "ready", state: data });
     props.onAnswersChanged?.();
     if (result.kind === "purged") {
+      setReviewTyped({});
       goTo(data.currentIndex ?? data.questions.length, data);
     } else if (options.advance === false) {
       // Stay on the question just saved; if skip logic now hides it, go to
@@ -561,6 +575,9 @@ export function IntakeWizard(props: {
     if (!intake || deleting || busy || savingForLater) {
       return;
     }
+    // The person asked for everything to go, so what they typed into the
+    // review goes now, even if the store can't confirm its own delete.
+    setReviewTyped({});
     setDeleting(true);
     try {
       const result = await deleteDeviceIntake(intake);
@@ -823,6 +840,22 @@ export function IntakeWizard(props: {
               ))}
             </ul>
           </section>
+        ) : null}
+        {shownDevice ? (
+          <DeviceResults
+            answers={shownDevice.answers}
+            typedAnswers={{
+              values: reviewTyped,
+              onChange: (fieldName, value) =>
+                setReviewTyped((previous) => ({ ...previous, [fieldName]: value })),
+            }}
+            onAnswer={(questionId) => {
+              const index = state.questions.findIndex((question) => question.id === questionId);
+              if (index >= 0) {
+                goTo(index, state);
+              }
+            }}
+          />
         ) : null}
         {saveForLaterSection}
       </div>
