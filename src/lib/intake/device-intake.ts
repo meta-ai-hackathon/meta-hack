@@ -79,8 +79,8 @@ export const DOWNLOADED_COPY_STAYS =
 export const DEVICE_INTAKE_COPY = {
   pageIntro:
     "A few plain-language questions, one at a time. You can stop at any " +
-    "point. Your answers stay on this device, and nothing you enter is " +
-    "sent to us.",
+    "point. While you answer here, nothing you enter on this page is sent " +
+    "to us.",
   keptBlurb:
     "Your answers save in this browser as you go, so you can come back on " +
     "this device and pick up where you left off. Nothing is submitted " +
@@ -134,8 +134,12 @@ export const DEVICE_INTAKE_COPY = {
     "about a week without a visit, clear saved answers. Nothing is " +
     "submitted until you decide.",
   keepPrompt:
-    "If your browser asks to let this site store data, saying yes keeps " +
-    "your answers saved.",
+    "If your browser asks to let this site store data, saying yes helps " +
+    "keep your answers from being cleared to free up space.",
+  // The short visibility fact sits next to the delete control (claude
+  // review, HACK-139): calm, and only shown while answers actually
+  // persist on this device.
+  visibilityNote: "Anyone using this browser can open these answers.",
   deleteButton: "Delete my answers from this device",
   deleteConfirm:
     "This deletes every answer saved in this browser for this form. It " +

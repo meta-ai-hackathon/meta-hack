@@ -536,21 +536,28 @@ describe("honest copy", () => {
   });
 
   it("keeps the landing's standing copy calm: one short privacy passage, no repeated deletion messaging (HACK-139)", () => {
-    // The one calm privacy passage is the page intro: answers stay on
-    // this device and nothing entered is sent — both claims true on the
-    // device path (VAL-PICK-002).
-    expect(DEVICE_INTAKE_COPY.pageIntro).toMatch(/answers stay on this device/);
-    expect(DEVICE_INTAKE_COPY.pageIntro).toMatch(/nothing you enter is sent to us/);
-    // The standing blurbs under the questions keep the resume promise and
-    // the submission boundary, and carry no deletion messaging of their
-    // own: deletion lives behind the person's own controls and the honest
-    // outcome copy, not in the ambient landing text.
+    // The one calm privacy passage is the page intro, scoped to THIS page
+    // and its current behaviour (VAL-PICK-002): the per-state blurbs
+    // carry the storage truth, so the intro never claims flatly that
+    // answers "stay on this device" — that would overclaim in the
+    // unsupported/unavailable states.
+    expect(DEVICE_INTAKE_COPY.pageIntro).toMatch(/nothing you enter on this page is sent to us/);
+    expect(DEVICE_INTAKE_COPY.pageIntro).not.toMatch(/stay on this device/);
+    // The standing blurb keeps the resume promise and the submission
+    // boundary, and carries no deletion messaging of its own: deletion
+    // lives behind the person's own controls and the honest outcome copy.
     expect(DEVICE_INTAKE_COPY.keptBlurb).toMatch(/pick up where you left off/);
     expect(DEVICE_INTAKE_COPY.keptBlurb).toMatch(/Nothing is submitted until you decide/);
-    expect(DEVICE_INTAKE_COPY.keepPrompt).toMatch(/saying yes keeps your answers saved/);
-    for (const line of [DEVICE_INTAKE_COPY.keptBlurb, DEVICE_INTAKE_COPY.keepPrompt]) {
-      expect(line).not.toMatch(/delete|erase|cleared/i);
-    }
+    expect(DEVICE_INTAKE_COPY.keptBlurb).not.toMatch(/delete|erase/i);
+    // The storage note explains the permission's real, narrow effect —
+    // never a general promise that answers stay saved.
+    expect(DEVICE_INTAKE_COPY.keepPrompt).toMatch(
+      /saying yes helps keep your answers from being cleared to free up space/,
+    );
+    // The visibility fact ships as a short line by the delete control,
+    // keeping the standing copy calm without hiding who can read the
+    // answers.
+    expect(DEVICE_INTAKE_COPY.visibilityNote).toMatch(/Anyone using this browser can open these answers/);
   });
 
   it("says in every delete and purge message that a downloaded copy of the filled form stays on the device", () => {

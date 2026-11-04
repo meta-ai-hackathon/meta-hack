@@ -154,7 +154,9 @@ function SaveForLater(props: {
 
 /**
  * Delete every answer from this device (HACK-99), behind one confirming
- * step because it cannot be undone.
+ * step because it cannot be undone. `note` (the short visibility fact,
+ * HACK-139) shows beside the control while answers actually persist on
+ * this device, and yields to the confirmation's own full statement.
  */
 function DeleteFromDevice(props: {
   confirming: boolean;
@@ -162,6 +164,7 @@ function DeleteFromDevice(props: {
   onAsk: () => void;
   onConfirm: () => void;
   onCancel: () => void;
+  note?: string;
 }) {
   // Opening the confirmation moves focus to its safe choice, so keyboard
   // and screen-reader users land inside it (the group's label is read).
@@ -173,15 +176,18 @@ function DeleteFromDevice(props: {
   }, [props.confirming]);
   if (!props.confirming) {
     return (
-      <button
-        type="button"
-        data-delete-from-device
-        onClick={props.onAsk}
-        disabled={props.busy}
-        className="self-start text-sm text-muted underline hover:text-foreground disabled:opacity-50"
-      >
-        {DEVICE_INTAKE_COPY.deleteButton}
-      </button>
+      <div className="flex flex-col gap-1">
+        <button
+          type="button"
+          data-delete-from-device
+          onClick={props.onAsk}
+          disabled={props.busy}
+          className="self-start text-sm text-muted underline hover:text-foreground disabled:opacity-50"
+        >
+          {DEVICE_INTAKE_COPY.deleteButton}
+        </button>
+        {props.note ? <p className="text-sm text-muted">{props.note}</p> : null}
+      </div>
     );
   }
   return (
@@ -750,6 +756,9 @@ export function IntakeWizard(props: {
           busy={deleting || busy || savingForLater}
           onAsk={() => setConfirmingDelete(true)}
           onConfirm={() => void deleteFromThisDevice()}
+          note={
+            keepsAnswers(shownDevice) ? DEVICE_INTAKE_COPY.visibilityNote : undefined
+          }
           onCancel={() => {
             setConfirmingDelete(false);
             setFocusAfterDelete((previous) => ({

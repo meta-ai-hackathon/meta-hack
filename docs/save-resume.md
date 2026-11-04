@@ -117,10 +117,11 @@ and nothing about the journey is stored on the server.
   at all clears just the page.
 - **Who can see them:** anyone using the same browser profile can open
   `/intake` and see the answers. HACK-139 calmed the page's standing copy,
-  so the standing blurb no longer repeats that caution — the delete control
-  stays on the page, and the download copy and the delete/purge copy keep
-  the rules' statements (the file is not encrypted and should be deleted on
-  a shared computer; a downloaded copy stays until the person deletes it).
+  so the blurb no longer repeats that caution — a short visibility note
+  ("Anyone using this browser can open these answers.") sits by the delete
+  control, and the download copy and the delete/purge copy keep the rules'
+  statements (the file is not encrypted and should be deleted on a shared
+  computer; a downloaded copy stays until the person deletes it).
   Private windows clear the store when closed, and Safari clears a site's
   storage after about a week without a visit, so the page never promises an
   open-ended resume.
