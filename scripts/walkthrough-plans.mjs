@@ -137,6 +137,24 @@ export const CONVERSATION_PLAN = [
     intent: "known",
   },
   {
+    // Skipped unless income_sources includes job (HACK-130, #138, asks it
+    // after the job frequency) — covered because the extraction can hear a
+    // source differently than intended, and the plan must cover what the
+    // flow then asks.
+    id: "job_income_seasonal",
+    text: "No, the work goes on all year.",
+    retry: "No",
+    intent: "known",
+  },
+  {
+    // Skipped unless the seasonal answer is yes — covered for the same
+    // branch case. Six months of the monthly 1200 above.
+    id: "job_income_seasonal_total",
+    text: "About 7200 dollars over the last 6 months.",
+    retry: "7200",
+    intent: "known",
+  },
+  {
     id: "benefits_income_amount",
     text: "I'm not sure.",
     retry: "I'm not sure",
@@ -394,6 +412,22 @@ export const FORM_JOURNEY_PLAN = [
     id: "job_income_frequency",
     text: "Once a month.",
     retry: "Monthly",
+    intent: "known",
+  },
+  {
+    // Skipped unless income_sources includes job (HACK-130, #138) —
+    // covered for the branch case, as in CONVERSATION_PLAN.
+    id: "job_income_seasonal",
+    text: "No, it's year-round.",
+    retry: "No",
+    intent: "known",
+  },
+  {
+    // Skipped unless the seasonal answer is yes — covered for the same
+    // branch case. Six months of the monthly 1200 above.
+    id: "job_income_seasonal_total",
+    text: "7200.",
+    retry: "7200",
     intent: "known",
   },
   {
