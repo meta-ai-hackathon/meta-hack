@@ -407,7 +407,15 @@ export function ReviewSectionContent({
       }
       const result = await fillReviewOnDevice(template, data.fields, drafts, entry);
       if (result.kind === "unreadable_boxes") {
-        announce(DOWNLOAD_COPY.unreadableBoxes);
+        // Name the blocking questions: "the ones listed" is nothing
+        // without the list (claude-review P2, PR #150) — on the real form
+        // many boxes are answered by hand, so the person needs to know
+        // which typed answer stopped the fill.
+        const questions = result.fields.map(
+          (name) =>
+            data.fields.find((field) => field.fieldName === name)?.question ?? name,
+        );
+        announce(`${DOWNLOAD_COPY.unreadableBoxes} (${questions.join("; ")})`);
         return;
       }
       if (result.kind === "invalid_answers") {

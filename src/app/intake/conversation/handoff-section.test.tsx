@@ -498,5 +498,77 @@ describe("HandoffSection inside the review section", () => {
         URL.revokeObjectURL = revokeObjectURL;
       }
     }, 15_000);
+
+    it("names the blocking box question in the announcement, and fills nothing", async () => {
+      // A box answer typed in any other word stops the fill before
+      // anything is drawn (review-fill's rule). The announcement names
+      // the blocking question — "fix the ones listed" is nothing without
+      // the list (claude-review P2, PR #150).
+      const realForm = readFileSync(
+        path.join(REPO_ROOT, "src/lib/forms/fixtures/dhb-5200-ia-9-2020.pdf"),
+      );
+      const fetchSpy = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === `/forms/${FORM}.pdf`) {
+          return Promise.resolve(new Response(new Uint8Array(realForm), { status: 200 }));
+        }
+        return Promise.reject(new TypeError(`unexpected request: ${url}`));
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+      const { createObjectURL, revokeObjectURL } = URL;
+      URL.createObjectURL = () => "blob:filled-form";
+      URL.revokeObjectURL = () => undefined;
+      const clickSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => undefined);
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(<ReviewSectionContent data={reviewData(FORM, "prepared")} />);
+        });
+        const input = container.querySelector<HTMLInputElement>(
+          'input[id$="form-answer-Employed_2"]',
+        );
+        expect(input).not.toBeNull();
+        // jsdom carries no value through a synthetic event: set it the way
+        // React reads it, through the native setter, then let the change flow.
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        await act(async () => {
+          setter?.call(input, "yes");
+          input?.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await act(async () => {
+          container.querySelector<HTMLButtonElement>('[data-action="download"]')?.click();
+        });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(clickSpy).not.toHaveBeenCalled();
+        // The announcement lands on a timer (the StatusRegion must change
+        // its text to speak): wait for it, bounded.
+        const regions = () => container.querySelectorAll('[role="status"]');
+        for (let tick = 0; tick < 100; tick += 1) {
+          if (regions()[regions().length - 1]?.textContent !== "") {
+            break;
+          }
+          await act(async () => {
+            await new Promise((done) => setTimeout(done, 10));
+          });
+        }
+        expect(regions()[regions().length - 1]?.textContent).toContain(
+          "Is Person 2 employed?",
+        );
+      } finally {
+        await act(async () => {
+          root.unmount();
+        });
+        clickSpy.mockRestore();
+        URL.createObjectURL = createObjectURL;
+        URL.revokeObjectURL = revokeObjectURL;
+      }
+    }, 15_000);
   });
 });
