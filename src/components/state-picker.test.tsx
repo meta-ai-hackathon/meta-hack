@@ -533,6 +533,38 @@ describe("StatePicker (HACK-142)", () => {
       expect(input().value).toBe("");
     });
 
+    it("a pointer-press pick leaves no stale press flags: after the pick, reopening and blurring without a press still closes and yields (claude-review P2: the flags die with the listeners)", async () => {
+      const { act, rerender } = await renderPicker();
+      // A pointer press on an option picks it: pointerdown arms the press
+      // flags, the click lands the pick and closes the list.
+      await act(() => {
+        container
+          .querySelector('[data-state-picker-option="NC"]')!
+          .dispatchEvent(
+            new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+          );
+      });
+      await act(() => {
+        container
+          .querySelector('[data-state-picker-option="NC"]')!
+          .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(onChange).toHaveBeenCalledWith("NC");
+      await rerender({ value: "NC" });
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      // Reopen from the keyboard and blur WITHOUT any press: the flags
+      // from the picked press died with the closed list's listeners, so
+      // this blur takes the ordinary path — the list closes and the
+      // query yields — instead of leaving the picker stuck open.
+      await act(() => type("caro"));
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      await act(() => {
+        input().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("North Carolina");
+    });
+
     it("typing the full name and pressing a control below picks it during the press and the click still lands (VAL-UX-001 in one press)", async () => {
       const { act, rerender } = await renderPicker();
       await act(() => type("north carolina"));

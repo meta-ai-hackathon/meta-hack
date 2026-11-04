@@ -193,6 +193,13 @@ export function StatePicker({
     document.addEventListener("pointercancel", onDocPointerCancel);
     document.addEventListener("click", onDocClick);
     return () => {
+      // The listeners only track presses on an open list. When they come
+      // down — the list closed via a pick, Escape, the outside click, or
+      // an unmount — no press is being tracked anymore, and stale flags
+      // would suppress the NEXT keyboard blur's close-and-yield, leaving
+      // the picker stuck open (claude-review P2 on this PR).
+      pressingRef.current = false;
+      pressStartedInsideRef.current = false;
       document.removeEventListener("pointerdown", onDocPointerDown);
       document.removeEventListener("pointercancel", onDocPointerCancel);
       document.removeEventListener("click", onDocClick);
