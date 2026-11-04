@@ -116,10 +116,15 @@ and nothing about the journey is stored on the server.
   the delete couldn't be confirmed. Only a browser that can't store anything
   at all clears just the page.
 - **Who can see them:** anyone using the same browser profile can open
-  `/intake` and see the answers, so the page says so and points to the
-  delete on shared computers. Private windows clear the store when closed,
-  and Safari clears a site's storage after about a week without a visit, so
-  the page never promises an open-ended resume.
+  `/intake` and see the answers. HACK-139 calmed the page's standing copy,
+  so the blurb no longer repeats that caution — a short visibility note
+  ("Anyone using this browser can open these answers.") sits by the delete
+  control, and the download copy and the delete/purge copy keep the rules'
+  statements (the file is not encrypted and should be deleted on a shared
+  computer; a downloaded copy stays until the person deletes it).
+  Private windows clear the store when closed, and Safari clears a site's
+  storage after about a week without a visit, so the page never promises an
+  open-ended resume.
 - **Keeping the store:** the page asks the browser to keep this site's
   storage (`navigator.storage.persist()`) only when the person presses
   "Save and finish later" with answers saved on the device, and at most once

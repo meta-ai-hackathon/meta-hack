@@ -346,6 +346,9 @@ describe("the wizard in device mode", () => {
     const page = await visit();
     expect(page.status()).toBe(page.copy.unsupportedOnLoad);
     expect(page.text()).toContain(page.copy.unsupportedBlurb);
+    // HACK-139: with nothing persisting here, the visibility fact is hidden too —
+    // there are no stored answers for another browser user to open.
+    expect(page.text()).not.toContain(page.copy.visibilityNote);
     await page.choose("Me");
     await page.click(page.button("Continue"));
     expect(page.status()).toMatch(/can't save answers/);
@@ -380,6 +383,8 @@ describe("asking the browser to keep the answers", () => {
     const save = page.button("Save and finish later");
     const note = document.getElementById(save.getAttribute("aria-describedby") ?? "");
     expect(note?.textContent).toBe(page.copy.keepPrompt);
+    // HACK-139: with answers persisting here, the short visibility fact sits by the delete control.
+    expect(page.text()).toContain(page.copy.visibilityNote);
     await page.click(save);
     expect(page.status()).toBe(page.copy.savedForLaterKept);
     expect(persist).toHaveBeenCalledTimes(1);
