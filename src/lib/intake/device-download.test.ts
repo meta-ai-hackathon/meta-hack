@@ -1,15 +1,16 @@
 // @vitest-environment jsdom
 import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DOWNLOAD_URL_LIFETIME_MS, saveFilledFormToDevice, type DownloadEnvironment } from "./device-download";
+import { saveFilledFormToDevice, type DownloadEnvironment } from "./device-download";
 
 // The person's own copy of the filled form (HACK-115), handed to the browser
 // by the one module on the device path allowed to. The page's DOM test
 // (device-results.test.tsx) drives the button; this file holds the module
 // to the rules' conditions: a copy only when the person is acting on the
 // page, exactly the bytes it was given as a PDF under the name asked for,
-// the link off the page at once, the object URL kept just long enough for
-// the browser to start the download, and nothing sent anywhere.
+// the link off the page at once, the object URL alive until the caller
+// releases it (iOS Safari reads the file only when the person taps Download
+// in its prompt, HACK-145), and nothing sent anywhere.
 
 /** What the browser was handed, and what became of it. */
 interface Handed {
@@ -17,12 +18,11 @@ interface Handed {
   readonly urls: string[];
   readonly revoked: string[];
   readonly clicks: { href: string; download: string; connected: boolean }[];
-  readonly pending: { run: () => void; ms: number }[];
 }
 
 /** A browser environment that records every step, with the person acting on the page as `acting` says. */
 function recordingEnvironment(acting: boolean | undefined): { readonly handed: Handed; readonly environment: DownloadEnvironment } {
-  const handed: Handed = { files: [], urls: [], revoked: [], clicks: [], pending: [] };
+  const handed: Handed = { files: [], urls: [], revoked: [], clicks: [] };
   return {
     handed,
     environment: {
@@ -37,9 +37,6 @@ function recordingEnvironment(acting: boolean | undefined): { readonly handed: H
         revokeObjectURL: (url) => {
           handed.revoked.push(url);
         },
-      },
-      later: (run, ms) => {
-        handed.pending.push({ run, ms });
       },
       personActing: () => acting,
     },
@@ -86,6 +83,9 @@ function stubObjectUrls(): { readonly files: Blob[]; readonly revoked: string[] 
 const bytesArb = fc.uint8Array({ minLength: 1, maxLength: 256 });
 const nameArb = fc.stringMatching(/^[a-z0-9-]{1,20}\.pdf$/);
 
+/** An hour, far longer than any prompt a browser shows before it reads the file. */
+const AN_HOUR_MS = 60 * 60 * 1000;
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -105,7 +105,8 @@ describe("saving the person's own copy of the filled form", () => {
         recordClicks(handed);
         const original = [...bytes];
 
-        expect(saveFilledFormToDevice(bytes, name, environment)).toBe(true);
+        const release = saveFilledFormToDevice(bytes, name, environment);
+        expect(release).toBeTypeOf("function");
         expect(handed.files).toHaveLength(1);
         expect(handed.files[0].type).toBe("application/pdf");
         expect(await bytesOf(handed.files[0])).toEqual(original);
@@ -113,15 +114,36 @@ describe("saving the person's own copy of the filled form", () => {
         // only for the click.
         expect(handed.clicks).toEqual([{ href: handed.urls[0], download: name, connected: true }]);
         expect(document.querySelectorAll("a")).toHaveLength(0);
-        // The URL outlives the click by its lifetime, then is revoked.
+        // The URL stays alive until the caller releases it, then is revoked
+        // exactly once, however often the release is called.
         expect(handed.revoked).toEqual([]);
-        expect(handed.pending.map((step) => step.ms)).toEqual([DOWNLOAD_URL_LIFETIME_MS]);
-        handed.pending[0].run();
+        release!();
+        expect(handed.revoked).toEqual(handed.urls);
+        release!();
         expect(handed.revoked).toEqual(handed.urls);
         // The caller's bytes are as they were.
         expect([...bytes]).toEqual(original);
       }),
       { numRuns: 40 },
+    );
+  });
+
+  it("gives each copy its own release, so releasing one never revokes another", () => {
+    fc.assert(
+      fc.property(fc.array(bytesArb, { minLength: 2, maxLength: 5 }), fc.nat(), (forms, pick) => {
+        vi.restoreAllMocks();
+        const { handed, environment } = recordingEnvironment(true);
+        recordClicks(handed);
+        const releases = forms.map((bytes) => saveFilledFormToDevice(bytes, "dhb-5200.pdf", environment)!);
+        const chosen = pick % releases.length;
+        releases[chosen]();
+        expect(handed.revoked).toEqual([handed.urls[chosen]]);
+        for (const release of releases) {
+          release();
+        }
+        expect([...handed.revoked].sort()).toEqual([...handed.urls].sort());
+      }),
+      { numRuns: 30 },
     );
   });
 
@@ -146,17 +168,17 @@ describe("saving the person's own copy of the filled form", () => {
         vi.restoreAllMocks();
         const { handed, environment } = recordingEnvironment(false);
         recordClicks(handed);
-        expect(saveFilledFormToDevice(bytes, name, environment)).toBe(false);
+        expect(saveFilledFormToDevice(bytes, name, environment)).toBeNull();
         expect(handed.files).toEqual([]);
+        expect(handed.urls).toEqual([]);
         expect(handed.clicks).toEqual([]);
-        expect(handed.pending).toEqual([]);
         expect(document.querySelectorAll("a")).toHaveLength(0);
       }),
       { numRuns: 20 },
     );
   });
 
-  it("takes the link away and still revokes the URL when the click throws", () => {
+  it("takes the link away and revokes the URL at once when the click throws", () => {
     const { handed, environment } = recordingEnvironment(true);
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {
       throw new Error("the click failed");
@@ -165,15 +187,12 @@ describe("saving the person's own copy of the filled form", () => {
       "the click failed",
     );
     expect(document.querySelectorAll("a")).toHaveLength(0);
-    expect(handed.pending.map((step) => step.ms)).toEqual([DOWNLOAD_URL_LIFETIME_MS]);
-    handed.pending[0].run();
     expect(handed.revoked).toEqual(handed.urls);
   });
 
-  it("in the browser itself, revokes the URL only once its lifetime is up, and asks nothing of the network", () => {
-    // Some browsers start the download a moment after the click and cancel
-    // it if the URL is revoked sooner, so the URL lives a full second.
-    expect(DOWNLOAD_URL_LIFETIME_MS).toBe(1_000);
+  it("in the browser itself, keeps the URL alive until it is released, with no timer, and asks nothing of the network", () => {
+    // iOS Safari reads the file only when the person taps Download in its
+    // prompt, so no timer may revoke the URL first, however long they take.
     vi.useFakeTimers();
     const { files, revoked } = stubObjectUrls();
     const clicks: string[] = [];
@@ -182,32 +201,33 @@ describe("saving the person's own copy of the filled form", () => {
     });
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
-    expect(saveFilledFormToDevice(new Uint8Array([37, 80, 68, 70]), "dhb-5200.pdf")).toBe(true);
+    const release = saveFilledFormToDevice(new Uint8Array([37, 80, 68, 70]), "dhb-5200.pdf");
+    expect(release).toBeTypeOf("function");
     expect(clicks).toEqual(["dhb-5200.pdf"]);
     expect(files).toHaveLength(1);
-    vi.advanceTimersByTime(DOWNLOAD_URL_LIFETIME_MS - 1);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(AN_HOUR_MS);
     expect(revoked).toEqual([]);
-    vi.advanceTimersByTime(1);
+    release!();
     expect(revoked).toEqual(["blob:filled-form"]);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("in the browser itself, refuses a call while the person isn't acting on the page, and saves in their press", () => {
-    // On a fake clock, so the revoke the save leaves behind runs here and
-    // not after this file's stubs are gone.
     vi.useFakeTimers();
     const { files, revoked } = stubObjectUrls();
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     const activation = { isActive: false };
     Object.defineProperty(navigator, "userActivation", { value: activation, configurable: true });
-    expect(saveFilledFormToDevice(new Uint8Array([1]), "dhb-5200.pdf")).toBe(false);
+    expect(saveFilledFormToDevice(new Uint8Array([1]), "dhb-5200.pdf")).toBeNull();
     expect(files).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);
     activation.isActive = true;
-    expect(saveFilledFormToDevice(new Uint8Array([1]), "dhb-5200.pdf")).toBe(true);
+    const release = saveFilledFormToDevice(new Uint8Array([1]), "dhb-5200.pdf");
     expect(files).toHaveLength(1);
-    vi.advanceTimersByTime(DOWNLOAD_URL_LIFETIME_MS);
-    expect(revoked).toEqual(["blob:filled-form"]);
     expect(vi.getTimerCount()).toBe(0);
+    expect(revoked).toEqual([]);
+    release!();
+    expect(revoked).toEqual(["blob:filled-form"]);
   });
 });

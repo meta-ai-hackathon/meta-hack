@@ -17,8 +17,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // copy the person downloads, only when they press Download a copy: no
 // object URL or download before that, nothing that embeds the PDF, and
 // nothing new in the browser's storage. The copy is the very form the pages
-// show, its URL is revoked a moment after the press, and the bytes kept for
-// it are wiped whenever the pages go. A reload resumes from IndexedDB,
+// show, its URL lives as long as the pages and is revoked with them (iOS
+// Safari reads the file only when the person taps Download in its prompt,
+// HACK-145), and the bytes kept for it are wiped whenever the pages go. A reload resumes from IndexedDB,
 // straight back to the review, and the form fills again from the answers
 // kept on the device. The print rules in globals.css are matched against
 // the page as it renders, so only the filled pages go on paper, and leaving
@@ -517,9 +518,8 @@ async function visit() {
   }
   /**
    * Press Download a copy, and read the form the browser was handed, with
-   * the object URLs revoked by the end of the press. It returns once the
-   * page has revoked that URL, so no revoke the page has still to make
-   * lands in a later test.
+   * the object URLs revoked by the end of the press. The URL itself stays
+   * alive until the pages go, so a test checks it is revoked with them.
    */
   async function download() {
     const before = downloads.length;
@@ -534,7 +534,6 @@ async function visit() {
     await settle();
     expect(downloads).toHaveLength(before + 1);
     const { name, url, blob } = downloads[downloads.length - 1];
-    await waitFor(() => revoked.includes(url), "the download URL to be revoked");
     const bytes = await blobBytes(blob);
     return { name, url, type: blob.type, bytes, revokedAtPress, form: (await PDFDocument.load(bytes)).getForm() };
   }
@@ -823,8 +822,9 @@ describe("/intake to the review and the filled form, on the device", () => {
       expect(downloadNote?.textContent).toContain(disclosure);
     }
     // The press hands the browser one file: the very form the pages show,
-    // as a PDF. The link goes at once, the URL a moment later, and no
-    // request goes anywhere and nothing goes in the browser's storage.
+    // as a PDF. The link goes at once, while the URL stays alive as long as
+    // the pages do, and no request goes anywhere and nothing goes in the
+    // browser's storage.
     const requestsBefore = requests.length;
     const copy = await page.download();
     expect(saves).toEqual(["createObjectURL", "download dhb-5200.pdf"]);
@@ -836,14 +836,14 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.waitFor(() => page.text().includes(page.copy.downloaded), "the word that the browser should save the copy");
     expect(document.querySelectorAll("a[download], a[href^='blob:']")).toHaveLength(0);
     expect(copy.revokedAtPress).toEqual([]);
-    expect(revoked).toEqual([copy.url]);
+    expect(revoked).toEqual([]);
     expect(requests).toHaveLength(requestsBefore);
     expect(browserStorage()).toEqual(storedBefore);
     const downloaded = saves.length;
 
     // A change to a typed answer drops the pages: they no longer match,
     // and the word that they are ready goes with them, and so do the
-    // download button and the bytes kept for it.
+    // download button, the bytes kept for it, and the downloaded copy's URL.
     const shown = first.pages.map(({ canvases }) => canvases[0]);
     await page.type(nameInput!, `${TYPED_NAME} Jr.`);
     expect(page.pages()).toEqual([]);
@@ -851,6 +851,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(page.container.querySelector('[data-action="download-copy"]')).toBeNull();
     expectReleased(shown);
     expectWiped(filledBytes[0]);
+    expect(revoked).toEqual([copy.url]);
     expectNoPrintMarks();
     expect(page.text()).not.toContain(page.copy.ready);
 
@@ -957,6 +958,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(page.text()).not.toContain(TYPED_NAME);
     expectReleased(filled.pages.map(({ canvases }) => canvases[0]));
     expectWiped(filledBytes.at(-1));
+    expect(revoked).toEqual([copy.url]);
     expectNoPrintMarks();
     // The copy downloaded is a file outside the delete. The confirmation
     // claims only this browser and says the copy stays until the person
@@ -982,7 +984,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.type(page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!, TYPED_NAME);
     const filled = await page.showForm();
     expect(filled.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
-    await page.download();
+    const copy = await page.download();
 
     await page.click(page.container.querySelector<HTMLButtonElement>("[data-delete-from-device]")!);
     const confirm = [...page.container.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -994,6 +996,7 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(page.text()).not.toContain(TYPED_NAME);
     expectReleased(filled.pages.map(({ canvases }) => canvases[0]));
     expectWiped(filledBytes.at(-1));
+    expect(revoked).toEqual([copy.url]);
     expect(downloads).toHaveLength(1);
     expectNothingSaved(2);
     // The clear claims only this browser, as the delete does: answers are
@@ -1222,11 +1225,14 @@ describe("/intake to the review and the filled form, on the device", () => {
     const downloaded = saves.length;
     expect(downloaded).toBe(2);
 
-    // It goes with an answer change, as the pages do, and its bytes are wiped.
+    // It goes with an answer change, as the pages do: its bytes are wiped
+    // and the downloaded copy's URL is revoked.
+    expect(revoked).toEqual([]);
     await page.type(page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!, TYPED_NAME);
     expect(page.container.querySelector("[data-download-only]")).toBeNull();
     expect(page.container.querySelector('[data-action="download-copy"]')).toBeNull();
     expectWiped(filledBytes[0]);
+    expect(revoked).toEqual([copy.url]);
     expect(page.container.querySelector(STATUS_LINE)?.textContent).toBe("");
 
     // A dropped connection isn't kept: the next press loads pdf.js and shows the form.
@@ -1414,17 +1420,20 @@ describe("/intake to the review and the filled form, on the device", () => {
       view.downloadButton()!.click();
     });
     expect(saves).toEqual(["createObjectURL", "download dhb-5200.pdf"]);
-    // The URL outlives the press, so a browser that starts the download a
-    // moment later still gets it, and then it is revoked.
+    // The URL outlives the press for as long as the pages are up, so a
+    // browser that asks the person first (iOS Safari does) can still read
+    // it whenever they say yes.
     expect(revoked).toEqual([]);
     expect(await blobBytes(downloads[0].blob)).toEqual(pdfjs.documents[0].bytes);
     await view.waitFor(() => view.status() === view.copy.downloaded, "the word that the browser should save the copy");
-    await view.waitFor(() => revoked.includes(downloads[0].url), "the download URL to be revoked");
-    expect(revoked).toEqual([downloads[0].url]);
-    // Only the blank form was asked for, and leaving takes the bytes too.
+    await new Promise((done) => setTimeout(done, 1_100));
+    expect(revoked).toEqual([]);
+    // Only the blank form was asked for, and leaving takes the bytes and
+    // the copy's URL too.
     expect(requests.map((request) => request.url)).toEqual(["/forms/dhb-5200.pdf"]);
     await view.unmount();
     expectWiped(filledBytes[0]);
+    expect(revoked).toEqual([downloads[0].url]);
     expectNothingSaved(2);
   }, 60_000);
 
@@ -1438,12 +1447,13 @@ describe("/intake to the review and the filled form, on the device", () => {
       view.downloadButton()!.click();
     });
     await view.waitFor(() => view.status() === view.copy.downloaded, "the word that the browser should save the copy");
-    await view.waitFor(() => revoked.includes(downloads[0].url), "the download URL to be revoked");
+    expect(revoked).toEqual([]);
     await view.act(async () => {
       window.dispatchEvent(new Event("pagehide"));
     });
     expect(view.downloadButton()).toBeNull();
     expect(view.status()).toBe("");
+    expect(revoked).toEqual([downloads[0].url]);
 
     // Back from the browser's cache, a press the browser says no one made
     // saves nothing, and the line that says to press again goes with the
