@@ -518,8 +518,8 @@ async function visit() {
   }
   /**
    * Press Download a copy, and read the form the browser was handed, with
-   * the object URLs revoked by the end of the press. The URL itself stays
-   * alive until the pages go, so a test checks it is revoked with them.
+   * any object URL revoked during the press (there should be none). The URL
+   * stays alive until the pages go, so a test checks it is revoked with them.
    */
   async function download() {
     const before = downloads.length;
