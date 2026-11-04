@@ -22,9 +22,10 @@ import { parseCommittedRegistryEntries } from "../forms/registry-core";
 // browser throttles a background or hidden tab's timers to about one a
 // second, so a 21-page fill would stretch to MINUTES of ticks the moment
 // the person switched apps with the print preview open. The fill must
-// therefore load with parseSpeed Fast (one go, no ticks) and save with
-// objectsPerTick Infinity (one go, no ticks) — every load, every save, for
-// any answers, on the sample form and the real one alike.
+// therefore load with parseSpeed Fast (a tick per ~1500 objects instead,
+// about 2 on the real 21-page form) and save with objectsPerTick Infinity
+// (one go, no ticks) — every load, every save, for any answers, on the
+// sample form and the real one alike.
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const FIXTURES = path.join(REPO_ROOT, "src/lib/forms/fixtures");

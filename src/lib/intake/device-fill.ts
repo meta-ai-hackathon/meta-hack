@@ -45,7 +45,8 @@ export async function fillFormOnDevice(
     // default Slow speed yields a `setTimeout` tick per ~100 parsed
     // objects, and a browser throttles background tabs' timers to about
     // one a second — a 21-page form's parse would take minutes of ticks.
-    // Fast parses without the ticks, in one go.
+    // Fast is one tick per ~1500 objects instead (about 2 on the real
+    // 21-page form).
     pdf = await PDFDocument.load(templateBytes, { parseSpeed: ParseSpeeds.Fast });
   } catch {
     return { kind: "unreadable_form" };
