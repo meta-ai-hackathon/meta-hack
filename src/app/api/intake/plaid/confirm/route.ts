@@ -21,7 +21,7 @@ import { requestIdFromHeaders, runWithRequestId } from "../../../../../lib/telem
 // a value the person typed or chose, through the standard answer store:
 //
 // A person-corrected value saves `known`/`user`. An untouched proposal is
-// validated but never written — it is Sandbox income-verification data and
+// rejected and never written — it is Sandbox income-verification data and
 // stays on the device, so synthetic figures and schedules cannot become a
 // real person's answers. The bank's institution name is pii:true metadata
 // sealed by the browser in the client-side encrypted store; it never

@@ -10,11 +10,10 @@ import { saveAnswer, validateAnswerInput } from "./store";
 // module is the server half of that decision, mirroring the tax-return
 // confirm flow:
 //
-// - action "confirm"  — the person accepts a bank proposal as-is. It is
-//   validated but NOT persisted: every untouched proposal is Sandbox
-//   test-bank data, and income-verification data must stay on the device.
-//   Saving an untouched value would put a synthetic figure or schedule into
-//   a real person's application answers.
+// - action "confirm"  — rejected: an untouched proposal is Sandbox test-bank
+//   data, and income-verification data must stay on the device. The current
+//   card never sends one; saving it would put a synthetic figure or schedule
+//   into a real person's application answers.
 // - action "correct"  — the person typed or chose their own value, saved
 //   `known` with provenance `user`. Only corrections are written.
 //
@@ -26,19 +25,10 @@ import { saveAnswer, validateAnswerInput } from "./store";
 // `pii:false` in the plain answer table. Re-saving a question overwrites
 // its one row (update-not-duplicate).
 
-/** The ids the bank card proposes from Bank Income streams (browser-safe). */
-export const PLAID_PROPOSED_QUESTION_IDS = [
-  "job_income_amount",
-  "job_income_frequency",
-  "benefits_income_amount",
-  "benefits_income_frequency",
-  "other_income_amount",
-] as const;
-
 /** The income set is 7; anything beyond this bound is a junk request. */
 export const MAX_PLAID_CONFIRMATIONS_PER_CALL = 32;
 
-export type PlaidConfirmationAction = "confirm" | "correct";
+export type PlaidConfirmationAction = "correct";
 
 export interface PlaidConfirmation {
   readonly questionId: string;
@@ -58,11 +48,10 @@ function validationError(): AppError {
 
 /**
  * Validate the whole batch WITHOUT touching the database: every entry must
- * target an income question, carry a known action, and hold a spec-valid
- * value. A confirm entry is admitted only for the bank card's real proposal
- * ids so the batch is well-formed, but it is never persisted; only a
- * person-corrected value is written. A bad entry anywhere rejects the batch
- * and saves nothing.
+ * target an income question, carry the `correct` action, and hold a
+ * spec-valid value. An untouched bank proposal is never sent to this
+ * server; only a person-edited value is accepted. A bad entry anywhere
+ * rejects the batch and saves nothing.
  */
 export function parsePlaidConfirmations(input: unknown): PlaidConfirmation[] {
   if (
@@ -81,13 +70,7 @@ export function parsePlaidConfirmations(input: unknown): PlaidConfirmation[] {
     if (typeof questionId !== "string" || !incomeIds.includes(questionId)) {
       throw validationError();
     }
-    if (action !== "confirm" && action !== "correct") {
-      throw validationError();
-    }
-    if (
-      action === "confirm" &&
-      !(PLAID_PROPOSED_QUESTION_IDS as readonly string[]).includes(questionId)
-    ) {
+    if (action !== "correct") {
       throw validationError();
     }
     // known and unverified canonicalize identically; the mapping to the
@@ -98,19 +81,18 @@ export function parsePlaidConfirmations(input: unknown): PlaidConfirmation[] {
 }
 
 /**
- * Persist only the person's own (corrected) bank-income values through the
- * standard answer store. An untouched proposal is skipped: it came from
- * Sandbox income verification and stays on the device. Returns ids,
- * statuses and provenances only — the values live in the returned client
- * state, the person's answers.
+ * Persist the person's own (corrected) bank-income values through the
+ * standard answer store. An untouched proposal never reaches this server:
+ * it came from Sandbox income verification and stays on the device. Returns
+ * ids, statuses and provenances only — the values live in the returned
+ * client state, the person's answers.
  */
 export async function saveConfirmedPlaidAnswers(
   sessionId: string,
   confirmations: readonly PlaidConfirmation[],
 ): Promise<SavedPlaidAnswer[]> {
   const saved: SavedPlaidAnswer[] = [];
-  for (const { questionId, action, value } of confirmations) {
-    if (action !== "correct") continue;
+  for (const { questionId, value } of confirmations) {
     await saveAnswer(sessionId, questionId, "known", value, "user");
     saved.push({ questionId, status: "known", provenance: "user" });
   }

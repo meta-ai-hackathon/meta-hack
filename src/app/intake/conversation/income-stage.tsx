@@ -605,11 +605,6 @@ export function IncomeStage(props: {
     setPlaidClassifications(next);
     applyPlaidResult(plaidIncomeProposals(plaidPayload, next));
   }
-  function resetPlaidPull(): void {
-    setPlaidPayload(null); setPlaidResult(null); setPlaidCorrections({});
-    setPlaidClassifications({}); setPlaidMemberName(""); setPlaidInstitutionName(""); setPlaidConsent(false);
-    setPlaidStatus("Connect the next person's bank when they are ready.");
-  }
 
   function originBadge(
     questionId: string,
@@ -658,22 +653,20 @@ export function IncomeStage(props: {
     if (saveInFlight.current || plaidResult === null || plaidResult.proposals.length === 0 || plaidMemberName.trim() === "" || plaidHasInvalidAmount) { onNotice(NOTHING_DECIDED_NOTICE); return; }
     const decided: {
       questionId: string;
-      action: "confirm" | "correct";
+      action: "correct";
       value: number | string;
     }[] = [];
     for (const proposal of plaidResult.proposals) {
-      // An untouched field is a CONFIRM (saved unverified); a real edit is a
-      // correction (known). Selects compare by option value; amounts are
+      // An untouched field is never sent to the server: it came from Sandbox
+      // income verification and stays on the device. Only a real edit is a
+      // correction (known/user). Selects compare by option value; amounts are
       // sanitized so "1,800" is a number, not NaN.
       const entered = plaidCorrections[proposal.questionId];
       const corrected =
         entered !== undefined && entered !== "" && entered !== String(proposal.value)
           ? entered
           : "";
-      if (corrected === "") {
-        decided.push({ questionId: proposal.questionId, action: "confirm", value: proposal.value });
-        continue;
-      }
+      if (corrected === "") continue;
       const question = questions.find((c) => c.id === proposal.questionId);
       if (question?.type === "number") {
         const amount = parseAmountInput(corrected);
@@ -686,6 +679,10 @@ export function IncomeStage(props: {
         decided.push({ questionId: proposal.questionId, action: "correct", value: corrected });
       }
     }
+    if (decided.length === 0) {
+      onNotice("Nothing was saved: untouched test-bank figures stay on the test bank. Edit a figure or schedule to your own to save it, or type your income instead. Nothing was submitted.");
+      return;
+    }
     saveInFlight.current = true; setSaving(true);
     try {
       const response = await fetch("/api/intake/plaid/confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirmations: decided }) });
@@ -696,18 +693,18 @@ export function IncomeStage(props: {
       };
       onStateChange(fresh.state);
       // Only values the person typed or chose were stored. Drop sealed
-      // institution names from older bank answers so no badge can claim a
-      // value this card did not save.
-      await clearPlaidOriginsFor(plaidResult.proposals.map((proposal) => proposal.questionId));
+      // institution names from those answers so no badge can claim a value
+      // this card did not save.
+      await clearPlaidOriginsFor(decided.map((entry) => entry.questionId));
       const savedIds = new Set((fresh.saved ?? []).map((row) => row.questionId));
-      const corrected = decided.filter((entry) => entry.action === "correct" && savedIds.has(entry.questionId));
-      if (corrected.length === 0) {
+      const savedEdits = decided.filter((entry) => savedIds.has(entry.questionId));
+      if (savedEdits.length === 0) {
         onNotice("Nothing was saved: untouched test-bank figures stay on the test bank. Edit a figure or schedule to your own to save it, or type your income instead. Nothing was submitted.");
         return;
       }
       const name = plaidMemberName.trim();
       const prev = plaidSavedMembers[plaidSavedMembers.length - 1];
-      setPlaidSavedMembers((list) => [...list, { name, detail: corrected.map((d) => d.questionId + ": " + String(d.value)).join("; ") }]);
+      setPlaidSavedMembers((list) => [...list, { name, detail: savedEdits.map((d) => d.questionId + ": " + String(d.value)).join("; ") }]);
       const keptNote = "Saved the figures and schedules you typed or chose. Untouched test-bank answers were not saved.";
       onNotice(prev && prev.name !== name ? "Saved for " + name + ". For now this replaced " + prev.name + "'s bank answers in the household income questions. " + keptNote : "Saved for " + name + ". " + keptNote + " Nothing was submitted.");
     } catch { onNotice(SAVE_FAILED_NOTICE); }
@@ -1012,7 +1009,7 @@ export function IncomeStage(props: {
             {plaidResult.proposals.length > 0 ? <button type="button" data-income-plaid-save onClick={() => void savePlaidFindings()} disabled={saving || plaidMemberName.trim() === "" || plaidHasInvalidAmount} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{saving ? "Saving…" : "Save my own figures"}</button> : null}
           </div>
         ) : null}
-        {plaidSavedMembers.length > 0 ? <div className="flex flex-col gap-2" data-income-plaid-saved-list>{plaidSavedMembers.map((s, i) => <p key={i} className="text-sm text-muted">Saved for {s.name} — {s.detail}</p>)}<button type="button" data-income-plaid-another onClick={resetPlaidPull} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal">{"Connect another person's bank"}</button></div> : null}
+        {plaidSavedMembers.length > 0 ? <div className="flex flex-col gap-2" data-income-plaid-saved-list>{plaidSavedMembers.map((s, i) => <p key={i} className="text-sm text-muted">Saved for {s.name} — {s.detail}</p>)}<p className="text-sm text-muted" data-income-plaid-one-member>One bank connection is supported for now. Connecting a bank for a second person would replace these household answers, so it is not offered (HACK-143).</p></div> : null}
       </section>
     </section>
   );

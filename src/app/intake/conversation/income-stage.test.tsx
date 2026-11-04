@@ -435,13 +435,8 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => { (q(container, "income-plaid-save") as HTMLButtonElement).click(); });
-    const confirm = posts.find((post) => post.url === "/api/intake/plaid/confirm");
-    expect(confirm).toBeDefined();
-    expect(JSON.parse(confirm?.body ?? "{}").confirmations).toEqual([
-      { questionId: "job_income_amount", action: "confirm", value: 2100 },
-      { questionId: "job_income_frequency", action: "confirm", value: "monthly" },
-    ]);
-    // Untouched proposals are never stored, so no bank origin is saved.
+    // Untouched proposals never leave the page: no confirm request at all.
+    expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
     expect(originStoreMock.save).not.toHaveBeenCalled();
     expect(getNotice()).toContain("Nothing was saved");
   });
@@ -477,8 +472,11 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     expect(confirm).toBeDefined();
     expect(JSON.parse(confirm?.body ?? "{}").confirmations).toEqual([
       { questionId: "job_income_amount", action: "correct", value: 1800 },
-      { questionId: "job_income_frequency", action: "confirm", value: "monthly" },
     ]);
+    expect(q(container, "income-plaid-another")).toBeNull();
+    expect(q(container, "income-plaid-one-member")?.textContent).toContain(
+      "One bank connection",
+    );
   });
 
   it("says so when the test connection could not be removed", async () => {

@@ -10,10 +10,20 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const sessionId = await loadSession(readSessionCookie(request.headers.get("cookie")));
     if (!sessionId) throw new AppError("validation_error", "Start a session before connecting your bank.");
-    const { linkToken, userId } = await new PlaidClient().createLinkToken(sessionId);
+    const client = new PlaidClient();
+    const { linkToken, userId } = await client.createLinkToken(sessionId);
     // The user_id is sealed to THIS session under the server-only secret;
     // the pull route refuses a handle minted for any other session or expired.
-    return Response.json({ linkToken, pullHandle: sealPlaidUserId(sessionId, userId) }, { headers: { "cache-control": "no-store" } });
+    let pullHandle: string;
+    try {
+      pullHandle = sealPlaidUserId(sessionId, userId);
+    } catch (error) {
+      // The Plaid user exists but no handle can reach the client to remove it
+      // later; clean it up now so a bad handle secret cannot orphan it.
+      await client.removeUser(userId).catch(() => undefined);
+      throw error;
+    }
+    return Response.json({ linkToken, pullHandle }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     if (error instanceof AppError) return errorResponse(error);
     return errorResponse(new AppError("internal", userMessageFor("internal")));

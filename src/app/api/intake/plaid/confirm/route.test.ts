@@ -6,8 +6,9 @@ import { setLogSink } from "../../../../../lib/telemetry";
 import { POST } from "./route";
 
 // POST /api/intake/plaid/confirm route tests (HACK-140). This is the bank
-// card's only writer. An untouched proposal (amount or frequency) is never
-// written; only a person-edited value saves `known`/`user`.
+// card's only writer. An untouched proposal (amount or frequency) is
+// rejected and never written; only a person-edited value saves
+// `known`/`user`.
 // The institution name is pii:true metadata kept only in the browser, so it
 // never appears here. Re-saving updates the same rows
 // (update-not-duplicate); non-income and pii questions are refused; and the
@@ -95,7 +96,7 @@ async function answerRows(sessionId: string): Promise<AnswerRow[]> {
 }
 
 describe("POST /api/intake/plaid/confirm", () => {
-  it("does not save an untouched bank amount", async () => {
+  it("rejects an untouched bank amount", async () => {
     const cookie = await createSessionAndGetCookie();
     const sessionId = cookie.split("=")[1];
 
@@ -105,13 +106,12 @@ describe("POST /api/intake/plaid/confirm", () => {
       ]),
     );
 
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { saved: unknown[] };
-    expect(body.saved).toEqual([]);
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("validation_error");
     expect(await answerRows(sessionId)).toHaveLength(0);
   });
 
-  it("does not save an untouched frequency", async () => {
+  it("rejects an untouched frequency", async () => {
     const cookie = await createSessionAndGetCookie();
     const sessionId = cookie.split("=")[1];
 
@@ -125,9 +125,8 @@ describe("POST /api/intake/plaid/confirm", () => {
       ]),
     );
 
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { saved: unknown[] };
-    expect(body.saved).toEqual([]);
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("validation_error");
     expect(await answerRows(sessionId)).toHaveLength(0);
   });
 
@@ -150,13 +149,12 @@ describe("POST /api/intake/plaid/confirm", () => {
     });
   });
 
-  it("saves only the corrected entry in a mixed batch", async () => {
+  it("saves a corrected entry", async () => {
     const cookie = await createSessionAndGetCookie();
     const sessionId = cookie.split("=")[1];
 
     const response = await POST(
       confirmRequest(cookie, [
-        { questionId: "job_income_amount", action: "confirm", value: 2100 },
         {
           questionId: "job_income_frequency",
           action: "correct",
@@ -249,8 +247,9 @@ describe("POST /api/intake/plaid/confirm", () => {
     expect(JSON.stringify(body.state)).toContain("2100");
   });
 
-  it("does not echo a confirmed value into the saved list or state", async () => {
+  it("rejects a confirmed value and saves nothing", async () => {
     const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
 
     const response = await POST(
       confirmRequest(cookie, [
@@ -258,8 +257,7 @@ describe("POST /api/intake/plaid/confirm", () => {
       ]),
     );
 
-    const body = await response.json();
-    expect(body.saved).toEqual([]);
-    expect(JSON.stringify(body.state)).not.toContain("2100");
+    expect(response.status).toBe(400);
+    expect(await answerRows(sessionId)).toHaveLength(0);
   });
 });
