@@ -1,4 +1,5 @@
-import { ANSWER_STATUS_LABELS, type AnswerStatus } from "../lib/honesty";
+import type { AnswerStatus } from "../lib/honesty";
+import { answerStatusLabel, type Language } from "../lib/intake/i18n";
 
 /**
  * Honest answer-status badge (BN-05, pairs with the BN-07 a11y baseline).
@@ -21,8 +22,8 @@ const BADGE_DOTS: Readonly<Record<AnswerStatus, string>> = {
   unverified: "bg-[#1c3560]",
 };
 
-export function AnswerStatusBadge({ status }: { status: AnswerStatus }) {
-  const label = ANSWER_STATUS_LABELS[status];
+export function AnswerStatusBadge({ status, language = "en" }: { status: AnswerStatus; language?: Language }) {
+  const label = answerStatusLabel(status, language);
   return (
     <span
       data-status={status}

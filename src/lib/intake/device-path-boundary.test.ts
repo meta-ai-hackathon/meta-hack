@@ -287,6 +287,18 @@ const SEALED_STORES: ReadonlyMap<string, readonly string[]> = new Map([
 ]);
 
 /**
+ * Everything on the path that may touch the browser's storage, each only
+ * through what its own save needs: the two sealed answer stores above, and
+ * the language preference (HACK-131), whose save is the chosen language's
+ * own key — never a question's answer. Reading these scans must go through
+ * this map, not SEALED_STORES, so the sealed stores' rule stays exact.
+ */
+const PATH_STORAGE: ReadonlyMap<string, readonly string[]> = new Map([
+  ...SEALED_STORES,
+  ["lib/intake/i18n.ts", ["localStorage"]],
+]);
+
+/**
  * Elements that show a document inside the page. A browser may start a
  * download of a PDF one shows (Android Chrome does) or offer one (desktop
  * PDF viewers do).
@@ -735,21 +747,37 @@ describe("the on-device intake path", () => {
     }
   });
 
-  it("saves nothing anywhere on the path but the sealed answers in their own stores and a download through its own module", () => {
+  it("saves nothing anywhere on the path but its one allowed save", () => {
     // A helper module the page loads could save the form as well as the
     // page itself could, so every module on the path is read. The two
-    // sealed stores may use their own storage and nothing else, and the
-    // download module only what a download needs.
+    // sealed stores may use their own storage and nothing else, the page's
+    // language choice saves only its own key (HACK-131), and the download
+    // module only what a download needs.
     for (const file of files) {
-      const allowed = SEALED_STORES.get(file) ?? (file === DOWNLOAD_MODULE ? DOWNLOAD_NAMES : []);
+      const allowed = PATH_STORAGE.get(file) ?? (file === DOWNLOAD_MODULE ? DOWNLOAD_NAMES : []);
       const found = savingConstructs(file).filter((name) => !allowed.includes(name));
       expect(found, `${file} could save something to the device`).toEqual([]);
     }
-    for (const [store, names] of SEALED_STORES) {
+    for (const [store, names] of PATH_STORAGE) {
       // Non-vacuous: the stores are on the path, and use what they're allowed.
       expect(files.has(store), `${store} is on the path`).toBe(true);
       expect(new Set(savingConstructs(store)), store).toEqual(new Set(names));
     }
+    // The language allowance is narrower than the scan can see: that module
+    // writes one key, the language itself, and never anything a person
+    // answered, so the allowance cannot grow into an answer store unnoticed.
+    const languageSource = readFileSync(join(SRC, "lib/intake/i18n.ts"), "utf8");
+    const writes = [...languageSource.matchAll(/\.setItem\(\s*([^,]+),\s*([^)]+)\)/g)].map(
+      (match) => [match[1].trim(), match[2].trim()],
+    );
+    // One write, of the language value under the language key — never anything
+    // else under it.
+    expect(writes).toEqual([["LANGUAGE_STORAGE_KEY", "language"]]);
+    // And no other way to write into that storage: no bracket assignment, no
+    // bulk copy onto it, and no setItem beyond the ones read above.
+    expect(languageSource).not.toMatch(/localStorage\s*\[/);
+    expect(languageSource).not.toMatch(/Object\.assign\(\s*localStorage/);
+    expect(languageSource.match(/\.setItem\(/g)?.length ?? 0).toBe(writes.length);
     // Likewise the download module: on the path, using exactly what a download needs.
     expect(files.has(DOWNLOAD_MODULE), `${DOWNLOAD_MODULE} is on the path`).toBe(true);
     expect(new Set(savingConstructs(DOWNLOAD_MODULE)), DOWNLOAD_MODULE).toEqual(new Set(DOWNLOAD_NAMES));

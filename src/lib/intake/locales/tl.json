@@ -1,0 +1,609 @@
+{
+  "questions": {
+    "application_role": {
+      "prompt": "Para kanino ang application na ito?",
+      "help": "Piliin ang pinakaangkop sa iyo. Maaari mo itong baguhin mamaya.",
+      "options": {
+        "self": "Ako",
+        "family_member": "Isang kapamilya",
+        "someone_else": "Iba pang tinutulungan ko"
+      }
+    },
+    "main_goal": {
+      "prompt": "Anong uri ng tulong ang kailangan mo ngayon?",
+      "help": "Piliin ang isa na kailangan mo. Maaari mong idagdag ang higit pa sa ibang pagkakataon.",
+      "options": {
+        "food": "Pagkain",
+        "housing": "Pabahay",
+        "healthcare": "Pangangalaga sa kalusugan",
+        "cash_assistance": "Tulong pinansyal",
+        "other": "Iba pa"
+      }
+    },
+    "goal_detail": {
+      "prompt": "Sa iyong sariling mga salita, ano ang higit na makakatulong?",
+      "help": "Ang maikling pangungusap ay mabuti. Ito ay para lamang tulungan kaming ituro sa iyo ang tamang daan."
+    },
+    "state": {
+      "prompt": "Sa anong estado ka nakatira?",
+      "help": "Ang mga patakaran ay nagbabago ayon sa estado. Piliin ang estado kung saan ka natutulog sa karamihan ng gabi.",
+      "options": {
+        "AL": "Alabama",
+        "AK": "Alaska",
+        "AZ": "Arizona",
+        "AR": "Arkansas",
+        "CA": "California",
+        "CO": "Colorado",
+        "CT": "Connecticut",
+        "DE": "Delaware",
+        "FL": "Florida",
+        "GA": "Georgia",
+        "HI": "Hawaii",
+        "ID": "Idaho",
+        "IL": "Illinois",
+        "IN": "Indiana",
+        "IA": "Iowa",
+        "KS": "Kansas",
+        "KY": "Kentucky",
+        "LA": "Louisiana",
+        "ME": "Maine",
+        "MD": "Maryland",
+        "MA": "Massachusetts",
+        "MI": "Michigan",
+        "MN": "Minnesota",
+        "MS": "Mississippi",
+        "MO": "Missouri",
+        "MT": "Montana",
+        "NE": "Nebraska",
+        "NV": "Nevada",
+        "NH": "New Hampshire",
+        "NJ": "New Jersey",
+        "NM": "New Mexico",
+        "NY": "New York",
+        "NC": "North Carolina",
+        "ND": "North Dakota",
+        "OH": "Ohio",
+        "OK": "Oklahoma",
+        "OR": "Oregon",
+        "PA": "Pennsylvania",
+        "RI": "Rhode Island",
+        "SC": "South Carolina",
+        "SD": "South Dakota",
+        "TN": "Tennessee",
+        "TX": "Texas",
+        "UT": "Utah",
+        "VT": "Vermont",
+        "VA": "Virginia",
+        "WA": "Washington",
+        "WV": "West Virginia",
+        "WI": "Wisconsin",
+        "WY": "Wyoming"
+      }
+    },
+    "county": {
+      "prompt": "Sa anong county o lugar ng lungsod ka nakatira?",
+      "help": "Ang inyong lokal na tanggapan ay nakasalalay dito. Hindi sigurado? Maaari mong iwanan itong walang laman."
+    },
+    "household_size": {
+      "prompt": "Ilang tao ang binibili at pinagsasamahan mo ng pagkain?",
+      "help": "Isaalang-alang ang iyong sarili at ang lahat ng kasama mo, maging ang mga bata. Magpasok ng isang numero."
+    },
+    "household_children": {
+      "prompt": "Ilang mga tao sa mga ito ang wala pang 18?",
+      "help": "Magpasok ng isang numero. Magpasok ng 0 kung walang mga anak."
+    },
+    "household_seniors": {
+      "prompt": "Ilang tao sa inyong sambahayan ang 60 o higit pa?",
+      "help": "Magpasok ng isang numero. Ipasok ang 0 kung wala."
+    },
+    "household_roster": {
+      "prompt": "Sino ang nakatira sa inyong sambahayan? Idagdag ang bawat tao sa pamamagitan ng unang pangalan o palayaw.",
+      "help": "Ang mga pangalan o palayaw ay okay - hindi mo kailangan ang legal na mga pangalan. Maaari mong idagdag, baguhin, o alisin ang mga tao. Ang listahan na ito ay tumutulong sa mga katanungan sa hinaharap na itanong tungkol sa tamang tao."
+    },
+    "income_sources": {
+      "prompt": "Saan nanggagaling ang pera para sa inyong sambahayan?",
+      "help": "Piliin ang bawat mapagkukunan na tumutugma. Piliin ang 'wala' kung walang pera na papasok.",
+      "options": {
+        "job": "Isang trabaho",
+        "self_employed": "Sariling negosyo o pansamantalang trabaho",
+        "benefits": "Mga benepisyo tulad ng mga tseke sa kapansanan o pagreretiro",
+        "family_friends": "Pera mula sa pamilya o mga kaibigan",
+        "child_support": "Suporta sa bata",
+        "other": "Iba pa",
+        "none": "Walang pera na pumapasok ngayon"
+      }
+    },
+    "income_kind": {
+      "prompt": "Anong uri ng kita ang mayroon ka?",
+      "help": "Ito ang magtatakda kung aling mga tanong tungkol sa pera ang susunod. Piliin ang pinakaangkop sa iyo. Maaari mo ring sabihin na hindi ka sigurado; tatanungin ka namin ng mga pangkalahatang tanong.",
+      "options": {
+        "self_employment_current": "Nagtatrabaho ako para sa sarili ko ngayon, sa aking sariling negosyo o LLC",
+        "prior_employer_only": "May trabaho ako dati, pero hindi na ako nagtatrabaho doon.",
+        "both": "Pareho: nagtatrabaho ako para sa sarili ko ngayon at may trabaho ako dati",
+        "neither": "Wala sa mga ito"
+      }
+    },
+    "self_employment_statements_offer": {
+      "prompt": "Gusto mo bang magdala ng iyong mga pahayag sa bangko at pagbabayad upang ipakita ang kita na ito?",
+      "help": "Maaari mong ibahagi ang mga file ng pahayag mula sa iyong bangko o serbisyo sa pagbabayad, o i-type ang mga numero sa iyong sarili. Ang lahat ng ibinabahagi mo ay mananatiling naka-encrypt sa device na ito. Walang ipinapadala kahit saan mula dito. Ang pagsabi na hindi sigurado ay mabuti; tatanungin namin ang mga numero sa paraang gumagana para sa iyo.",
+      "options": {
+        "will_share": "Oo, maaari kong ibahagi ang mga statement",
+        "will_type": "Ako mismo ang mag-type ng mga numero.",
+        "not_sure_yet": "Hindi pa sigurado"
+      }
+    },
+    "prior_employer_current": {
+      "prompt": "Nagtatrabaho ka pa ba sa dating amo mo?",
+      "help": "Ang pera mula sa trabahong wala ka na ay maaaring tratuhin nang iba kumpira sa pera na kinikita mo ngayon — ang opisina ang magpapasya. Makakatulong ito upang ipakita na ang dating suweldo ay hindi kasalukuyang kita.",
+      "options": {
+        "no_longer_there": "Hindi, hindi na ako nagtatrabaho doon.",
+        "yes_still_there": "Oo, nagtatrabaho pa rin ako doon."
+      }
+    },
+    "prior_employer_last_month": {
+      "prompt": "Sa anong buwan at taon ka huling natanggap ng bayad mula sa amo na iyon?",
+      "help": "Halimbawa: Marso 2025. Ang iyong pinakamagandang alaala ay mabuti. Ito ay tumutulong upang ipakita na ang suweldo ay mula sa nakaraan, hindi kasalukuyang kita."
+    },
+    "job_income_amount": {
+      "prompt": "Humigit-kumulang magkano ang perang pumapasok mula sa mga trabaho bawat beses na sumusuweldo ka?",
+      "help": "Ang iyong pinakamagandang hula ay okay. Maaari mong sabihin na 'hindi ka sigurado' kung hindi mo alam."
+    },
+    "job_income_frequency": {
+      "prompt": "Gaano kadalas ang pag-abot ng pera sa trabaho?",
+      "help": "Piliin kung gaano kadalas ang pag-abot ng paychecks.",
+      "options": {
+        "weekly": "Bawat linggo",
+        "biweekly": "Tuwing dalawang linggo",
+        "twice_monthly": "Dalawang beses sa isang buwan",
+        "monthly": "Isang beses sa isang buwan",
+        "varies": "Nagbabago"
+      }
+    },
+    "job_income_seasonal": {
+      "prompt": "Ang lahat ba ng trabaho sa inyong sambahayan ay pang-panahon trabaho na nangyayari lamang sa bahagi ng taon?",
+      "help": "Sagutin ng oo lamang kung ang lahat ng trabaho sa iyong sambahayan ay pang-panahon, tulad ng pag-aani, bakasyon, o trabaho sa tag-init. Kung ang sinuman sa inyong sambahayan ay may taunang trabaho, sagutin na hindi. Piliin ang 'hindi sigurado' kung hindi mo alam.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "job_income_seasonal_total": {
+      "prompt": "Magkano ang kabuuang kinita ng buong sambahayan ninyo mula sa panahong iyon sa huling 6 na buwan?",
+      "help": "Isama ang kinita ng bawat isa sa inyong sambahayan mula sa pang-panahong trabaho sa nakalipas na 6 na buwan, hangga't maaari. Ang kita mula sa pang-panahong trabaho ay maaaring i-average sa loob ng 6 na buwan, at ang kabuuan na ito ang nakukuha sa average."
+    },
+    "benefits_income_amount": {
+      "prompt": "Mga magkano ang natatanggap mong benepisyo bawat buwan?",
+      "help": "Ito ay tumutukoy sa mga bagay tulad ng tseke sa kapansanan o pagreretiro. Okay lang ang tantiya."
+    },
+    "benefits_income_frequency": {
+      "prompt": "Gaano kadalas dumating ang pera mula sa mga benepisyo na iyon?",
+      "help": "Piliin kung gaano kadalas dumating ang mga tseke.",
+      "options": {
+        "weekly": "Bawat linggo",
+        "biweekly": "Tuwing dalawang linggo",
+        "twice_monthly": "Dalawang beses sa isang buwan",
+        "monthly": "Isang beses sa isang buwan",
+        "varies": "Nagbabago"
+      }
+    },
+    "other_income_amount": {
+      "prompt": "Humigit-kumulang magkano ang ibang perang pumapasok bawat buwan?",
+      "help": "Pera mula sa pamilya o mga kaibigan, suporta sa bata, o anumang bagay. Okay lang ang pagtatantiya."
+    },
+    "housing_status": {
+      "prompt": "Saan ka nakatulog kagabi?",
+      "help": "Sagutin nang tapat. Nakakatulong ito upang mahanap ang tamang tulong, at hindi ito makakaapekto sa iyo.",
+      "options": {
+        "shelter": "Sa isang kanlungan",
+        "car": "Sa kotse o sasakyan",
+        "outdoors": "Sa labas o sa isang lugar na hindi inilaan para matulog",
+        "nowhere": "Wala akong mapagtulugan.",
+        "staying_with_others": "Nananatili sa pamilya o mga kaibigan",
+        "rental_or_own": "Sa isang lugar na aking inupahan o pagmamay-ari"
+      }
+    },
+    "housing_cost": {
+      "prompt": "Magkano ang binabayaran mo sa pabahay bawat buwan?",
+      "help": "Upa o mortgage, kung may binabayaran ka. Magpasok ng 0 kung hindi ka nagbabayad para sa pabahay."
+    },
+    "utilities_cost": {
+      "prompt": "Magkano ang binabayaran mo para sa mga kagamitan sa bawat buwan?",
+      "help": "Mga ilaw, init, tubig, o gas sa pagluluto. Ipasok ang 0 kung hindi ka nagbabayad."
+    },
+    "childcare_cost": {
+      "prompt": "Magkano ang binabayaran mo para sa pangangalaga sa bata bawat buwan?",
+      "help": "Ang day care, isang babysitter, o after-school care. Ipasok ang 0 kung hindi ka nagbabayad para sa pangangalaga sa bata."
+    },
+    "medical_cost": {
+      "prompt": "Magkano ang binabayaran mo para sa mga gastos sa medikal bawat buwan?",
+      "help": "Mga gamot, copay, at sakay papunta sa doktor. Ipasok ang 0 kung wala. Okay lang ang pagtatantiya."
+    },
+    "id_status": {
+      "prompt": "May ID ka ba na may larawan?",
+      "help": "Binibilang ang anumang ID na may larawan mula sa gobyerno. Hindi naman problema kung nawala ito sa iyo o hindi ka pa nagkaroon nito. Maaari pa rin kaming makatulong.",
+      "options": {
+        "have_id": "Oo, mayroon ako.",
+        "need_id": "Hindi, kailangan ko ng isa",
+        "id_in_progress": "Nagtatrabaho ako sa pagpapalit nito",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "id_issue_detail": {
+      "prompt": "Sabihin mo sa amin kung ano ang nangyari sa iyong ID, kung gusto mo.",
+      "help": "Halimbawa: nawala, ninakaw, o hindi kailanman nagkaroon ng isa. Ito ay opsyonal. Tinutulungan kami nito na magplano ng susunod na hakbang kasama ka."
+    },
+    "date_of_birth": {
+      "prompt": "Ano ang petsa ng iyong kapanganakan?",
+      "help": "Okay lang ang pagtatantiya kung hindi ka sigurado sa eksaktong araw."
+    },
+    "citizenship_status": {
+      "prompt": "Paano mo ilarawan ang iyong pagiging mamamayan o katayuan sa imigrasyon?",
+      "help": "Ang tanong na ito ay pribado at mananatiling nasa aming secure na server. Maraming uri ng tulong ang hindi nakasalalay sa sagot na ito, at ang ilang mga programa ay tumutulong sa mga miyembro ng pamilya na may iba't ibang katayuan. Piliin ang 'hindi sigurado' kung mas gusto mong huwag sabihin o hindi alam.",
+      "options": {
+        "us_citizen": "Mga mamamayan ng Estados Unidos",
+        "permanent_resident": "May-ari ng green card",
+        "other_status": "Ibang katayuan",
+        "not_sure": "Hindi ako sigurado / mas gusto kong hindi magsabi"
+      }
+    },
+    "disability_status": {
+      "prompt": "May isa ba sa inyong sambahayan na may kapansanan o sakit na nakalilimita sa pang-araw-araw na buhay?",
+      "help": "Ito ay maaaring magbukas ng karagdagang uri ng tulong. Piliin ang 'hindi sigurado' kung hindi mo alam.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "student_status": {
+      "prompt": "Nasa paaralan ka ba o nagsasanay ngayon?",
+      "help": "Kolehiyo, pagsasanay sa trabaho, o mga klase sa GED — kahit alinman sa mga ito ay binibilang.",
+      "options": {
+        "not_student": "Hindi",
+        "full_time_student": "Oo, full-time",
+        "part_time_student": "Oo, part-time"
+      }
+    },
+    "veteran_status": {
+      "prompt": "Naglingkod ka na ba sa militar?",
+      "help": "Anumang sangay, anuman ang haba ng serbisyo. Ang mga beterano ay maaaring maging karapat-dapat para sa karagdagang tulong."
+    },
+    "received_benefits_before": {
+      "prompt": "Nakatanggap ka na ba ng tulong mula sa isang opisina ng benepisyo dati?",
+      "help": "Ngayon o noong nakaraan, sa anumang estado. Hindi ito nakakaapekto kung makakakuha ka ng tulong ngayon."
+    },
+    "mailing_situation": {
+      "prompt": "Saan ka makakakuha ng sulat?",
+      "help": "Piliin ang pinakamaligtas na opsyon na gumagana para sa iyo. Maraming tao ang nakakatanggap ng sulat na walang adres ng tahanan.",
+      "options": {
+        "shelter": "Isang kanlungan o programa kung saan ako manatili",
+        "family_or_friend": "Adres ng isang pamilya o kaibigan",
+        "po_box": "Isang P.O. box",
+        "general_delivery": "Pangkalahatang paghahatid ng post office",
+        "day_center": "Isang drop-in o day center",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "shelter_mail_consent": {
+      "prompt": "Pumayag ba ang shelter na mag-iingat ng sulat para sa iyo?",
+      "help": "Ang ilang shelter ay nag-iingat ng mail lamang kung tatanungin mo muna sila. Sabihin mo na oo lamang kung sigurado ka na sumasang-ayon sila."
+    },
+    "contact_preference": {
+      "prompt": "Paano mo nais na maabot ka namin?",
+      "help": "Piliin ang pinakamainam para sa iyo. Hindi ito kailangang maging isang telepono.",
+      "options": {
+        "call": "Tawag sa telepono",
+        "text": "Mensahe sa teksto",
+        "email": "Email",
+        "in_person": "Sa personal"
+      }
+    },
+    "phone_contact": {
+      "prompt": "Ano ang numero ng telepono kung saan makukuha ka ng mga mensahe?",
+      "help": "Ang numero ng kaibigan o ng tirahan ay okay kung gumagana ito. Ito ay mananatiling nasa aming secure na server."
+    },
+    "email_contact": {
+      "prompt": "Ano ang email address mo?",
+      "help": "Ang isang libreng email account ay gumagana kung wala ka pa. Ito ay mananatiling nasa aming secure na server."
+    },
+    "best_time_to_reach": {
+      "prompt": "Kailan ang pinakamainam na oras upang maabot ka?",
+      "help": "Piliin ang oras na malamang na libre ka.",
+      "options": {
+        "morning": "Umaga",
+        "afternoon": "Hapon",
+        "evening": "Gabi"
+      }
+    },
+    "wr_exempt_situations": {
+      "prompt": "Ikaw ba o ang isang taong nag-aaplay para sa Medicaid ay nasa isa sa mga sitwasyong ito?",
+      "help": "Markahan ang lahat ng naaangkop. Kung naaangkop ang isang sitwasyon, maaaring hindi na kailangan ng taong iyon na iulat ang kanyang mga gawain sa trabaho; ang estado ang magpapasya kung ano ang binibilang. Ang isang nag-aaplay na wala sa alinman sa mga sitwasyong ito ay maaaring kailangan pa ring mag-ulat ng kanyang mga gawain sa trabaho, at ang estado ang magpapasya para sa bawat tao.",
+      "options": {
+        "parent_child_under_18": "Isang magulang ng isang bata na wala pang 18 taong gulang",
+        "nonparent_caregiver_child_under_14": "Isang hindi magulang na tagapag-alaga ng isang bata na wala pang 14 taong gulang, tulad ng isang kamag-anak o sinumang nagbibigay ng hindi bababa sa 80 oras ng pangangalaga sa isang buwan",
+        "caregiver_daily_activities": "Isang tagapag-alaga ng isang taong nangangailangan ng tulong sa pang-araw-araw na mga gawain, tulad ng isang taong may kapansanan o isang matandang may sapat na gulang",
+        "already_snap_tanf_work_requirements": "Kailangan nang sumunod sa mga kinakailangan sa trabaho ng SNAP o TANF",
+        "none": "Wala sa mga ito"
+      }
+    },
+    "wr_pregnant": {
+      "prompt": "May nag-aaplay ba na buntis ngayon, o buntis noong nakalipas na 12 buwan?",
+      "help": "Maaari mong i-skip ito kung mas gusto mong hindi sagutin — ang estado ang nagpapasya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "wr_drug_alcohol_treatment": {
+      "prompt": "May sinuman bang nag-aaplay na kasalukuyang nasa programa ng paggamot para sa suliranin sa droga o alkohol?",
+      "help": "Maaari mong i-skip ito kung mas gusto mong hindi sagutin — ang estado ang nagpapasya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "wr_drug_alcohol_disorder": {
+      "prompt": "May nag-aaplay ba na may karamdaman sa droga o alkohol na nagpapahirap sa trabaho? Kasama dito ang mga taong hindi pa nakakatapos ng 5 taon sa paggaling.",
+      "help": "Maaari mong i-skip ito kung mas gusto mong hindi sagutin — ang estado ang nagpapasya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "wr_disability_hard_work": {
+      "prompt": "May nag-aaplay ba na may pisikal, intelektwal, o pang-unlad na kapansanan na nagpapahirap sa pagtrabaho at sa mga pang-araw-araw na gawain (tulad ng pagkain, paglalakad, o pagbangon sa kama o upuan)?",
+      "help": "Maaari mong i-skip ito kung mas gusto mong hindi sagutin — ang estado ang nagpapasya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "wr_mental_health_hard_work": {
+      "prompt": "Ang sinuman ba sa mga nag-aaplay ay may sakit sa isip na nagpapahirap sa pagtrabaho (tulad ng schizophrenia, major depression, bipolar disorder, o panic disorder)?",
+      "help": "Maaari mong i-skip ito kung mas gusto mong hindi sagutin — ang estado ang nagpapasya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "wr_serious_health_condition": {
+      "prompt": "Ang sinuman ba sa mga nag-aaplay ay may malubhang kondisyon sa kalusugan na nagpapahirap sa pagtrabaho (tulad ng kanser, multiple sclerosis, HIV/AIDS, o viral hepatitis)?",
+      "help": "Maaari mong i-skip ito kung mas gusto mong hindi sagutin — ang estado ang nagpapasya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "wr_jail_prison_past_4_months": {
+      "prompt": "May nag-aaplay ba na nasa bilangguan ngayon, o nabilanggo noong nakalipas na 4 na buwan?",
+      "help": "Maaari mong i-skip ito kung mas gusto mong hindi sagutin — ang estado ang nagpapasya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "wr_foster_care_under_26": {
+      "prompt": "May nag-aaplay ba na nasa foster care sa edad na 18, at ngayon ay mas bata pa sa 26?",
+      "help": "Maaari mong i-skip ito kung mas gusto mong hindi sagutin — ang estado ang nagpapasya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "wr_veteran_100_disabled": {
+      "prompt": "May nag-aaplay ba na beterano na may 100% na rating ng kapansanan?",
+      "help": "Maaari mong i-skip ito kung mas gusto mong hindi sagutin — ang estado ang nagpapasya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "wr_applied_last_month": {
+      "prompt": "Naranasan mo ba ang alinman sa mga sitwasyong ito noong nakaraang buwan, pero hindi sa buwang ito?",
+      "help": "Ang isang sitwasyon na nag-apply noong nakaraang buwan ay maaaring mahalaga pa rin sa kung ano ang iniuulat. Ang estado ang nagpasiya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi"
+      }
+    },
+    "wr_applied_last_month_which": {
+      "prompt": "Anong mga sitwasyon ang umangkop noong nakaraang buwan, ngunit hindi sa buwan na ito?",
+      "help": "Suriin ang bawat sitwasyon na nalalapat noong nakaraang buwan ngunit hindi sa buwan na ito.",
+      "options": {
+        "pregnant": "Pagbubuntis ngayon o sa nakalipas na 12 buwan",
+        "parent_child_under_18": "Isang magulang ng isang bata na wala pang 18 taong gulang",
+        "nonparent_caregiver_child_under_14": "Isang hindi magulang na tagapag-alaga ng isang bata na wala pang 14 taong gulang",
+        "caregiver_daily_activities": "Isang tagapag-alaga ng isang taong nangangailangan ng tulong sa pang-araw-araw na mga gawain",
+        "already_snap_tanf_work_requirements": "Sumusunod na sa mga kinakailangan sa trabaho ng SNAP o TANF",
+        "drug_alcohol_treatment": "Sa isang programa ng paggamot para sa isang karamdaman sa droga o alkohol",
+        "drug_alcohol_disorder": "Isang sakit sa droga o alkohol na nagpapahirap sa trabaho",
+        "disability_hard_work": "Isang pisikal, intelektwal, o pang-unlad na kapansanan",
+        "mental_health_hard_work": "Isang sakit sa isip",
+        "serious_health_condition": "Isang malubhang kalagayan sa kalusugan",
+        "jail_prison_past_4_months": "Nakulong o nabilanggo sa nakalipas na 4 na buwan",
+        "foster_care_under_26": "Nasa foster care noong 18 taong gulang at wala pang 26 ngayon",
+        "veteran_100_disabled": "Isang 100% na may kapansanan na beterano",
+        "medical_travel_1hr": "Paglalakbay ng isang oras o higit pa para sa medikal na pangangalaga",
+        "hospital_care_24hr": "Tumatanggap ng 24-oras na antas ng pangangalaga"
+      }
+    },
+    "wr_medical_travel_1hr": {
+      "prompt": "May nag-aaplay ba na naglalakbay ng isang oras o higit pa upang makakuha ng medikal na pangangalaga para sa kanilang sarili o sa isang dependent na may malubhang kondisyon sa kalusugan (kabilang ang koordinasyon ng paglalakbay na nagpapahirap sa trabaho)?",
+      "help": "Maaari mong i-skip ito kung mas gusto mong hindi sagutin — ang estado ang nagpapasya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "wr_hospital_care_24hr": {
+      "prompt": "May nag-aaplay ba na tumatanggap ng pangangalaga sa isang ospital para sa higit sa 24 na oras, o isang katulad na antas ng pangangalaga sa ibang lokasyon (tulad ng isang pasilidad sa pag-aalaga, ospital sa pag-iisip, klinika, VA, o sa bahay)?",
+      "help": "Maaari mong i-skip ito kung mas gusto mong hindi sagutin — ang estado ang nagpapasya kung ano ang mahalaga.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi",
+        "not_sure": "Hindi ako sigurado"
+      }
+    },
+    "wr_student_enrolled": {
+      "prompt": "May nag-aaplay ba na nakatala bilang isang mag-aaral (kolehiyo, bokasyonal, o GED program) na buong-panahon o hindi bababa sa kalahating-panahon?",
+      "help": "Ang mga part-time na mag-aaral ay maaaring mag-ulat ng kanilang mga oras sa ilalim ng mga aktibidad sa trabaho sa halip.",
+      "options": {
+        "not_enrolled": "Hindi",
+        "full_time": "Oo, full-time",
+        "at_least_half_time": "Oo, hindi bababa sa kalahating-panahon"
+      }
+    },
+    "wr_income_580": {
+      "prompt": "Ang buwanang kita ng inyong sambahayan ay hindi bababa sa $580? Kasama rito ang lahat ng trabaho, gig na trabaho, pang-panahong trabaho, at hindi kinikita na kita tulad ng kawalan ng trabaho.",
+      "help": "Ang kita mula sa pang-panahong trabaho ay maaaring i-average sa loob ng 6 na buwan. Tinitingnan ng estado ang buwanang kita ng iyong sambahayan kapag nagpasiya ito.",
+      "options": {
+        "yes": "Oo",
+        "no": "Hindi"
+      }
+    },
+    "wr_who_months": {
+      "prompt": "Para sa bawat sitwasyon na sinabi mo sa amin, sino ang nauugnay dito, at anong mga buwan?",
+      "help": "Piliin ang tao o mga tao para sa bawat sitwasyon, pagkatapos ay sa buwan na ito, nakaraang buwan, o pareho. Piliin ang 'hindi sigurado' kung hindi mo alam. Maaari mong i-skip ito - hindi kailanman mabablok ang iyong aplikasyon kung i-skip mo ito."
+    },
+    "wr_work_activity_who": {
+      "prompt": "Sino ang nakumpleto ng mga gawain sa trabaho noong nakaraang buwan?",
+      "help": "Ireport ang mga gawain sa trabaho para sa mga miyembro ng sambahayan na nakumpleto ang hindi bababa sa 80 na oras noong nakaraang buwan. Ang mga pangalan o palayaw ay okay."
+    },
+    "wr_work_activity_types": {
+      "prompt": "Anong mga gawain sa trabaho ang ginawa nila noong nakaraang buwan?",
+      "help": "Suriin ang lahat na may kinalaman. Ang kabuuang oras ay maaaring isang kumbinasyon ng mga uri ng mga gawain na nakalista.",
+      "options": {
+        "job_internship": "Isang trabaho o internship",
+        "self_employment": "Sariling negosyo",
+        "work_program": "Isang programa ng trabaho",
+        "community_service": "Serbisyo sa komunidad o di-pinagbabayaran na trabaho, kasali na ang boluntaryong trabaho sa isang nonprofit, paaralan, o iba pang organisasyon, o trabaho bilang kapalit ng tirahan, pagkain, o iba pang mga kalakal",
+        "part_time_student_hours": "Mga oras ng part-time na mag-aaral, kung saan ang oras ng klase, laboratoryo, o pagsasanay ay nabibilang",
+        "caregiving": "Pag-aalaga sa iba"
+      }
+    },
+    "wr_work_activity_hours": {
+      "prompt": "Ilang oras ng mga gawain sa trabaho ang natapos noong nakaraang buwan?",
+      "help": "Ang buwanang target ay 80 oras. Para sa mga part-time na mag-aaral, 1 credit hour ay katumbas ng 13 oras ng aktibidad sa trabaho bawat buwan. Okay lang ang pagtatantiya."
+    },
+    "wr_work_rows": {
+      "prompt": "Para sa bawat tao, anong mga gawain sa trabaho ang ginawa nila noong nakaraang buwan, at mga ilang oras?",
+      "help": "Magdagdag ng isang hilera para sa bawat tao at aktibidad. Ang mga oras ay bawat tao at hindi kailanman pinagsama sa lahat ng tao. Piliin ang 'hindi sigurado' para sa mga oras kung hindi mo alam - ang pagtatantya ay okay. Ang estado ang nagpasiya kung paano mabibilang ang trabaho."
+    }
+  },
+  "chrome": {
+    "continue": "Magpatuloy",
+    "notSure": "Hindi ako sigurado",
+    "skipForNow": "Laktawan muna",
+    "bestGuess": "Ito ang aking pinakamagandang hula — hindi ko pa ito napapatunayan.",
+    "languageLabel": "Wika",
+    "addPerson": "Magdagdag ng isa pang tao",
+    "back": "Bumalik",
+    "addRow": "Magdagdag ng isang hilera",
+    "personName": "unang pangalan o palayaw",
+    "relationship": "Relasyon",
+    "ageRange": "Saklaw ng edad",
+    "householdMember": "Miyembro ng sambahayan",
+    "activityType": "Uri ng gawain",
+    "hoursLastMonth": "Mga oras noong nakaraang buwan",
+    "notSureHours": "Hindi sigurado tungkol sa mga oras",
+    "fromIncome": "Mula sa iyong mga sagot sa kita, maaari mong idagdag:",
+    "removePerson": "Alisin ang taong ito",
+    "person": "Tao",
+    "rowWord": "hilera",
+    "notPicked": "Hindi nalalapat / hindi pa napili",
+    "duplicateRow": "Ang taong ito ay may isang hilera para sa aktibidad na ito. Baguhin ang isa sa kanila o alisin ang hilera na ito.",
+    "rosterFull": "Iyon ang lahat ng maaari naming ilista dito. Maaari mong baguhin o alisin ang isang tao sa itaas.",
+    "nameHint": "Magpasok ng pangalan o palayaw para sa taong ito.",
+    "enterHours": "Ipasok ang mga oras, o i-tick ang Hindi sigurado tungkol sa mga oras.",
+    "negHours": "Ang mga oras ay hindi maaaring mas mababa sa zero.",
+    "tooManyHours": "Iyon ay higit na oras kaysa sa isang buwan. Mangyaring suriin ang numero.",
+    "removeRow": "Alisin ang hilera na ito",
+    "yes": "Oo",
+    "no": "Hindi",
+    "required": "kinakailangan",
+    "privateAnswer": "Para sa iyong privacy, hindi namin ipinapakita ang iyong nai-save na sagot dito. Upang baguhin ito, ipasok ang isang bagong isa.",
+    "deviceOnly": "Masasagot lamang ang tanong na ito kapag naka-save ang iyong mga sagot sa aparatong ito. Maaari mong laktawan ito — hindi ito kailanman humahadlang sa iyong aplikasyon.",
+    "noHouseholdList": "Wala pang listahan ng sambahayan o sitwasyong maikakabit. Maaari mong laktawan ang tanong na ito — hindi ito kailanman humahadlang sa iyong aplikasyon.",
+    "rosterFirst": "Idagdag muna ang listahan ng iyong sambahayan, pagkatapos ay magdagdag ng hilera para sa bawat tao. Maaari mong laktawan ang tanong na ito — hindi ito kailanman humahadlang sa iyong aplikasyon.",
+    "addRowFor": "Magdagdag ng hilera para kay {name}: {activity}",
+    "thisPerson": "taong ito",
+    "loading": "Nilo-load ang iyong mga tanong…",
+    "allAnswered": "Lahat ng tanong ay nasagot na ngayon.",
+    "nothingSubmitted": "Walang isinusumite — ikaw ang magpapasya sa susunod.",
+    "stillOpen": "Hindi pa nasasagot",
+    "answer": "Sagutin",
+    "reviewAnswer": "Suriin ang sagot na ito",
+    "noAnswerRecorded": "Walang nakatalang sagot.",
+    "savedPrivately": "Nai-save nang pribado — hindi na ipapakita muli.",
+    "saveAndFinishLater": "I-save at tapusin sa ibang pagkakataon",
+    "saving": "Nagse-save…",
+    "deleting": "Nagbubura…",
+    "deleteButton": "I-delete ang aking mga sagot mula sa aparatong ito",
+    "deleteConfirm": "Ito ay mag-aalis ng lahat ng sagot na naka-save sa browser na ito para sa form na ito. Hindi na ito maaaring balikan. Kung nag-download ka ng kopya ng napunang form, o na-save ito bilang PDF habang nagpi-print, mananatili ang file na iyon sa device na ito hanggang burahin mo ito.",
+    "deleteYes": "Oo, tanggalin ang mga ito",
+    "deleteNo": "Panatilihin ang mga ito",
+    "keepPrompt": "Kung itatanong ng browser kung papayagan mong mag-imbak ng data ang site na ito, nakakatulong ang pagsagot ng oo para hindi mabura ang mga sagot mo kapag naglinis ito ng espasyo.",
+    "genericError": "May naging problema sa aming panig. Pakisubukang muli.",
+    "requiredError": "Kailangan ito para magpatuloy. Pumili ng opsyon o piliin ang “Hindi ako sigurado.”",
+    "serverSaveBlurb": "Nai-save ang iyong mga sagot sa server ng app habang nagpapatuloy ka. Maaari kang huminto anumang oras at magpatuloy mamaya sa browser na ito — walang isinusumite hanggang sa magpasya ka.",
+    "savedComeBack": "Nai-save. Bumalik sa browser na ito anumang oras — walang isinusumite hanggang sa magpasya ka.",
+    "savedProgress": "Na-save. Nasagot ang {answered} sa {total}.",
+    "markedNotSure": "Namarkahan bilang hindi sigurado. Maaari mong balikan ito.",
+    "progress": "Nasagot ang {answered} sa {total} tanong",
+    "remaining": "{remaining} pa",
+    "noProofNeeded": "Hindi mo kailangan ng anumang papel o sulat ng doktor para sagutin ang tanong na ito. Sagutin gamit ang alam mo ngayon — maaaring humingi ng patunay ang estado mamaya.",
+    "deviceKeptBlurb": "Nase-save ang mga sagot mo sa browser na ito habang sumasagot ka, para makabalik ka sa device na ito at maipagpatuloy kung saan ka tumigil. Walang ipinapadala hangga't hindi ka nagpapasya.",
+    "deviceUnsupportedBlurb": "Hindi kayang mag-save ng mga sagot ng browser na ito, kaya mawawala ang mga ito kapag isinara mo ang page na ito. Walang ipinapadala hangga't hindi ka nagpapasya.",
+    "deviceUnavailableBlurb": "Hindi gumagana ngayon ang imbakan ng browser na ito, kaya ang mga bagong sagot ay tatagal lamang hanggang isara mo ang page na ito. Kung may na-save ka ritong sagot dati, nasa device pa rin ang mga ito hangga't hindi mo binubura.",
+    "deviceStoppedBlurb": "Huminto na ang browser na ito sa pag-save ng mga sagot. Nasa device pa rin ang mga na-save na, pero hindi na nase-save ang mga pagbabago mula ngayon. Para burahin ang mga ito, gamitin ang opsyon na burahin sa ibaba.",
+    "deviceStoppedNothingStoredBlurb": "Huminto na ang browser na ito sa pag-save ng mga sagot, kaya mawawala ang mga ito kapag isinara mo ang page na ito. Walang ipinapadala hangga't hindi ka nagpapasya.",
+    "deviceVisibilityNote": "Kahit sino na gumagamit ng browser na ito ay makakabukas ng mga sagot na ito.",
+    "savedPrivatelyThisVisit": "Itinala nang pribado para sa pagbisita na ito — hindi na ipapakita muli."
+  },
+  "commonOptions": {
+    "yes": "Oo",
+    "no": "Hindi",
+    "not_sure": "Hindi ako sigurado"
+  },
+  "relationships": {
+    "not_sure": "Hindi sigurado",
+    "self": "Ako",
+    "spouse_or_partner": "Asawa o kapareha",
+    "child": "Anak",
+    "parent": "Magulang",
+    "sibling": "Kapatid",
+    "other_family": "Ibang miyembro ng pamilya",
+    "unrelated": "Isa pang taong nakatira sa amin"
+  },
+  "ageBands": {
+    "not_sure": "Hindi ako sigurado",
+    "under_14": "Sa ilalim ng 14",
+    "14_to_17": "14 hanggang 17",
+    "18_to_54": "18 hanggang 54",
+    "55_to_59": "55 hanggang 59",
+    "60_to_64": "60 hanggang 64",
+    "65_plus": "65 o mas matanda pa"
+  },
+  "months": {
+    "this_month": "Sa buwan na ito",
+    "last_month": "Noong nakaraang buwan",
+    "both": "Parehong buwan",
+    "not_sure": "Hindi ako sigurado"
+  },
+  "answerStatus": {
+    "known": "Sinabi mo sa amin",
+    "unknown": "Hindi ka sigurado",
+    "unverified": "Sinagot ngunit hindi napapatunayan"
+  }
+}

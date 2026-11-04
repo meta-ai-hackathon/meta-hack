@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ClientAnswer, ClientQuestion } from "../../lib/intake/serialize";
 import { QUESTIONS } from "../../lib/intake/spec";
+import { translateQuestion, uiText } from "../../lib/intake/i18n";
 import { ANSWER_STATUS_LABELS, type AnswerStatus } from "../../lib/honesty";
 import { QuestionView } from "./question-view";
 
@@ -302,5 +303,20 @@ describe("QuestionView state picker (HACK-142)", () => {
     expect(html).toContain("I'm not sure");
     expect(html).toContain("have not verified");
     expect(html).toContain("(required)");
+  });
+});
+
+describe("QuestionView in another language (HACK-131)", () => {
+  it("renders the roster editor chrome in the chosen language", () => {
+    const roster = QUESTIONS.find((x) => x.id === "household_roster")!;
+    const q = translateQuestion(roster, "es");
+    const html = renderView(q, { language: "es", value: [{ id: "member-1", displayName: "Sam", relationship: "self", ageBand: "18_to_54" }, { id: "member-2", displayName: "Jo", relationship: "child", ageBand: "under_14" }] });
+    expect(html).toContain(uiText("continue", "es"));
+    expect(html).toContain(`${uiText("person", "es")} 1`);
+    expect(html).toContain(uiText("removePerson", "es"));
+    expect(html).toContain(q.prompt);
+    expect(html).not.toContain("Remove this person");
+    expect(html).toContain(uiText("relationship", "es"));
+    expect(html).not.toContain(">Relationship<");
   });
 });
