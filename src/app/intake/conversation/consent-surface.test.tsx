@@ -206,6 +206,94 @@ describe("ConsentPanel disabled toggles (VAL-CONSENT-004)", () => {
   });
 });
 
+describe("ConsentPanel layers its fine print (HACK-165)", () => {
+  // Kurt flagged on Nov 4 that the consent copy still took most of the
+  // screen on /intake/conversation (1.7 phone screens before Continue).
+  // The panel is now a layered notice: what makes the choice informed
+  // shows without a tap, and each path's terms and retention or data-use
+  // line sit in that path's closed disclosure on the same panel.
+
+  /** The first layer: the panel as it shows before any tap, each disclosure reduced to its summary. */
+  function firstLayer(html: string): string {
+    return html.replace(
+      /<details[^>]*>([\s\S]*?)<\/details>/g,
+      (_block, inner: string) => inner.match(/<summary[^>]*>[\s\S]*?<\/summary>/)?.[0] ?? "",
+    );
+  }
+
+  /** One path's closed disclosure, whole. */
+  function finePrint(html: string, id: string): string {
+    return html.match(new RegExp(`<details data-consent-details="${id}"[^>]*>[\\s\\S]*?</details>`))?.[0] ?? "";
+  }
+
+  function visibleWords(html: string): number {
+    return html.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length;
+  }
+
+  /**
+   * What shows before any tap. The panel showed 289 words at once before
+   * the layering, and 201 after it, so this pins the cut with a little margin.
+   */
+  const FIRST_LAYER_BUDGET = 210;
+
+  const everyToggleState: [boolean, boolean][] = [
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ];
+
+  it("keeps the informed choice visible and each path's fine print one tap away, in every toggle state (property)", () => {
+    fc.assert(
+      fc.property(fc.boolean(), fc.boolean(), (aiChecked, voiceChecked) => {
+        const html = panelMarkup({ aiChecked, voiceChecked });
+        const visible = firstLayer(html);
+        for (const path of CONSENT_PATHS) {
+          if (path.id === "fax") continue; // post-submission path, not this surface's toggle
+          // What is sent, to whom and for what: visible without a tap.
+          expect(visible).toContain(path.provider);
+          expect(visible).toContain(path.purpose);
+          for (const send of path.sends) {
+            expect(visible).toContain(send);
+          }
+          // The path's fine print: on the panel, closed, with every verified terms link.
+          const details = finePrint(html, path.id);
+          expect(details).not.toBe("");
+          expect(details).not.toMatch(/^<details[^>]*\sopen/);
+          for (const terms of path.terms) {
+            expect(details).toContain(terms.url);
+            expect(visible).not.toContain(terms.url);
+          }
+        }
+        // The lines that change what someone agrees to stay in the first layer.
+        expect(visible).toMatch(/sees your words before anything is hidden/);
+        expect(visible).toMatch(/the microphone never starts and no audio is ever sent/);
+        expect(visible).toMatch(/answers save on the app's server/i);
+        expect(visible).toContain("data-consent-continue");
+        expect(visible).toContain("data-consent-decline");
+        // Retention and data use: in the fine print, still on the panel.
+        expect(finePrint(html, "ai-conversation")).toMatch(/not used to train its models/);
+        expect(finePrint(html, "ai-conversation")).toMatch(/not a promise that nothing is kept/);
+        expect(finePrint(html, "voice")).toMatch(/may use it to improve its services/);
+        expect(finePrint(html, "voice")).toMatch(/training opt-out in your account/);
+        expect(visibleWords(visible)).toBeLessThanOrEqual(FIRST_LAYER_BUDGET);
+      }),
+      { examples: everyToggleState },
+    );
+  });
+
+  it("keeps an unverified path's notice in the first layer, never behind the disclosure", () => {
+    for (const unverifiedId of ["ai-conversation", "voice"] as const) {
+      const paths: ConsentPathSpec[] = CONSENT_PATHS.map((path) =>
+        path.id === unverifiedId ? { ...path, termsVerified: false } : path,
+      );
+      const html = panelMarkup({ paths, aiChecked: true, voiceChecked: false });
+      expect(firstLayer(html)).toMatch(/haven't verified this provider's data-handling terms/);
+      expect(finePrint(html, unverifiedId)).not.toMatch(/haven't verified/);
+    }
+  });
+});
+
 describe("ConsentReceiptPanel — compact, friendly, honest (VAL-UX-010, HACK-150)", () => {
   const baseReceipt: ConsentReceipt = {
     v: 2,

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   CONSENT_PATHS,
   type ConsentPathSpec,
@@ -19,6 +20,15 @@ import {
 //   "we keep nothing" claims (the terms do not say that).
 // - A path whose terms are not verified renders its toggle disabled with
 //   honest copy — no silent enable.
+//
+// The panel is a layered notice (HACK-165). The first layer is what makes
+// the choice informed: each toggle's label (what is sent, to whom, for
+// what, from the registry), the line that Meta sees typed words before
+// anything is hidden, the line that the microphone never starts with voice
+// off, any unverified or dependency notice, and both buttons. Each path's
+// verified terms and its retention or data-use line sit in that path's
+// FinePrint, a closed native disclosure on the same panel, one tap away
+// before anything is sent.
 
 const VOICE_DEPENDENCY_COPY =
   "Turn on sharing of typed answers first — spoken answers reach the same assistant.";
@@ -61,6 +71,30 @@ function PathTerms({
         </span>
       ))}
     </span>
+  );
+}
+
+/**
+ * One path's fine print: its verified terms and its retention or data-use
+ * line, closed by default under the path's toggle (HACK-165). The toggle
+ * label above already names what is sent, to whom, and for what.
+ */
+function FinePrint({
+  pathId,
+  summary,
+  children,
+}: {
+  pathId: ConsentPathSpec["id"];
+  summary: string;
+  children: ReactNode;
+}) {
+  return (
+    <details data-consent-details={pathId} className="text-sm text-muted">
+      <summary className="w-fit cursor-pointer py-1 font-medium text-teal underline hover:opacity-80">
+        {summary}
+      </summary>
+      <div className="mt-1 flex flex-col gap-2">{children}</div>
+    </details>
   );
 }
 
@@ -116,9 +150,7 @@ export function ConsentPanel(props: ConsentPanelProps) {
               </span>
             </span>
           </label>
-          {aiEnabled ? (
-            <PathTerms terms={aiPath.terms} />
-          ) : (
+          {aiEnabled ? null : (
             <span
               data-honest-unverified-copy
               className="text-sm font-medium text-amber-ink"
@@ -129,9 +161,14 @@ export function ConsentPanel(props: ConsentPanelProps) {
           <p className="text-sm text-muted">
             With sharing on, each typed message reaches Meta once — the step
             that reads your answer sees your words before anything is hidden.
-            Meta says content is not used to train its models and is kept per
-            its terms — not a promise that nothing is kept.
           </p>
+          <FinePrint pathId={aiPath.id} summary="Meta's terms and data use">
+            {aiEnabled ? <PathTerms terms={aiPath.terms} /> : null}
+            <p>
+              Meta says content is not used to train its models and is kept
+              per its terms — not a promise that nothing is kept.
+            </p>
+          </FinePrint>
         </div>
       ) : null}
 
@@ -162,18 +199,15 @@ export function ConsentPanel(props: ConsentPanelProps) {
             </span>
           </label>
           {voicePath.termsVerified ? (
-            <>
-              <PathTerms terms={voicePath.terms} />
-              {props.aiChecked ? null : (
-                <span
-                  id="consent-voice-help"
-                  data-voice-dependency-copy
-                  className="text-sm text-muted"
-                >
-                  {VOICE_DEPENDENCY_COPY}
-                </span>
-              )}
-            </>
+            props.aiChecked ? null : (
+              <span
+                id="consent-voice-help"
+                data-voice-dependency-copy
+                className="text-sm text-muted"
+              >
+                {VOICE_DEPENDENCY_COPY}
+              </span>
+            )
           ) : (
             <span
               id="consent-voice-help"
@@ -185,10 +219,16 @@ export function ConsentPanel(props: ConsentPanelProps) {
           )}
           <p className="text-sm text-muted">
             With voice off, the microphone never starts and no audio is ever
-            sent. Only the assistant&apos;s reply text goes to ElevenLabs,
-            which may use it to improve its services (training opt-out in
-            your account) — never anything you said or typed.
+            sent.
           </p>
+          <FinePrint pathId={voicePath.id} summary="ElevenLabs' terms and data use">
+            {voicePath.termsVerified ? <PathTerms terms={voicePath.terms} /> : null}
+            <p>
+              Only the assistant&apos;s reply text goes to ElevenLabs, which
+              may use it to improve its services (training opt-out in your
+              account) — never anything you said or typed.
+            </p>
+          </FinePrint>
         </div>
       ) : null}
 
