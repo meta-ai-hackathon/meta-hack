@@ -170,6 +170,7 @@ export function StatePicker({
     };
     const onDocPointerCancel = (): void => {
       pressingRef.current = false;
+      pressStartedInsideRef.current = false;
     };
     const onDocClick = (event: MouseEvent): void => {
       pressingRef.current = false;
@@ -189,9 +190,13 @@ export function StatePicker({
           : options.find((option) => option.value === reported)?.label ?? "",
       );
     };
+    // Capture phase: the close must not depend on the click surviving a
+    // target handler's stopPropagation (claude-review P3 on 7be8204).
+    // The close's state updates still flush after the whole click
+    // dispatch, so a control's own click handler runs first and lands.
     document.addEventListener("pointerdown", onDocPointerDown);
     document.addEventListener("pointercancel", onDocPointerCancel);
-    document.addEventListener("click", onDocClick);
+    document.addEventListener("click", onDocClick, true);
     return () => {
       // The listeners only track presses on an open list. When they come
       // down — the list closed via a pick, Escape, the outside click, or
@@ -202,7 +207,7 @@ export function StatePicker({
       pressStartedInsideRef.current = false;
       document.removeEventListener("pointerdown", onDocPointerDown);
       document.removeEventListener("pointercancel", onDocPointerCancel);
-      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("click", onDocClick, true);
     };
   }, [open, options]);
 
@@ -369,6 +374,9 @@ export function StatePicker({
           })}
         </ul>
       </div>
+      {/* Always rendered, so a mid-press commit that fills it in changes
+        text, never height — a press's blur-commit cannot shift layout
+        through this line. */}
       <p data-state-picker-selected className="text-sm text-muted">
         {selected ? `Picked: ${selected.label}` : "No state picked yet"}
       </p>
