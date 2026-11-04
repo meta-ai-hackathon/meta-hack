@@ -131,8 +131,8 @@ export async function fillReviewOnDevice(
     return { kind: "unreadable_boxes", fields: unreadable };
   }
   // The same check the fill route runs on its in-request answers: keys
-  // must be unmapped fields, values bounded non-empty text. Mapped fields'
-  // answers live in the stores (here: the payload's own values).
+  // must be unmapped fields, values bounded non-empty text. Box answers
+  // were word-checked above; the remaining drafts are plain text.
   const draftValues = checkedFormValues(entry, readableDrafts);
   if (draftValues === null) {
     return { kind: "invalid_answers" };
@@ -145,6 +145,24 @@ export async function fillReviewOnDevice(
     // unknowns contribute nothing: their fields come out blank and
     // to-resolve below.
     if (field.state !== "prefilled" || field.piiLikely || field.value === undefined) {
+      continue;
+    }
+    // A box or yes/no pair takes only the words the fill trusts — the
+    // same rule the typed drafts run (claude-review P2, PR #150): the
+    // fill reads a box as checked only for the word checked and prints
+    // it unchecked for anything else, so a payload display value outside
+    // the words (the review's own option label, say) degrades the field
+    // to blank + to-resolve instead of silently printing unverified.
+    if (boxNames.has(field.fieldName)) {
+      const word = field.value.trim().toLowerCase();
+      if (!BOX_ANSWER_WORDS.includes(word)) {
+        continue;
+      }
+      values[field.fieldName] = {
+        display: word,
+        provenance: field.provenance ?? "user_supplied",
+        source: "spec_answer",
+      };
       continue;
     }
     values[field.fieldName] = {

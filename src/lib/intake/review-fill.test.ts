@@ -137,6 +137,46 @@ describe("fillReviewOnDevice — the values the page already holds", () => {
     expect(toResolve).toContain("contact_phone");
   });
 
+  it("fills a payload box value only for the words the fill trusts — anything else stays blank and to-resolve", async () => {
+    // A box the fill can't trust prints unchecked for any other word
+    // (claude-review P2, PR #150): a payload display value outside the
+    // checked/unchecked words — the review's own option label, say —
+    // degrades to blank + to-resolve instead of silently printing the
+    // opposite of the review's answer. No shipped form maps a non-private
+    // checkbox (the sample's is piiLikely, so its view never carries a
+    // value), so the view is built by hand to pin the rule itself.
+    const box = (
+      value: string,
+    ): ReviewFillField => ({
+      fieldName: "mail_consent",
+      state: "prefilled",
+      specQuestionId: "shelter_mail_consent",
+      piiLikely: false,
+      value,
+    });
+    const untrustedFill = await fillReviewOnDevice(
+      SAMPLE_BYTES(),
+      [box("yes"), ...payloadViews(SAMPLE_ENTRY, { household_size: { status: "known", value: 3 } })],
+      {},
+      SAMPLE_ENTRY,
+    );
+    if (untrustedFill.kind !== "filled") {
+      throw new Error(`expected a fill, got ${untrustedFill.kind}`);
+    }
+    const untrustedPdf = await PDFDocument.load(untrustedFill.outcome.bytes);
+    expect(untrustedPdf.getForm().getCheckBox("mail_consent").isChecked()).toBe(false);
+    const untrustedToResolve = untrustedFill.outcome.toResolve.map((item) => item.fieldName);
+    expect(untrustedToResolve).toContain("mail_consent");
+    // The word the fill trusts rides the payload as itself and checks the box.
+    const trustedFill = await fillReviewOnDevice(SAMPLE_BYTES(), [box("CHECKED")], {}, SAMPLE_ENTRY);
+    if (trustedFill.kind !== "filled") {
+      throw new Error(`expected a fill, got ${trustedFill.kind}`);
+    }
+    const trustedPdf = await PDFDocument.load(trustedFill.outcome.bytes);
+    expect(trustedPdf.getForm().getCheckBox("mail_consent").isChecked()).toBe(true);
+    expect(trustedFill.outcome.toResolve.map((item) => item.fieldName)).not.toContain("mail_consent");
+  });
+
   it("keeps the review's own not-applicable states: blank and not to-resolve", async () => {
     // The server's skip decision rides the payload (the review renders it
     // "Not needed for you"); the fill honors it without re-deriving skip
