@@ -270,8 +270,8 @@ export function ConsentReceiptPanel(props: ConsentReceiptPanelProps) {
       <p data-consent-receipt-summary>
         You&apos;re in control of your information: sharing what you type
         with the AI assistant ({providerName}) is {receipt.ai ? "on" : "off"},
-        and voice sharing is {receipt.voice ? "on" : "off"}. Decided{" "}
-        {new Date(receipt.at).toLocaleString()}, stored only on this device.
+        and voice sharing is {receipt.voice ? "on" : "off"}. This choice was
+        saved on this device on {new Date(receipt.at).toLocaleString()}.
       </p>
       <div className="flex flex-wrap gap-2">
         <button

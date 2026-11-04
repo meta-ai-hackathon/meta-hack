@@ -175,7 +175,13 @@ describe("ConsentReceiptPanel — compact, friendly, honest (VAL-UX-010, HACK-15
     .record({
       ai: fc.boolean(),
       voice: fc.boolean(),
-      at: fc.date().map((date) => date.toISOString()),
+      // Bounded realistic valid dates: unbounded fc.date() spans
+      // extended-year ranges (and version-dependent Invalid Dates) that can
+      // break toISOString/parseConsentReceipt for reasons unrelated to the
+      // panel (claude-review P3, PR #164).
+      at: fc
+        .date({ min: new Date("2020-01-01"), max: new Date("2100-01-01"), noInvalidDate: true })
+        .map((date) => date.toISOString()),
     })
     .map((parts): ConsentReceipt => ({ v: 2, providerId: CONSENT_PROVIDER_ID, ...parts }));
 
@@ -195,7 +201,12 @@ describe("ConsentReceiptPanel — compact, friendly, honest (VAL-UX-010, HACK-15
         );
         expect(html).toMatch(new RegExp(`voice sharing is ${onState(receipt.voice)}`, "i"));
         expect(html).toContain(new Date(receipt.at).toLocaleString());
-        expect(html).toMatch(/stored only on this device/i);
+        // The storage claim is scoped to THE CHOICE, never to the user's
+        // information (claude-review P2, PR #164): typed words go to the AI
+        // provider when sharing is on, and pii answers live in the server
+        // vault — only the decision itself lives on this device.
+        expect(html).toMatch(/This choice was saved on this device on /);
+        expect(html).not.toMatch(/information[^\n]*stored|only on this device/i);
         // Still revocable and changeable, and it carries no answer data.
         expect(html).toContain("data-consent-revoke");
         expect(html).toContain("data-consent-reopen");
