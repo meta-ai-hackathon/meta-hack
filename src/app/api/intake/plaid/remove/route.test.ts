@@ -40,6 +40,7 @@ function request(body?: unknown, cookie = "good-cookie"): Request {
 describe("plaid user cleanup route", () => {
   beforeEach(() => {
     process.env.PLAID_HANDLE_SECRET = SECRET;
+    process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
     removeUser.mockClear();
   });
 
@@ -81,5 +82,15 @@ describe("plaid user cleanup route", () => {
     );
     expect(res.status).toBe(500);
     expect((await res.json()).error.code).toBe("internal");
+  });
+
+  it("answers 404 and removes nothing while the demo switch is off", async () => {
+    delete process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED;
+    const res = await remove(
+      request({ pullHandle: sealPlaidUserId(SESSION, "user-sandbox-x") }),
+    );
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe("not_found");
+    expect(removeUser).not.toHaveBeenCalled();
   });
 });

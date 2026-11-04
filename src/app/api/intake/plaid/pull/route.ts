@@ -3,6 +3,10 @@ import { loadSession, readSessionCookie } from "../../../../../lib/intake/store"
 import { AppError, userMessageFor } from "../../../../../lib/telemetry";
 import { PlaidClient } from "../../../../../lib/plaid/client";
 import { encryptForBrowser } from "../../../../../lib/plaid/envelope";
+import {
+  plaidDemoDisabledResponse,
+  plaidDemoEnabled,
+} from "../../../../../lib/plaid/config";
 import { openPlaidUserId } from "../../../../../lib/plaid/user-handle";
 // POST /api/intake/plaid/pull (HACK-140): the blind token broker. It
 // creates no Item token here: Bank Income is fetched by Plaid user_id,
@@ -12,6 +16,9 @@ import { openPlaidUserId } from "../../../../../lib/plaid/user-handle";
 // Honesty note: plaintext exists in this process's memory while Plaid is
 // called -- the claim is no storage, no logs, encrypted return transit,
 // discarded token; not end-to-end encryption against our own server.
+// Off by default: the explicit demo switch
+// (NEXT_PUBLIC_PLAID_DEMO_ENABLED === "true") makes this route answer a
+// plain 404 until an operator turns the demo on.
 // Sandbox-only by contract: plaidConfig() refuses any PLAID_ENV other than
 // "sandbox" (pinned by config.test.ts). This broker must never run against
 // real bank data without a recorded owner decision under HACK-92 and a
@@ -19,6 +26,8 @@ import { openPlaidUserId } from "../../../../../lib/plaid/user-handle";
 // 7471d535); the income-verification rule keeps that data on the device.
 export async function POST(request: Request): Promise<Response> {
   try {
+    // Demo gate FIRST: off by default, so a disabled demo reveals nothing.
+    if (!plaidDemoEnabled()) return plaidDemoDisabledResponse();
     const sessionId = await loadSession(readSessionCookie(request.headers.get("cookie")));
     if (!sessionId) throw new AppError("validation_error", "Start a session before connecting your bank.");
     const body = ((await parseJsonBody(request)) ?? {}) as Record<

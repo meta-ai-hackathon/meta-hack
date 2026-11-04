@@ -4,7 +4,7 @@ import { encryptForBrowser } from "./envelope";
 import { decryptEnvelope, generateEphemeralBrowserKey } from "./envelope-client";
 describe("plaidConfig (fail closed)", () => {
   it("accepts sandbox with both credentials", () => {
-    expect(plaidConfig({ PLAID_ENV: "sandbox", PLAID_CLIENT_ID: "id", PLAID_SECRET: "s" }).baseUrl).toBe("https://sandbox.plaid.com");
+    expect(plaidConfig({ PLAID_ENV: "sandbox", PLAID_CLIENT_ID: "id", PLAID_SECRET: "s", NEXT_PUBLIC_PLAID_DEMO_ENABLED: "true" }).baseUrl).toBe("https://sandbox.plaid.com");
   });
   it("rejects production and never echoes the secret", () => {
     expect(() => plaidConfig({ PLAID_ENV: "production", PLAID_CLIENT_ID: "id", PLAID_SECRET: "do-not-leak" })).toThrowError(/^Plaid is not available/);

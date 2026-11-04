@@ -1,13 +1,20 @@
 import { errorResponse } from "../../../../../lib/intake/api";
 import { loadSession, readSessionCookie } from "../../../../../lib/intake/store";
 import { AppError, userMessageFor } from "../../../../../lib/telemetry";
+import {
+  plaidDemoDisabledResponse,
+  plaidDemoEnabled,
+} from "../../../../../lib/plaid/config";
 import { PlaidClient } from "../../../../../lib/plaid/client";
 import { sealPlaidUserId } from "../../../../../lib/plaid/user-handle";
 // POST /api/intake/plaid/link-token (HACK-140): mint a Plaid Bank Income Link token for
 // the Sandbox demo. Returns only the link token -- the Plaid secret stays
 // server-side. Requires the existing intake session like the tax routes.
+// Off by default: without the explicit demo switch this route answers 404.
 export async function POST(request: Request): Promise<Response> {
   try {
+    // Demo gate FIRST: off by default, so a disabled demo reveals nothing.
+    if (!plaidDemoEnabled()) return plaidDemoDisabledResponse();
     const sessionId = await loadSession(readSessionCookie(request.headers.get("cookie")));
     if (!sessionId) throw new AppError("validation_error", "Start a session before connecting your bank.");
     const client = new PlaidClient();

@@ -1,5 +1,9 @@
 import { errorResponse, parseJsonBody } from "../../../../../lib/intake/api";
 import {
+  plaidDemoDisabledResponse,
+  plaidDemoEnabled,
+} from "../../../../../lib/plaid/config";
+import {
   ensureSession,
   isSecureRequest,
   loadAnswers,
@@ -24,8 +28,8 @@ import { requestIdFromHeaders, runWithRequestId } from "../../../../../lib/telem
 // rejected and never written — it is Sandbox income-verification data and
 // stays on the device, so synthetic figures and schedules cannot become a
 // real person's answers. The bank's institution name is pii:true metadata
-// sealed by the browser in the client-side encrypted store; it never
-// reaches this route or the answer table.
+// shown only in page memory; it never reaches this route or the answer
+// table.
 //
 // Every entry is validated against the income spec BEFORE the session is
 // resolved, so a rejected batch saves nothing. Re-saving overwrites the
@@ -41,6 +45,9 @@ export async function POST(request: Request): Promise<Response> {
   const requestId = requestIdFromHeaders(request.headers);
   return runWithRequestId(requestId, async () => {
     try {
+      // Demo gate FIRST: off by default, so a disabled demo reads no body
+      // and resolves no session.
+      if (!plaidDemoEnabled()) return plaidDemoDisabledResponse();
       const body = (await parseJsonBody(request)) as ConfirmBody | null;
       // Validate the whole batch first: a bad entry anywhere saves nothing.
       const confirmations = parsePlaidConfirmations(

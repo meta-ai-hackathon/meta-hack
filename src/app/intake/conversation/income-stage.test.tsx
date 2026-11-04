@@ -5,22 +5,6 @@ import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { IncomeStage } from "./income-stage";
 import { encryptForBrowser } from "../../../lib/plaid/envelope";
 
-const originStoreMock = vi.hoisted(() => ({
-  load: vi.fn(async () => ({}) as Record<string, string>),
-  save: vi.fn(async (updates: Record<string, string | null>) => ({
-    status: "saved" as const,
-    origins: Object.fromEntries(
-      Object.entries(updates).filter(
-        ([, value]) => typeof value === "string" && value !== "",
-      ),
-    ) as Record<string, string>,
-  })),
-}));
-vi.mock("../../../lib/plaid/origin-store", () => ({
-  loadPlaidOriginsFromDevice: originStoreMock.load,
-  savePlaidOriginsToDevice: originStoreMock.save,
-}));
-
 // The income stage (milestone income-capture part 3; VAL-INC-001/002/003/
 // 007/008/010/012/014): three real source cards — the manual card
 // (the income spec questions, prefilled, saved with provenance user),
@@ -182,15 +166,7 @@ beforeEach(() => {
   answerState = null;
   confirmState = null;
   uploadResponse = parseResponse(true);
-  originStoreMock.load.mockResolvedValue({});
-  originStoreMock.save.mockImplementation(async (updates) => ({
-    status: "saved" as const,
-    origins: Object.fromEntries(
-      Object.entries(updates).filter(
-        ([, value]) => typeof value === "string" && value !== "",
-      ),
-    ) as Record<string, string>,
-  }));
+  process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -344,6 +320,17 @@ describe("the source cards (VAL-INC-002, HACK-140)", () => {
 });
 
 describe("the Plaid Sandbox bank card (HACK-140)", () => {
+  it("hides the card, and calls no Plaid route, unless the public demo switch is on", async () => {
+    delete process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED;
+    try {
+      const { container } = await renderStage();
+      expect(q(container, "income-plaid-card")).toBeNull();
+      expect(posts.some((post) => post.url.startsWith("/api/intake/plaid/"))).toBe(false);
+    } finally {
+      process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
+    }
+  });
+
   /** Render the stage and complete a Link success that yields two proposals. */
   async function pullTestBank() {
     (window as unknown as { Plaid: unknown }).Plaid = {
@@ -437,7 +424,6 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     await act(async () => { (q(container, "income-plaid-save") as HTMLButtonElement).click(); });
     // Untouched proposals never leave the page: no confirm request at all.
     expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
-    expect(originStoreMock.save).not.toHaveBeenCalled();
     expect(getNotice()).toContain("Nothing was saved");
   });
 
@@ -508,6 +494,43 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     });
     expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
     expect(getNotice()).toContain("Nothing was saved");
+  });
+
+  it("keeps a cleared field empty and saves the replacement the person types", async () => {
+    const { container, act } = await pullTestBank();
+    const amount = (): HTMLInputElement =>
+      container.querySelector(
+        '[data-income-plaid-correct="job_income_amount"]',
+      ) as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      setter?.call(amount(), "");
+      amount().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Cleared stays cleared: it must not snap back to the test-bank value.
+    expect(amount().value).toBe("");
+    await act(async () => {
+      setter?.call(amount(), "1,800");
+      amount().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      const name = container.querySelector(
+        "[data-income-plaid-member-name]",
+      ) as HTMLInputElement;
+      setter?.call(name, "Alberta");
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      (q(container, "income-plaid-save") as HTMLButtonElement).click();
+    });
+    const confirm = posts.find((post) => post.url === "/api/intake/plaid/confirm");
+    expect(confirm).toBeDefined();
+    expect(JSON.parse(confirm?.body ?? "{}").confirmations).toEqual([
+      { questionId: "job_income_amount", action: "correct", value: 1800 },
+    ]);
   });
 
   it("says so when the test connection could not be removed", async () => {
@@ -598,18 +621,6 @@ describe("the manual card (VAL-INC-003/012)", () => {
     // The fresh state flows back through onStateChange (the parent's gate
     // re-renders from it).
     expect(handledState().income.handled).toBe(true);
-  });
-
-  it("clears a saved bank origin when the manual card saves the questions", async () => {
-    originStoreMock.load.mockResolvedValue({ job_income_amount: "First Platypus Bank" });
-    const { container, act } = await renderStage();
-    await act(async () => {
-      q(container, "income-save-manual")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    expect(originStoreMock.save).toHaveBeenCalledWith(
-      expect.objectContaining({ job_income_amount: null }),
-      { expectStored: true },
-    );
   });
 
   it("saves an 'I'm not sure' row through the standard tri-state path with no value", async () => {
@@ -803,53 +814,8 @@ describe("the tax-return upload card (VAL-INC-007/008/010)", () => {
   });
 });
 
-describe("the client-side Plaid origin (HACK-140)", () => {
-  it("shows the sealed institution name on a saved bank value", async () => {
-    originStoreMock.load.mockResolvedValue({
-      job_income_amount: "First Platypus Bank",
-      job_income_frequency: "First Platypus Bank",
-    });
-    const state = incomeState({
-      answers: {
-        ...incomeState().answers,
-        // An untouched bank proposal is never saved by the current card; the
-        // legacy badge shape is an unverified answer with a sealed origin.
-        job_income_amount: {
-          status: "unverified",
-          value: 2100,
-        },
-        job_income_frequency: { status: "unverified", value: "monthly" },
-      },
-    });
-    const { container } = await renderStage(state);
-    const row = q(container, 'income-row="job_income_amount"');
-    expect(
-      row?.querySelector('[data-origin-badge="plaid_institution"]'),
-    ).not.toBeNull();
-    expect(row?.textContent).toContain("From First Platypus Bank");
-    // A confirmed schedule is unverified too; its badge must survive a reload.
-    const frequencyRow = q(container, 'income-row="job_income_frequency"');
-    expect(
-      frequencyRow?.querySelector('[data-origin-badge="plaid_institution"]'),
-    ).not.toBeNull();
-    expect(frequencyRow?.textContent).toContain("From First Platypus Bank");
-  });
-
-  it("does not keep the bank badge on an amount another path saved", async () => {
-    originStoreMock.load.mockResolvedValue({ job_income_amount: "First Platypus Bank" });
-    const state = incomeState({
-      answers: {
-        ...incomeState().answers,
-        job_income_amount: { status: "known", value: 2100, provenance: "user" },
-      },
-    });
-    const { container } = await renderStage(state);
-    const row = q(container, 'income-row="job_income_amount"');
-    expect(row?.querySelector('[data-origin-badge="plaid_institution"]')).toBeNull();
-    expect(row?.querySelector('[data-origin-badge="user"]')).not.toBeNull();
-  });
-
-  it("falls back to the person-confirmed badge without a saved origin", async () => {
+describe("the manual card's origin badges", () => {
+  it("shows the person-confirmed badge on a value the person saved", async () => {
     const state = incomeState({
       answers: {
         ...incomeState().answers,

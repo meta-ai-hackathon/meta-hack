@@ -27,6 +27,7 @@ async function mintHandle(cookie = "good-cookie"): Promise<string> {
 describe("plaid broker routes", () => {
   beforeEach(() => {
     process.env.PLAID_HANDLE_SECRET = "vitest-plaid-handle-secret-0123456789abcdef";
+    process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
     pullBankIncome.mockClear();
   });
   it("link-token requires a session and returns a session-bound signed handle, never a bare user id", async () => {
@@ -71,6 +72,13 @@ describe("plaid broker routes", () => {
     const tampered = `${payload}.${first === "A" ? "B" : "A"}${sig?.slice(1)}`;
     expect((await pull(request("http://x/api/intake/plaid/pull", { pullHandle: tampered, clientPublicKey: key.publicKeySpki }))).status).toBe(400);
     expect((await pull(request("http://x/api/intake/plaid/pull", { userId: "user-sandbox-x", clientPublicKey: key.publicKeySpki }))).status).toBe(400);
+    expect(pullBankIncome).not.toHaveBeenCalled();
+  });
+  it("answers 404, minting no handle and pulling nothing, while the demo switch is off", async () => {
+    delete process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED;
+    const key = await generateEphemeralBrowserKey();
+    expect((await linkToken(request("http://x/api/intake/plaid/link-token"))).status).toBe(404);
+    expect((await pull(request("http://x/api/intake/plaid/pull", { pullHandle: "a".repeat(12), clientPublicKey: key.publicKeySpki }))).status).toBe(404);
     expect(pullBankIncome).not.toHaveBeenCalled();
   });
 });

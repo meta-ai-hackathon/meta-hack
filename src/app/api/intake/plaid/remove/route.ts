@@ -3,6 +3,10 @@ import {
   loadSession,
   readSessionCookie,
 } from "../../../../../lib/intake/store";
+import {
+  plaidDemoDisabledResponse,
+  plaidDemoEnabled,
+} from "../../../../../lib/plaid/config";
 import { AppError, userMessageFor } from "../../../../../lib/telemetry";
 import { PlaidApiError, PlaidClient } from "../../../../../lib/plaid/client";
 import { openPlaidUserId } from "../../../../../lib/plaid/user-handle";
@@ -20,6 +24,8 @@ import { openPlaidUserId } from "../../../../../lib/plaid/user-handle";
 // database rows and logs no payload, user_id, token, or handle.
 export async function POST(request: Request): Promise<Response> {
   try {
+    // Demo gate FIRST: off by default, and a disabled demo removes nothing.
+    if (!plaidDemoEnabled()) return plaidDemoDisabledResponse();
     const sessionId = await loadSession(
       readSessionCookie(request.headers.get("cookie")),
     );

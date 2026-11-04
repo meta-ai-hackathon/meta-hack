@@ -37,6 +37,7 @@ beforeAll(async () => {
   await admin.unsafe(`CREATE DATABASE ${TEST_DB_NAME}`);
   testDb = postgres(testUrl, { max: 1 });
   process.env.DATABASE_URL = testUrl;
+  process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
   await runMigrations(testDb);
   setLogSink(() => undefined);
 });
@@ -259,5 +260,23 @@ describe("POST /api/intake/plaid/confirm", () => {
 
     expect(response.status).toBe(400);
     expect(await answerRows(sessionId)).toHaveLength(0);
+  });
+
+  it("answers 404 and saves nothing while the demo switch is off", async () => {
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+    delete process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED;
+    try {
+      const response = await POST(
+        confirmRequest(cookie, [
+          { questionId: "job_income_amount", action: "correct", value: 1800 },
+        ]),
+      );
+      expect(response.status).toBe(404);
+      expect((await response.json()).error.code).toBe("not_found");
+      expect(await answerRows(sessionId)).toHaveLength(0);
+    } finally {
+      process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
+    }
   });
 });

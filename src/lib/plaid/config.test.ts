@@ -1,21 +1,66 @@
-// plaidConfig is the Sandbox-only gate for the HACK-140 bank pull (review P2
-// on PR #172). These tests pin the fail-closed behavior: only the exact
-// string "sandbox" with both server credentials may produce a config, and no
-// browser-exposed variable is ever read.
+// plaidConfig is the fail-closed gate for the HACK-140 bank pull (review P2
+// on PR #172). These tests pin both gates: the explicit demo switch must be
+// exactly "true" AND PLAID_ENV must be exactly "sandbox" with both server
+// credentials. They also pin the response every route returns while off.
 import { describe, expect, it } from "vitest";
-import { plaidConfig } from "./config";
+import {
+  plaidConfig,
+  plaidDemoDisabledResponse,
+  plaidDemoEnabled,
+} from "./config";
 
 const UNAVAILABLE = "Plaid is not available right now.";
+const SANDBOX = {
+  PLAID_ENV: "sandbox",
+  PLAID_CLIENT_ID: "client-id",
+  PLAID_SECRET: "server-secret",
+};
+const DEMO_ON = {
+  ...SANDBOX,
+  NEXT_PUBLIC_PLAID_DEMO_ENABLED: "true",
+} as const;
+
+describe("the explicit demo switch", () => {
+  it("is off unless the public flag is exactly the string true", () => {
+    for (const flag of [
+      undefined,
+      "",
+      "false",
+      "TRUE",
+      "1",
+      "true ",
+      "yes",
+    ]) {
+      expect(plaidDemoEnabled({ NEXT_PUBLIC_PLAID_DEMO_ENABLED: flag })).toBe(
+        false,
+      );
+    }
+    expect(plaidDemoEnabled({ NEXT_PUBLIC_PLAID_DEMO_ENABLED: "true" })).toBe(
+      true,
+    );
+  });
+
+  it("keeps plaidConfig closed while the demo switch is off", () => {
+    for (const flag of [undefined, "", "false", "TRUE"]) {
+      expect(() =>
+        plaidConfig({ ...SANDBOX, NEXT_PUBLIC_PLAID_DEMO_ENABLED: flag }),
+      ).toThrow(UNAVAILABLE);
+    }
+  });
+
+  it("answers 404 with no-store and no credential detail while off", async () => {
+    const response = plaidDemoDisabledResponse();
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({
+      error: { code: "not_found", message: "Not found." },
+    });
+  });
+});
 
 describe("plaidConfig (HACK-140 Sandbox-only gate)", () => {
-  it("accepts exactly the Sandbox environment with both credentials", () => {
-    expect(
-      plaidConfig({
-        PLAID_ENV: "sandbox",
-        PLAID_CLIENT_ID: "client-id",
-        PLAID_SECRET: "server-secret",
-      }),
-    ).toEqual({
+  it("accepts exactly the Sandbox environment with both credentials and the demo on", () => {
+    expect(plaidConfig(DEMO_ON)).toEqual({
       clientId: "client-id",
       secret: "server-secret",
       env: "sandbox",
@@ -32,30 +77,25 @@ describe("plaidConfig (HACK-140 Sandbox-only gate)", () => {
       "Sandbox",
       "sandbox ",
     ]) {
-      expect(() =>
-        plaidConfig({
-          PLAID_ENV,
-          PLAID_CLIENT_ID: "client-id",
-          PLAID_SECRET: "server-secret",
-        }),
-      ).toThrow(UNAVAILABLE);
+      expect(() => plaidConfig({ ...DEMO_ON, PLAID_ENV })).toThrow(UNAVAILABLE);
     }
   });
 
   it("fails closed without both server credentials", () => {
     for (const env of [
-      { PLAID_ENV: "sandbox", PLAID_CLIENT_ID: "client-id" },
-      { PLAID_ENV: "sandbox", PLAID_SECRET: "server-secret" },
-      { PLAID_ENV: "sandbox", PLAID_CLIENT_ID: " ", PLAID_SECRET: " " },
+      { ...DEMO_ON, PLAID_CLIENT_ID: undefined },
+      { ...DEMO_ON, PLAID_SECRET: undefined },
+      { ...DEMO_ON, PLAID_CLIENT_ID: " ", PLAID_SECRET: " " },
     ]) {
       expect(() => plaidConfig(env)).toThrow(UNAVAILABLE);
     }
   });
 
-  it("never reads a browser-exposed NEXT_PUBLIC_ variable", () => {
+  it("never reads a browser-exposed variable for credentials", () => {
     expect(() =>
       plaidConfig({
         PLAID_ENV: "sandbox",
+        NEXT_PUBLIC_PLAID_DEMO_ENABLED: "true",
         NEXT_PUBLIC_PLAID_CLIENT_ID: "client-id",
         NEXT_PUBLIC_PLAID_SECRET: "server-secret",
       }),

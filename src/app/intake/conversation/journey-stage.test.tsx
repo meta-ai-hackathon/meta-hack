@@ -504,6 +504,7 @@ beforeEach(() => {
   sessionOps = [];
   queueSpeechMock.mockClear();
   answerPosts = [];
+  process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
   stubFetch(OPEN_STATE);
 });
 

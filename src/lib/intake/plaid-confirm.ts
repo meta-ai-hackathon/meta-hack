@@ -18,8 +18,8 @@ import { saveAnswer, validateAnswerInput } from "./store";
 //   `known` with provenance `user`. Only corrections are written.
 //
 // The bank's institution name is NOT written here: it is pii:true metadata
-// captured from Plaid Link and sealed by the browser in the client-side
-// encrypted store (HACK-140), so it never reaches this route or Postgres.
+// captured from Plaid Link and shown only in page memory (HACK-140), so it
+// never reaches this route or Postgres.
 //
 // Every write targets only the seven income spec questions, which stay
 // `pii:false` in the plain answer table. Re-saving a question overwrites

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type JSX } from "react";
+import { useRef, useState, type JSX } from "react";
 import type {
   ClientQuestion,
   IntakeClientState,
@@ -21,11 +21,7 @@ import {
   type PlaidIncomeProposal,
   type PlaidProposalResult,
 } from "../../../lib/income/plaid-proposal";
-import {
-  loadPlaidOriginsFromDevice,
-  savePlaidOriginsToDevice,
-  type PlaidOrigins,
-} from "../../../lib/plaid/origin-store";
+import { plaidDemoEnabledInBrowser } from "../../../lib/plaid/demo-visibility";
 import { toggleNoneExclusive } from "./quick-questions";
 import { rosterFromAnswers } from "../../../lib/intake/roster";
 
@@ -311,23 +307,9 @@ export function IncomeStage(props: {
   const [plaidSavedMembers, setPlaidSavedMembers] = useState<readonly { readonly name: string; readonly detail: string }[]>([]);
   const [plaidCorrections, setPlaidCorrections] = useState<Record<string, string>>({});
   // The institution name is pii:true and never reaches the server: Link
-  // metadata fills the in-page name. The sealed device map (HACK-140) is
-  // legacy-only: it is read so old entries can be cleared, never written by
-  // the current card. It is keyed by the question it belongs to.
+  // metadata fills the in-page name, which lives only in this component's
+  // memory.
   const [plaidInstitutionName, setPlaidInstitutionName] = useState("");
-  const [plaidOrigins, setPlaidOrigins] = useState<PlaidOrigins>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    void loadPlaidOriginsFromDevice()
-      .then((origins) => {
-        if (!cancelled) setPlaidOrigins(origins);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const proposals = proposalsFromMonthlyDerived(upload?.monthlyDerived ?? null);
   const plaidHasInvalidAmount =
@@ -417,9 +399,6 @@ export function IncomeStage(props: {
         }
         onStateChange((await response.json()) as IntakeClientState);
       }
-      // The manual card now owns every visible income answer; a bank badge
-      // left over from an earlier pull would misstate where it came from.
-      await clearPlaidOriginsFor(questions.map((question) => question.id));
       onNotice(
         "Saved — your income details are in. Nothing was submitted; the official program decides.",
       );
@@ -515,7 +494,6 @@ export function IncomeStage(props: {
       }
       const fresh = (await response.json()) as { state: IntakeClientState };
       onStateChange(fresh.state);
-      await clearPlaidOriginsFor(decided.map((entry) => entry.questionId));
       onNotice(
         "Saved — your tax return's figures are in as you confirmed them. Nothing was submitted.",
       );
@@ -574,7 +552,7 @@ export function IncomeStage(props: {
             const { envelope, removed } = (await pullResponse.json()) as { envelope: BrokerEnvelope; removed?: boolean };
             const payload = (await decryptEnvelope(envelope, ephemeral.privateKey)) as MinimizedPlaidPayload;
             pullHandle = null; // the pull route attempted removal and reported it
-            setPlaidPayload(payload); setPlaidClassifications({});
+            setPlaidPayload(payload); setPlaidClassifications({}); setPlaidCorrections({});
 
             const result = plaidIncomeProposals(payload, {});
             applyPlaidResult(result);
@@ -596,8 +574,10 @@ export function IncomeStage(props: {
   }
 
   function applyPlaidResult(result: PlaidProposalResult): void {
+    // No prefill: an undefined correction means "untouched, showing the
+    // test-bank proposal", so a cleared field can stay empty instead of
+    // snapping back to the synthetic value (review P2, PR #172).
     setPlaidResult(result);
-    setPlaidCorrections(Object.fromEntries(result.proposals.map((x) => [x.questionId, String(x.value)])));
   }
   function answerPlaidClassification(category: string, answer: string): void {
     if (!plaidPayload) return;
@@ -607,19 +587,8 @@ export function IncomeStage(props: {
   }
 
   function originBadge(
-    questionId: string,
     answer: { status: string; provenance?: string } | undefined,
   ): { readonly kind: string; readonly label: string } | null {
-    const institution = plaidOrigins[questionId];
-    // The bank badge is valid only for a legacy bank answer (status
-    // `unverified`): the current card saves only person-edited values, so it
-    // writes no bank origin. A later manual or tax-return save clears the
-    // sealed origin (clearPlaidOriginsFor below), so a stale name can never
-    // claim the wrong source.
-    const bankShaped = answer?.status === "unverified";
-    if (institution && bankShaped) {
-      return { kind: "plaid_institution", label: `From ${institution}` };
-    }
     if (answer?.provenance === "tax_return") {
       return { kind: "tax_return", label: "From your tax return" };
     }
@@ -627,26 +596,6 @@ export function IncomeStage(props: {
       return { kind: "user", label: "You confirmed this" };
     }
     return null;
-  }
-
-  /** Another save path owns these answers now: drop the sealed bank names. */
-  async function clearPlaidOriginsFor(
-    questionIds: readonly string[],
-  ): Promise<void> {
-    if (questionIds.length === 0 || Object.keys(plaidOrigins).length === 0) {
-      return;
-    }
-    try {
-      const persisted = await savePlaidOriginsToDevice(
-        Object.fromEntries(questionIds.map((id) => [id, null])),
-        { expectStored: true },
-      );
-      if (persisted.status === "saved") {
-        setPlaidOrigins(persisted.origins);
-      }
-    } catch {
-      // The answer saved; a stale bank name is the only risk.
-    }
   }
 
   async function savePlaidFindings(): Promise<void> {
@@ -693,10 +642,6 @@ export function IncomeStage(props: {
         saved?: { questionId: string }[];
       };
       onStateChange(fresh.state);
-      // Only values the person typed or chose were stored. Drop sealed
-      // institution names from those answers so no badge can claim a value
-      // this card did not save.
-      await clearPlaidOriginsFor(decided.map((entry) => entry.questionId));
       const savedIds = new Set((fresh.saved ?? []).map((row) => row.questionId));
       const savedEdits = decided.filter((entry) => savedIds.has(entry.questionId));
       if (savedEdits.length === 0) {
@@ -761,10 +706,7 @@ export function IncomeStage(props: {
         <ul className="flex flex-col gap-4">
           {questions.map((question) => {
             const draft = drafts[question.id] ?? { kind: "not-sure" as const };
-            const badge = originBadge(
-              question.id,
-              state.answers[question.id],
-            );
+            const badge = originBadge(state.answers[question.id]);
             return (
               <li
                 key={question.id}
@@ -967,7 +909,10 @@ export function IncomeStage(props: {
         ) : null}
       </section>
 
-      {/* Card 3 — consented Plaid Sandbox bank pull (HACK-140 blind broker). */}
+      {/* Card 3 — consented Plaid Sandbox bank pull (HACK-140 blind broker).
+      Off by default: the explicit demo switch hides the whole card, so a
+      deployment without it never offers the demo (review P2, PR #172). */}
+      {plaidDemoEnabledInBrowser() ? (
       <section data-income-plaid-card aria-labelledby="income-plaid-heading" className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface p-4">
         <div className="flex flex-col gap-1">
           <h3 id="income-plaid-heading" className="text-lg font-semibold">Connect your bank (demo)</h3>
@@ -1000,7 +945,7 @@ export function IncomeStage(props: {
                   key={proposal.questionId}
                   proposal={proposal}
                   question={questions.find((candidate) => candidate.id === proposal.questionId)}
-                  correction={plaidCorrections[proposal.questionId] ?? ""}
+                  correction={plaidCorrections[proposal.questionId]}
                   onCorrect={(value) => setPlaidCorrections((prev) => ({ ...prev, [proposal.questionId]: value }))}
                   disabled={saving}
                   institutionLabel={plaidInstitutionName ? `From ${plaidInstitutionName}` : "From your test bank"}
@@ -1012,6 +957,7 @@ export function IncomeStage(props: {
         ) : null}
         {plaidSavedMembers.length > 0 ? <div className="flex flex-col gap-2" data-income-plaid-saved-list>{plaidSavedMembers.map((s, i) => <p key={i} className="text-sm text-muted">Saved for {s.name} — {s.detail}</p>)}<p className="text-sm text-muted" data-income-plaid-one-member>One bank connection is supported for now. Connecting a bank for a second person would replace these household answers, so it is not offered (HACK-143).</p></div> : null}
       </section>
+      ) : null}
     </section>
   );
 }
@@ -1090,7 +1036,7 @@ export function parseAmountInput(raw: string): number | null {
 function PlaidProposalRow(props: {
   proposal: PlaidIncomeProposal;
   question: ClientQuestion | undefined;
-  correction: string;
+  correction: string | undefined;
   onCorrect: (value: string) => void;
   disabled: boolean;
   institutionLabel: string;
@@ -1099,9 +1045,10 @@ function PlaidProposalRow(props: {
   const inputId = `income-plaid-correct-${proposal.questionId}`;
   const label = proposal.questionId.replaceAll("_", " ");
   const options = question?.type === "single_select" ? question.options ?? [] : [];
-  const value = correction !== "" ? correction : String(proposal.value);
+  const value = correction ?? String(proposal.value);
   const numericInvalid =
     question?.type === "number" &&
+    correction !== undefined &&
     correction !== "" &&
     correction !== String(proposal.value) &&
     parseAmountInput(correction) === null;
