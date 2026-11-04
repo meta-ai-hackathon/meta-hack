@@ -2,7 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { findBannedClaims } from "../../../lib/honesty";
-import { ModeChoice } from "./mode-choice";
+import { EntryBegin, ModeChoice, type ConversationEntryMode } from "./mode-choice";
 
 // The entry mode choice (HACK-106 natural conversation, VAL-NCF-002): a
 // calm choice moment with EXACTLY TWO voice entry modes — (A) talk the
@@ -99,6 +99,90 @@ describe("the carried mode suggestion", () => {
     // writes the property after mount, not the serialized attribute).
     expect(radioFor("voice-only")?.checked).toBe(true);
     expect(radioFor("voice-plus-typing")?.checked).toBe(false);
+    root.unmount();
+    container.remove();
+  });
+});
+
+// The carried-mode begin surface (HACK-157, VAL-UX-002): when the home
+// page already picked the mode, the conversation's entry stage shows ONE
+// begin control — never the same mode question a second time — with a
+// small link that brings the full choice back.
+describe("the carried-mode begin surface (HACK-157)", () => {
+  it("names the carried mode and shows one start control plus the change link", () => {
+    const html = renderToStaticMarkup(
+      <EntryBegin
+        mode="voice-only"
+        onBegin={() => undefined}
+        onChangeMode={() => undefined}
+      />,
+    );
+    expect(html).toContain("data-entry-begin");
+    expect(html).toContain("You picked Talk the whole way on the home page.");
+    expect(html).toContain("Start talking");
+    expect(html).toContain("data-entry-begin-start");
+    expect(html).toContain("data-entry-begin-change");
+    expect(html).toContain("Change the mode");
+    // It never re-asks the mode question.
+    expect(html).not.toContain("How would you like to talk?");
+    expect(html).not.toContain('name="conversation-entry-mode"');
+  });
+
+  it("names the typing-available mode the same way", () => {
+    const html = renderToStaticMarkup(
+      <EntryBegin
+        mode="voice-plus-typing"
+        onBegin={() => undefined}
+        onChangeMode={() => undefined}
+      />,
+    );
+    expect(html).toContain(
+      "You picked Talk, with typing anytime on the home page.",
+    );
+  });
+
+  it("keeps the begin copy banned-claim clean", () => {
+    const html = renderToStaticMarkup(
+      <EntryBegin
+        mode="voice-only"
+        onBegin={() => undefined}
+        onChangeMode={() => undefined}
+      />,
+    );
+    expect(findBannedClaims(html)).toEqual([]);
+  });
+
+  it("begins with the carried mode, and the change link hands over to the full choice", async () => {
+    const React = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const begun: string[] = [];
+    let changed = false;
+    await React.act(async () => {
+      root.render(
+        React.createElement(EntryBegin, {
+          mode: "voice-plus-typing",
+          onBegin: (mode: ConversationEntryMode) => begun.push(mode),
+          onChangeMode: () => {
+            changed = true;
+          },
+        }),
+      );
+    });
+    await React.act(async () => {
+      container
+        .querySelector("[data-entry-begin-start]")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(begun).toEqual(["voice-plus-typing"]);
+    await React.act(async () => {
+      container
+        .querySelector("[data-entry-begin-change]")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(changed).toBe(true);
     root.unmount();
     container.remove();
   });
