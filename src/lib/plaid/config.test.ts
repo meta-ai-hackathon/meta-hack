@@ -106,6 +106,24 @@ describe("plaidConfig (HACK-140 Sandbox-only gate)", () => {
     expect(config.baseUrl).toBe("https://sandbox.plaid.com");
   });
 
+  it("never returns a non-Sandbox base URL under any environment", () => {
+    for (const override of [
+      { PLAID_BASE_URL: "https://production.plaid.com" },
+      { PLAID_API_HOST: "https://production.plaid.com" },
+      { PLAID_ENV: "production" },
+      { PLAID_ENV: "development" },
+      { NEXT_PUBLIC_PLAID_BASE_URL: "https://production.plaid.com" },
+    ]) {
+      try {
+        expect(plaidConfig({ ...DEMO_ON, ...override }).baseUrl).toBe(
+          "https://sandbox.plaid.com",
+        );
+      } catch (error) {
+        expect(String(error)).toContain(UNAVAILABLE);
+      }
+    }
+  });
+
   it("fails closed for every other environment, including case and padding", () => {
     for (const PLAID_ENV of [
       undefined,

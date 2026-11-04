@@ -6,14 +6,15 @@ describe("intake Content-Security-Policy (HACK-140 review P2)", () => {
     const csp = intakeContentSecurityPolicy(false);
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain(
-      "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.plaid.com https://plaid.com https://*.plaid.com https://cdn.jsdelivr.net",
+      "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.plaid.com https://plaid.com https://*.plaid.com https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6/dist/",
     );
     expect(csp).toContain(
-      "connect-src 'self' https://sandbox.plaid.com https://plaid.com https://*.plaid.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net",
+      "connect-src 'self' https://sandbox.plaid.com https://plaid.com https://*.plaid.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6/dist/",
     );
     expect(csp).toContain(
       "frame-src 'self' https://plaid.com https://*.plaid.com",
     );
+    expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("style-src 'self' 'unsafe-inline'");
     expect(csp).toContain("font-src 'self' data:");
     expect(csp).toContain("media-src 'self' blob:");
@@ -37,7 +38,7 @@ describe("intake Content-Security-Policy (HACK-140 review P2)", () => {
         "https://huggingface.co",
         "https://*.huggingface.co",
         "https://*.hf.co",
-        "https://cdn.jsdelivr.net",
+        "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6/dist/",
       ]),
     );
   });

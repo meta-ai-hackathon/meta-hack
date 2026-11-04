@@ -102,27 +102,29 @@ export function plaidIncomeProposals(payload: MinimizedPlaidPayload, classificat
   // Ask-the-person handling for everything automated discernment cannot settle.
   const handleAmbiguous = (cat: BankIncomeCategory, defaultReason: string) => {
     const a = byCategory.get(cat); if (!a) return;
+    const q = CLASSIFICATION_QUESTIONS[cat];
     const answer = classifications[cat];
-    if (!answer) { const q = CLASSIFICATION_QUESTIONS[cat]; if (q) questions.push(q); add(cat, "needs_classification", defaultReason); return; }
+    if (!answer) { if (q) questions.push(q); add(cat, "needs_classification", defaultReason); return; }
+    // Keep the question on screen after an answer (review P3): the select is
+    // bound to the stored classification, so a wrong choice can be changed
+    // without reconnecting.
+    const finish = (d: StreamDisposition, reason: string) => { add(cat, d, reason); if (q) questions.push(q); };
     if (cat === "MILITARY") {
-      if (answer === "veterans_benefit") { add(cat, "excluded_noncountable", "You told us these are veterans benefits, which do not count for NC Medicaid (MA-3306 VI.B), so they were left out."); return; }
-      if (answer === "military_pay") { const added = proposeWages(a); add(cat, added ? "proposed" : "needs_documents", added ? "You told us this is military pay, which counts as wages. NC counts gross pay, so correct from a leave-and-earnings statement if you can." : "Another category already filled the job-income amount, so this military pay was NOT included. Check both with a pay statement."); return; }
-      add(cat, "needs_classification", "We could not tell whether these deposits are veterans benefits (not countable) or military pay (countable).");
-      return;
+      if (answer === "veterans_benefit") return finish("excluded_noncountable", "You told us these are veterans benefits, which do not count for NC Medicaid (MA-3306 VI.B), so they were left out.");
+      if (answer === "military_pay") { const added = proposeWages(a); return finish(added ? "proposed" : "needs_documents", added ? "You told us this is military pay, which counts as wages. NC counts gross pay, so correct from a leave-and-earnings statement if you can." : "Another category already filled the job-income amount, so this military pay was NOT included. Check both with a pay statement."); }
+      return finish("needs_classification", "We could not tell whether these deposits are veterans benefits (not countable) or military pay (countable).");
     }
     if (cat === "LONG_TERM_DISABILITY") {
-      if (answer === "ssdi") { const added = proposeBenefits(a, "SSDI"); add(cat, added ? "proposed" : "needs_documents", added ? "You told us this is SSDI, which counts. NC proof is the award letter." : "Another benefit stream already filled the benefits amount, so this SSDI was NOT included. Check both award letters."); }
-      else if (answer === "ssi") add(cat, "excluded_noncountable", "You told us this is SSI, which does not count for NC Medicaid (MA-3306 VI.B), so it was left out.");
-      else add(cat, "needs_documents", "Private or employer disability can count differently depending on how it is taxed. Your award letter or plan statement has the details -- nothing was counted automatically.");
-      return;
+      if (answer === "ssdi") { const added = proposeBenefits(a, "SSDI"); return finish(added ? "proposed" : "needs_documents", added ? "You told us this is SSDI, which counts. NC proof is the award letter." : "Another benefit stream already filled the benefits amount, so this SSDI was NOT included. Check both award letters."); }
+      if (answer === "ssi") return finish("excluded_noncountable", "You told us this is SSI, which does not count for NC Medicaid (MA-3306 VI.B), so it was left out.");
+      return finish("needs_documents", "Private or employer disability can count differently depending on how it is taxed. Your award letter or plan statement has the details -- nothing was counted automatically.");
     }
-    if (answer === "snap_or_assistance") { add(cat, "excluded_noncountable", "You told us this is SNAP/TANF-type assistance, which does not count as MAGI income, so it was left out."); return; }
-    if (answer === "countable_benefit" || answer === "benefits") { const added = proposeBenefits(a, "Benefit"); add(cat, added ? "proposed" : "needs_documents", added ? "You told us this is a regular benefit payment. Confirm the amount from your award letter if you have one." : "Another benefit stream already filled the benefits amount, so this was NOT included. Check both award letters."); return; }
-    if (answer === "wages") { const added = proposeWages(a); add(cat, added ? "proposed" : "needs_documents", added ? "You told us this is pay from a job. NC counts gross pay, so correct from a pay stub if you can." : "Another category already filled the job-income amount, so this was NOT included. Check both with a pay stub."); return; }
-    if (answer === "gig") { add(cat, "needs_documents", "You told us this is gig/self-employment work. NC counts net profit over 12 months (MA-3306 VII.A.2), so we need expenses, a tax return, or business records -- deposits alone are gross receipts."); return; }
-    if (answer === "gift_or_own") { add(cat, "excluded_noncountable", "You told us this is gifts, repayments, or your own money moved, so it was not counted as income."); return; }
-    const q = CLASSIFICATION_QUESTIONS[cat]; if (q) questions.push(q);
-    add(cat, "needs_classification", defaultReason + "");
+    if (answer === "snap_or_assistance") return finish("excluded_noncountable", "You told us this is SNAP/TANF-type assistance, which does not count as MAGI income, so it was left out.");
+    if (answer === "countable_benefit" || answer === "benefits") { const added = proposeBenefits(a, "Benefit"); return finish(added ? "proposed" : "needs_documents", added ? "You told us this is a regular benefit payment. Confirm the amount from your award letter if you have one." : "Another benefit stream already filled the benefits amount, so this was NOT included. Check both award letters."); }
+    if (answer === "wages") { const added = proposeWages(a); return finish(added ? "proposed" : "needs_documents", added ? "You told us this is pay from a job. NC counts gross pay, so correct from a pay stub if you can." : "Another category already filled the job-income amount, so this was NOT included. Check both with a pay stub."); }
+    if (answer === "gig") return finish("needs_documents", "You told us this is gig/self-employment work. NC counts net profit over 12 months (MA-3306 VII.A.2), so we need expenses, a tax return, or business records -- deposits alone are gross receipts.");
+    if (answer === "gift_or_own") return finish("excluded_noncountable", "You told us this is gifts, repayments, or your own money moved, so it was not counted as income.");
+    return finish("needs_classification", defaultReason);
   };
   handleAmbiguous("MILITARY", "We could not tell whether these deposits are veterans benefits (not countable) or military pay (countable) -- please tell us which.");
   handleAmbiguous("LONG_TERM_DISABILITY", "Disability deposits could be SSDI (countable) or SSI (not countable, MA-3306 VI.B) -- please tell us which.");

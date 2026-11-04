@@ -38,6 +38,20 @@ describe("plaidIncomeProposals (Bank Income, NC MA-3306)", () => {
     const pay = plaidIncomeProposals(p, { MILITARY: "military_pay" });
     expect(pay.proposals.find((x) => x.questionId === "job_income_amount")?.value).toBe(1000);
   });
+  it("keeps a classification question editable after an answer, including not_sure", () => {
+    const military = payload([stream("MILITARY", 3000)]);
+    for (const answer of ["veterans_benefit", "military_pay", "not_sure"]) {
+      expect(
+        plaidIncomeProposals(military, { MILITARY: answer }).classificationQuestions.map((q) => q.category),
+      ).toContain("MILITARY");
+    }
+    const ltd = plaidIncomeProposals(
+      payload([stream("LONG_TERM_DISABILITY", 3000)]),
+      { LONG_TERM_DISABILITY: "ssdi" },
+    );
+    expect(ltd.classificationQuestions.map((q) => q.category)).toContain("LONG_TERM_DISABILITY");
+  });
+
   it("marks a second benefit stream as NOT included instead of proposed", () => {
     const r = plaidIncomeProposals(payload([stream("UNEMPLOYMENT", 1200, 3, "WEEKLY"), stream("RETIREMENT", 900, 3, "MONTHLY")]));
     expect(r.proposals.filter((p) => p.questionId === "benefits_income_amount")).toHaveLength(1);

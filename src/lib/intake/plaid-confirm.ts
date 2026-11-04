@@ -11,11 +11,14 @@ import { saveAnswer, validateAnswerInput } from "./store";
 // confirm flow:
 //
 // - action "confirm"  — rejected: an untouched proposal is Sandbox test-bank
-//   data, and income-verification data must stay on the device. The current
-//   card never sends one; saving it would put a synthetic figure or schedule
-//   into a real person's application answers.
+//   data, and income-verification data must stay on the device. The client
+//   never sends one; saving it would put a synthetic figure or schedule into
+//   a real person's application answers.
 // - action "correct"  — the person typed or chose their own value, saved
-//   `known` with provenance `user`. Only corrections are written.
+//   `known` with provenance `user`. The server cannot tell a real edit from a
+//   re-submitted proposal: it accepts any spec-valid corrected value, so the
+//   "untouched is never stored" guarantee is a client-flow property, not a
+//   server-verifiable one.
 //
 // The bank's institution name is NOT written here: it is pii:true metadata
 // captured from Plaid Link and shown only in page memory (HACK-140), so it
@@ -49,8 +52,9 @@ function validationError(): AppError {
 /**
  * Validate the whole batch WITHOUT touching the database: every entry must
  * target an income question, carry the `correct` action, and hold a
- * spec-valid value. An untouched bank proposal is never sent to this
- * server; only a person-edited value is accepted. A bad entry anywhere
+ * spec-valid value. The client sends only person-edited values; the server
+ * cannot verify that distinction, so it enforces the action and question
+ * bound but accepts any spec-valid corrected value. A bad entry anywhere
  * rejects the batch and saves nothing.
  */
 export function parsePlaidConfirmations(input: unknown): PlaidConfirmation[] {
@@ -82,8 +86,8 @@ export function parsePlaidConfirmations(input: unknown): PlaidConfirmation[] {
 
 /**
  * Persist the person's own (corrected) bank-income values through the
- * standard answer store. An untouched proposal never reaches this server:
- * it came from Sandbox income verification and stays on the device. Returns
+ * standard answer store. The client flow only sends person-edited values;
+ * this function accepts any spec-valid value it is given. Returns
  * ids, statuses and provenances only — the values live in the returned
  * client state, the person's answers.
  */

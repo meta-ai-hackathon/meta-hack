@@ -4,10 +4,13 @@
 // Plaid publishes no versioned build or SRI hash, and the owner accepted that
 // limitation for the Sandbox demo (HACK-140, 2026-11-04). This policy limits
 // where scripts may load from, which frames may open, and where the page may
-// connect, so an injected script cannot pull code or ship data to an
-// arbitrary host. It does not (and cannot) stop an allowed same-origin
-// script from reading same-origin storage; origin isolation remains the
-// stronger fix before any real-applicant deployment (recorded on HACK-140).
+// connect, so injected code cannot fetch modules from or send data to an
+// origin outside this audited list. It does NOT stop an injected inline
+// script from running ('unsafe-inline' is required by Next's inline
+// bootstrap), and it does not stop any allowed script from reading
+// same-origin storage; origin isolation and a nonce/hash-based policy remain
+// the stronger fixes before any real-applicant deployment (recorded on
+// HACK-140).
 //
 // Audited 2026-11-04: the intake pages call only same-origin /api routes,
 // play blob: audio returned by /api/conversation/speak, and load next/font's
@@ -26,8 +29,10 @@ const PLAID_HOSTS = "https://plaid.com https://*.plaid.com";
 // The browser-side PII guard downloads its tokenizer/model files here.
 const HUGGINGFACE_HOSTS =
   "https://huggingface.co https://*.huggingface.co https://*.hf.co";
-// The ONNX runtime module the browser-side guard imports.
-const TRANSFORMERS_CDN = "https://cdn.jsdelivr.net";
+// The ONNX runtime module the browser-side guard imports. Pinned to the exact
+// @huggingface/transformers version in package.json; bump both together.
+const TRANSFORMERS_CDN =
+  "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6/dist/";
 
 export function intakeContentSecurityPolicy(isDev: boolean): string {
   const scriptEval = isDev ? " 'unsafe-eval'" : "";
@@ -44,6 +49,7 @@ export function intakeContentSecurityPolicy(isDev: boolean): string {
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
+    "frame-ancestors 'none'",
     "form-action 'self'",
   ].join("; ");
 }
