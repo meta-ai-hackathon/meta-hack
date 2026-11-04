@@ -47,10 +47,13 @@ export function visibleOptions(options: readonly PickerOption[], query: string):
 /**
  * The option a query commits to (HACK-164, VAL-UX-001), or undefined when
  * nothing should be picked: the exact (case-insensitive) match on the
- * label — then the value code — else the one option the query still
- * filters to. An ambiguous or zero-match query commits nothing, so
- * Continue keeps its needed-to-continue gate for genuinely missing
- * answers.
+ * LABEL, else the one option the query still filters to. The label is
+ * what the person can see and type ("North Carolina" or "virginia", a
+ * label that is also a prefix of another label); a value code counts only
+ * through uniqueness ("nc" filters to just NC) — an ambiguous prefix
+ * ("ma" exact-matches MA's code while MD and ME also match) commits
+ * nothing, so a Continue press keeps its needed-to-continue gate instead
+ * of silently saving the wrong state.
  */
 export function commitCandidate(
   options: readonly PickerOption[],
@@ -62,10 +65,6 @@ export function commitCandidate(
     (option) => option.label.toLowerCase() === normalized,
   );
   if (exactLabel) return exactLabel;
-  const exactValue = options.find(
-    (option) => option.value.toLowerCase() === normalized,
-  );
-  if (exactValue) return exactValue;
   const matches = options.filter((option) => matchesQuery(option, normalized));
   return matches.length === 1 ? matches[0] : undefined;
 }
