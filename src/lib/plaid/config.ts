@@ -41,6 +41,25 @@ export function plaidDemoEnabled(
 }
 
 /**
+ * Whether this SERVER environment may offer the demo card at all. The page
+ * computes this and passes it to the client, because PLAID_ENV is server-only
+ * and the browser cannot be trusted to decide. A deployment with the two
+ * public flags but a non-Sandbox (or missing) PLAID_ENV never mounts the card
+ * (review P2, PR #172). Credentials are included so the card is not offered
+ * when every click would fail closed.
+ */
+export function plaidDemoAvailable(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return (
+    plaidDemoEnabled(env) &&
+    env.PLAID_ENV === "sandbox" &&
+    Boolean(env.PLAID_CLIENT_ID?.trim()) &&
+    Boolean(env.PLAID_SECRET?.trim())
+  );
+}
+
+/**
  * The one answer every Plaid route gives while the demo switch is off:
  * a plain 404 that reveals nothing -- not whether a session exists, not
  * whether credentials are configured, and not which gate closed.

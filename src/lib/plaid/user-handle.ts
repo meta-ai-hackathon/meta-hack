@@ -12,6 +12,11 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 // redeem any Plaid user_id it can name. The user_id itself is not a secret
 // (Plaid's `usr_` identifiers are opaque), so integrity, expiry, and session
 // binding are the whole contract.
+//
+// The caller's session id is MAC input, not payload: the payload is readable
+// base64url JSON, and the session cookie is the bearer credential. Keeping
+// the id out of the payload means page JavaScript holding a handle still
+// cannot read the httpOnly cookie's value (review P2, PR #172).
 const DOMAIN = "plaid-pull-handle-v2:";
 const MIN_SECRET_LENGTH = 32;
 /** Link closes seconds before the pull; 15 minutes is ample. */
@@ -29,14 +34,24 @@ function handleSecret(
 }
 
 interface HandlePayload {
-  readonly sessionId: string;
   readonly userId: string;
   /** Unix seconds after which the handle is refused. */
   readonly exp: number;
 }
 
-function signature(payload: string, secret: string): Buffer {
-  return createHmac("sha256", DOMAIN + secret).update(payload).digest();
+/**
+ * HMAC over the caller's session id and the readable payload. The session id
+ * is deliberately only an input: a handle minted for one session cannot
+ * verify under another, but the id never appears in the handle itself.
+ */
+function signature(
+  sessionId: string,
+  payload: string,
+  secret: string,
+): Buffer {
+  return createHmac("sha256", DOMAIN + secret)
+    .update(`${sessionId}.${payload}`)
+    .digest();
 }
 
 /** Sign a Plaid user_id into a session-bound handle, expiring in 15 minutes. The payload is readable; the signature protects integrity, not confidentiality. */
@@ -47,9 +62,9 @@ export function sealPlaidUserId(
 ): string {
   const exp = Math.floor(now / 1000) + PLAID_HANDLE_TTL_SECONDS;
   const payload = Buffer.from(
-    JSON.stringify({ sessionId, userId, exp } satisfies HandlePayload),
+    JSON.stringify({ userId, exp } satisfies HandlePayload),
   ).toString("base64url");
-  return `${payload}.${signature(payload, handleSecret()).toString("base64url")}`;
+  return `${payload}.${signature(sessionId, payload, handleSecret()).toString("base64url")}`;
 }
 
 /**
@@ -73,7 +88,7 @@ export function openPlaidUserId(
   }
   const payload = handle.slice(0, separator);
   const given = Buffer.from(handle.slice(separator + 1), "base64url");
-  const expected = signature(payload, secret);
+  const expected = signature(sessionId, payload, secret);
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
     return null;
   }
@@ -86,13 +101,8 @@ export function openPlaidUserId(
   if (typeof parsed !== "object" || parsed === null) {
     return null;
   }
-  const {
-    sessionId: sealedSession,
-    userId,
-    exp,
-  } = parsed as Partial<HandlePayload>;
+  const { userId, exp } = parsed as Partial<HandlePayload>;
   if (
-    sealedSession !== sessionId ||
     typeof userId !== "string" ||
     typeof exp !== "number" ||
     !Number.isFinite(exp)

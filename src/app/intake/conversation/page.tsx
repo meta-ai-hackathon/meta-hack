@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { plaidDemoAvailable } from "../../../lib/plaid/config";
 import { ConversationChat } from "./conversation-chat";
 
 export const metadata: Metadata = {
@@ -32,7 +33,7 @@ export default function ConversationPage() {
           to private questions show as &ldquo;You told us&rdquo; here.
         </p>
       </div>
-      <ConversationChat />
+      <ConversationChat plaidDemoAvailable={plaidDemoAvailable()} />
     </div>
   );
 }

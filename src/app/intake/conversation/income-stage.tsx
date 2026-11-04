@@ -267,8 +267,15 @@ export function IncomeStage(props: {
   state: IntakeClientState;
   onStateChange: (state: IntakeClientState) => void;
   onNotice: (message: string) => void;
+  /** Server-computed: both public demo flags AND PLAID_ENV=sandbox. */
+  plaidDemoAvailable?: boolean;
 }): JSX.Element {
-  const { state, onStateChange, onNotice } = props;
+  const {
+    state,
+    onStateChange,
+    onNotice,
+    plaidDemoAvailable = plaidDemoEnabledInBrowser(),
+  } = props;
   const questions = incomeQuestionsOf(state);
 
   // The manual card's drafts, initialized once from the state the stage
@@ -913,9 +920,11 @@ export function IncomeStage(props: {
       </section>
 
       {/* Card 3 — consented Plaid Sandbox bank pull (HACK-140 blind broker).
-      Off by default: the explicit demo switch hides the whole card, so a
-      deployment without it never offers the demo (review P2, PR #172). */}
-      {plaidDemoEnabledInBrowser() ? (
+      Off by default: the explicit demo switch hides the whole card, and the
+      server also requires PLAID_ENV=sandbox before it passes
+      `plaidDemoAvailable`, so a non-Sandbox deployment never offers the demo
+      (review P2, PR #172). */}
+      {plaidDemoAvailable ? (
       <section data-income-plaid-card aria-labelledby="income-plaid-heading" className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface p-4">
         <div className="flex flex-col gap-1">
           <h3 id="income-plaid-heading" className="text-lg font-semibold">Connect your bank (demo)</h3>

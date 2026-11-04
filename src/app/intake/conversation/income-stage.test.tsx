@@ -231,7 +231,10 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-async function renderStage(state: IntakeClientState = incomeState()): Promise<{
+async function renderStage(
+  state: IntakeClientState = incomeState(),
+  plaidDemoAvailable?: boolean,
+): Promise<{
   container: HTMLElement;
   act: (fn: () => Promise<void> | void) => Promise<void>;
   getNotice: () => string;
@@ -254,6 +257,7 @@ async function renderStage(state: IntakeClientState = incomeState()): Promise<{
     root.render(
       React.createElement(IncomeStage, {
         state,
+        ...(plaidDemoAvailable === undefined ? {} : { plaidDemoAvailable }),
         onStateChange: (next: IntakeClientState) => {
           state = next;
         },
@@ -342,6 +346,11 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     } finally {
       process.env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT = "synthetic";
     }
+  });
+
+  it("hides the card when the server says PLAID_ENV is not Sandbox, even with both public switches on", async () => {
+    const { container } = await renderStage(incomeState(), false);
+    expect(q(container, "income-plaid-card")).toBeNull();
   });
 
   /** Render the stage and complete a Link success that yields two proposals. */

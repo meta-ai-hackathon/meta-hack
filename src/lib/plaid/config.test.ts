@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   plaidConfig,
+  plaidDemoAvailable,
   plaidDemoDisabledResponse,
   plaidDemoEnabled,
 } from "./config";
@@ -87,6 +88,37 @@ describe("the explicit demo switch", () => {
     expect(await response.json()).toEqual({
       error: { code: "not_found", message: "Not found." },
     });
+  });
+});
+
+describe("plaidDemoAvailable (server-rendered card gate)", () => {
+  it("offers the card only for an explicitly synthetic, fully configured Sandbox environment", () => {
+    expect(plaidDemoAvailable(DEMO_ON)).toBe(true);
+  });
+
+  it("never offers the card when PLAID_ENV is not exactly sandbox", () => {
+    for (const PLAID_ENV of [
+      undefined,
+      "",
+      "production",
+      "development",
+      "Sandbox",
+      "sandbox ",
+    ]) {
+      expect(plaidDemoAvailable({ ...DEMO_ON, PLAID_ENV })).toBe(false);
+    }
+  });
+
+  it("stays closed while either public flag or a credential is missing", () => {
+    for (const env of [
+      { ...DEMO_ON, NEXT_PUBLIC_PLAID_DEMO_ENABLED: undefined },
+      { ...DEMO_ON, NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT: undefined },
+      { ...DEMO_ON, PLAID_CLIENT_ID: undefined },
+      { ...DEMO_ON, PLAID_SECRET: undefined },
+      { ...DEMO_ON, PLAID_SECRET: " " },
+    ]) {
+      expect(plaidDemoAvailable(env)).toBe(false);
+    }
   });
 });
 

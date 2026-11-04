@@ -1,12 +1,17 @@
 import type { NextConfig } from "next";
+import { plaidDemoEnabled } from "./src/lib/plaid/config";
 import { intakeContentSecurityPolicy } from "./src/lib/security/csp";
 
 const nextConfig: NextConfig = {
   // Intake-only CSP (HACK-140 review P2): the Plaid Link SDK loads into the
-  // intake page, so the document is limited to self plus Plaid's hosts. The
-  // policy lives in src/lib/security/csp.ts and is unit-tested there.
+  // intake page, so the document is limited to self plus Plaid's hosts when
+  // the demo is on. A deployment with the demo off gets no Plaid origin at
+  // all. The policy lives in src/lib/security/csp.ts and is unit-tested there.
   async headers() {
-    const value = intakeContentSecurityPolicy(process.env.NODE_ENV !== "production");
+    const value = intakeContentSecurityPolicy(
+      process.env.NODE_ENV !== "production",
+      plaidDemoEnabled(),
+    );
     return ["/intake", "/intake/:path*"].map((source) => ({
       source,
       headers: [{ key: "Content-Security-Policy", value }],
@@ -24,7 +29,7 @@ const nextConfig: NextConfig = {
     },
   },
   // The forms fill route reads the committed sample-form templates from the
-  // registry at request time (server-side fixture data, no person data);
+  // registry at request time (server-side fixture data, no person data); so
   // include them in the traced output so production downloads work too.
   outputFileTracingIncludes: {
     "/api/forms/**": ["./src/lib/forms/fixtures/**"],

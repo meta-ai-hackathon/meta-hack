@@ -31,6 +31,19 @@ describe("Plaid pull handles (HACK-140)", () => {
     ).toBe("user-sandbox-x");
   });
 
+  it("does not expose the session id in the readable payload", () => {
+    const handle = sealPlaidUserId(SESSION, "user-sandbox-x");
+    const payload = Buffer.from(
+      handle.split(".")[0]!,
+      "base64url",
+    ).toString("utf8");
+    expect(payload).not.toContain(SESSION);
+    expect(JSON.parse(payload)).toEqual({
+      userId: "user-sandbox-x",
+      exp: expect.any(Number),
+    });
+  });
+
   it("refuses a handle minted for another session", () => {
     expect(
       openPlaidUserId(

@@ -15,36 +15,65 @@
 // Audited 2026-11-04: the intake pages call only same-origin /api routes,
 // play blob: audio returned by /api/conversation/speak, and load next/font's
 // self-hosted faces and the PII guard fetches its tokenizer/model from
-// Hugging Face and imports its ONNX runtime module from jsDelivr. The audited
-// external origins are Plaid's SDK/frames/Sandbox API, Hugging Face's CDN, and
-// jsDelivr; csp.test.ts pins that list, so a new third-party origin has to be
-// added deliberately.
+// Hugging Face and imports its ONNX runtime module from jsDelivr. When the
+// Plaid demo is enabled, the audited external origins also include Plaid's
+// SDK/frames/Sandbox API. Plaid hosts are omitted entirely when the demo is
+// off, so an ordinary applicant deployment exposes no extra exfiltration
+// origin (review P3, PR #172). csp.test.ts pins both variants, so a new
+// third-party origin has to be added deliberately.
 //
 // 'unsafe-inline' is required because Next.js emits inline bootstrap/hydration
 // scripts and the root layout has one inline display-settings script.
 // 'wasm-unsafe-eval' lets the on-device PII guard compile its ONNX runtime; it
 // permits WebAssembly compilation only, not JavaScript eval. 'unsafe-eval' and
 // websockets are development-only (HMR/React Refresh).
-const PLAID_HOSTS = "https://plaid.com https://*.plaid.com";
+const PLAID_HOSTS = ["https://plaid.com", "https://*.plaid.com"] as const;
+const PLAID_SCRIPT_HOST = "https://cdn.plaid.com";
+const PLAID_SANDBOX_API = "https://sandbox.plaid.com";
 // The browser-side PII guard downloads its tokenizer/model files here.
-const HUGGINGFACE_HOSTS =
-  "https://huggingface.co https://*.huggingface.co https://*.hf.co";
+const HUGGINGFACE_HOSTS = [
+  "https://huggingface.co",
+  "https://*.huggingface.co",
+  "https://*.hf.co",
+] as const;
 // The ONNX runtime module the browser-side guard imports. Pinned to the exact
 // @huggingface/transformers version in package.json; bump both together.
 const TRANSFORMERS_CDN =
   "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6/dist/";
 
-export function intakeContentSecurityPolicy(isDev: boolean): string {
-  const scriptEval = isDev ? " 'unsafe-eval'" : "";
-  const devSockets = isDev ? " ws: wss:" : "";
+export function intakeContentSecurityPolicy(
+  isDev: boolean,
+  plaidDemoEnabled: boolean,
+): string {
+  const scriptEval = isDev ? ["'unsafe-eval'"] : [];
+  const devSockets = isDev ? ["ws:", "wss:"] : [];
+  const plaidScripts = plaidDemoEnabled
+    ? [PLAID_SCRIPT_HOST, ...PLAID_HOSTS]
+    : [];
+  const plaidConnect = plaidDemoEnabled
+    ? [PLAID_SANDBOX_API, ...PLAID_HOSTS]
+    : [];
   return [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${scriptEval} https://cdn.plaid.com ${PLAID_HOSTS} ${TRANSFORMERS_CDN}`,
+    `script-src ${[
+      "'self'",
+      "'unsafe-inline'",
+      "'wasm-unsafe-eval'",
+      ...scriptEval,
+      ...plaidScripts,
+      TRANSFORMERS_CDN,
+    ].join(" ")}`,
     "style-src 'self' 'unsafe-inline'",
-    `img-src 'self' data: blob: ${PLAID_HOSTS}`,
+    `img-src ${["'self'", "data:", "blob:", ...(plaidDemoEnabled ? PLAID_HOSTS : [])].join(" ")}`,
     "font-src 'self' data:",
-    `connect-src 'self'${devSockets} https://sandbox.plaid.com ${PLAID_HOSTS} ${HUGGINGFACE_HOSTS} ${TRANSFORMERS_CDN}`,
-    `frame-src 'self' ${PLAID_HOSTS}`,
+    `connect-src ${[
+      "'self'",
+      ...devSockets,
+      ...plaidConnect,
+      ...HUGGINGFACE_HOSTS,
+      TRANSFORMERS_CDN,
+    ].join(" ")}`,
+    `frame-src ${["'self'", ...(plaidDemoEnabled ? PLAID_HOSTS : [])].join(" ")}`,
     "media-src 'self' blob:",
     "worker-src 'self' blob:",
     "object-src 'none'",
