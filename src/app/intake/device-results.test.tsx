@@ -449,14 +449,19 @@ async function visit() {
   };
   /**
    * Answer whatever question is on screen, from the persona or with "I'm
-   * not sure", which is also the answer to every question in `notSure`.
+   * not sure", which is also the answer to every question in `notSure`;
+   * every question in `skip` is skipped for now instead (no answer).
    */
-  async function answerCurrent(notSure: ReadonlySet<string>): Promise<boolean> {
+  async function answerCurrent(notSure: ReadonlySet<string>, skip: ReadonlySet<string> = new Set()): Promise<boolean> {
     const question = container.querySelector<HTMLElement>("[data-intake-question]");
     if (!question) {
       return false;
     }
     const id = question.dataset.intakeQuestion!;
+    if (skip.has(id)) {
+      await click(byId(`${id}-skip`));
+      return true;
+    }
     const answer = notSure.has(id) ? undefined : PERSONA[id];
     if (answer === undefined) {
       await click(byId(`${id}-not-sure`));
@@ -489,8 +494,8 @@ async function visit() {
     await click(byId(`${id}-continue`));
     return true;
   }
-  async function answerEverything(notSure: ReadonlySet<string> = new Set()) {
-    for (let step = 0; step < 60 && (await answerCurrent(notSure)); step += 1) {
+  async function answerEverything(notSure: ReadonlySet<string> = new Set(), skip: ReadonlySet<string> = new Set()) {
+    for (let step = 0; step < 60 && (await answerCurrent(notSure, skip)); step += 1) {
       // one question per screen
     }
   }
@@ -1922,3 +1927,86 @@ async function results() {
     },
   };
 }
+
+describe("the summary's review links (HACK-162)", () => {
+  it("opens the question at its heading, and Continue returns to the summary beside the card just reviewed", async () => {
+    const page = await visit();
+    await page.answerEverything();
+    const card = () =>
+      page.container.querySelector<HTMLElement>('[data-intake-summary-card="state"]')!;
+    expect(card()).toBeTruthy();
+    const prompt = card().querySelector("span")?.textContent ?? "";
+    await page.click(card().querySelector<HTMLButtonElement>("button")!);
+
+    // The question opened with its saved answer, and focus moved to the
+    // question's heading — not left on the page body (VAL-UX-008).
+    expect(page.container.querySelector('[data-intake-question="state"]')).toBeTruthy();
+    const heading = page.container.querySelector<HTMLElement>("[data-intake-question-heading]")!;
+    expect(document.activeElement).toBe(heading);
+    expect(heading.textContent).toBe(prompt);
+
+    // Continue returns to the summary, focused on the card just reviewed.
+    await page.click(page.byId("state-continue"));
+    expect(page.text()).toContain("All questions answered for now");
+    expect(page.container.querySelector("[data-device-results]")).toBeTruthy();
+    expect(document.activeElement).toBe(card());
+  });
+
+  it("returns every reviewed card to the summary beside that card, however the question settles", async () => {
+    const page = await visit();
+    await page.answerEverything();
+    const cardIds = [
+      ...page.container.querySelectorAll<HTMLElement>("[data-intake-summary-card]"),
+    ].map((card) => card.dataset.intakeSummaryCard!);
+    expect(cardIds.length).toBeGreaterThan(10);
+    const card = (id: string) =>
+      page.container.querySelector<HTMLElement>(`[data-intake-summary-card="${id}"]`)!;
+    // For every card: the review opens that question at its heading, and
+    // Continue — which for a private question settles it with nothing new
+    // entered, and for the rest re-saves the answer — comes back to the
+    // summary focused on the card, never deeper into the questionnaire.
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom(...cardIds), async (id) => {
+        await page.click(card(id).querySelector<HTMLButtonElement>("button")!);
+        expect(page.container.querySelector(`[data-intake-question="${id}"]`)).toBeTruthy();
+        expect(document.activeElement).toBe(
+          page.container.querySelector("[data-intake-question-heading]"),
+        );
+        await page.click(page.byId(`${id}-continue`));
+        expect(page.text()).toContain("All questions answered for now");
+        expect(document.activeElement).toBe(card(id));
+      }),
+      { numRuns: 10 },
+    );
+
+    // "I'm not sure" settles a reviewed question the same way.
+    const id = cardIds[0];
+    await page.click(card(id).querySelector<HTMLButtonElement>("button")!);
+    await page.click(page.byId(`${id}-not-sure`));
+    expect(page.text()).toContain("All questions answered for now");
+    expect(document.activeElement).toBe(card(id));
+  });
+
+  it("answers an open question from the summary at its heading and keeps walking the open questions", async () => {
+    const page = await visit();
+    // Two questions stay open (skipped, no answer), so the first-pass
+    // order has somewhere to go.
+    await page.answerEverything(new Set(), new Set(["county", "best_time_to_reach"]));
+    expect(page.text()).toContain("Still open");
+    await page.click(
+      page.container.querySelector<HTMLButtonElement>('[data-intake-summary-card="county"] button')!,
+    );
+    // Focus lands on the question's heading here too…
+    expect(document.activeElement).toBe(
+      page.container.querySelector("[data-intake-question-heading]"),
+    );
+    // …and Continue keeps walking the open questions in order — it does
+    // not bounce to the summary while open questions remain.
+    await page.type(page.byId<HTMLInputElement>("intake-county"), "Quillfeather County");
+    await page.click(page.byId("county-continue"));
+    expect(page.container.querySelector('[data-intake-question="best_time_to_reach"]')).toBeTruthy();
+    await page.click(page.byId("best_time_to_reach-not-sure"));
+    expect(page.text()).toContain("All questions answered for now");
+    expectNoAnswerInRequests([...PRIVATE_VALUES]);
+  });
+});

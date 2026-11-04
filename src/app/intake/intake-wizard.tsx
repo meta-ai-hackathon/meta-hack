@@ -38,11 +38,24 @@ import { toAnswerMap } from "../../lib/intake/client-store";
 // - "server" (the default, for the consent-declined conversation page,
 //   whose match and review sections still read the server session until
 //   HACK-95 moves them on-device): answers go to the /api/intake routes.
+//
+// Reviewing from the summary (HACK-162): once the questions are done, each
+// summary card's Review-this-answer opens that question with its saved
+// answer at the question's heading, and settling it (Continue, I'm not
+// sure, or Skip) comes back to the summary beside that card instead of
+// dragging the person on into the questionnaire. A fresh question still
+// advances in order — the return is only for questions opened from the
+// summary.
 
 type Wizard =
   | { phase: "loading" }
   | { phase: "error"; message: string }
   | { phase: "ready"; state: IntakeClientState };
+
+/** A focus move the next render should make (the focusAfterDelete pattern). */
+type FocusRequest =
+  | { readonly kind: "question-heading"; readonly seq: number }
+  | { readonly kind: "summary-card"; readonly questionId: string; readonly seq: number };
 
 const GENERIC_ERROR = "Something went wrong on our side. Please try again.";
 
@@ -268,6 +281,16 @@ export function IntakeWizard(props: {
     readonly target: "question" | "delete";
     readonly seq: number;
   } | null>(null);
+  // The summary card a "Review this answer" opened (HACK-162): settling
+  // that question returns to the summary beside the card. Every deliberate
+  // navigation somewhere else clears it, so only a question opened from
+  // the summary takes the return path.
+  const [reviewReturn, setReviewReturn] = useState<string | null>(null);
+  // A focus move waiting for the next render (HACK-162): the opened
+  // question's heading, or the reviewed summary card on the way back. The
+  // sequence number makes each request a new value, so the effect runs
+  // once per open or return.
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   // Read only in event handlers: when the page last moved to a question
   // (the double-click guard), and the latest device state and busy flags
@@ -320,6 +343,51 @@ export function IntakeWizard(props: {
     if (persistence === "device") {
       advancedAt.current = performance.now();
     }
+  }
+
+  /** A focus move for the next render: the opened question's heading. */
+  function focusQuestionHeading(): void {
+    setFocusRequest((previous) => ({
+      kind: "question-heading",
+      seq: (previous?.seq ?? 0) + 1,
+    }));
+  }
+
+  /**
+   * Open a question from the summary to review its saved answer
+   * (HACK-162): focus lands on the question's heading, and settling the
+   * question (Continue, I'm not sure, or Skip) returns to the summary
+   * beside this card.
+   */
+  function openForReview(index: number, source: IntakeClientState): void {
+    setReviewReturn(source.questions[index].id);
+    goTo(index, source);
+    focusQuestionHeading();
+  }
+
+  /**
+   * Open an unanswered question from the summary (HACK-162): focus lands
+   * on the question's heading, and the first-pass flow then takes over —
+   * Continue keeps walking the open questions in order.
+   */
+  function openToAnswer(index: number, source: IntakeClientState): void {
+    goTo(index, source);
+    focusQuestionHeading();
+  }
+
+  /**
+   * Settle a question opened from the summary (HACK-162): back to the
+   * summary, focused on the card just reviewed, instead of marching on
+   * into the questionnaire.
+   */
+  function settleReview(questionId: string, source: IntakeClientState): void {
+    setReviewReturn(null);
+    advanceTo(source.questions.length, source);
+    setFocusRequest((previous) => ({
+      kind: "summary-card",
+      questionId,
+      seq: (previous?.seq ?? 0) + 1,
+    }));
   }
 
   /**
@@ -435,6 +503,28 @@ export function IntakeWizard(props: {
     target?.focus();
   }, [focusAfterDelete]);
 
+  // A question opened from the summary takes focus to its heading, so
+  // keyboard and screen-reader users land on the question instead of the
+  // page body; the return lands on the card just reviewed (focusing an
+  // element also scrolls it into view). Nothing to do when the target is
+  // gone (a delete elsewhere), and focusing is the whole job.
+  useEffect(() => {
+    if (focusRequest === null) {
+      return;
+    }
+    const root = rootRef.current;
+    if (!root) {
+      return;
+    }
+    if (focusRequest.kind === "question-heading") {
+      root.querySelector<HTMLElement>("[data-intake-question-heading]")?.focus();
+    } else {
+      root
+        .querySelector<HTMLElement>(`[data-intake-summary-card="${focusRequest.questionId}"]`)
+        ?.focus();
+    }
+  }, [focusRequest]);
+
   /**
    * Show a device state that changed outside a save (another tab's answers
    * or delete): keep the person on the question they were on when it still
@@ -449,8 +539,10 @@ export function IntakeWizard(props: {
   ): void {
     if (!options.keepDraft) {
       // A delete in another tab: what was typed into the review goes with
-      // the answers, as the draft does.
+      // the answers, as the draft does — and a review's card may be gone
+      // with them, so no return is queued.
       setReviewTyped({});
+      setReviewReturn(null);
     }
     setDeviceIntake(intake);
     setWizard({ phase: "ready", state: intake.view });
@@ -517,7 +609,11 @@ export function IntakeWizard(props: {
       }
       setWizard({ phase: "ready", state: data });
       props.onAnswersChanged?.();
-      goTo(nextUnansweredAfter(data, question.id), data);
+      if (reviewReturn === question.id) {
+        settleReview(question.id, data);
+      } else {
+        goTo(nextUnansweredAfter(data, question.id), data);
+      }
       setNotice(
         status === "unknown"
           ? "Marked as not sure. You can come back to it."
@@ -561,6 +657,7 @@ export function IntakeWizard(props: {
     setWizard({ phase: "ready", state: data });
     props.onAnswersChanged?.();
     if (result.kind === "purged") {
+      setReviewReturn(null);
       setReviewTyped({});
       goTo(data.currentIndex ?? data.questions.length, data);
     } else if (options.advance === false) {
@@ -568,6 +665,10 @@ export function IntakeWizard(props: {
       // the next unanswered one as a normal save would.
       const same = data.questions.findIndex((question) => question.id === questionId);
       goTo(same >= 0 ? same : nextUnansweredAfter(data, questionId), data);
+    } else if (reviewReturn === questionId) {
+      // Opened from the summary to review its answer: back to the summary
+      // beside the card (HACK-162), not on into the questionnaire.
+      settleReview(questionId, data);
     } else {
       advanceTo(nextUnansweredAfter(data, questionId), data);
     }
@@ -697,7 +798,13 @@ export function IntakeWizard(props: {
     }
     if (isEmptyDraft(draftValue)) {
       if (wizard.state.answers[question.id]) {
-        // Already answered; nothing new entered — just move on.
+        // Already answered; nothing new entered — settle the question:
+        // one opened from the summary goes back to its card (HACK-162),
+        // a first-pass one moves on in order.
+        if (reviewReturn === question.id) {
+          settleReview(question.id, wizard.state);
+          return;
+        }
         advanceTo(current + 1, wizard.state);
         return;
       }
@@ -797,6 +904,8 @@ export function IntakeWizard(props: {
             return (
               <li
                 key={question.id}
+                data-intake-summary-card={question.id}
+                tabIndex={-1}
                 className="flex flex-col gap-1 rounded-xl border border-surface-border bg-surface p-3 text-left"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -814,7 +923,7 @@ export function IntakeWizard(props: {
                 <button
                   type="button"
                   onClick={() =>
-                    goTo(state.questions.indexOf(question), state)
+                    openForReview(state.questions.indexOf(question), state)
                   }
                   className="self-start text-sm text-muted underline hover:text-foreground"
                 >
@@ -834,12 +943,16 @@ export function IntakeWizard(props: {
             </h3>
             <ul className="flex flex-col gap-2">
               {remaining.map((question) => (
-                <li key={question.id} className="flex items-center gap-2">
+                <li
+                  key={question.id}
+                  data-intake-summary-card={question.id}
+                  className="flex items-center gap-2"
+                >
                   <span>{question.prompt}</span>
                   <button
                     type="button"
                     onClick={() =>
-                      goTo(state.questions.indexOf(question), state)
+                      openToAnswer(state.questions.indexOf(question), state)
                     }
                     className="text-sm text-muted underline hover:text-foreground"
                   >
@@ -861,6 +974,8 @@ export function IntakeWizard(props: {
             onAnswer={(questionId) => {
               const index = state.questions.findIndex((question) => question.id === questionId);
               if (index >= 0) {
+                // A deliberate step from the results into the questions.
+                setReviewReturn(null);
                 goTo(index, state);
               }
             }}
@@ -883,6 +998,17 @@ export function IntakeWizard(props: {
       className="flex flex-col gap-6"
     >
       {deviceStatus}
+      {/* The question's heading (HACK-162): the focus target when the
+          question opens from the summary, so keyboard and screen-reader
+          users are taken to the question. It names the question and stays
+          out of sight; the control below carries the visible prompt. */}
+      <h2
+        tabIndex={-1}
+        data-intake-question-heading
+        className="sr-only"
+      >
+        {question.prompt}
+      </h2>
       <div className="flex flex-col gap-1">
         <p
           id="intake-progress-text"
@@ -919,9 +1045,16 @@ export function IntakeWizard(props: {
         onNotSure={() => void submitAnswer("unknown")}
         onSubmit={handleContinue}
         onSkip={() => {
-          if (!tooSoonAfterAdvance()) {
-            advanceTo(current + 1, state);
+          if (tooSoonAfterAdvance()) {
+            return;
           }
+          if (reviewReturn !== null) {
+            // Opened from the summary: skipping settles it back to its
+            // card (HACK-162), the same as Continue would.
+            settleReview(question.id, state);
+            return;
+          }
+          advanceTo(current + 1, state);
         }}
         busy={busy || savingForLater || deleting}
         error={questionError}
@@ -929,7 +1062,12 @@ export function IntakeWizard(props: {
       {current > 0 ? (
         <button
           type="button"
-          onClick={() => goTo(current - 1, state)}
+          onClick={() => {
+            // A deliberate step back into the questions: the first-pass
+            // order takes over from here.
+            setReviewReturn(null);
+            goTo(current - 1, state);
+          }}
           className="self-start text-base text-muted underline hover:text-foreground"
         >
           Back
