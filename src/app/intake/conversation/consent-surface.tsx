@@ -213,9 +213,8 @@ export function ConsentPanel(props: ConsentPanelProps) {
       </div>
       <p className="text-sm text-muted">
         The step-by-step form asks the same questions, and no AI provider
-        receives anything — the same honest status labels, benefit match,
-        review, and filled PDF to download. Your answers save on the
-        app&apos;s server so you can pick up later.
+        receives anything. Your answers save on the app&apos;s server so you
+        can pick up later.
       </p>
     </section>
   );
