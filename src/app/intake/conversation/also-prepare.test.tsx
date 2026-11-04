@@ -79,7 +79,7 @@ function decodeEntities(html: string): string {
 describe("AlsoPrepareSection — the entry point", () => {
   it("renders the honest entry point from the pilot seam, control named and keyboard-operable", () => {
     const html = decodeEntities(
-      renderToStaticMarkup(<AlsoPrepareSection refreshKey={0} />),
+      renderToStaticMarkup(<AlsoPrepareSection refreshKey={0} matchExists={true} />),
     );
     expect(html).toContain("data-also-prepare-section");
     expect(html).toContain('data-also-prepare="dss-8207"');
@@ -100,9 +100,20 @@ describe("AlsoPrepareSection — the entry point", () => {
 
   it("entry-point copy carries zero banned claims", () => {
     const html = decodeEntities(
-      renderToStaticMarkup(<AlsoPrepareSection refreshKey={0} />),
+      renderToStaticMarkup(<AlsoPrepareSection refreshKey={0} matchExists={true} />),
     );
     expect(findBannedClaims(html)).toEqual([]);
+  });
+
+  it("stays off the page until the match finds a program (HACK-153)", () => {
+    // The SNAP card offered a second form while nothing was answered and
+    // no program matched (the ticket's repro): the entry point renders
+    // only once a match exists.
+    const html = decodeEntities(
+      renderToStaticMarkup(<AlsoPrepareSection refreshKey={0} matchExists={false} />),
+    );
+    expect(html).not.toContain("data-also-prepare-section");
+    expect(html).not.toContain(SNAP.entryPoint.action);
   });
 
   it("a SNAP promise fixture bites the detector (VAL-SNAP-013)", () => {
@@ -159,7 +170,7 @@ describe("AlsoPrepareSection — revealing the SNAP review", () => {
     const { container, root } = renderSection();
     try {
       await act(async () => {
-        root.render(<AlsoPrepareSection refreshKey={0} />);
+        root.render(<AlsoPrepareSection refreshKey={0} matchExists={true} />);
       });
       await act(async () => {
         await flush();
@@ -207,7 +218,7 @@ describe("AlsoPrepareSection — revealing the SNAP review", () => {
     }
   });
 
-  it("the revealed SNAP review shows the form's OWN coverage arithmetic, provenance, and still-needed list (VAL-SNAP-006)", () => {
+  it("the revealed SNAP review shows the form's OWN coverage arithmetic, provenance, and collapsed remaining list (VAL-SNAP-006)", () => {
     const payload = dssReviewPayload(carriedAnswers);
     const html = decodeEntities(
       renderToStaticMarkup(<ReviewSectionContent data={payload} />),
@@ -219,9 +230,11 @@ describe("AlsoPrepareSection — revealing the SNAP review", () => {
     expect(html).toContain("575 fillable boxes and lines");
     expect(html).toContain("525 of them take your answers");
     expect(html).toContain('data-coverage-count="575"');
-    // The still-needed list renders (most mapped fields have no answer).
-    expect(html).toContain("data-form-to-resolve");
-    expect(html).toContain("Still needed on the form");
+    // The remaining fields render ONCE, collapsed by default (HACK-153):
+    // most mapped fields have no answer, and they list in the collapsed
+    // details, not a second still-needed copy.
+    expect(html).toContain("data-review-remaining");
+    expect(html).not.toContain("data-form-to-resolve");
     // Carried values render with their provenance (ask-once, not re-asked).
     expect(html).toContain('data-review-form="dss-8207"');
     expect(html).toContain(">900<");
@@ -258,7 +271,7 @@ describe("AlsoPrepareSection — revealing the SNAP review", () => {
     const { container, root } = renderSection();
     try {
       await act(async () => {
-        root.render(<AlsoPrepareSection refreshKey={0} />);
+        root.render(<AlsoPrepareSection refreshKey={0} matchExists={true} />);
       });
       await act(async () => {
         await flush();

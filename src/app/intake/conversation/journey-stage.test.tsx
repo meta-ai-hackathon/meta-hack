@@ -382,6 +382,9 @@ const REVIEW_PAYLOAD = {
   },
   // The signature field rides the real review payload (unmapped, asked):
   // its rendering is the distinct typed-signature step (VAL-VJS2-002).
+  // One carried answer joins it: the review mounts only once it has
+  // something filled to show (HACK-153), and the payload carries no
+  // unsourced handoff steps anymore (HACK-119).
   fields: [
     {
       fieldName: "Signature",
@@ -393,6 +396,17 @@ const REVIEW_PAYLOAD = {
       required: false,
       piiLikely: true,
     },
+    {
+      fieldName: "2 Your county",
+      type: "text",
+      question: "2 Your county",
+      state: "prefilled",
+      specQuestionId: null,
+      required: false,
+      piiLikely: false,
+      provenance: "user_supplied",
+      value: "Sampleville County",
+    },
   ],
   toResolve: [
     {
@@ -401,12 +415,9 @@ const REVIEW_PAYLOAD = {
         "Type your full legal name to sign this application — typing your name signs it, like an e-signature.",
     },
   ],
-  counts: { prefilled: 0, asked: 1, notApplicable: 0 },
+  counts: { prefilled: 1, asked: 1, notApplicable: 0 },
   sessionStatus: "draft",
   portalLinks: [],
-  steps: [
-    { title: "Review the filled form", detail: "Check every answer." },
-  ],
 };
 
 function stubFetch(

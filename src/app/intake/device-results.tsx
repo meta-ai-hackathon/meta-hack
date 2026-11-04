@@ -13,6 +13,12 @@ import {
   type DispositionReport,
   type DispositionReportField,
 } from "../../lib/forms/disposition";
+import {
+  groupByStep,
+  peopleOnApplication,
+  personShowsField,
+  plainQuestion,
+} from "../../lib/forms/review-layout";
 import type { FormFlowFieldView } from "../../lib/forms/flow";
 import type { FormFieldDisposition } from "../../lib/forms/registry-core";
 import type { AnswerProvenance } from "../../lib/honesty";
@@ -117,8 +123,17 @@ export const DEVICE_RESULTS_COPY = {
     "it only while it's open, and deleting your answers clears it from " +
     "this page.",
   answerAbove: "Answer this question",
-  stillNeededHeading: "Still needed on the form",
-  stillNeededBody: "These are left blank on the prepared form. Nothing is guessed.",
+  // The one-line filled/remaining count beside the show button
+  // (HACK-154): the numbers read the real review payload.
+  countFilledSuffix: "filled,",
+  countLeftSuffix: "left to fill in.",
+  countNotNeededSuffix: "of the form's questions aren't needed for you.",
+  // The remaining fields, collapsed by default, grouped by the page of
+  // the form they print on, and listed once (HACK-154): this list is the
+  // still-needed list; there is no second copy of it anywhere.
+  remainingSummary: "The form's remaining lines, collapsed here, grouped by the page they print on.",
+  remainingOpen: "Fill in the rest yourself",
+  remainingLeft: "left to fill in",
   showFormButton: "Show the filled form",
   showingForm: "Filling in your form…",
   // Only the filled form: the answers themselves may be saved in this
@@ -153,13 +168,6 @@ export const DEVICE_RESULTS_COPY = {
     "check, print, sign, and send in yourself, or show the filled form " +
     "again to try once more. This goes away when you change an answer or " +
     "leave.",
-  unreadableBoxes:
-    "Nothing was filled. Some box answers aren't checked or unchecked, so " +
-    "fix the ones listed and try again.",
-  unreadableBoxesHeading: "Box answers to fix first",
-  unreadableBoxesBody:
-    "Each of these is a box on the form, so its answer is the word checked " +
-    "or unchecked. Fix it or leave it empty, then show the filled form again.",
   previewHeading: "Your filled form, ready to print or download",
   previewBody:
     "These are the pages of your application with your answers filled in, " +
@@ -195,8 +203,6 @@ export const DEVICE_RESULTS_COPY = {
   downloadNotStarted:
     "The download didn't start, so no copy was saved. Press Download a copy " +
     "to try again.",
-  leftBlankHeading: "Left blank on the form below",
-  leftBlankHeadingNoPages: "Left blank on the form",
   coverageHeading: "Every field, accounted for",
   coverageDetails: "Why each blank field stays blank",
   coverageAllMapped: "Every box on this form takes an answer, so nothing was skipped.",
@@ -507,19 +513,50 @@ export function DeviceResults(props: {
   const coverage = useMemo(() => deviceFormCoverage(), []);
   const blankFields = useMemo(() => coverage.fields.filter(isBlankCoverageField), [coverage]);
   const [busy, setBusy] = useState(false);
-  // The typed answers as the fill takes them. A box or yes/no answer that
-  // isn't checked or unchecked would print as an unchecked box with no word
-  // to the person, so those hold the filled form back and are listed, from
-  // the first try on.
+  // The typed answers as the fill takes them (the box answers are the
+  // words the fill trusts; the Yes/No pairs put those words in). A box or
+  // yes/no answer that isn't checked or unchecked would print as an
+  // unchecked box with no word to the person — the pairs make that
+  // untypable here, and reviewAnswersForForm keeps the check for the
+  // fill.
   const forForm = useMemo(() => reviewAnswersForForm(typed), [typed]);
-  const [triedForm, setTriedForm] = useState(false);
-  const unreadableBoxes = useMemo(
-    () => new Set(triedForm ? forForm.unreadable : []),
-    [triedForm, forForm],
-  );
-  const questionByField = useMemo(
-    () => new Map(review.fields.map((field) => [field.fieldName, field.question])),
+  // The people actually on the application (HACK-154): the household size
+  // the person answered scopes the form's per-person sections.
+  const people = peopleOnApplication(answers.household_size?.value);
+  // The filled answers: every prefilled field, one row each, at the top
+  // beside the count (HACK-154).
+  const prefilledFields = useMemo(
+    () => review.fields.filter((field) => field.state === "prefilled"),
     [review],
+  );
+  // The remaining fields: asked and not-applicable, scoped to the people
+  // on the application, listed ONCE — this collapsed list is the
+  // still-needed list; there is no second copy.
+  const remainingFields = useMemo(
+    () =>
+      review.fields.filter(
+        (field) =>
+          field.state !== "prefilled" &&
+          personShowsField(field.question, people),
+      ),
+    [review, people],
+  );
+  const remainingCount = useMemo(
+    () =>
+      review.fields.filter(
+        (field) =>
+          field.state === "asked" && personShowsField(field.question, people),
+      ).length,
+    [review, people],
+  );
+  const personHiddenCount = useMemo(
+    () =>
+      review.fields.filter(
+        (field) =>
+          field.state !== "prefilled" &&
+          !personShowsField(field.question, people),
+      ).length,
+    [review, people],
   );
   const [filled, setFilled] = useState<FilledForm | null>(null);
   const [notice, setNotice] = useState("");
@@ -710,11 +747,6 @@ export function DeviceResults(props: {
     if (busy) {
       return;
     }
-    setTriedForm(true);
-    if (forForm.unreadable.length > 0) {
-      announce(DEVICE_RESULTS_COPY.unreadableBoxes);
-      return;
-    }
     const signal = answersSignal.current ?? new AbortController().signal;
     const leavesBefore = leaves.current;
     // Pages already on screen go first: the form is drawn again from scratch.
@@ -839,75 +871,245 @@ export function DeviceResults(props: {
         <p data-real-form-note className="text-sm font-medium text-amber-ink">
           {DEVICE_RESULTS_COPY.realFormNote}
         </p>
-        <ul className="flex flex-col gap-3" data-review-fields>
-          {review.fields.map((field, index) => {
-            const typedId = `device-form-answer-${index}`;
-            const typedNoteId = `${typedId}-note`;
-            const questionId = `device-form-question-${index}`;
-            const typeHere = field.state === "asked" && field.specQuestionId === null;
-            return (
-              <li
-                key={field.fieldName}
-                data-review-field={field.fieldName}
-                className="flex flex-col gap-1 rounded-xl border border-surface-border bg-surface p-4"
-              >
-                {typeHere ? (
-                  <label htmlFor={typedId} className="font-medium">
-                    {field.question}
-                  </label>
-                ) : (
-                  <span id={questionId} className="font-medium">
-                    {field.question}
-                  </span>
-                )}
-                <span className="flex flex-wrap items-center gap-2 text-sm">
-                  <span data-field-state={field.state} className="text-muted">
-                    {stateCopyFor(field)}
-                  </span>
-                  {field.status ? <AnswerStatusBadge status={field.status} /> : null}
-                  {field.provenance && field.state === "prefilled" ? (
-                    <span data-field-provenance={field.provenance} className="text-muted">
-                      ({PROVENANCE_COPY[field.provenance]})
-                    </span>
-                  ) : null}
-                </span>
-                {field.state === "prefilled" && field.value !== undefined ? (
-                  <span data-field-value={field.fieldName}>{field.value}</span>
-                ) : null}
-                {typeHere ? (
-                  <span className="flex flex-col gap-1">
-                    {/* No spellcheck: a browser's cloud spellcheck sends what is typed off the device. */}
-                    <input
-                      id={typedId}
-                      type="text"
-                      autoComplete="off"
-                      spellCheck={false}
-                      aria-describedby={typedNoteId}
-                      aria-invalid={unreadableBoxes.has(field.fieldName) ? true : undefined}
-                      maxLength={MAX_FORM_ANSWER_LENGTH}
-                      value={typed[field.fieldName] ?? ""}
-                      onChange={(event) => props.typedAnswers.onChange(field.fieldName, event.target.value)}
-                      className="rounded-lg border border-surface-border bg-surface px-2 py-1"
-                    />
-                    <span id={typedNoteId} data-typed-note={field.fieldName} className="text-xs text-muted">
-                      {DEVICE_RESULTS_COPY.typedNote}
-                    </span>
-                  </span>
-                ) : null}
-                {field.state === "asked" && field.specQuestionId !== null && onAnswer ? (
-                  <button
-                    type="button"
-                    aria-describedby={questionId}
-                    onClick={() => onAnswer(field.specQuestionId!)}
-                    className="self-start text-sm text-muted underline hover:text-foreground"
+        {/* The one-line filled/remaining count, then the show button,
+        right here at the top (HACK-154): the button sat ~93,600 px down
+        the old field dump; now it is beside the summary. */}
+        <p
+          data-review-count
+          className="flex flex-wrap items-baseline gap-2 text-sm font-medium"
+        >
+          Filling your application
+          <span
+            data-fill-count={`${review.counts.prefilled} of ${review.fields.length} fields`}
+            className="font-mono text-xs text-muted"
+          >
+            {review.counts.prefilled} of {review.fields.length} fields
+          </span>
+          {DEVICE_RESULTS_COPY.countFilledSuffix} {remainingCount}{" "}
+          {DEVICE_RESULTS_COPY.countLeftSuffix}
+          {review.counts.notApplicable > 0
+            ? ` ${review.counts.notApplicable} ${DEVICE_RESULTS_COPY.countNotNeededSuffix}`
+            : ""}
+        </p>
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.showFormNote}</p>
+          {/* Busy, not disabled, while the form is prepared: a disabled
+          button would drop the focus it has. A press meanwhile does nothing. */}
+          <button
+            type="button"
+            aria-disabled={busy || undefined}
+            onClick={() => void showFilledForm()}
+            data-action="show-form"
+            className="self-start rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal aria-disabled:opacity-50"
+          >
+            {busy ? DEVICE_RESULTS_COPY.showingForm : DEVICE_RESULTS_COPY.showFormButton}
+          </button>
+        </div>
+        {/* The filled answers: every prefilled field, one row each, with
+        ONE label (HACK-154) — the provenance for a verified answer, the
+        ask-to-check line + the status badge for an unverified one. A
+        private answer shows the badge alone, never its value. */}
+        {prefilledFields.length > 0 ? (
+          <div data-review-prefilled className="flex flex-col gap-2">
+            <h3 className="font-display text-xl font-bold">
+              What we filled in from your answers
+            </h3>
+            <ul className="flex flex-col gap-2">
+              {prefilledFields.map((field) => {
+                const unverified = stateCopyFor(field);
+                return (
+                  <li
+                    key={field.fieldName}
+                    data-review-field={field.fieldName}
+                    className="flex flex-col gap-1 rounded-xl border border-surface-border bg-surface p-3"
                   >
-                    {DEVICE_RESULTS_COPY.answerAbove}
-                  </button>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+                    <span className="font-medium">
+                      {plainQuestion(field.question)}
+                    </span>
+                    <span className="flex flex-wrap items-center gap-2 text-sm">
+                      {unverified ? (
+                        <>
+                          <span data-field-state={field.state} className="text-muted">
+                            {unverified}
+                          </span>
+                          {field.status ? <AnswerStatusBadge status={field.status} /> : null}
+                        </>
+                      ) : (
+                        <span
+                          data-field-state={field.state}
+                          data-field-provenance={field.provenance}
+                          className="text-muted"
+                        >
+                          ({PROVENANCE_COPY[field.provenance ?? "user_supplied"]})
+                        </span>
+                      )}
+                    </span>
+                    {field.state === "prefilled" && field.value !== undefined ? (
+                      <span data-field-value={field.fieldName}>{field.value}</span>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+        {/* The remaining fields, listed ONCE, collapsed by default,
+        grouped by the page of the form they print on, and scoped to the
+        people on the application (HACK-154). This list is the
+        still-needed list; there is no second copy of it anywhere. */}
+        {remainingFields.length > 0 ? (
+          <details data-review-remaining className="rounded-xl border border-surface-border bg-surface p-4">
+            <summary className="cursor-pointer font-medium">
+              {DEVICE_RESULTS_COPY.remainingOpen} — {remainingCount}{" "}
+              {remainingCount === 1 ? "field" : "fields"}{" "}
+              {DEVICE_RESULTS_COPY.remainingLeft}
+            </summary>
+            <p className="mt-3 text-sm text-muted">{DEVICE_RESULTS_COPY.remainingSummary}</p>
+            {personHiddenCount > 0 ? (
+              <p className="mt-2 text-sm text-muted" data-person-hidden-note>
+                The form also prints sections for more household members
+                than your answers name. Those aren&apos;t listed here —
+                your answers say {people}{" "}
+                {people === 1 ? "person is" : "people are"} on this
+                application, so those sections stay blank on the form, to
+                finish it by hand if anyone else counts.
+              </p>
+            ) : null}
+            <div className="mt-3 flex flex-col gap-4">
+              {groupByStep(remainingFields).map(({ step, fields }) => (
+                <section
+                  key={step}
+                  aria-labelledby={`device-page-${step}-heading`}
+                  data-page-group={step}
+                  className="flex flex-col gap-2"
+                >
+                  <h3 id={`device-page-${step}-heading`} className="font-medium">
+                    Page {step} of the form
+                  </h3>
+                  <ul className="flex flex-col gap-2" data-review-fields>
+                    {fields.map((field) => {
+                      // Index-based DOM ids (DHB field names carry spaces —
+                      // they can't be ids or label targets).
+                      const rowId = remainingFields.indexOf(field);
+                      const typedId = `device-form-answer-${rowId}`;
+                      const typedNoteId = `${typedId}-note`;
+                      const questionId = `device-form-question-${rowId}`;
+                      const typeHere =
+                        field.state === "asked" && field.specQuestionId === null;
+                      const box =
+                        typeHere &&
+                        (field.type === "checkbox" || field.type === "radio");
+                      const leftBlank = filled?.leftBlank.find(
+                        (item) => item.fieldName === field.fieldName,
+                      );
+                      return (
+                        <li
+                          key={field.fieldName}
+                          data-review-field={field.fieldName}
+                          className="flex flex-col gap-1 rounded-lg border border-surface-border bg-background p-3"
+                        >
+                          {box ? (
+                            // A Yes/No pair (HACK-154): the pair's values
+                            // are the two words the fill trusts, so a box
+                            // answer is never mistyped free text.
+                            <fieldset className="flex flex-wrap gap-2">
+                              <legend className="font-medium">
+                                {plainQuestion(field.question)}
+                              </legend>
+                              {[
+                                { word: "checked", label: "Yes" },
+                                { word: "unchecked", label: "No" },
+                              ].map((option) => (
+                                <label
+                                  key={option.word}
+                                  htmlFor={`${typedId}-${option.word}`}
+                                  className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface px-3 py-1.5 text-sm has-[:checked]:border-teal has-[:checked]:bg-teal-soft"
+                                >
+                                  <input
+                                    id={`${typedId}-${option.word}`}
+                                    type="radio"
+                                    name={typedId}
+                                    value={option.word}
+                                    checked={
+                                      (typed[field.fieldName] ?? "") === option.word
+                                    }
+                                    onChange={() =>
+                                      props.typedAnswers.onChange(
+                                        field.fieldName,
+                                        option.word,
+                                      )
+                                    }
+                                    spellCheck={false}
+                                    autoComplete="off"
+                                    className="h-4 w-4"
+                                  />
+                                  {option.label}
+                                </label>
+                              ))}
+                            </fieldset>
+                          ) : typeHere ? (
+                            <>
+                              <label htmlFor={typedId} className="font-medium">
+                                {plainQuestion(field.question)}
+                              </label>
+                              {/* No spellcheck: a browser's cloud spellcheck sends what is typed off the device. */}
+                              <input
+                                id={typedId}
+                                type="text"
+                                autoComplete="off"
+                                spellCheck={false}
+                                aria-describedby={typedNoteId}
+                                maxLength={MAX_FORM_ANSWER_LENGTH}
+                                value={typed[field.fieldName] ?? ""}
+                                onChange={(event) =>
+                                  props.typedAnswers.onChange(field.fieldName, event.target.value)
+                                }
+                                className="rounded-lg border border-surface-border bg-surface px-2 py-1"
+                              />
+                              <span id={typedNoteId} data-typed-note={field.fieldName} className="text-xs text-muted">
+                                {DEVICE_RESULTS_COPY.typedNote}
+                              </span>
+                            </>
+                          ) : (
+                            <span id={questionId} className="font-medium">
+                              {plainQuestion(field.question)}
+                            </span>
+                          )}
+                          {field.state === "prefilled" && field.value !== undefined ? (
+                            <span data-field-value={field.fieldName}>{field.value}</span>
+                          ) : null}
+                          {field.state === "asked" && field.specQuestionId !== null && onAnswer ? (
+                            <button
+                              type="button"
+                              aria-describedby={questionId}
+                              onClick={() => onAnswer(field.specQuestionId!)}
+                              className="self-start text-sm text-muted underline hover:text-foreground"
+                            >
+                              {DEVICE_RESULTS_COPY.answerAbove}
+                            </button>
+                          ) : null}
+                          {field.state === "not_applicable" ? (
+                            <span data-field-state={field.state} className="text-sm text-muted">
+                              Not needed for you
+                            </span>
+                          ) : null}
+                          {leftBlank ? (
+                            <span
+                              data-left-blank-reason={field.fieldName}
+                              className="text-xs text-muted"
+                            >
+                              {LEFT_BLANK_COPY[leftBlank.reason]}
+                            </span>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          </details>
+        ) : null}
         <div data-field-coverage className="flex flex-col gap-2">
           <h3 className="font-display text-xl font-bold">{DEVICE_RESULTS_COPY.coverageHeading}</h3>
           <p data-coverage-counts className="text-sm text-muted">
@@ -939,49 +1141,6 @@ export function DeviceResults(props: {
             </p>
           )}
         </div>
-        {review.toResolve.length > 0 ? (
-          <div
-            data-form-to-resolve
-            className="flex flex-col gap-2 rounded-2xl border border-dashed border-amber-line bg-amber-soft p-5"
-          >
-            <h3 className="font-display text-xl font-bold text-amber-ink">
-              {DEVICE_RESULTS_COPY.stillNeededHeading}
-            </h3>
-            <p className="text-amber-ink">{DEVICE_RESULTS_COPY.stillNeededBody}</p>
-            <ul className="list-disc pl-5">
-              {review.toResolve.map((item) => (
-                <li key={item.fieldName}>{item.question}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        <div className="flex flex-col gap-2">
-          <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.showFormNote}</p>
-          {/* Busy, not disabled, while the form is prepared: a disabled
-          button would drop the focus it has. A press meanwhile does nothing. */}
-          <button
-            type="button"
-            aria-disabled={busy || undefined}
-            onClick={() => void showFilledForm()}
-            data-action="show-form"
-            className="self-start rounded-full bg-teal-deep px-4 py-2 text-sm font-semibold text-teal-contrast hover:bg-teal aria-disabled:opacity-50"
-          >
-            {busy ? DEVICE_RESULTS_COPY.showingForm : DEVICE_RESULTS_COPY.showFormButton}
-          </button>
-        </div>
-        {unreadableBoxes.size > 0 ? (
-          <div data-unreadable-boxes className="flex flex-col gap-1">
-            <h3 className="font-medium">{DEVICE_RESULTS_COPY.unreadableBoxesHeading}</h3>
-            <p className="text-sm text-muted">{DEVICE_RESULTS_COPY.unreadableBoxesBody}</p>
-            <ul className="list-disc pl-5">
-              {[...unreadableBoxes].map((name) => (
-                <li key={name} data-unreadable-box={name}>
-                  {questionByField.get(name) ?? name}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
         <StatusRegion message={status} className="text-sm text-muted" />
       </section>
 
@@ -1037,20 +1196,6 @@ export function DeviceResults(props: {
               </button>
             </div>
           </div>
-          {filled.leftBlank.length > 0 ? (
-            <div data-left-blank className="flex flex-col gap-1">
-              <h3 className="font-medium">
-                {filled.drawn !== null ? DEVICE_RESULTS_COPY.leftBlankHeading : DEVICE_RESULTS_COPY.leftBlankHeadingNoPages}
-              </h3>
-              <ul className="list-disc pl-5">
-                {filled.leftBlank.map((item) => (
-                  <li key={item.fieldName}>
-                    {item.question} {LEFT_BLANK_COPY[item.reason]}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
           {filled.conflicts.length > 0 ? (
             <div data-check-conflicts className="flex flex-col gap-1">
               <h3 className="font-medium">

@@ -21,14 +21,19 @@ import { ReviewSection } from "./review-section";
 
 /**
  * The additional applications' entry points + their review surfaces.
- * Renders nothing when the pilot seam lists no additional applications.
+ * Renders nothing when the pilot seam lists no additional applications,
+ * and nothing until the session's match has found a program (HACK-153):
+ * a second application offered while nothing matched read as a bug.
  */
 export function AlsoPrepareSection({
   refreshKey,
   stagger = false,
+  matchExists = false,
 }: {
   refreshKey: number;
   stagger?: boolean;
+  /** Whether the match section found at least one program for the answers. */
+  matchExists?: boolean;
 }) {
   const applications = PILOT_CONFIG.additionalApplications;
   const [revealedIds, setRevealedIds] = useState<readonly string[]>([]);
@@ -58,7 +63,7 @@ export function AlsoPrepareSection({
     noticeTimer.current = setTimeout(() => setNotice(message), 30);
   }, []);
 
-  if (applications.length === 0) {
+  if (applications.length === 0 || !matchExists) {
     return null;
   }
 

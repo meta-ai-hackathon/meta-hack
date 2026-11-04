@@ -305,6 +305,10 @@ export function ConversationChat() {
   // re-read the stored answers in zero-send mode (no conversation turns
   // happen to trigger their refreshKey otherwise).
   const [answersRefresh, setAnswersRefresh] = useState(0);
+  // Whether the match has found at least one program (the match section
+  // reports after each load): the also-prepare offer waits for it
+  // (HACK-153).
+  const [matchExists, setMatchExists] = useState(false);
   const receipt = storedReceipt;
   const [error, setError] = useState<{
     code: string;
@@ -1387,12 +1391,14 @@ export function ConversationChat() {
         ) : null}
       </section>
 
-      <MatchSection refreshKey={turns.length + answersRefresh} stagger={resultsStage} />
+      <MatchSection refreshKey={turns.length + answersRefresh} stagger={resultsStage} onMatchesKnown={setMatchExists} />
       <ReviewSection refreshKey={turns.length + answersRefresh} stagger={resultsStage} />
       {/* The ask-once reuse (snap-form milestone): the same answers also
       prepare the pilot seam's additional applications — the honest
-      "Also prepare your SNAP application" entry point + its review. */}
-      <AlsoPrepareSection refreshKey={turns.length + answersRefresh} stagger={resultsStage} />
+      "Also prepare your SNAP application" entry point + its review. The
+      offer waits until the match has found a program (HACK-153): no
+      second-form card while nothing matched. */}
+      <AlsoPrepareSection refreshKey={turns.length + answersRefresh} stagger={resultsStage} matchExists={matchExists} />
       <PurgeSection onPurged={purgeClientState} />
     </>
   ) : null;

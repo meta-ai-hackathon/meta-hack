@@ -12,11 +12,14 @@ import {
   pagePointer,
 } from "./review-section";
 
-// Review + handoff section tests (Mission v2 M4, BN-21/23/24/25): every
-// field renders its state + provenance; pii-likely values are structurally
-// absent from the markup; the handoff steps and portal links render; the
-// session-status vocabulary stays inside BN-25; and the rendered population
-// carries zero banned claims.
+// Review + handoff section tests (Mission v2 M4, BN-21/23/24/25; HACK-153 +
+// HACK-154 + HACK-119 restructure): the download and the next step lead,
+// beside a one-line filled/remaining count; the remaining fields render
+// collapsed by default, grouped by form page, listed once, and scoped to
+// the people actually on the application; yes/no fields render as a
+// Yes/No pair; each answer carries one label, not three; pii-likely values
+// are structurally absent; the session-status vocabulary stays inside
+// BN-25; and the rendered population carries zero banned claims.
 
 function headingLevels(html: string): number[] {
   return [...html.matchAll(/<h([1-6])[\s>]/g)].map((m) => Number(m[1]));
@@ -55,45 +58,205 @@ function reviewData(
       sourceUrl: formEntry.source.url,
       retrievedAt: formEntry.source.retrievedAt,
     },
+    // The household size the session answered (the route carries it for
+    // the person scoping; it is a plain, non-pii answer).
+    householdSize: 3,
     fields: view.fields,
     toResolve: view.toResolve,
     counts: view.counts,
     sessionStatus: "draft",
     portalLinks: [
-      { label: "Official application portal", url: "{{PILOT_PORTAL_URL}}" },
-    ],
-    steps: [
-      { title: "Review every field", detail: "Check each answer below." },
-      { title: "Download your application", detail: "Generated on download." },
-      { title: "Submit it yourself", detail: "The app never submits for you." },
+      {
+        label: "Official application portal",
+        url: "{{PILOT_PORTAL_URL}}",
+        retrievedAt: "2026-10-30",
+      },
     ],
   } as const;
 }
 
 describe("ReviewSectionContent structure", () => {
-  it("renders provenance, to-resolve, steps, and portal links", () => {
+  it("renders provenance, the collapsed remaining list, and the handoff pieces", () => {
     const html = decodeEntities(
       renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
     );
     expect(html).toContain("data-review-section");
-    expect(html).toContain(
-      "We already know this from what you told us",
-    );
-    expect(html).toContain("Still needed");
-    expect(html).toContain("Not needed for you");
-    // Provenance labels render (user-supplied vs drafted).
+    // Provenance label on the prefilled answer — exactly one per answer.
     expect(html).toContain("(You told us)");
-    // The pii-likely value never renders; the non-pii one does.
-    expect(html).not.toContain("1990-01-01");
-    expect(html).not.toContain("Jane Tester");
-    expect(html).toContain(">3<");
-    // Handoff: ordered steps + portal links + BN-25 status copy.
-    expect(html).toContain('data-handoff-steps');
-    expect(html).toContain("Submit it yourself");
+    // Handoff: portal links + BN-25 status copy. (The sourced next-step
+    // companion needs the KB entry written for the form under review —
+    // the real form's review mounts it; the sample fixture's doesn't.)
     expect(html).toContain('data-portal-links');
     expect(html).toContain("Official application portal");
     expect(html).toContain('data-session-status="draft"');
     expect(html).toContain("In progress");
+  });
+
+  it("puts the download, the next step, and the count at the top (HACK-153, HACK-119)", () => {
+    // The REAL form's review: the KB companion backs its next-step box.
+    const dhb = getFormRegistryEntry("dhb-5200");
+    const view = buildFormFlow(dhb, {
+      household_size: { status: "known" as const, value: 1 },
+      date_of_birth: { status: "known" as const, value: "1990-01-01" },
+    });
+    const html = decodeEntities(
+      renderToStaticMarkup(
+        <ReviewSectionContent
+          data={{
+            ...reviewData(dhb, { household_size: { status: "known", value: 1 } }),
+            householdSize: 1,
+            fields: view.fields,
+            toResolve: view.toResolve,
+            counts: view.counts,
+          }}
+        />,
+      ),
+    );
+    const nextAction = html.indexOf("data-next-action");
+    const download = html.indexOf('data-action="download"');
+    const count = html.indexOf("data-fill-count");
+    const remaining = html.indexOf("data-review-remaining");
+    for (const [what, at] of [
+      ["the next-step box", nextAction],
+      ["the download button", download],
+      ["the filled/remaining count", count],
+    ] as const) {
+      expect(at, what).toBeGreaterThan(-1);
+      expect(at, `${what} above the remaining-fields list`).toBeLessThan(remaining);
+    }
+    // The next-step box leads the handoff's own controls: it renders
+    // before the lifecycle buttons, not below them (HACK-119).
+    const prepare = html.indexOf('data-action="prepare"');
+    expect(nextAction, "the next-step box leads the buttons").toBeLessThan(prepare);
+  });
+
+  it("styles exactly one primary button (HACK-49 rule via HACK-119)", () => {
+    const html = renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />);
+    // The primary style is the filled teal pill; every other control is
+    // an outline. The download is the one primary button.
+    const primary = [...html.matchAll(/<button[^>]*>/g)]
+      .filter((match) => match[0].includes("bg-teal-deep"))
+      .map((match) => match[0]);
+    expect(primary).toHaveLength(1);
+    expect(primary[0]).toContain('data-action="download"');
+  });
+
+  it("carries a one-line filled/remaining count near the summary (HACK-153)", () => {
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
+    );
+    const count = html.match(/data-fill-count="([^"]+)"/)?.[1] ?? "";
+    expect(count).toBe("3 of 10 fields");
+    const line = html.match(/data-fill-reveal[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+    expect(line).toContain("3 of 10 fields");
+    expect(line).toContain("left to fill in");
+  });
+
+  it("renders the remaining fields collapsed by default, grouped by form page, listed once (HACK-153)", () => {
+    const data = reviewData();
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={data} />),
+    );
+    // Collapsed: the details renders with no `open` attribute.
+    const details = html.match(/<details[^>]*data-review-remaining[^>]*>/)?.[0] ?? "";
+    expect(details).not.toBe("");
+    expect(details).not.toContain("open");
+    // Grouped by form step (the page of the form the field prints on).
+    expect(html).toContain("Page 1 of the form");
+    // Listed once: the old separate still-needed section is gone —
+    // the collapsed list is the one place the blanks are named.
+    expect(html).not.toContain("data-form-to-resolve");
+    // Every still-needed field's question appears exactly once in the
+    // whole markup.
+    for (const item of data.toResolve) {
+      const occurrences = html.split(item.question).length - 1;
+      expect(occurrences, item.question).toBe(1);
+    }
+  });
+
+  it("scopes the remaining fields to the people on the application (HACK-153)", () => {
+    // The REAL form carries Person 2-6 sections; a one-person application
+    // must not see them. The sample fixture has no per-person fields, so
+    // this runs on the DHB-5200's payload.
+    const dhb = getFormRegistryEntry("dhb-5200");
+    const one = buildFormFlow(dhb, {
+      household_size: { status: "known" as const, value: 1 },
+      date_of_birth: { status: "known" as const, value: "1990-01-01" },
+    });
+    const html = decodeEntities(
+      renderToStaticMarkup(
+        <ReviewSectionContent
+          data={{ ...reviewData(dhb, { household_size: { status: "known", value: 1 } }), householdSize: 1, fields: one.fields, toResolve: one.toResolve, counts: one.counts }}
+        />,
+      ),
+    );
+    expect(html).not.toContain("Person 2");
+    // A one-person application still has its own remaining fields listed.
+    expect(html).toContain("data-review-field");
+    // When people ARE on the application, their fields show and later
+    // persons' don't, and the prose accounting says the rest stay blank
+    // to finish by hand.
+    const three = buildFormFlow(dhb, {
+      household_size: { status: "known" as const, value: 3 },
+      date_of_birth: { status: "known" as const, value: "1990-01-01" },
+    });
+    const threeHtml = decodeEntities(
+      renderToStaticMarkup(
+        <ReviewSectionContent
+          data={{ ...reviewData(dhb, { household_size: { status: "known", value: 3 } }), fields: three.fields, toResolve: three.toResolve, counts: three.counts }}
+        />,
+      ),
+    );
+    expect(threeHtml).toContain("Person 2");
+    expect(threeHtml).toContain("Person 3");
+    expect(threeHtml).not.toContain("Person 4");
+    // The prose accounting: the hidden per-person sections are said to
+    // stay blank, to finish by hand.
+    expect(threeHtml).toContain("finish it by hand");
+  });
+
+  it("renders yes/no fields as a Yes/No pair, never free text (HACK-153)", () => {
+    // The REAL form's unmapped box fields (the sample fixture's one
+    // checkbox is spec-linked, so its row points at the conversation).
+    // Person 2's work-status line is an unmapped box pair.
+    const dhb = getFormRegistryEntry("dhb-5200");
+    const view = buildFormFlow(dhb, {
+      household_size: { status: "known" as const, value: 3 },
+      date_of_birth: { status: "known" as const, value: "1990-01-01" },
+    });
+    const html = decodeEntities(
+      renderToStaticMarkup(
+        <ReviewSectionContent
+          data={{
+            ...reviewData(dhb, { household_size: { status: "known", value: 3 } }),
+            fields: view.fields,
+            toResolve: view.toResolve,
+            counts: view.counts,
+          }}
+        />,
+      ),
+    );
+    const row =
+      html.match(/<li[^>]*data-review-field="Employed_2"[\s\S]*?<\/li>/)?.[0] ?? "";
+    expect(row).not.toBe("");
+    expect(row).toContain('type="radio"');
+    expect(row).toContain('value="checked"');
+    expect(row).toContain('value="unchecked"');
+    expect(row).toContain("Yes");
+    expect(row).toContain("No");
+    expect(row).not.toContain('type="text"');
+  });
+
+  it("carries exactly one label per prefilled answer, not three (HACK-154)", () => {
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
+    );
+    // The old triple stack ("We already know this from what you told us"
+    // + the "You told us" badge + the "(You told us)" parenthetical) is
+    // one provenance label now.
+    expect(html).not.toContain("We already know this from what you told us");
+    const row = html.match(/<li[^>]*data-review-field="household_size_count"[\s\S]*?<\/li>/)?.[0] ?? "";
+    expect(row.split("(You told us)").length - 1).toBe(1);
   });
 
   it("renders the tax-return provenances with plain-language labels (VAL-INC-010)", () => {
@@ -134,14 +297,12 @@ describe("ReviewSectionContent structure", () => {
         />,
       ),
     );
-    // The unverified field gets its own state copy, not the "we already
-    // know this" confirmation — and the status badge repeats it.
+    // The unverified field gets its own state copy, not a confirmation —
+    // and the status badge repeats it.
     expect(html).toContain(
       "You answered this, but haven't verified it — please check it",
     );
     expect(html).toContain("Answered but not verified");
-    // The confirmed copy still renders for the verified answers.
-    expect(html).toContain("We already know this from what you told us");
     // The pii-likely value still never renders.
     expect(html).not.toContain("1990-01-01");
   });
@@ -194,7 +355,8 @@ describe("ReviewSectionContent structure", () => {
   it("renders the distinct typed-signature step for the signature field (VAL-VJS2-002)", () => {
     // The REAL form's payload: the DHB-5200's Signature field is unmapped
     // and asked — its rendering is the distinct signing step, not the
-    // generic draft input.
+    // generic draft input, and it stays visible beside the download it
+    // fills.
     const dhb = getFormRegistryEntry("dhb-5200");
     const view = buildFormFlow(dhb, {
       date_of_birth: { status: "known" as const, value: "1990-01-01" },
@@ -216,7 +378,6 @@ describe("ReviewSectionContent structure", () => {
             counts: view.counts,
             sessionStatus: "draft",
             portalLinks: [],
-            steps: [],
           }}
         />,
       ),
@@ -231,6 +392,10 @@ describe("ReviewSectionContent structure", () => {
     // Properly labeled control (visible label ↔ input association).
     expect(html).toContain('for="signature-input"');
     expect(html).toContain('id="signature-input"');
+    // The signature renders OUTSIDE the collapsed list, beside the
+    // download it fills — and never twice.
+    const remaining = html.match(/<details[^>]*data-review-remaining[\s\S]*$/)?.[0] ?? "";
+    expect(remaining).not.toContain('id="signature-input"');
     // The generic sr-only draft input does NOT render for the signature.
     expect(html).not.toContain('id="form-answer-Signature"');
     // The signature step copy scans clean of banned claims.
@@ -249,6 +414,17 @@ describe("ReviewSectionContent structure", () => {
     expect(html).toContain("Mecklenburg County DSS");
     expect(html).toContain("NC Medicaid");
     expect(html).toContain("the app never submits for you");
+  });
+
+  it("dates every official portal link (HACK-119: no bare unsourced links)", () => {
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
+    );
+    const links = html.match(/<li[^>]*>\s*<a[^>]*>[\s\S]*?<\/li>/g) ?? [];
+    const portalBlock = html.match(/data-portal-links[\s\S]*<\/ul>/)?.[0] ?? "";
+    expect(portalBlock).not.toBe("");
+    expect(portalBlock).toContain("retrieved 2026-10-30");
+    expect(links.length).toBeGreaterThan(0);
   });
 
   it("renders the full-form disposition report when the payload carries it (VAL-FIX-007)", () => {

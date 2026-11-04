@@ -13,12 +13,15 @@ import {
 } from "../../../../../lib/intake/store";
 import { logInfo, requestIdFromHeaders, runWithRequestId } from "../../../../../lib/telemetry";
 
-// GET /api/forms/<formId>/review (Mission v2 M4, BN-21/BN-23/BN-24): the
+// GET /api/forms/<formId>/review (Mission v2 M4, BN-21/23/24): the
 // prepared-package review surface. Returns the form-driven field view —
 // every field with its provenance ("you told us" vs drafted), pre-filled /
 // asked / not-applicable state, and the to-resolve list — plus the session's
-// BN-25 lifecycle status, the pilot seam's official-portal links, and the
-// ordered handoff steps.
+// BN-25 lifecycle status, the pilot seam's official-portal links (with the
+// date each was verified), and the household size the person answered, for
+// the review's person scoping. The handoff's steps are NOT served here
+// (HACK-119): the client renders the KB-sourced companion steps instead of
+// the unsourced generic list this route used to carry.
 //
 // Pii discipline: the view structurally omits every pii-likely field's
 // VALUE (status + provenance render instead) — the same boundary
@@ -56,11 +59,10 @@ export async function GET(
       // Defense in depth before anything leaves for the client: a pii
       // value never reaches the review payload (the flow view omits it
       // structurally; this check throws loudly if that ever changes).
-      // The still-needed questions and the handoff steps serialize
-      // alongside the fields — they join the needle haystack too.
+      // The still-needed questions serialize alongside the fields — they
+      // join the needle haystack too.
       assertNoPiiValuesInFormReview(view.fields, answers, entry, [
         view.toResolve,
-        HANDOFF_STEPS,
       ]);
       const sessionState = await loadSessionState(sessionId);
       logInfo("form_review_loaded");
@@ -71,6 +73,22 @@ export async function GET(
       // sample fixtures) fall back to the pilot's identity.
       const application = pilotApplicationForForm(entry.id);
 
+      // The household size the person answered (a plain, non-pii answer):
+      // the count the review scopes the form's per-person sections
+      // against (HACK-153). Unknown when the question isn't answered yet;
+      // the answer arrives as a number or the number typed as text.
+      const householdValue = answers.household_size?.value;
+      const size =
+        typeof householdValue === "number"
+          ? householdValue
+          : typeof householdValue === "string"
+            ? Number(householdValue)
+            : Number.NaN;
+      const householdSize =
+        answers.household_size?.status === "known" && Number.isFinite(size) && size > 0
+          ? size
+          : undefined;
+
       return Response.json({
         hasSession: true,
         form: {
@@ -80,6 +98,7 @@ export async function GET(
           sourceUrl: entry.source.url,
           retrievedAt: entry.source.retrievedAt,
         },
+        householdSize,
         programName: application?.programName ?? PILOT_CONFIG.programName,
         countyName: PILOT_CONFIG.countyName,
         fields: view.fields,
@@ -93,42 +112,9 @@ export async function GET(
         sessionStatus: sessionState?.status ?? "draft",
         allowedSessionTransitions: FORM_SESSION_TRANSITIONS,
         portalLinks: application?.portalLinks ?? PILOT_CONFIG.portalLinks,
-        steps: HANDOFF_STEPS,
       });
     } catch (error) {
       return conversationErrorResponse(error);
     }
   });
 }
-
-/**
- * The ordered handoff steps (BN-23/24): what the person does with the
- * prepared package, in order, with the honesty boundaries built in — the
- * app prepares and hands off; the person reviews, downloads, and submits
- * through the official portal themselves; submission is only ever reported
- * back to us, never assumed.
- */
-const HANDOFF_STEPS: readonly { title: string; detail: string }[] = [
-  {
-    title: "Review every field",
-    detail:
-      "Check each answer below. Anything marked as still needed is left blank on the form.",
-  },
-  {
-    title: "Download your application",
-    detail:
-      "The filled PDF is created right on your device when you tap download — " +
-      "nothing about it is kept on our side. Answers shown with a status " +
-      "instead of a value stay blank on the file: finish those lines by hand.",
-  },
-  {
-    title: "Submit it yourself",
-    detail:
-      "Use the official portal link, or mail or drop off the printed form — the app never submits for you.",
-  },
-  {
-    title: "Tell us what happened",
-    detail:
-      "After you submit, let us know so your progress here reflects reality.",
-  },
-];

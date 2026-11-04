@@ -317,6 +317,7 @@ const REVIEW_FIELDS = [
   { fieldName: "household_count", question: "Household size", state: "prefilled", specQuestionId: null, required: true, piiLikely: false, status: "known", provenance: "user_supplied", value: "3" },
   { fieldName: "income_note", question: "Income source", state: "asked", specQuestionId: null, required: false, piiLikely: false },
   { fieldName: "county", question: "County", state: "not_applicable", specQuestionId: null, required: false, piiLikely: false },
+  { fieldName: "Signature", question: "Your signature — you sign it yourself", state: "asked", specQuestionId: null, required: false, piiLikely: false },
 ] as const;
 
 const REVIEW_PAYLOAD = {
@@ -328,12 +329,17 @@ const REVIEW_PAYLOAD = {
     sourceUrl: "https://example.gov/form.pdf",
     retrievedAt: "2026-10-30",
   },
+  householdSize: 1,
   fields: REVIEW_FIELDS,
-  toResolve: [{ fieldName: "signature", question: "Your signature — you sign it yourself" }],
-  counts: { prefilled: 4, asked: 3, notApplicable: 1 },
+  toResolve: [
+    { fieldName: "phone", question: "Phone" },
+    { fieldName: "email", question: "Email" },
+    { fieldName: "income_note", question: "Income source" },
+    { fieldName: "Signature", question: "Your signature — you sign it yourself" },
+  ],
+  counts: { prefilled: 4, asked: 4, notApplicable: 1 },
   sessionStatus: "draft",
   portalLinks: [],
-  steps: [{ title: "Review the filled form", detail: "Check every answer." }],
 };
 
 function stubFetch(state: IntakeClientState, turnState?: IntakeClientState): void {
@@ -719,25 +725,27 @@ describe("the real-data fill reveal (VAL-VJS2-001)", () => {
     expect(reveal).not.toBeNull();
     expect(reveal?.textContent).toContain("Filling your application");
     const counter = q(container, "fill-count");
-    // 4 prefilled of the 8 real mapped fields in the fixture payload.
-    expect(counter?.textContent).toBe("4 of 8 fields");
-    expect(counter?.getAttribute("data-fill-count")).toBe("4 of 8 fields");
+    // 4 prefilled of the 9 real mapped fields in the fixture payload.
+    expect(counter?.textContent).toBe("4 of 9 fields");
+    expect(counter?.getAttribute("data-fill-count")).toBe("4 of 9 fields");
   });
 
-  it("the reveal staggers the real field list and keeps the honest toResolve display", async () => {
+  it("the reveal staggers the filled answers and keeps the remaining fields collapsed below (HACK-153)", async () => {
     const { container, act: actFn } = await renderChat(COMPLETE_STATE);
     await actFn(async () => {
       saveConsentReceipt(voiceReceipt());
     });
-    const fields = container.querySelectorAll("[data-review-fields] li");
-    expect(fields).toHaveLength(8);
+    // The visible filled answers stagger.
+    const fields = container.querySelectorAll("[data-review-prefilled] li");
+    expect(fields).toHaveLength(4);
     expect(fields[0]?.className).toContain("stagger-item");
-    // Honest unknowns: the toResolve section still renders, never hidden
-    // by the reveal.
-    expect(q(container, "form-to-resolve")).not.toBeNull();
-    expect(q(container, "form-to-resolve")?.textContent).toContain(
-      "Your signature — you sign it yourself",
-    );
+    // The remaining fields render once, collapsed by default, with the
+    // signature as its own visible step beside the download.
+    const remaining = q(container, "review-remaining") as HTMLDetailsElement | null;
+    expect(remaining).not.toBeNull();
+    expect(remaining?.hasAttribute("open")).toBe(false);
+    expect(remaining?.querySelectorAll("[data-review-field]").length).toBe(4);
+    expect(q(container, "signature-step")).not.toBeNull();
   });
 });
 
