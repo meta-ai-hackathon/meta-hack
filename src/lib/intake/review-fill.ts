@@ -1,4 +1,4 @@
-import { PDFDocument } from "@cantoo/pdf-lib";
+import { PDFDocument, ParseSpeeds } from "@cantoo/pdf-lib";
 import {
   checkedFormValues,
   fillLoadedPdf,
@@ -159,11 +159,18 @@ export async function fillReviewOnDevice(
 
   let pdf: PDFDocument;
   try {
-    pdf = await PDFDocument.load(templateBytes);
+    // Parse fast: the fork's default Slow speed yields a `setTimeout` tick
+    // per indirect object, and a browser throttles background tabs'
+    // timers to about one a second — a 21-page form's parse would take
+    // minutes of ticks. Fast parses without the ticks, in one go.
+    pdf = await PDFDocument.load(templateBytes, { parseSpeed: ParseSpeeds.Fast });
   } catch {
     return { kind: "unreadable_form" };
   }
   const outcome = await fillLoadedPdf(pdf, entry, values, {});
+  // Save in one go, too: the writer's default yields a `setTimeout` tick
+  // per 50 objects, which a throttled background tab stretches to minutes.
+  const bytes = await pdf.save({ objectsPerTick: Infinity });
   // The payload's not-applicable states are the skip decision (above):
   // their fields' blank to-resolve rows — which a valueless fill lists —
   // come back out, so the still-needed list stays the review's.
@@ -173,7 +180,7 @@ export async function fillReviewOnDevice(
   return {
     kind: "filled",
     outcome: {
-      bytes: await pdf.save(),
+      bytes,
       filled: outcome.filled,
       toResolve: outcome.toResolve.filter((item) => !notApplicable.has(item.fieldName)),
       conflicts: outcome.conflicts,
