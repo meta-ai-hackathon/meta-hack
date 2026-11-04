@@ -53,6 +53,9 @@ function text(): string {
   return container.textContent ?? "";
 }
 
+/** Words for things the app never does on the person's behalf: prepared is never submitted. */
+const NOT_AN_APP_ACTION = /submit|send|\bfil(e|ing)\b|\bsign|renew/i;
+
 /** One answer a question: true when the person says it changed. */
 const answerMixes = fc.array(fc.boolean(), { minLength: PREVIEW_CHECKS.length, maxLength: PREVIEW_CHECKS.length });
 
@@ -143,7 +146,12 @@ describe("the one-click renewal concept preview", () => {
         expect(container.querySelector("[data-confirm-label]")?.textContent).toBe(
           changes.some(Boolean) ? RENEWAL_PREVIEW_COPY.confirmCheckChanged : RENEWAL_PREVIEW_COPY.confirmCheck,
         );
-        expect(container.querySelector<HTMLButtonElement>('[data-action="confirm"]')!.disabled).toBe(true);
+        const confirm = container.querySelector<HTMLButtonElement>('[data-action="confirm"]')!;
+        expect(confirm.disabled).toBe(true);
+        // The button that finishes the preview names what the person does,
+        // confirming details. On camera it must never read as the app filing
+        // the renewal, so it never says submit, send, file, sign or renew.
+        expect(confirm.textContent).not.toMatch(NOT_AN_APP_ACTION);
       }),
       { examples: everyAnswerMix, numRuns: 16 },
     );

@@ -68,7 +68,7 @@ export const RENEWAL_PREVIEW_COPY = {
   confirmCheck: "I've checked these details and they're correct.",
   confirmCheckChanged: "I've checked these details and marked what needs updating.",
   confirmNote: "In the real app, you'd see the filled renewal form and sign it yourself before anything is sent.",
-  confirm: "Confirm my renewal",
+  confirm: "Confirm these details",
   doneHeading: "Preview finished. Nothing was sent.",
   doneBody:
     "In the real app, Tenet would prepare your renewal form for you to review, sign and send yourself. Only the agency decides on your renewal.",
