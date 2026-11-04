@@ -240,12 +240,24 @@ export interface ConsentReceiptPanelProps {
 }
 
 /**
- * The inspectable, revocable receipt (VAL-CONSENT-002/005): what the user
- * decided, when, and how to take it back — plus the raw receipt itself,
- * which carries the decision and nothing else (no answer data).
+ * The revocable receipt (VAL-CONSENT-002/005): what the user decided and
+ * how to take it back. HACK-150 / VAL-UX-010: the on-screen presentation is
+ * a short, friendly, non-technical privacy reassurance — no raw JSON on
+ * screen. The stored record itself is UNCHANGED: the per-device receipt
+ * keeps its exact wire format (parseConsentReceipt still consumes it
+ * verbatim); this panel renders strictly from the stored fields and never
+ * writes — presentation only.
  */
 export function ConsentReceiptPanel(props: ConsentReceiptPanelProps) {
   const { receipt } = props;
+  // Friendly provider naming derives from the enforcement registry so copy
+  // and enforcement cannot drift apart (the consent gate rejects receipts
+  // for any other provider, so this line never names a provider the
+  // decision was not made with). The registry string's parenthetical is
+  // technical detail; the full naming lives on the consent panel above.
+  const aiPath = CONSENT_PATHS.find((path) => path.id === "ai-conversation");
+  const providerName =
+    aiPath?.provider.replace(/\s*\(.*\)$/, "") ?? "the assistant";
   return (
     <section
       data-consent-receipt
@@ -255,20 +267,12 @@ export function ConsentReceiptPanel(props: ConsentReceiptPanelProps) {
       <h2 id="consent-receipt-heading" className="font-display text-xl font-bold">
         Your privacy choices
       </h2>
-      <p>
-        Sharing what you type with the assistant is:{" "}
-        {receipt.ai ? "on" : "off"}. Voice sharing is:{" "}
-        {receipt.voice ? "on" : "off"}. Decided on{" "}
-        {new Date(receipt.at).toLocaleString()}. Stored on this device.
+      <p data-consent-receipt-summary>
+        You&apos;re in control of your information: sharing what you type
+        with the AI assistant ({providerName}) is {receipt.ai ? "on" : "off"},
+        and voice sharing is {receipt.voice ? "on" : "off"}. This choice was
+        saved on this device on {new Date(receipt.at).toLocaleString()}.
       </p>
-      <details data-consent-receipt-json>
-        <summary className="cursor-pointer underline">
-          The receipt, exactly as stored
-        </summary>
-        <pre className="overflow-x-auto whitespace-pre-wrap break-all text-xs text-muted">
-          {JSON.stringify(receipt)}
-        </pre>
-      </details>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
