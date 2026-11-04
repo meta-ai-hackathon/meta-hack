@@ -1038,6 +1038,10 @@ describe("the mode is asked once (HACK-157, VAL-UX-002)", () => {
     });
     expect(q(container, "mode-choice")).not.toBeNull();
     expect(q(container, "mode-begin")).not.toBeNull();
+    // Focus follows the surfaced card (claude-review P3): the change link
+    // unmounted the focused button, so the choice card's heading takes
+    // focus — keyboard and screen-reader users are not dropped on <body>.
+    expect(document.activeElement?.id).toBe("mode-choice-heading");
     // Beginning from the restored card enters the picked mode.
     await act(async () => {
       const radio = q(container, 'mode-option="voice-only"')?.querySelector(

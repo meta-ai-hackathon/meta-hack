@@ -398,7 +398,11 @@ describe("the quick-questions stage component", () => {
     // HACK-157: remaining == required on this fixture — the old counter
     // read "5 questions instead of 5", which reads as a bug. The stage
     // shows plain progress instead and never calls itself a short list.
-    expect(q(container, "qq-counter")).toBeNull();
+    // The live region stays MOUNTED but renders NO text at equal counts
+    // (claude-review P2: an always-mounted region announces its first
+    // update; nothing visible shows, so the counter never "appears").
+    expect(q(container, "qq-counter")?.textContent).toBe("");
+    expect(q(container, "qq-counter")?.getAttribute("aria-live")).toBe("polite");
     expect(container.textContent ?? "").not.toContain("instead of");
     expect(container.textContent ?? "").not.toContain("short list");
     // Paginated (HACK-132): exactly one group is visible at a time
@@ -1158,11 +1162,13 @@ describe("the quick-questions stage properties (fast-check)", () => {
               onToTalk={() => undefined}
             />,
           );
-          // The counter renders EXACTLY when the visible list is
+          // The counter renders TEXT exactly when the visible list is
           // genuinely shorter than the required universe (N < M) — equal
-          // counts show plain progress, never "N instead of N" — and the
-          // short-list claim rides with it, never alone.
-          expect(html.includes("data-qq-counter")).toBe(n < m);
+          // counts leave the always-mounted live region EMPTY (claude-
+          // review P2: the region must exist before its first update),
+          // never "N instead of N" — and the short-list claim rides with
+          // the text, never alone.
+          expect(html.includes("instead of")).toBe(n < m);
           expect(html.includes("short list")).toBe(n < m);
           if (n < m) {
             expect(html).toContain(counterCopy(n, m));
@@ -1184,8 +1190,11 @@ describe("the quick-questions stage static markup", () => {
       />,
     );
     expect(html).toContain("data-quick-questions-stage");
-    // Equal counts (5 of 5): no counter, no short-list claim — plain
-    // progress is the honest header (HACK-157).
+    // Equal counts (5 of 5): the counter renders NO text, no short-list
+    // claim — plain progress is the honest header (HACK-157). The live
+    // region itself stays mounted and empty (claude-review P2: so its
+    // first count update is announced).
+    expect(html).toContain('data-qq-counter="true" aria-live="polite"');
     expect(html).not.toContain("instead of");
     expect(html).not.toContain("short list");
     // Paginated (HACK-132): SSR carries every section mounted, with only

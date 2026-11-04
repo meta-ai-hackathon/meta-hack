@@ -845,15 +845,19 @@ export function QuickQuestionsStage(props: {
         <h2 id="quick-questions-stage-heading" data-qq-heading className="font-display text-2xl font-bold">
           Quick questions
         </h2>
-        {genuinelyShorter ? (
-          <p
-            data-qq-counter
-            aria-live="polite"
-            className="font-mono text-sm text-muted"
-          >
-            {counterCopy(remainingCount, requiredCount)}
-          </p>
-        ) : null}
+        {/* The live region stays MOUNTED even when the counts are equal
+        (claude-review P2 on this PR): a live region that first appears
+        together with its content is ignored by most screen readers, so
+        the first count update would be silent. Equal counts render an
+        EMPTY counter — nothing visible, no false claim (VAL-UX-002) —
+        and the text arrives when the list is genuinely shorter. */}
+        <p
+          data-qq-counter
+          aria-live="polite"
+          className="font-mono text-sm text-muted"
+        >
+          {genuinelyShorter ? counterCopy(remainingCount, requiredCount) : ""}
+        </p>
         <p className="max-w-xl text-muted">
           {genuinelyShorter
             ? "Here's the short list — answer what you can, skip what you'd rather not. Your answers save as you go, and private details stay private."

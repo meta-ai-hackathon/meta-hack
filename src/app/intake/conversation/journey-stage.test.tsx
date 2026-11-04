@@ -821,12 +821,15 @@ describe("the quick-questions stage between entry and talk (VAL-QQ-002/004/006/0
     // The microphone is NEVER open over the question cards: the session
     // begins only when the talk stage renders.
     expect(sessionOps).not.toContain("begin");
-    // HACK-157 (VAL-UX-002): equal counts (1 of 1) — the counter stays
-    // hidden ("1 question instead of 1" reads as a bug), the stage leads
+    // HACK-157 (VAL-UX-002): equal counts (1 of 1) — the counter renders
+    // NO text ("1 question instead of 1" reads as a bug), the stage leads
     // with plain progress, and it never calls itself a short list. The
-    // live counter appears once the list is genuinely shorter (proven in
-    // the decrement test below and in quick-questions.test.tsx).
-    expect(q(container, "qq-counter")).toBeNull();
+    // live region stays mounted and EMPTY (claude-review P2: so its first
+    // count update is announced); the counter text appears once the list
+    // is genuinely shorter (proven in the decrement test below and in
+    // quick-questions.test.tsx).
+    expect(q(container, "qq-counter")?.textContent).toBe("");
+    expect(q(container, "qq-counter")?.getAttribute("aria-live")).toBe("polite");
     expect(container.textContent ?? "").not.toContain("instead of");
     expect(container.textContent ?? "").not.toContain("short list");
     expect(q(container, "qq-section-progress")?.textContent).toContain(
@@ -877,9 +880,10 @@ describe("the quick-questions stage between entry and talk (VAL-QQ-002/004/006/0
         new MouseEvent("click", { bubbles: true }),
       );
     });
-    // Flow point one: equal counts (2 of 2) — the counter stays hidden
+    // Flow point one: equal counts (2 of 2) — the counter renders NO text
     // (HACK-157, VAL-UX-002); plain progress leads, no short-list claim.
-    expect(q(container, "qq-counter")).toBeNull();
+    // The always-mounted live region sits empty (claude-review P2).
+    expect(q(container, "qq-counter")?.textContent).toBe("");
     expect(container.textContent ?? "").not.toContain("short list");
     // Answer the first card: typed value → POST /api/intake/answer.
     await actFn(async () => {

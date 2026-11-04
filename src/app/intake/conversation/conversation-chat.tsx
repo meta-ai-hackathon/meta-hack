@@ -569,6 +569,14 @@ export function ConversationChat() {
     entryMode !== null &&
     !journeyComplete &&
     !quickQuestionsStage;
+  // Focus follows the surfaced choice card (claude-review P3): activating
+  // the change link unmounts the focused button, so keyboard and
+  // screen-reader users land on the card's heading instead of <body>.
+  useEffect(() => {
+    if (changingMode && entryStage) {
+      document.getElementById("mode-choice-heading")?.focus();
+    }
+  }, [changingMode, entryStage]);
 
   // Surface conditions (the two-mode rule, VAL-NCF-002): mode A shows no
   // typing at all; mode B offers the switch at any point; the typed form

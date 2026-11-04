@@ -109,7 +109,7 @@ export function ModeChoice(props: {
         Let&apos;s make this feel easier
       </p>
       <div className="flex flex-col gap-2">
-        <h2 id="mode-choice-heading" className="font-display text-3xl font-bold">
+        <h2 id="mode-choice-heading" tabIndex={-1} className="font-display text-3xl font-bold">
           How would you like to talk?
         </h2>
         <p className="text-muted">
