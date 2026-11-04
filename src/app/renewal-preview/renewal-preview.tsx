@@ -100,15 +100,17 @@ export function RenewalPreview() {
   const [changed, setChanged] = useState<ReadonlySet<PreviewCheckId>>(new Set());
   const [checked, setChecked] = useState(false);
   const heading = useRef<HTMLHeadingElement | null>(null);
-  const started = useRef(false);
+  const shownStep = useRef<Step>(step);
 
   // Each new step takes focus to its heading, so a screen reader lands on
-  // it. The first screen keeps the page's own starting focus.
+  // it. The first screen keeps the page's own starting focus. Comparing
+  // with the step last shown, instead of flipping a one-time flag, keeps
+  // that true when React runs this effect twice on mount in development.
   useEffect(() => {
-    if (started.current) {
+    if (shownStep.current !== step) {
       heading.current?.focus();
     }
-    started.current = true;
+    shownStep.current = step;
   }, [step]);
 
   function answer(id: PreviewCheckId, didChange: boolean, index: number): void {

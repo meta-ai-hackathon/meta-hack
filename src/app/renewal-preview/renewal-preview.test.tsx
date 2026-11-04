@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import fc from "fast-check";
-import { act } from "react";
+import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -158,15 +158,35 @@ describe("the one-click renewal concept preview", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("moves focus to each new step's heading", () => {
-    mount();
-    press("start");
-    expect(document.activeElement?.textContent).toBe(PREVIEW_CHECKS[0].question);
-    press("no-change");
-    expect(document.activeElement?.textContent).toBe(PREVIEW_CHECKS[1].question);
-    press("no-change");
-    press("no-change");
-    expect(document.activeElement?.textContent).toBe(RENEWAL_PREVIEW_COPY.reviewHeading);
+  it("leaves the first screen's focus alone, even when React runs effects twice, then moves focus to each new step's heading", () => {
+    fc.assert(
+      fc.property(answerMixes, (changes) => {
+        act(() => root.unmount());
+        root = createRoot(container);
+        // StrictMode runs mount effects twice in development, which is how
+        // the dev server renders the page.
+        act(() =>
+          root.render(
+            <StrictMode>
+              <RenewalPreview />
+            </StrictMode>,
+          ),
+        );
+        expect(container.contains(document.activeElement)).toBe(false);
+        press("start");
+        changes.forEach((didChange, index) => {
+          expect(document.activeElement?.textContent).toBe(PREVIEW_CHECKS[index].question);
+          press(didChange ? "changed" : "no-change");
+        });
+        expect(document.activeElement?.textContent).toBe(RENEWAL_PREVIEW_COPY.reviewHeading);
+        act(() => container.querySelector<HTMLInputElement>("[data-confirm-check]")!.click());
+        press("confirm");
+        expect(document.activeElement?.textContent).toBe(RENEWAL_PREVIEW_COPY.doneHeading);
+        press("again");
+        expect(document.activeElement?.textContent).toBe(RENEWAL_PREVIEW_COPY.forWhom);
+      }),
+      { examples: everyAnswerMix, numRuns: 8 },
+    );
   });
 
   it("never promises an outcome, in its copy or on any screen", () => {
