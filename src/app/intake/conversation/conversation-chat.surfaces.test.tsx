@@ -1604,3 +1604,121 @@ describe("the chat opens with the first question (HACK-160, VAL-UX-004)", () => 
     );
   });
 });
+
+// HACK-158 (VAL-UX-005): the server's redaction replaces a private
+// answer with a bracket marker in the user transcript; the person's own
+// bubble must render that marker as the same small "You told us" chip the
+// answers list uses — never as raw bracket text — and the intro + help
+// lines must claim only what is true (answers to PRIVATE questions show
+// as You told us; typed names and free text stay visible as typed).
+describe("the transcript renders You-told-us chips, not raw tags (HACK-158, VAL-UX-005)", () => {
+  // The typed talk surface (same harness as the shield tests above,
+  // re-declared here — those helpers are describe-local).
+  async function typingMode(): Promise<{
+    container: HTMLElement;
+    act: (fn: () => Promise<void> | void) => Promise<void>;
+  }> {
+    const rendered = await renderChat();
+    await beginMode(rendered.container, rendered.act, "voice-plus-typing");
+    await rendered.act(async () => {
+      q(rendered.container, "switch-to-typing")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    return rendered;
+  }
+
+  async function typeText(
+    container: HTMLElement,
+    act: (fn: () => Promise<void> | void) => Promise<void>,
+    text: string,
+  ): Promise<void> {
+    await act(async () => {
+      const ta = container.querySelector("textarea") as HTMLTextAreaElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(ta, text);
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  // A turn response whose redacted transcript carries the server's marker
+  // (the county answer from the ticket's repro) beside plain typed words.
+  function stubMarkerTurn(): void {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return new Response(
+            JSON.stringify({
+              assistantReply: "Thanks. What is your zip code?",
+              assistantTurnId: "turn-9",
+              redactedUserTranscript:
+                'North Carolina, [redacted answer to "Which county or city area do you live in?"].',
+              nextQuestionId: "state",
+              state: EMPTY_STATE,
+              voiceUrl: null,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url === "/api/conversation/speak") {
+          return new Response(JSON.stringify({ audio: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+  }
+
+  it("the person's bubble renders the redaction marker as a You-told-us chip, never raw bracket text", async () => {
+    const { container, act } = await typingMode();
+    stubMarkerTurn();
+    await typeText(container, act, "North Carolina, Mecklenburg County.");
+    await act(async () => {
+      (
+        container.querySelector('button[type="submit"]') as HTMLButtonElement
+      )?.click();
+    });
+    // The raw tag is gone from the screen…
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("[redacted answer to");
+    expect(text).not.toContain("[redacted");
+    // …the typed words around it are exactly as typed…
+    expect(text).toContain("North Carolina,");
+    // …and the chip the answers list uses renders inside the person's own
+    // bubble, announcing "You told us" (the known status label).
+    const bubble = Array.from(
+      container.querySelectorAll("[data-conversation-transcript] > li"),
+    ).find((li) => li.textContent?.includes("You said:"));
+    expect(bubble).toBeDefined();
+    const chip = bubble?.querySelector('[data-status="known"]');
+    expect(chip).not.toBeNull();
+    expect(chip?.getAttribute("aria-label")).toBe("You told us");
+    expect(chip?.textContent).toContain("You told us");
+  });
+
+  it("the intro and the input help claim only what is true", async () => {
+    const { container } = await typingMode();
+    const text = container.textContent ?? "";
+    // The old over-claims are gone…
+    expect(text).not.toContain("never show up on this screen");
+    expect(text).not.toContain("never the values themselves");
+    expect(text).not.toContain("Private details stay private");
+    // …replaced with what actually happens: only PRIVATE answers are
+    // withheld (as the chip), typed words stay visible.
+    expect(text).toContain("Answers to private questions show as");
+  });
+});
