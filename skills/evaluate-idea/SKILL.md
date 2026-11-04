@@ -59,7 +59,7 @@ Read `ideas/evaluated.md` and take the highest weighted score among ideas that a
 
 1. Append one row to `ideas/evaluated.md`: name, four scores, weighted, one-line why, status (`🔴 Dead — reason` / Parked / Frontrunner).
 2. Create `ideas/<idea name>.md` only if it scored 7.5+. One file per idea: what it is, pipeline, demo structure (3 minutes), open items.
-3. If the incumbent changed, update the "Incumbent to beat" line in `info/idea judge workflow.md` and the "Where we stand" section in `README.md`.
+3. If the incumbent changed, update the "Incumbent to beat" line in `info/idea judge workflow.md` and the "Where we stand" section in `docs/status.md`.
 
 ## Report back
 

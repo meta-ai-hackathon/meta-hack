@@ -1,0 +1,115 @@
+# Project status
+
+Status, timeline, and process notes for the Tenet repo. The [README](../README.md) carries the user guide — what the app is, how the journey works, and how to run it; this file carries the detail that used to weigh it down.
+
+## Where we stand
+
+- **Product:** Tenet (app contract in `architecture.md`; feature map in `feature.md`) — a guided North Carolina **initial MAGI Medicaid** application journey, plus the SNAP (DSS-8207) surface. One persona anchors the demo: a North Carolina resident with current self-employment (LLC) income and no tax return showing it yet, plus stale prior-year internship W-2 income. Earlier footage-search and rescue-vertical ideas (`ideas/`) are historical, not the build.
+- **Two problems, one product:** applicants face high-stakes, paperwork-heavy applications; state offices face H.R. 1 six-month redeterminations with income verification funded at roughly $200M across all 50 states. At that budget neither a legacy system nor manual caseworker review is affordable, so the product automates consented income verification and form preparation instead.
+- **Privacy rules that shape every build decision** (recorded as agent rules in the Legal section of `AGENTS.md`): answers live on the user's device and fill forms from an on-device vault; the only way form data leaves the device is the user-consented fax at the end; PII goes to an API only with explicit informed consent (voice and the fax); the app never acts as the applicant's authorized representative; after the fax confirmation, the app shows it purging the user's answers. All mission milestones are validated (128/128 assertions), and the demo-day fix round of Oct 31 is merged to main with CI green (PRs #87, #89, #90, #92): researched prompt endpointing for the voice journey, honest per-turn pipeline timing, a fixed-height auto-scrolling transcript pane that now mirrors the Lovable prototype's frame geometry exactly, and the three-stage journey shell as the entry/home. The form-mapping round of Nov 1 (PRs #99-#104) is also merged: the form registry now covers all 614 discovered fields across all 21 pages of the real NC DHB-5200, with every field dispositioned.
+
+## Timeline
+
+| Date | Thing |
+|---|---|
+| Wed Oct 26, 12 PM ET | Kickoff |
+| Tue Oct 27 – Fri Oct 30 | Workshops (agents 101/102, Fireworks) |
+| **Wed Nov 4, 9 PM ET** | **Submission due + last day to claim API credits** |
+| Fri Oct 31 | Demo-day fix round merged to main (PRs #87, #89, #90, #92), all validation green |
+| Fri Oct 31 evening | Layout round merged to main (PRs #95, #96): intake surfaces adopt the Lovable prototype's literal frame geometry, all validation green |
+| Nov 5–8 | Judging |
+| Mon Nov 9, 12 PM | Closing ceremony, top 10 live final |
+
+## Event rules that shape the repo
+
+- **New work only** — demo shows only what was built during the event. Unclear contribution = disqualification
+- **Public repo**, max team of 4, one submission per team
+- Must fit a problem statement AND genuinely use Meta Model API / open-weight models — pass/fail gate before scoring
+- 3-minute demo video is the primary judging artifact
+
+## Conversation stack: implementation notes
+
+- The conversation page (`/intake/conversation`) is the primary path through the intake. Two entry modes — voice the whole way, or voice with the option to switch to typing at any point; the step-by-step wizard remains a first-class path for anyone who declines voice. Both input modes hit the same route (`/api/conversation/turn`), share the same extraction and persistence.
+- One continuous voice session covers the whole sitting: no per-question record/stop ritual; utterances end by prompt endpointing — a researched 400 ms hangover after speech ends, with the endpoint decision landing within about a second — and the user may answer several questions in one breath, with queued continuations carried into the next turn. Every turn logs per-segment pipeline timings, so latency is measured rather than guessed (a measured parallel-split probe was not faster, so the combined per-turn call stayed).
+- The talk stage shows the transcript as a fixed-height scrollable pane that auto-scrolls to the latest turn, and the entry/home page is the three-stage journey shell with engine-gated locks.
+- Spoken turns are captured in-browser (`MediaRecorder`), decoded and downsampled to 16 kHz mono PCM WAV in-browser, and transcribed server-side by Meta's `muse-voice-transcribe-1.0`. Assistant replies acknowledge what the person said before asking the next question; when an answer looks unclear the model may propose a short follow-up, but a deterministic engine validates it (banned-claims scan) and the next question stays spec-decided.
+- Replies are subtitled in the transcript and spoken: through a human-sounding ElevenLabs voice (`eleven_multilingual_v2`, "Sarah" prebuilt; configurable via `ELEVENLABS_TTS_MODEL`/`ELEVENLABS_TTS_VOICE` env overrides; set `ELEVENLABS_API_KEY` in `.env` — it replaced Gemini TTS on Oct 31, whose free tier allowed only 10 requests/day and silently degraded to the OS voice), with the browser's built-in `speechSynthesis` as the honest fallback — and a visible built-in-voice notice when that fallback is in use. Each voice turn runs one combined model call per turn.
+- The conversation is accessible by design: prominent live subtitles for the deaf/HoH path, keyboard operable, reduced-motion respected.
+
+## Prepared forms: implementation notes
+
+- A committed, reviewable form-registry entry (source URL + retrieval date + version) drives the form-driven questions, the review, and the download; the per-field inventories are [dhb5200-field-inventory.md](dhb5200-field-inventory.md) and [dss8207-field-inventory.md](dss8207-field-inventory.md).
+- Form-driven questions join the conversation; fields mapped to questions already answered pre-fill from the session's answers ("we already know this"), and the flow's skip logic applies to them.
+- The download fills the blank form in the browser, on the device, from the values the page already holds — no answers ride any request, and the filled PDF is generated on the fly and never persisted server-side. A vault-held answer the page doesn't hold stays visibly blank and is listed as to-resolve.
+
+## Walkthrough CLI reference
+
+`pnpm walkthrough` drives full user journeys over HTTP against a running app (`--url`, default `http://localhost:3100`). No browser and no extra dependencies. Four modes:
+
+- **wizard** (default): create a session, answer the intake questions with a realistic mix (known answers that trigger skips and follow-ups, "I'm not sure" answers, and best-guess "not verified" answers), observe the skip behavior after every answer, save, exit, resume from the session token, and print a timestamped transcript whose labels match the app's own honest statuses ("You told us", "You're not sure", "Answered but not verified").
+- **conversation** (v2, text mode): the full journey through the conversation — typed turns driving the real extraction model with the same tri-state mix, the benefit match, the prepared-form review with the skip behavior, save, exit, resume via the session token (the stored transcript and state must agree), then the PDF download leg. Typed turns send the AI consent receipt (voice off) — the same grant the consent surface's typed path gives — and the turns pace themselves under the server's per-minute turn cap. Use `--timeout 90000` semantics (the default for this mode): each typed turn runs two live model calls. The questions the talk path never asks (the household list, who each work-requirements situation applies to, and the per-person work rows) are never typed: the walkthrough answers them through the answer route, the way the person does in the step-by-step questions, and the household names count as private values.
+- **form** (v2): the committed sample form's questions asked through the conversation, mapped fields pre-filled from the session's answers, the review's to-resolve list asserted consistent with the served state, then the filled-PDF download.
+- **sprint** (the cross-journey proof): the full five-stage journey — Choose mode → Quick questions → Talk → Income → Results — in one real session. The quick-questions phase answers through the local answer route (no model); the talk stage opens with a scripted spoken turn (synthesized with `say` + `afconvert`, the voice consent receipt attached) and exits to typing; the income stage uploads the committed 1040 fixture (deterministic in-memory parse) and confirms the proposals; the results stage prepares both real applications (DHB-5200 and DSS-8207) from the same answers with no re-asking. Then the visible purge: the unconfirmed call must be refused, the confirmed call's deleted-count receipt is checked against the journey's own ledger, and the resume + both reviews must show the empty journey. `--consent declined` runs the deterministic path instead — zero conversation sends, no consent receipt anywhere, income and results still reachable. `--db-verify` (local only) adds `docker exec` psql row counts before and after the purge, proving zero rows remain for the session in `answer`, `vault_entry`, `conversation_turn`, and `session_audit_note`.
+
+While it walks, the CLI scans every response for violations: banned promise language (including on assistant turns specifically — a reply that promises an outcome means the app's own gate failed to fire), client-visible private (`pii: true`) content — a value shipped under a private question, a submitted private value echoed back in any payload field (subtitles, transcripts, state, cards), or a typed private value that survived redaction into the delivered transcript. The value matching is exact-string (a partially redacted or paraphrased free-text answer can pass); deep-nested payloads fail closed as unscanned. Exit codes: `0` clean journey, `1` violation detected (the transcript names what and where), `2` journey error (bad URL, failed request, unexpected question). The detectors are unit-tested with committed fixtures in `scripts/fixtures/walkthrough/`, so the checks provably bite. Teammates can run it against any preview URL without a browser.
+
+## Production
+
+The production deployment (https://meta-hack-omega.vercel.app) runs on Vercel with a managed Vercel Postgres store. Its DSN lives only in the Vercel project env (`DATABASE_URL`, set through the Vercel dashboard), and env changes apply to new deployments only. Apply schema migrations to it from a machine that has the DSN — the same idempotent runner, pointed at production. Load the DSN from a file rather than pasting it inline, so it never lands in shell history:
+
+```bash
+DATABASE_URL="$(cat /path/to/prod-dsn.txt)" pnpm db:migrate
+```
+
+Keep the DSN out of the repo: never commit, log, or paste it anywhere. More deployment detail: [deployment.md](deployment.md).
+
+## For agents
+
+- `AGENTS.md` has the conventions, quality gates, and validation commands; `main` is PR-gated: CI (markdownlint + integrity tests) must pass to merge. Direct pushes are rejected
+- Droid auto-review (GLM 5.3 Flash, max reasoning) comments on every non-draft PR; `@droid <instruction>` in a PR comment triggers an agent run (currently against the default branch, not the PR head — tracked in hack-10)
+- The Claude review bot reviews every push to a PR and owns the `claude-review` check (see below)
+- New ideas go through `skills/evaluate-idea/SKILL.md` before any build talk; `ideas/evaluated.md` is append-only history, never rewrite past rows
+
+## Claude review bot
+
+`.github/workflows/claude-review.yml` runs `scripts/claude_review.py`, which reviews every push to a pull request with Claude Opus 5.5, including the later pushes that the Droid review never sees. It keeps one comment per PR up to date with the commit it reviewed, the P1, P2, and P3 findings, every file it did not review, and the token count and cost. While a push is being reviewed, that comment says the push is not reviewed yet, so an old all clear never stands for new code.
+
+The rubric is `.github/claude-review/rules.md` (P1 must fix before merge, P2 should fix soon, P3 nit), and the model also reads `AGENTS.md`. The workflow runs on `pull_request_target`, so GitHub always takes the workflow, the script, and the rules from the base branch, and a PR cannot change the reviewer that judges it. Rule changes take effect once they merge. The job never checks out or runs PR code and reads the PR only through the GitHub API, which is what makes `pull_request_target` safe here, since the job holds the review key. Keep it that way. The PR text and diff go to the model as untrusted data. Lockfiles, binaries, generated assets, data files, and secret files are never sent, and values that look like secrets or personal data are redacted before anything leaves the runner.
+
+### The check and the override label
+
+The `claude-review` check fails only when the review finds a P1 and the `claude-review-override` label does not count. The label counts only when someone other than the PR's author adds it, after reading the P1 and deciding the PR can merge anyway. Agents never add it. The bot reads who added the label last from the PR's events and ignores it unless that was a person's own account (GitHub's account type User) other than the PR's author's, acting directly rather than through an app that uses their token, so a label from the author's account, a bot, or an app never counts. Agents act under their owner's GitHub account, so a label from the author's account could be the author's agent. On a PR a bot opened (Dependabot, an agent's app, or any workflow's `github-actions[bot]`) the label never counts either, since whoever is behind that PR could add it from their own account, so a P1 there needs a fix. When the label does not count, the comment says so and why, and the P1 keeps failing the check. For it to count, someone other than the author has to remove the label and add it again. If the bot cannot read the PR's events, or who opened the PR, the label does not count on that run, the comment says so, and re-running the workflow checks it again. Removing the label makes the check fail again. Adding or removing any label, editing the PR, reopening it, or re-running the job checks the stored verdict for the head commit again without calling the model, as long as the PR still targets the base branch that review was made against. Changing the base branch changes the PR's diff, so it gets a fresh review, and the result for a commit only changes with a new push, a new base branch, or a change to the reviewer itself.
+
+Errors the script can handle (an Anthropic or GitHub error, a timeout, a refusal, malformed output, a missing key) never fail the check. The job passes with a warning, and the comment says the push was NOT reviewed. The one exception is an error reading the PR's events to see who added the override label. The run logs a warning and the review still stands, but the label does not count on that run, so a P1 fails the check. A failure before the script starts (checkout, Python setup, or the SDK install) or the 20 minute job timeout does fail the job, so re-run it. Drafts are not reviewed until they are marked ready. PRs from forks are skipped, and GitHub counts that skipped check as passing, so a person has to review fork PRs.
+
+### The bot's approval
+
+When a push to an open PR gets a review with no P1 that covered every changed file, the bot also approves that exact commit as `github-actions[bot]`, with a fixed note that points to its comment. The diff it reviews is GitHub's comparison of the exact base and head commits it read from the PR, so a push or a retarget while it works cannot put another diff under that approval. Re-checking the stored verdict on a label, edit, or reopen never approves, because anyone who can edit comments on the PR can edit the verdict the comment stores. A re-check withdraws the bot's approvals only when the stored verdict is not an all clear, and otherwise leaves an approval the review gave in place. The bot never adds a second approval to a commit it already approves. A commit whose approval did not land, for example while the org setting below was off, stays unapproved. Only a later review approves: the next push's review (for the new commit), or a fresh review of the same commit after the reviewer itself changes.
+
+Any other result on the PR's own events withdraws every approval the bot has on the PR: a P1, even with the override label (that label is a person's call, not the bot's all clear), a review that left any changed file out (a lockfile, an image, a generated or minified file, a file over the budget), or a push that was not reviewed for any reason, including a draft, a missing key, or a run that could not read the PR or update its comment. A new review also withdraws the bot's approvals as it starts, so a run that is cancelled or times out partway leaves none standing. That includes the review a retarget starts, since the old approval was for another diff. The one exception is a fresh look at a commit whose finished review against the same base branch the comment still shows (after a reviewer change), which keeps that commit's approval until the new verdict is in.
+
+Manual runs and dry runs never approve or withdraw. Withdrawals still follow the PR's events: when a manual run's review finds a P1 or leaves a changed file out, the bot withdraws its approval on the PR's next event. A clean verdict from a manual run never brings an approval, because the next event only re-checks it; the next push's review does. Re-running an old workflow run runs the reviewer from that run's base commit, so a run from before approvals existed never approves or withdraws.
+
+GitHub refuses these approvals until an org owner turns on "Allow GitHub Actions to create and approve pull requests" (organization settings, Actions, General). Until then a clean run logs one notice and nothing else changes. No approval failure ever changes the check or the comment, and near the job's time limit the bot skips the approval step rather than let the job time out.
+
+That setting is not this bot's alone. Once it is on, every workflow in the repo can approve pull requests and open them as `github-actions[bot]` with its own token. That includes workflows a PR can change, since a `pull_request` workflow such as the Droid review runs the PR's own copy of its file, with `pull-requests: write`. So with the setting on, an approval from `github-actions[bot]`, or a PR it opened, proves nothing about who decided anything. The bot treats every `github-actions[bot]` approval as its own: it withdraws them all when a review finds a P1, but it cannot stop another workflow from approving afterwards.
+
+Branch protection on `main` requires the `lint` and `test` checks, but not approvals or the `claude-review` check, so the approval is informational today. It must never count toward required reviews. If `main` ever requires approvals while the setting is on, any workflow's `github-actions[bot]` approval would count toward them, a clean Claude review included, so the rule could be met without a person reading the PR. Keep required approvals off while the setting is on, and decide that before turning on either. Required approvals also need "Dismiss stale pull request approvals when new commits are pushed", because the bot can only withdraw an approval once its run for the new push has started.
+
+### Setup and cost
+
+The workflow reads the `ANTHROPIC_REVIEW_KEY` repo secret (Settings, Secrets and variables, Actions). Create the key in an Anthropic Console workspace with a monthly spend limit. Without the secret the job passes with a warning and posts no new comment. Runs that Dependabot starts get Dependabot secrets instead, so add the same key under Dependabot secrets too, or Dependabot PRs pass without a review.
+
+A review of a typical PR here costs about $0.10 to $0.40, based on dry runs of PRs 21, 33, and 37 (9k to 30k input tokens at $4 per million, plus an assumed 3k to 12k output tokens at $20 per million). The diff budget of about 150k tokens and the 32k output limit keep one model attempt under about $1.40. If a refusal hands the review to the fallback model, both attempts together stay under about $3. Checking a stored verdict again costs nothing. Every comment shows the real token count and cost.
+
+To try it on an existing PR, open Actions, pick Claude Review, and run the workflow with the PR number. A manual run reviews the PR and updates its comment, but it always passes and never changes the PR's own check, because GitHub reports a manual run on the default branch. Locally, a dry run fetches the real PR, prints the prompt size, the cost estimate, and the comment it would post, and never calls the model or writes to GitHub:
+
+```text
+python3 scripts/claude_review.py --repo meta-ai-hackathon/meta-hack --pr 37 --dry-run
+```
+
+To make agents wait for the review before they merge, add `claude-review` to the required status checks in the branch protection for `main`.
+
+## Related
+
+Obsidian vault notes: `my knowledge base/meta hackathon/` (homepage, event guide, links — mirrored here).

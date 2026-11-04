@@ -1850,7 +1850,7 @@ RETRY_HINT = (
     "workflow to retry."
 )
 DRAFT_HINT = "The review starts when the PR is marked ready for review."
-MISSING_KEY_HINT = "Add the secret (see the README section on the review bot) and re-run the workflow."
+MISSING_KEY_HINT = "Add the secret (see the review-bot section of docs/status.md) and re-run the workflow."
 
 
 def render_status_comment(
@@ -3018,7 +3018,7 @@ class Reviewer:
         if not key:
             self.warn(
                 "the ANTHROPIC_REVIEW_KEY secret is not set. Add it as a repo secret, and as a Dependabot "
-                "secret for Dependabot PRs (see the README section on the review bot)."
+                "secret for Dependabot PRs (see the review-bot section of docs/status.md)."
             )
             reason = "the ANTHROPIC_REVIEW_KEY secret is not set"
             return self.not_reviewed(pr, reason, (), create=False, hint=MISSING_KEY_HINT)
