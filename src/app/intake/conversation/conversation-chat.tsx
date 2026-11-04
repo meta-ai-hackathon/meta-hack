@@ -41,7 +41,7 @@ import { ComingTogether, themesForQuestionIds, themeLabelFor } from "./coming-to
 import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
 import { IncomeStage } from "./income-stage";
 import { MatchSection } from "./match-section";
-import { ModeChoice, type ConversationEntryMode } from "./mode-choice";
+import { EntryBegin, ModeChoice, type ConversationEntryMode } from "./mode-choice";
 import { PurgeSection } from "./purge-section";
 import { PresenceOrb } from "./presence-orb";
 import { QuickQuestionsStage } from "./quick-questions";
@@ -340,6 +340,10 @@ export function ConversationChat() {
   // preselection for the engine-gated entry stage. Read once on mount.
   const [suggestedMode, setSuggestedMode] =
     useState<ConversationEntryMode | null>(null);
+  // HACK-157 (VAL-UX-002): with a carried mode, the entry stage shows the
+  // single begin control instead of the full choice card; this flag brings
+  // the full card back when the person asks to change the mode.
+  const [changingMode, setChangingMode] = useState(false);
   // The continuous voice session (HACK-106): all mic/recorder/endpointing
   // wiring lives behind ONE stable ref — the component only maps session
   // events to UI state and submits the utterances.
@@ -1639,7 +1643,19 @@ export function ConversationChat() {
       ) : null}
 
       {entryStage ? (
-        <ModeChoice onBegin={handleEntryBegin} suggestedMode={suggestedMode ?? undefined} />
+        suggestedMode && !changingMode ? (
+          // HACK-157 (VAL-UX-002): the mode was picked on the home page —
+          // after the sharing choices it is CARRIED, never asked again.
+          // One begin control (the browser needs a tap before audio can
+          // start) with a small change-the-mode link.
+          <EntryBegin
+            mode={suggestedMode}
+            onBegin={handleEntryBegin}
+            onChangeMode={() => setChangingMode(true)}
+          />
+        ) : (
+          <ModeChoice onBegin={handleEntryBegin} suggestedMode={suggestedMode ?? undefined} />
+        )
       ) : null}
 
       {/* The QUICK QUESTIONS stage (VAL-QQ-002): the requirements engine's

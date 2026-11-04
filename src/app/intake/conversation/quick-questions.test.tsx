@@ -392,14 +392,15 @@ describe("the quick-questions stage component", () => {
   const q = (container: HTMLElement, attr: string): Element | null =>
     container.querySelector(`[data-${attr}]`);
 
-  it("renders one card per remaining question, grouped, with the engine's counter live (VAL-QQ-004, VAL-QQ-012)", async () => {
+  it("renders one card per remaining question, grouped — with EQUAL counts the counter stays hidden and no short-list claim shows (HACK-157, VAL-UX-002)", async () => {
     const { container, act } = await renderStage();
     expect(q(container, "quick-questions-stage")).not.toBeNull();
-    expect(q(container, "qq-counter")).not.toBeNull();
-    expect(q(container, "qq-counter")?.getAttribute("aria-live")).toBe("polite");
-    expect(q(container, "qq-counter")?.textContent).toContain(
-      "5 questions instead of 5",
-    );
+    // HACK-157: remaining == required on this fixture — the old counter
+    // read "5 questions instead of 5", which reads as a bug. The stage
+    // shows plain progress instead and never calls itself a short list.
+    expect(q(container, "qq-counter")).toBeNull();
+    expect(container.textContent ?? "").not.toContain("instead of");
+    expect(container.textContent ?? "").not.toContain("short list");
     // Paginated (HACK-132): exactly one group is visible at a time
     // (inactive sections stay mounted but hidden, so drafts survive
     // navigation), with a section progress line; walking the sections
@@ -426,6 +427,21 @@ describe("the quick-questions stage component", () => {
     // The heading is an H2 — the page's single H1 stays the page's.
     expect(container.querySelectorAll("h1")).toHaveLength(0);
     expect(q(container, "qq-heading")?.tagName).toBe("H2");
+  });
+
+  it("shows the honest live counter only when the visible list is genuinely shorter (HACK-157, VAL-UX-002)", async () => {
+    // freshStateAfterSave(): 4 still to ask of 5 required — genuinely
+    // shorter, so the counter renders with BOTH engine numbers, live.
+    const { container } = await renderStage(freshStateAfterSave());
+    const counter = q(container, "qq-counter");
+    expect(counter).not.toBeNull();
+    expect(counter?.getAttribute("aria-live")).toBe("polite");
+    expect(counter?.textContent).toContain("4 questions instead of 5");
+    // Only a genuinely shorter list may call itself one.
+    expect(container.textContent ?? "").toContain("Here's the short list");
+    expect(q(container, "qq-section-progress")?.textContent).toContain(
+      "Section 1 of",
+    );
   });
 
   it("keeps an unsaved draft when navigating between sections (HACK-132)", async () => {
@@ -1113,10 +1129,52 @@ describe("the quick-questions stage properties (fast-check)", () => {
       ),
     );
   });
+
+  it("the stage shows the counter — and only then the short-list claim — exactly when the visible list is genuinely shorter (HACK-157, VAL-UX-002)", () => {
+    fc.assert(
+      fc.property(
+        // Direct construction (better shrinking than filtering): any M,
+        // and any N up to it — the engine guarantees N <= M.
+        fc.integer({ min: 0, max: 99 }).chain((m) =>
+          fc.integer({ min: 0, max: m }).map((n) => [n, m] as const),
+        ),
+        ([n, m]) => {
+          const ids = ALL_QUESTIONS.map((q) => q.id);
+          const state = stageState({
+            quickQuestions: {
+              programs: ["nc_medicaid"],
+              requiredIds: ids,
+              requiredCount: m,
+              remainingIds: ids.slice(0, Math.min(n, ids.length)),
+              remainingCount: n,
+              complete: n === 0,
+            },
+          });
+          const html = renderToStaticMarkup(
+            <QuickQuestionsStage
+              state={state}
+              onStateChange={() => undefined}
+              onNotice={() => undefined}
+              onToTalk={() => undefined}
+            />,
+          );
+          // The counter renders EXACTLY when the visible list is
+          // genuinely shorter than the required universe (N < M) — equal
+          // counts show plain progress, never "N instead of N" — and the
+          // short-list claim rides with it, never alone.
+          expect(html.includes("data-qq-counter")).toBe(n < m);
+          expect(html.includes("short list")).toBe(n < m);
+          if (n < m) {
+            expect(html).toContain(counterCopy(n, m));
+          }
+        },
+      ),
+    );
+  });
 });
 
 describe("the quick-questions stage static markup", () => {
-  it("renders SSR-clean with the engine's numbers and only the first section", () => {
+  it("renders SSR-clean with plain progress and NO counter when the counts are equal (HACK-157, VAL-UX-002)", () => {
     const html = renderToStaticMarkup(
       <QuickQuestionsStage
         state={stageState()}
@@ -1126,7 +1184,10 @@ describe("the quick-questions stage static markup", () => {
       />,
     );
     expect(html).toContain("data-quick-questions-stage");
-    expect(html).toContain("5 questions instead of 5");
+    // Equal counts (5 of 5): no counter, no short-list claim — plain
+    // progress is the honest header (HACK-157).
+    expect(html).not.toContain("instead of");
+    expect(html).not.toContain("short list");
     // Paginated (HACK-132): SSR carries every section mounted, with only
     // the first visible and the rest hidden, sensitive last in markup.
     expect(html).toContain("Section 1 of");
@@ -1140,6 +1201,21 @@ describe("the quick-questions stage static markup", () => {
     ].map((id) => html.indexOf(`data-qq-group="${id}"`));
     expect(groupOrder.every((index) => index >= 0)).toBe(true);
     expect(groupOrder).toEqual([...groupOrder].sort((a, b) => a - b));
+    expect(findBannedClaims(html)).toEqual([]);
+  });
+
+  it("renders SSR-clean with the engine's counter and the short-list line when the list is genuinely shorter (HACK-157, VAL-UX-002)", () => {
+    const html = renderToStaticMarkup(
+      <QuickQuestionsStage
+        state={freshStateAfterSave()}
+        onStateChange={() => undefined}
+        onNotice={() => undefined}
+        onToTalk={() => undefined}
+      />,
+    );
+    expect(html).toContain("4 questions instead of 5");
+    // The SSR escape of the intro's apostrophe; the claim phrase itself.
+    expect(html).toContain("short list");
     expect(findBannedClaims(html)).toEqual([]);
   });
 });
@@ -1508,14 +1584,30 @@ describe("work-requirements groups, credit, and the matched income screen (VAL-W
   });
 
   it("renders the engine's live N of M over the grown universe, never hardcoded (VAL-WR-011)", async () => {
-    const state = wrStageState();
+    // HACK-157 (VAL-UX-002): the counter appears only when the visible
+    // list is genuinely shorter, so this fixture answers one required
+    // question (N < M) — the counter must still be the engine's live
+    // numbers over the grown universe, never hardcoded.
+    const state = wrStageState({
+      answers: { main_goal: { status: "known", value: "food" } },
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: [...ALL_QUESTIONS.map((q) => q.id), ...WR_REMAINING],
+        requiredCount: ALL_QUESTIONS.length + WR_REMAINING.length,
+        remainingIds: [...ALL_QUESTIONS.map((q) => q.id), ...WR_REMAINING].filter(
+          (id) => id !== "main_goal",
+        ),
+        remainingCount: ALL_QUESTIONS.length + WR_REMAINING.length - 1,
+        complete: false,
+      },
+    });
     const { container } = await renderWrState(state);
     const counter = container.querySelector("[data-qq-counter]");
     expect(counter?.textContent).toBe(
       counterCopy(state.quickQuestions.remainingCount, state.quickQuestions.requiredCount),
     );
     expect(counter?.textContent).toBe(
-      `${ALL_QUESTIONS.length + WR_REMAINING.length} questions instead of ${ALL_QUESTIONS.length + WR_REMAINING.length}`,
+      `${ALL_QUESTIONS.length + WR_REMAINING.length - 1} questions instead of ${ALL_QUESTIONS.length + WR_REMAINING.length}`,
     );
   });
 

@@ -5,6 +5,7 @@ import {
   saveConsentReceipt,
   type ConsentReceipt,
 } from "../../../lib/consent";
+import { storeEntryMode } from "../../../lib/entry-mode";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
 import * as rampartGuardModule from "../../../lib/intake/rampart-guard";
 import {
@@ -968,5 +969,98 @@ describe("typed sends through the on-device shield (HACK-107)", () => {
     });
     expect(turnCalls).toHaveLength(0);
     expect(container.textContent ?? "").toContain("failed to load");
+  });
+});
+
+describe("the mode is asked once (HACK-157, VAL-UX-002)", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    sessionStorage.clear();
+  });
+
+  it("carries the home page's mode: after the sharing choices there is NO second mode card — one start control with a small change-the-mode link", async () => {
+    storeEntryMode("voice-only");
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(true));
+    });
+    // The full mode card (the same "How would you like to talk?" question
+    // with a second "Let's begin") must NOT re-appear after the sharing
+    // choices: the mode was picked on the home page and is carried here.
+    expect(q(container, "mode-choice")).toBeNull();
+    expect(container.textContent ?? "").not.toContain(
+      "How would you like to talk?",
+    );
+    expect(
+      container.querySelectorAll('input[name="conversation-entry-mode"]'),
+    ).toHaveLength(0);
+    // A single begin control remains (the browser needs a tap before
+    // audio can start), with a small link to change the mode.
+    expect(q(container, "entry-begin")).not.toBeNull();
+    expect(q(container, "entry-begin-start")?.textContent).toBe(
+      "Start talking",
+    );
+    expect(q(container, "entry-begin-change")).not.toBeNull();
+  });
+
+  it("the start control begins the journey in the carried mode", async () => {
+    storeEntryMode("voice-only");
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(true));
+    });
+    await act(async () => {
+      q(container, "entry-begin-start")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(q(container, "entry-mode")?.getAttribute("data-entry-mode")).toBe(
+      "voice-only",
+    );
+    // Mode A semantics: no typing switch, no textarea.
+    expect(q(container, "switch-to-typing")).toBeNull();
+    expect(container.querySelector("textarea")).toBeNull();
+  });
+
+  it("the change-the-mode link brings back the full choice, and beginning from it works", async () => {
+    storeEntryMode("voice-plus-typing");
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(true));
+    });
+    await act(async () => {
+      q(container, "entry-begin-change")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(q(container, "mode-choice")).not.toBeNull();
+    expect(q(container, "mode-begin")).not.toBeNull();
+    // Beginning from the restored card enters the picked mode.
+    await act(async () => {
+      const radio = q(container, 'mode-option="voice-only"')?.querySelector(
+        "input",
+      );
+      (radio as HTMLInputElement | null)?.click();
+      q(container, "mode-begin")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(q(container, "entry-mode")?.getAttribute("data-entry-mode")).toBe(
+      "voice-only",
+    );
+  });
+
+  it("without a carried mode the entry choice still asks, exactly once", async () => {
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(true));
+    });
+    expect(q(container, "mode-choice")).not.toBeNull();
+    expect(container.textContent ?? "").toContain(
+      "How would you like to talk?",
+    );
   });
 });

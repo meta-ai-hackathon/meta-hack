@@ -821,11 +821,17 @@ describe("the quick-questions stage between entry and talk (VAL-QQ-002/004/006/0
     // The microphone is NEVER open over the question cards: the session
     // begins only when the talk stage renders.
     expect(sessionOps).not.toContain("begin");
-    // The honest live counter renders the engine's numbers (VAL-QQ-004).
-    expect(q(container, "qq-counter")?.textContent).toContain(
-      "1 question instead of 1",
+    // HACK-157 (VAL-UX-002): equal counts (1 of 1) — the counter stays
+    // hidden ("1 question instead of 1" reads as a bug), the stage leads
+    // with plain progress, and it never calls itself a short list. The
+    // live counter appears once the list is genuinely shorter (proven in
+    // the decrement test below and in quick-questions.test.tsx).
+    expect(q(container, "qq-counter")).toBeNull();
+    expect(container.textContent ?? "").not.toContain("instead of");
+    expect(container.textContent ?? "").not.toContain("short list");
+    expect(q(container, "qq-section-progress")?.textContent).toContain(
+      "Section 1 of",
     );
-    expect(q(container, "qq-counter")?.getAttribute("aria-live")).toBe("polite");
     // The calm CTA to talk (VAL-QQ-006: never blocked).
     expect(q(container, "qq-to-talk")).not.toBeNull();
     await actFn(async () => {
@@ -871,10 +877,10 @@ describe("the quick-questions stage between entry and talk (VAL-QQ-002/004/006/0
         new MouseEvent("click", { bubbles: true }),
       );
     });
-    // Flow point one: the engine's N of M, live.
-    expect(q(container, "qq-counter")?.textContent).toContain(
-      "2 questions instead of 2",
-    );
+    // Flow point one: equal counts (2 of 2) — the counter stays hidden
+    // (HACK-157, VAL-UX-002); plain progress leads, no short-list claim.
+    expect(q(container, "qq-counter")).toBeNull();
+    expect(container.textContent ?? "").not.toContain("short list");
     // Answer the first card: typed value → POST /api/intake/answer.
     await actFn(async () => {
       const input = q(container, 'qq-card="application_role"')!.querySelector("input") as HTMLInputElement;

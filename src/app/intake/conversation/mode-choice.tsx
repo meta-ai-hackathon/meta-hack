@@ -42,6 +42,15 @@ const MODE_OPTIONS: readonly {
   },
 ] as const;
 
+/** The user-facing label per mode — the single source the carried-mode
+ * begin surface reads, so it can never drift from the choice card. */
+export const ENTRY_MODE_LABELS: Readonly<
+  Record<ConversationEntryMode, string>
+> = {
+  "voice-only": "Talk the whole way",
+  "voice-plus-typing": "Talk, with typing anytime",
+};
+
 export function ModeChoice(props: {
   /** Begin the conversation in the chosen mode. */
   readonly onBegin: (mode: ConversationEntryMode) => void;
@@ -140,6 +149,59 @@ export function ModeChoice(props: {
         className="min-h-12 rounded-full bg-teal-deep px-8 py-3 text-base font-semibold text-teal-contrast hover:bg-teal"
       >
         Let&apos;s begin
+      </button>
+      <p className="text-sm text-muted">
+        Live subtitles are always here.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * The carried-mode begin surface (HACK-157, VAL-UX-002): when the home
+ * page already picked the mode, the conversation's entry stage shows this
+ * instead of the full choice card — the mode question is never asked a
+ * second time. One begin control (the browser needs a tap before audio
+ * can start) and a small link that brings the full choice back. The card
+ * carries the mode-choice geometry so the entry frame stays put.
+ */
+export function EntryBegin(props: {
+  /** The mode picked on the home page, carried in sessionStorage. */
+  readonly mode: ConversationEntryMode;
+  /** Begin the conversation in the carried mode. */
+  readonly onBegin: (mode: ConversationEntryMode) => void;
+  /** Bring the full mode-choice card back. */
+  readonly onChangeMode: () => void;
+}): JSX.Element {
+  return (
+    <section
+      data-entry-begin
+      aria-labelledby="entry-begin-heading"
+      className="mx-auto mt-[38px] mb-[26px] flex w-[calc(100%_-_36px)] max-w-[490px] flex-col items-center gap-6 rounded-2xl border border-surface-border bg-surface p-8 text-center min-[761px]:mt-[42px] min-[761px]:w-[calc(100%_-_48px)]"
+    >
+      <div className="flex flex-col gap-2">
+        <h2 id="entry-begin-heading" className="font-display text-3xl font-bold">
+          Ready when you are
+        </h2>
+        <p className="text-muted">
+          You picked {ENTRY_MODE_LABELS[props.mode]} on the home page.
+        </p>
+      </div>
+      <button
+        type="button"
+        data-entry-begin-start
+        onClick={() => props.onBegin(props.mode)}
+        className="min-h-12 rounded-full bg-teal-deep px-8 py-3 text-base font-semibold text-teal-contrast hover:bg-teal"
+      >
+        Start talking
+      </button>
+      <button
+        type="button"
+        data-entry-begin-change
+        onClick={props.onChangeMode}
+        className="min-h-11 px-2 py-2 text-sm text-muted underline underline-offset-2 hover:text-foreground"
+      >
+        Change the mode
       </button>
       <p className="text-sm text-muted">
         Live subtitles are always here.

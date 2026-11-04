@@ -765,6 +765,14 @@ export function QuickQuestionsStage(props: {
   const { state, onStateChange, onNotice, onToTalk } = props;
   const groups = groupRemainingQuestions(state);
   const { remainingCount, requiredCount } = state.quickQuestions;
+  // HACK-157 (VAL-UX-002): the "N questions instead of M" counter only
+  // makes sense when the visible list is GENUINELY shorter than the
+  // required universe. Equal counts rendered "59 questions instead of 59"
+  // — which reads as a bug — so the counter (and the short-list claim)
+  // render only when N < M; the stage then leads with the plain section
+  // progress instead. The numbers stay the engine's live computation
+  // (VAL-QQ-004) whenever the counter does appear — never weakened.
+  const genuinelyShorter = remainingCount < requiredCount;
   // Paginated by section (HACK-132, Civilla's section-per-screen online
   // templates): one group is visible at a time instead of every remaining
   // card stacked on one page. Inactive sections stay MOUNTED but hidden,
@@ -837,17 +845,19 @@ export function QuickQuestionsStage(props: {
         <h2 id="quick-questions-stage-heading" data-qq-heading className="font-display text-2xl font-bold">
           Quick questions
         </h2>
-        <p
-          data-qq-counter
-          aria-live="polite"
-          className="font-mono text-sm text-muted"
-        >
-          {counterCopy(remainingCount, requiredCount)}
-        </p>
+        {genuinelyShorter ? (
+          <p
+            data-qq-counter
+            aria-live="polite"
+            className="font-mono text-sm text-muted"
+          >
+            {counterCopy(remainingCount, requiredCount)}
+          </p>
+        ) : null}
         <p className="max-w-xl text-muted">
-          Here&apos;s the short list — answer what you can, skip what
-          you&apos;d rather not. Your answers save as you go, and private
-          details stay private.
+          {genuinelyShorter
+            ? "Here's the short list — answer what you can, skip what you'd rather not. Your answers save as you go, and private details stay private."
+            : "Answer what you can, skip what you'd rather not. Your answers save as you go, and private details stay private."}
         </p>
         <details
           data-qq-credit
