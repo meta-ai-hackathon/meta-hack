@@ -507,13 +507,18 @@ describe("honest copy", () => {
     expect(store.size).toBe(2);
   });
 
-  it("states progress plainly, warns about shared computers, and keeps every line free of promise language", async () => {
+  it("states progress plainly, keeps the standing blurb calm, and keeps every line free of promise language", async () => {
     const { kv } = memoryKv();
     const { intake } = await loadDeviceIntake(opener(kv));
     const progress = { answered: 3, remaining: 4, total: 7 };
     expect(answerNotice("known", progress, intake)).toBe("Saved on this device. 3 of 7 answered.");
     expect(answerNotice("unknown", progress, intake)).toBe("Marked as not sure. You can come back to it.");
-    expect(keepingBlurb(intake)).toMatch(/Anyone who uses this browser can see them/);
+    // HACK-139: the standing blurb promises the resume and states the
+    // submission boundary, with the shared-computer caution moved out of
+    // the ambient copy (the delete control stays on the page; the rules'
+    // shared-computer statement remains at the download and in the
+    // delete/purge copy).
+    expect(keepingBlurb(intake)).toMatch(/pick up where you left off/);
     expect(saveForLaterNotice(intake)).toMatch(/Private windows/);
     const lines = [
       ...Object.values(DEVICE_INTAKE_COPY),
@@ -527,6 +532,24 @@ describe("honest copy", () => {
     // No line says answers are kept safe from other people using the browser.
     for (const line of Object.values(DEVICE_INTAKE_COPY)) {
       expect(line).not.toMatch(/locked|never leaves this browser|any time/i);
+    }
+  });
+
+  it("keeps the landing's standing copy calm: one short privacy passage, no repeated deletion messaging (HACK-139)", () => {
+    // The one calm privacy passage is the page intro: answers stay on
+    // this device and nothing entered is sent — both claims true on the
+    // device path (VAL-PICK-002).
+    expect(DEVICE_INTAKE_COPY.pageIntro).toMatch(/answers stay on this device/);
+    expect(DEVICE_INTAKE_COPY.pageIntro).toMatch(/nothing you enter is sent to us/);
+    // The standing blurbs under the questions keep the resume promise and
+    // the submission boundary, and carry no deletion messaging of their
+    // own: deletion lives behind the person's own controls and the honest
+    // outcome copy, not in the ambient landing text.
+    expect(DEVICE_INTAKE_COPY.keptBlurb).toMatch(/pick up where you left off/);
+    expect(DEVICE_INTAKE_COPY.keptBlurb).toMatch(/Nothing is submitted until you decide/);
+    expect(DEVICE_INTAKE_COPY.keepPrompt).toMatch(/saying yes keeps your answers saved/);
+    for (const line of [DEVICE_INTAKE_COPY.keptBlurb, DEVICE_INTAKE_COPY.keepPrompt]) {
+      expect(line).not.toMatch(/delete|erase|cleared/i);
     }
   });
 
