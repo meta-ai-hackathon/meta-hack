@@ -420,6 +420,13 @@ interface FilledForm {
    * pages.
    */
   readonly bytes: Uint8Array;
+  /**
+   * The releases for the object URLs of copies the person downloaded from
+   * this form. iOS Safari reads a copy only when the person taps Download in
+   * its prompt, often well after the press, so each URL lives as long as the
+   * form and is revoked with it (HACK-145).
+   */
+  readonly copies: (() => void)[];
   readonly leftBlank: readonly ToResolveItem[];
   readonly conflicts: readonly FillConflict[];
   /** The answers it was filled from, typed ones included. */
@@ -428,11 +435,15 @@ interface FilledForm {
 }
 
 /**
- * Let go of a filled form: release its canvases and wipe its bytes, so
- * nothing of it outlasts its pages. Safe to call more than once.
+ * Let go of a filled form: release its canvases, revoke the URLs of the
+ * copies downloaded from it, and wipe its bytes, so nothing of it outlasts
+ * its pages. Safe to call more than once.
  */
 function releaseFilled(form: FilledForm): void {
   form.drawn?.release();
+  for (const revoke of form.copies.splice(0)) {
+    revoke();
+  }
   form.bytes.fill(0);
 }
 
@@ -680,14 +691,19 @@ export function DeviceResults(props: {
       return;
     }
     // A browser that won't make the file (a locked-down frame can refuse
-    // object URLs) saved nothing, and the page says so.
-    let saved = false;
+    // object URLs) saved nothing, and the page says so. A copy that did go
+    // keeps its URL until the form is let go of, so a browser that asks the
+    // person first (iOS Safari does) can still read it when they say yes.
+    let release: (() => void) | null = null;
     try {
-      saved = saveFilledFormToDevice(filled.bytes, DOWNLOAD_FILE_NAME);
+      release = saveFilledFormToDevice(filled.bytes, DOWNLOAD_FILE_NAME);
     } catch {
-      saved = false;
+      release = null;
     }
-    announce(saved ? DEVICE_RESULTS_COPY.downloaded : DEVICE_RESULTS_COPY.downloadNotStarted);
+    if (release !== null) {
+      filled.copies.push(release);
+    }
+    announce(release !== null ? DEVICE_RESULTS_COPY.downloaded : DEVICE_RESULTS_COPY.downloadNotStarted);
   }
 
   async function showFilledForm(): Promise<void> {
@@ -749,6 +765,7 @@ export function DeviceResults(props: {
       const form: FilledForm = {
         drawn,
         bytes,
+        copies: [],
         leftBlank: result.outcome.toResolve,
         conflicts: result.outcome.conflicts,
         answers,
