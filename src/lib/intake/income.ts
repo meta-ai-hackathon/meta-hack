@@ -20,7 +20,8 @@ import type { Question } from "./spec";
 //   tri-state status — an "I'm not sure" is an answer everywhere else in
 //   this app) AND at least one visible income answer carries an
 //   income-stage provenance (`user` from the manual card, a correction, or
-//   a confirmed bank proposal,
+//   a bank frequency the person confirmed; an UNTOUCHED bank amount saves
+//   unverified and does not satisfy this clause on its own,
 //   `tax_return` from a confirmed parser proposal).
 //
 // Why the second clause: the quick-questions and talk stages save income

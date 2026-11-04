@@ -1,3 +1,4 @@
+import { type AnswerProvenance, type AnswerStatus } from "../honesty";
 import { AppError, logInfo, userMessageFor } from "../telemetry";
 import { INCOME_STAGE_QUESTION_IDS } from "./income";
 import { saveAnswer, validateAnswerInput } from "./store";
@@ -9,19 +10,25 @@ import { saveAnswer, validateAnswerInput } from "./store";
 // module is the server half of that decision, mirroring the tax-return
 // confirm flow:
 //
-// - action "confirm"  — the person accepts a bank proposal as-is; the
-//   answer saves with provenance `user` (the person vouched for the value).
-//   Admitted ONLY for the ids the bank card actually proposes
-//   (plaid-proposal.ts: job/benefits/other amounts and their frequencies).
-// - action "correct"  — the person typed their own value, also `user`.
+// - action "confirm"  — the person accepts a bank proposal as-is. An
+//   untouched AMOUNT saves with status `unverified`, never `known`: every
+//   figure is Sandbox test-bank data, and a salary proposal is a NET
+//   deposit average while NC Medicaid counts GROSS pay. Keeping it
+//   unverified means the number is never presented as a confirmed fact on
+//   the form; the bank card asks the person to enter their own gross figure
+//   to confirm it. A FREQUENCY confirm saves `known` with provenance `user`
+//   (Plaid's categorical schedule carries no amount, and the person vouched
+//   for the schedule).
+// - action "correct"  — the person typed their own value, saved `known`
+//   with provenance `user`.
 //
 // The bank's institution name is NOT written here: it is pii:true metadata
 // captured from Plaid Link and sealed by the browser in the client-side
 // encrypted store (HACK-140), so it never reaches this route or Postgres.
 //
-// Both save with status `known` and only ever target the seven income spec
-// questions, which stay `pii:false` in the plain answer table. Re-saving a
-// question overwrites its one row (update-not-duplicate).
+// Every write targets only the seven income spec questions, which stay
+// `pii:false` in the plain answer table. Re-saving a question overwrites
+// its one row (update-not-duplicate).
 
 /** The ids the bank card proposes from Bank Income streams (browser-safe). */
 export const PLAID_PROPOSED_QUESTION_IDS = [
@@ -45,7 +52,8 @@ export interface PlaidConfirmation {
 
 export interface SavedPlaidAnswer {
   readonly questionId: string;
-  readonly provenance: "user";
+  readonly status: AnswerStatus;
+  readonly provenance: AnswerProvenance;
 }
 
 function validationError(): AppError {
@@ -53,12 +61,30 @@ function validationError(): AppError {
 }
 
 /**
+ * The status/provenance each decision saves with. An untouched amount is
+ * unverified (Sandbox test data, and salary is net of withholding); a
+ * corrected value is the person's own and saves as known/user. A confirmed
+ * frequency is known/user because it carries no amount.
+ */
+export function plaidSaveFor(
+  action: PlaidConfirmationAction,
+  questionId: string,
+): { readonly status: AnswerStatus; readonly provenance: AnswerProvenance } {
+  if (action === "correct") {
+    return { status: "known", provenance: "user" };
+  }
+  return questionId.endsWith("_amount")
+    ? { status: "unverified", provenance: "user_supplied" }
+    : { status: "known", provenance: "user" };
+}
+
+/**
  * Validate the whole batch WITHOUT touching the database: every entry must
  * target an income question, carry a known action, and hold a spec-valid
- * value for status `known`. A confirmed value claims a bank origin, so it
- * is admitted only for the bank card's real proposal ids; everything else
- * must travel as a person-corrected value. A bad entry anywhere rejects
- * the batch and saves nothing.
+ * value. A confirmed value claims a bank origin, so it is admitted only for
+ * the bank card's real proposal ids; everything else must travel as a
+ * person-corrected value. A bad entry anywhere rejects the batch and saves
+ * nothing.
  */
 export function parsePlaidConfirmations(input: unknown): PlaidConfirmation[] {
   if (
@@ -86,6 +112,8 @@ export function parsePlaidConfirmations(input: unknown): PlaidConfirmation[] {
     ) {
       throw validationError();
     }
+    // known and unverified canonicalize identically; the mapping to the
+    // stored status happens in saveConfirmedPlaidAnswers.
     validateAnswerInput(questionId, "known", value);
     return { questionId, action, value };
   });
@@ -93,18 +121,18 @@ export function parsePlaidConfirmations(input: unknown): PlaidConfirmation[] {
 
 /**
  * Persist the person's confirmed/corrected bank-derived income answers
- * through the standard answer store. Returns ids and provenances only —
- * the values live in the returned client state, the person's answers.
+ * through the standard answer store. Returns ids, statuses and provenances
+ * only — the values live in the returned client state, the person's answers.
  */
 export async function saveConfirmedPlaidAnswers(
   sessionId: string,
   confirmations: readonly PlaidConfirmation[],
 ): Promise<SavedPlaidAnswer[]> {
   const saved: SavedPlaidAnswer[] = [];
-  for (const { questionId, value } of confirmations) {
-    const provenance: SavedPlaidAnswer["provenance"] = "user";
-    await saveAnswer(sessionId, questionId, "known", value, provenance);
-    saved.push({ questionId, provenance });
+  for (const { questionId, action, value } of confirmations) {
+    const { status, provenance } = plaidSaveFor(action, questionId);
+    await saveAnswer(sessionId, questionId, status, value, provenance);
+    saved.push({ questionId, status, provenance });
   }
   logInfo("plaid_confirmations_saved", { count: saved.length });
   return saved;

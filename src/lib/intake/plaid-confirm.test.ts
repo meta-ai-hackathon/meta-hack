@@ -6,6 +6,7 @@ import {
   MAX_PLAID_CONFIRMATIONS_PER_CALL,
   parsePlaidConfirmations,
   PLAID_PROPOSED_QUESTION_IDS,
+  plaidSaveFor,
 } from "./plaid-confirm";
 import { INCOME_STAGE_QUESTION_IDS } from "./income";
 
@@ -44,6 +45,27 @@ function specValidValueFor(questionId: string): unknown {
 }
 
 describe("plaid confirmations (HACK-140)", () => {
+  it("saves untouched test-bank amounts as unverified and corrections as known user values", () => {
+    // Review P2 on PR #172: Sandbox figures and net-of-withholding salary
+    // averages must not enter the form as `known`.
+    expect(plaidSaveFor("confirm", "job_income_amount")).toEqual({
+      status: "unverified",
+      provenance: "user_supplied",
+    });
+    expect(plaidSaveFor("confirm", "benefits_income_amount")).toEqual({
+      status: "unverified",
+      provenance: "user_supplied",
+    });
+    expect(plaidSaveFor("confirm", "job_income_frequency")).toEqual({
+      status: "known",
+      provenance: "user",
+    });
+    expect(plaidSaveFor("correct", "job_income_amount")).toEqual({
+      status: "known",
+      provenance: "user",
+    });
+  });
+
   it("targets only income spec questions, and every one is pii:false", () => {
     for (const questionId of INCOME_STAGE_QUESTION_IDS) {
       const question = QUESTIONS.find((entry) => entry.id === questionId);

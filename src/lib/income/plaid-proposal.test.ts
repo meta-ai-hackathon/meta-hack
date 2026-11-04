@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { plaidIncomeProposals, NC_MONTHLY_FACTORS } from "./plaid-proposal";
 import type { MinimizedPlaidPayload, MinimizedPlaidStream } from "../plaid/client";
 function stream(incomeCategory: string, totalAmount: number, transactionCount = 3, payFrequency = "BIWEEKLY", months = ["2026-08", "2026-09", "2026-10"]): MinimizedPlaidStream {
-  return { incomeCategory, incomeDescription: "TEST STREAM", payFrequency, totalAmount, transactionCount, startDate: months[0] + "-01", endDate: months[months.length - 1] + "-28", historicalMonths: months.map((m) => ({ startDate: m + "-01", endDate: m + "-28", total: totalAmount / months.length })) };
+  return { incomeCategory, isStripePayout: false, payFrequency, totalAmount, transactionCount, startDate: months[0] + "-01", endDate: months[months.length - 1] + "-28", historicalMonths: months.map((m) => ({ startDate: m + "-01", endDate: m + "-28", total: totalAmount / months.length })) };
 }
 function payload(streams: MinimizedPlaidStream[]): MinimizedPlaidPayload {
-  return { accounts: [], streams, accountOwnerNames: [], pulledAt: "2026-11-03T00:00:00.000Z", dateRange: { start: "2026-08-01", end: "2026-10-31" } };
+  return { streams, pulledAt: "2026-11-03T00:00:00.000Z", dateRange: { start: "2026-08-01", end: "2026-10-31" } };
 }
 describe("plaidIncomeProposals (Bank Income, NC MA-3306)", () => {
   it("salary proposes avg net per-paycheck + Plaid frequency, gross caveat; NC factors exported", () => {
@@ -57,12 +57,12 @@ describe("plaidIncomeProposals (Bank Income, NC MA-3306)", () => {
   });
   it("flags seasonal suspicion without auto-answering", () => {
     const s = stream("SALARY", 3000, 3, "MONTHLY", ["2026-05", "2026-06", "2026-07"]);
-    const wide: MinimizedPlaidPayload = { accounts: [], accountOwnerNames: [], streams: [s], pulledAt: "x", dateRange: { start: "2025-11-01", end: "2026-10-31" } };
+    const wide: MinimizedPlaidPayload = { streams: [s], pulledAt: "x", dateRange: { start: "2025-11-01", end: "2026-10-31" } };
     // months come from historical summary (3 active of 3 listed) -- not seasonal on listed months alone
     expect(plaidIncomeProposals(wide).proposals.some((p) => String(p.questionId).includes("seasonal"))).toBe(false);
   });
   it("flags Stripe-described streams", () => {
-    const s = { ...stream("OTHER", 2000), incomeDescription: "STRIPE PAYOUT" };
+    const s = { ...stream("OTHER", 2000), isStripePayout: true };
     expect(plaidIncomeProposals(payload([s])).basis.stripePayoutDepositCount).toBe(3);
   });
 });

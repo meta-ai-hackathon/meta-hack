@@ -216,10 +216,13 @@ beforeEach(() => {
         const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as { clientPublicKey: string; pullHandle: string };
         // The UI must send the session-bound handle, never a raw Plaid user id.
         if (typeof body.pullHandle !== "string") return new Response("{}", { status: 400 });
-        const payload = { accounts: [], accountOwnerNames: ["Alberta Charleson"], pulledAt: "2026-11-03T00:00:00.000Z", dateRange: { start: "2026-08-01", end: "2026-10-31" }, streams: [
-          { incomeCategory: "SALARY", incomeDescription: "ACME PAYROLL", payFrequency: "MONTHLY", totalAmount: 6300, transactionCount: 3, startDate: "2026-08-01", endDate: "2026-10-31", historicalMonths: [{ startDate: "2026-08-01", endDate: "2026-08-31", total: 2000 }, { startDate: "2026-09-01", endDate: "2026-09-30", total: 2200 }, { startDate: "2026-10-01", endDate: "2026-10-31", total: 2100 }] },
+        const payload = { pulledAt: "2026-11-03T00:00:00.000Z", dateRange: { start: "2026-08-01", end: "2026-10-31" }, streams: [
+          { incomeCategory: "SALARY", isStripePayout: false, payFrequency: "MONTHLY", totalAmount: 6300, transactionCount: 3, startDate: "2026-08-01", endDate: "2026-10-31", historicalMonths: [{ startDate: "2026-08-01", endDate: "2026-08-31", total: 2000 }, { startDate: "2026-09-01", endDate: "2026-09-30", total: 2200 }, { startDate: "2026-10-01", endDate: "2026-10-31", total: 2100 }] },
         ] };
         return new Response(JSON.stringify({ envelope: encryptForBrowser(body.clientPublicKey, JSON.stringify(payload)) }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url === "/api/intake/plaid/remove") {
+        return new Response(JSON.stringify({ removed: true }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (url === "/api/intake/plaid/confirm") {
         return new Response(
@@ -344,6 +347,19 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     expect((q(container, "income-plaid-connect") as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("removes the Plaid test user when Link is closed without a pull", async () => {
+    (window as unknown as { Plaid: unknown }).Plaid = {
+      create: (config: { onExit?: () => void }) => ({
+        open: () => config.onExit?.(),
+      }),
+    };
+    const { container, act } = await renderStage();
+    await act(async () => { (q(container, "income-plaid-consent") as HTMLInputElement).click(); });
+    await act(async () => { (q(container, "income-plaid-connect") as HTMLButtonElement).click(); });
+    expect(posts.some((post) => post.url === "/api/intake/plaid/remove")).toBe(true);
+    expect(q(container, "income-plaid-status")?.textContent).toContain("test connection was removed");
+  });
+
   it("pulls, decrypts, proposes with basis, and saves only on confirm", async () => {
     (window as unknown as { Plaid: unknown }).Plaid = {
       create: (config: {
@@ -366,9 +382,18 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     expect(container.textContent).toContain("From First Platypus Bank");
     expect(q(container, "income-plaid-basis")?.textContent).toContain("3 deposits");
     expect((container.querySelector('[data-income-plaid-correct="job_income_amount"]') as HTMLInputElement).value).toBe("2100");
-    expect((container.querySelector("[data-income-plaid-member-name]") as HTMLInputElement).value).toBe("Alberta");
-    expect(q(container, "income-plaid-owner")?.textContent).toContain("Alberta Charleson");
+    // No owner name crosses the broker any more (review P1): the person
+    // names whose income this is, and the save requires that name.
+    expect((container.querySelector("[data-income-plaid-member-name]") as HTMLInputElement).value).toBe("");
+    expect(q(container, "income-plaid-owner")).toBeNull();
+    expect((q(container, "income-plaid-save") as HTMLButtonElement).disabled).toBe(true);
     expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
+    await act(async () => {
+      const input = container.querySelector("[data-income-plaid-member-name]") as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "Alberta");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
     await act(async () => { (q(container, "income-plaid-save") as HTMLButtonElement).click(); });
     const confirm = posts.find((post) => post.url === "/api/intake/plaid/confirm");
     expect(confirm).toBeDefined();

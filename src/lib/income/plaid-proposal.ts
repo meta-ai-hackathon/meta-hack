@@ -59,17 +59,17 @@ function cents(v: number): number { return Math.round(v * 100) / 100; }
 function mapFrequency(payFrequency: string): string {
   switch (payFrequency) { case "WEEKLY": return "weekly"; case "BIWEEKLY": return "biweekly"; case "SEMI_MONTHLY": return "twice_monthly"; case "MONTHLY": return "monthly"; default: return "varies"; }
 }
-interface Agg { total: number; count: number; frequencies: Set<string>; months: Map<string, number>; descriptions: string[]; }
+interface Agg { total: number; count: number; frequencies: Set<string>; months: Map<string, number>; }
 export function plaidIncomeProposals(payload: MinimizedPlaidPayload, classifications: PlaidClassifications = {}): PlaidProposalResult {
   const byCategory = new Map<BankIncomeCategory, Agg>();
   let stripePayoutDepositCount = 0;
   for (const s of payload.streams) {
     const category = (s.incomeCategory === "CASH" ? "CASH_DEPOSIT" : s.incomeCategory) as BankIncomeCategory;
-    if (/stripe/i.test(s.incomeDescription)) stripePayoutDepositCount += s.transactionCount;
-    const agg = byCategory.get(category) ?? { total: 0, count: 0, frequencies: new Set<string>(), months: new Map<string, number>(), descriptions: [] as string[] };
+    if (s.isStripePayout) stripePayoutDepositCount += s.transactionCount;
+    const agg = byCategory.get(category) ?? { total: 0, count: 0, frequencies: new Set<string>(), months: new Map<string, number>() };
     agg.total = cents(agg.total + s.totalAmount); agg.count += s.transactionCount;
     agg.frequencies.add(mapFrequency(s.payFrequency));
-    if (s.incomeDescription) agg.descriptions.push(s.incomeDescription);
+    // The raw description never reaches this module; only the Stripe marker does.
     for (const h of s.historicalMonths) { const m = h.startDate.slice(0, 7); if (m) agg.months.set(m, cents((agg.months.get(m) ?? 0) + h.total)); }
     byCategory.set(category, agg);
   }

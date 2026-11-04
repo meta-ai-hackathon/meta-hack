@@ -514,7 +514,21 @@ export function IncomeStage(props: {
       const ephemeral = await generateEphemeralBrowserKey();
       const tokenResponse = await fetch("/api/intake/plaid/link-token", { method: "POST" });
       if (!tokenResponse.ok) throw new Error("link-token");
-      const { linkToken, pullHandle } = (await tokenResponse.json()) as { linkToken: string; pullHandle: string };
+      const { linkToken, pullHandle: mintedHandle } = (await tokenResponse.json()) as { linkToken: string; pullHandle: string };
+      // /user/create made a Plaid user. The pull route deletes it after its
+      // one fetch, but a Link exit (or a failed pull) never fetches — so the
+      // exit path calls the idempotent remove route with this handle.
+      let pullHandle: string | null = mintedHandle;
+      const releaseTestUser = () => {
+        const handle = pullHandle;
+        if (handle === null) return;
+        pullHandle = null;
+        void fetch("/api/intake/plaid/remove", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pullHandle: handle }),
+        }).catch(() => undefined);
+      };
       await loadPlaidLinkScript();
       if (!window.Plaid) throw new Error("plaid-missing");
       const handler = window.Plaid.create({
@@ -526,22 +540,23 @@ export function IncomeStage(props: {
             setPlaidStatus("Fetching your test bank income (Plaid Bank Income)…");
             const pullResponse = await fetch("/api/intake/plaid/pull", {
               method: "POST", headers: { "content-type": "application/json" },
-              body: JSON.stringify({ pullHandle, clientPublicKey: ephemeral.publicKeySpki }),
+              body: JSON.stringify({ pullHandle: mintedHandle, clientPublicKey: ephemeral.publicKeySpki }),
             });
             if (!pullResponse.ok) throw new Error("pull");
             const { envelope } = (await pullResponse.json()) as { envelope: BrokerEnvelope };
             const payload = (await decryptEnvelope(envelope, ephemeral.privateKey)) as MinimizedPlaidPayload;
+            pullHandle = null; // the pull route already removed the Plaid user
             setPlaidPayload(payload); setPlaidClassifications({});
-            setPlaidMemberName((payload.accountOwnerNames[0] ?? "").split(" ")[0] ?? "");
+
             const result = plaidIncomeProposals(payload, {});
             applyPlaidResult(result);
             setPlaidStatus(result.proposals.length > 0
               ? "Check what we found, then save."
               : "We could not find a reliable monthly pattern in that test bank, so nothing is proposed. You can type your income instead.");
-          } catch { setPlaidStatus(READ_FAILED_NOTICE); }
+          } catch { releaseTestUser(); setPlaidStatus(READ_FAILED_NOTICE); }
           finally { setPlaidConnecting(false); }
         },
-        onExit: () => { setPlaidConnecting(false); setPlaidStatus("Bank connection closed — nothing was saved. You can type your income instead."); },
+        onExit: () => { releaseTestUser(); setPlaidConnecting(false); setPlaidStatus("Bank connection closed — the test connection was removed and nothing was saved. You can type your income instead."); },
       });
       handler.open();
     } catch { setPlaidConnecting(false); setPlaidStatus(READ_FAILED_NOTICE); }
@@ -629,7 +644,7 @@ export function IncomeStage(props: {
       const name = plaidMemberName.trim();
       const prev = plaidSavedMembers[plaidSavedMembers.length - 1];
       setPlaidSavedMembers((list) => [...list, { name, detail: decided.map((d) => d.questionId + ": " + String(d.value)).join("; ") }]);
-      onNotice(prev && prev.name !== name ? "Saved for " + name + ". For now this replaced " + prev.name + "'s bank answers in the household income questions." : "Saved for " + name + ". Nothing was submitted.");
+      onNotice(prev && prev.name !== name ? "Saved for " + name + ". For now this replaced " + prev.name + "'s bank answers in the household income questions. Test-bank figures you kept are marked unverified; figures you edited are saved as your own." : "Saved for " + name + ". Test-bank figures you kept are marked unverified; figures you edited are saved as your own. Nothing was submitted.");
     } catch { onNotice(SAVE_FAILED_NOTICE); }
     finally { saveInFlight.current = false; setSaving(false); }
   }
@@ -893,7 +908,7 @@ export function IncomeStage(props: {
       <section data-income-plaid-card aria-labelledby="income-plaid-heading" className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface p-4">
         <div className="flex flex-col gap-1">
           <h3 id="income-plaid-heading" className="text-lg font-semibold">Connect your bank (demo)</h3>
-          <p className="text-sm text-muted">Optional Plaid Sandbox demo with a test bank — not a real bank login. We fetch a Plaid Bank Income report once, show you what we find, and save nothing until you confirm. The one fetch passes through our server without being stored or logged, and the test connection is removed right after. Saying no changes nothing: you can upload a file or type your income instead.</p>
+          <p className="text-sm text-muted">Optional Plaid Sandbox demo with a synthetic test bank — not a real bank login. We fetch a Plaid Bank Income report once, show you what we find, and save nothing until you confirm. Sandbox figures are not your real bank, and bank pay arrives after withholding: a figure you keep as-is is saved as unverified, so edit it to your own amount (for example gross pay) to save it as confirmed. The one fetch passes through our server without being stored or logged, and the test connection is removed right after. Saying no changes nothing: you can upload a file or type your income instead.</p>
         </div>
         <label htmlFor="income-plaid-consent" className="flex min-h-11 items-start gap-2 text-base">
           <input id="income-plaid-consent" type="checkbox" checked={plaidConsent} onChange={(e) => setPlaidConsent(e.target.checked)} data-income-plaid-consent className="mt-1 h-5 w-5 shrink-0 accent-teal" />
@@ -910,7 +925,7 @@ export function IncomeStage(props: {
             {plaidResult.basis.seasonalNote ? <p className="text-sm text-muted" data-income-plaid-seasonal>{plaidResult.basis.seasonalNote}</p> : null}
             {plaidResult.classificationQuestions.map((q) => <div key={q.category} className="flex flex-col gap-1" data-income-plaid-question={q.category}><label htmlFor={"income-plaid-classify-" + q.category} className="text-sm font-medium">{q.prompt}</label><select id={"income-plaid-classify-" + q.category} data-income-plaid-classify={q.category} className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" defaultValue="" onChange={(e) => answerPlaidClassification(q.category, e.target.value)}><option value="" disabled>Choose one…</option>{q.choices.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>)}
             <div className="flex flex-col gap-1" data-income-plaid-member>
-              {plaidPayload && plaidPayload.accountOwnerNames.length > 0 ? <p className="text-sm text-muted" data-income-plaid-owner>Plaid name on this account: {plaidPayload.accountOwnerNames.join(", ")}</p> : null}
+
               <label htmlFor="income-plaid-member-name" className="text-sm font-medium">Whose income is this?</label>
               {rosterFromAnswers(state.answers, { includeUnverified: true }).length > 0 ? <select aria-label="Pick the household member" data-income-plaid-member-pick className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" defaultValue="" onChange={(e) => { const m = rosterFromAnswers(state.answers, { includeUnverified: true }).find((x) => x.id === e.target.value); if (m) setPlaidMemberName(m.displayName); }}><option value="" disabled>Pick the person…</option>{rosterFromAnswers(state.answers, { includeUnverified: true }).map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select> : null}
               <input id="income-plaid-member-name" type="text" value={plaidMemberName} onChange={(e) => setPlaidMemberName(e.target.value)} placeholder="First name or nickname" data-income-plaid-member-name className="min-h-11 w-64 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" />
@@ -950,7 +965,17 @@ declare global {
   }
 }
 
-/** Load Plaid Link's CDN script once. Resolves immediately when already loaded (tests stub window.Plaid). */
+/**
+ * Load Plaid Link's CDN script once. Resolves immediately when already
+ * loaded (tests stub window.Plaid).
+ *
+ * The URL is Plaid's stable channel because Plaid's Link Web SDK is
+ * deliberately NOT versioned: its docs require loading the script directly
+ * from cdn.plaid.com, which serves the latest SDK, so there is no version
+ * to pin and no SRI hash to publish. Owner sign-off for the unversioned
+ * script is recorded on HACK-140 (2026-11-04, review P2 on PR #172). The
+ * script is fetched only after the distinct Plaid consent is checked.
+ */
 export function loadPlaidLinkScript(): Promise<void> {
   if (typeof window !== "undefined" && window.Plaid) return Promise.resolve();
   return new Promise((resolve, reject) => {

@@ -6,10 +6,11 @@ import { setLogSink } from "../../../../../lib/telemetry";
 import { POST } from "./route";
 
 // POST /api/intake/plaid/confirm route tests (HACK-140). This is the bank
-// card's only writer: both an untouched Bank Income proposal and a
-// person-edited value save with provenance `user` (the person vouched for
-// the value). The institution name is pii:true metadata kept only in the
-// browser, so it never appears here. Re-saving updates the same rows
+// card's only writer. An untouched AMOUNT saves `unverified` (Sandbox test
+// data; salary is net of withholding), a confirmed frequency saves `known`
+// with provenance `user`, and a person-edited value saves `known`/`user`.
+// The institution name is pii:true metadata kept only in the browser, so it
+// never appears here. Re-saving updates the same rows
 // (update-not-duplicate); non-income and pii questions are refused; and the
 // response echoes no values in the saved list itself.
 
@@ -95,7 +96,7 @@ async function answerRows(sessionId: string): Promise<AnswerRow[]> {
 }
 
 describe("POST /api/intake/plaid/confirm", () => {
-  it("saves a confirmed bank proposal with provenance user", async () => {
+  it("saves an untouched bank amount as unverified test data", async () => {
     const cookie = await createSessionAndGetCookie();
     const sessionId = cookie.split("=")[1];
 
@@ -111,6 +112,30 @@ describe("POST /api/intake/plaid/confirm", () => {
     expect(rows[0]).toMatchObject({
       question_id: "job_income_amount",
       value: 2100,
+      status: "unverified",
+      provenance: "user_supplied",
+    });
+  });
+
+  it("saves a confirmed frequency as known with provenance user", async () => {
+    const cookie = await createSessionAndGetCookie();
+    const sessionId = cookie.split("=")[1];
+
+    const response = await POST(
+      confirmRequest(cookie, [
+        {
+          questionId: "job_income_frequency",
+          action: "confirm",
+          value: "biweekly",
+        },
+      ]),
+    );
+
+    expect(response.status).toBe(200);
+    const rows = await answerRows(sessionId);
+    expect(rows[0]).toMatchObject({
+      question_id: "job_income_frequency",
+      value: "biweekly",
       status: "known",
       provenance: "user",
     });
@@ -155,10 +180,12 @@ describe("POST /api/intake/plaid/confirm", () => {
     const byQuestion = new Map(rows.map((row) => [row.question_id, row]));
     expect(byQuestion.get("job_income_amount")).toMatchObject({
       value: 2100,
-      provenance: "user",
+      status: "unverified",
+      provenance: "user_supplied",
     });
     expect(byQuestion.get("job_income_frequency")).toMatchObject({
       value: "weekly",
+      status: "known",
       provenance: "user",
     });
   });
@@ -227,7 +254,11 @@ describe("POST /api/intake/plaid/confirm", () => {
 
     const body = await response.json();
     expect(body.saved).toEqual([
-      { questionId: "job_income_amount", provenance: "user" },
+      {
+        questionId: "job_income_amount",
+        status: "unverified",
+        provenance: "user_supplied",
+      },
     ]);
     expect(JSON.stringify(body.state)).toContain("2100");
   });

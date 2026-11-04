@@ -31,14 +31,20 @@ describe("PlaidClient Bank Income", () => {
       expect(String(id)).not.toContain("session-1");
     }
   });
-  it("fetches Bank Income, minimizes ids/owners out, deletes user after", async () => {
+  it("fetches Bank Income, drops accounts/owners/descriptions, deletes user after", async () => {
     const calls: string[] = [];
     const fetchFn: PlaidFetch = async (url) => { calls.push(url); if (url.endsWith("/credit/bank_income/get")) return jsonResponse(report); if (url.endsWith("/user/remove")) return jsonResponse({}); throw new Error(url); };
     const payload = await new PlaidClient(config, fetchFn).pullBankIncome("user-sandbox-x");
     const s = JSON.stringify(payload);
     for (const sentinel of ["ACC-SENTINEL", "SRC-SENTINEL", "SANDBOX-SECRET-SENTINEL"]) expect(s).not.toContain(sentinel);
-    expect(payload.accountOwnerNames).toEqual(["OWNER-NAME-SENTINEL"]); // owner name is kept on purpose: it identifies whose income this is
-    expect(payload.streams[0]).toMatchObject({ incomeCategory: "SALARY", totalAmount: 6300, transactionCount: 3 });
+    // Account names, masks, and owner names are absent from the payload
+    // entirely (review P1 on PR #172) -- not merely id-scrubbed.
+    expect(payload).not.toHaveProperty("accounts");
+    expect(payload).not.toHaveProperty("accountOwnerNames");
+    expect(s).not.toContain("OWNER-NAME-SENTINEL");
+    expect(s).not.toContain("ACME PAYROLL");
+    expect(s).not.toContain("Checking");
+    expect(payload.streams[0]).toMatchObject({ incomeCategory: "SALARY", totalAmount: 6300, transactionCount: 3, isStripePayout: false });
     expect(calls.map((u) => u.split("/").slice(-2).join("/"))).toEqual(["bank_income/get", "user/remove"]);
   });
   it("retries while Bank Income is PRODUCT_NOT_READY, still deletes user on failure", async () => {
@@ -47,4 +53,10 @@ describe("PlaidClient Bank Income", () => {
     await expect(new PlaidClient(config, fetchFn).pullBankIncome("u")).rejects.toThrow("Plaid request failed.");
     expect(n).toBe(6); expect(removed).toHaveBeenCalledTimes(1);
   }, 20000);
+  it("marks only Stripe descriptions, never forwarding the text", async () => {
+    const stripeReport = { bank_income: [{ items: [{ bank_income_sources: [{ income_category: "OTHER", income_description: "STRIPE TRANSFER", pay_frequency: "WEEKLY", total_amount: 500, transaction_count: 2, start_date: "2026-08-01", end_date: "2026-10-31", historical_summary: [] }] }] }] };
+    const payload = await new PlaidClient(config, async () => jsonResponse(stripeReport)).fetchBankIncome("u");
+    expect(payload.streams[0]?.isStripePayout).toBe(true);
+    expect(JSON.stringify(payload)).not.toContain("STRIPE TRANSFER");
+  });
 });
