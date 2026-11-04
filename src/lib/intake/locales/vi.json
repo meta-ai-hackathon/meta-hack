@@ -1,0 +1,609 @@
+{
+  "questions": {
+    "application_role": {
+      "prompt": "Đơn này dành cho ai?",
+      "help": "Chọn lựa chọn phù hợp nhất với bạn. Bạn có thể thay đổi sau.",
+      "options": {
+        "self": "Tôi",
+        "family_member": "Một thành viên gia đình",
+        "someone_else": "Người khác mà tôi giúp"
+      }
+    },
+    "main_goal": {
+      "prompt": "Bạn đang cần loại hỗ trợ nào?",
+      "help": "Chọn loại bạn cần nhất. Bạn có thể bổ sung sau.",
+      "options": {
+        "food": "Thực phẩm",
+        "housing": "Nhà ở",
+        "healthcare": "Chăm sóc sức khỏe",
+        "cash_assistance": "Trợ giúp tiền mặt",
+        "other": "Việc khác"
+      }
+    },
+    "goal_detail": {
+      "prompt": "Theo lời của bạn, điều gì sẽ giúp ích nhiều nhất?",
+      "help": "Một câu ngắn là tốt. Điều này chỉ là để giúp chúng tôi chỉ cho bạn con đường đúng đắn."
+    },
+    "state": {
+      "prompt": "Bạn sống ở bang nào?",
+      "help": "Quy tắc thay đổi theo tiểu bang. Chọn bang nơi bạn ngủ nhiều đêm nhất.",
+      "options": {
+        "AL": "Alabama",
+        "AK": "Alaska",
+        "AZ": "Arizona",
+        "AR": "Arkansas",
+        "CA": "California",
+        "CO": "Colorado",
+        "CT": "Connecticut",
+        "DE": "Delaware",
+        "FL": "Florida",
+        "GA": "Georgia",
+        "HI": "Hawaii",
+        "ID": "Idaho",
+        "IL": "Illinois",
+        "IN": "Indiana",
+        "IA": "Iowa",
+        "KS": "Kansas",
+        "KY": "Kentucky",
+        "LA": "Louisiana",
+        "ME": "Maine",
+        "MD": "Maryland",
+        "MA": "Massachusetts",
+        "MI": "Michigan",
+        "MN": "Minnesota",
+        "MS": "Mississippi",
+        "MO": "Missouri",
+        "MT": "Montana",
+        "NE": "Nebraska",
+        "NV": "Nevada",
+        "NH": "New Hampshire",
+        "NJ": "New Jersey",
+        "NM": "New Mexico",
+        "NY": "New York",
+        "NC": "North Carolina",
+        "ND": "North Dakota",
+        "OH": "Ohio",
+        "OK": "Oklahoma",
+        "OR": "Oregon",
+        "PA": "Pennsylvania",
+        "RI": "Rhode Island",
+        "SC": "South Carolina",
+        "SD": "South Dakota",
+        "TN": "Tennessee",
+        "TX": "Texas",
+        "UT": "Utah",
+        "VT": "Vermont",
+        "VA": "Virginia",
+        "WA": "Washington",
+        "WV": "West Virginia",
+        "WI": "Wisconsin",
+        "WY": "Wyoming"
+      }
+    },
+    "county": {
+      "prompt": "Bạn sống ở quận hoặc khu vực thành phố nào?",
+      "help": "Văn phòng địa phương của bạn phụ thuộc vào việc này. Không chắc? Bạn có thể để trống nó."
+    },
+    "household_size": {
+      "prompt": "Bạn mua và chia sẻ thức ăn với bao nhiêu người?",
+      "help": "Hãy tính bản thân và tất cả những người bạn sống cùng, kể cả trẻ em. Nhập một số."
+    },
+    "household_children": {
+      "prompt": "Bao nhiêu người trong số đó dưới 18 tuổi?",
+      "help": "Nhập một số. Nhập 0 nếu không có con."
+    },
+    "household_seniors": {
+      "prompt": "Trong gia đình bạn có bao nhiêu người từ 60 tuổi trở lên?",
+      "help": "Nhập một số. Nhập 0 nếu không có."
+    },
+    "household_roster": {
+      "prompt": "Ai sống trong nhà bạn? Ghi mỗi người bằng tên hoặc biệt danh.",
+      "help": "Tên hoặc biệt danh là tốt - bạn không cần tên hợp pháp. Bạn có thể thêm, thay đổi hoặc xóa người. Danh sách này giúp các câu hỏi sau này hỏi về người đúng."
+    },
+    "income_sources": {
+      "prompt": "Tiền của hộ gia đình bạn đến từ đâu?",
+      "help": "Chọn mọi nguồn phù hợp. Chọn “không có” nếu hiện không có tiền vào.",
+      "options": {
+        "job": "Một công việc",
+        "self_employed": "Làm việc tự do hoặc làm việc lẻ",
+        "benefits": "Các khoản trợ cấp như trợ cấp khuyết tật hoặc hưu trí",
+        "family_friends": "Tiền từ gia đình hoặc bạn bè",
+        "child_support": "Tiền cấp dưỡng nuôi con",
+        "other": "Việc khác",
+        "none": "Hiện không có tiền vào"
+      }
+    },
+    "income_kind": {
+      "prompt": "Bạn có loại thu nhập nào?",
+      "help": "Điều này quyết định những câu hỏi tiền nào sẽ đến tiếp theo. Chọn cái phù hợp nhất. Bạn cũng có thể nói rằng bạn không chắc chắn sau đó chúng tôi sẽ hỏi các câu hỏi chung.",
+      "options": {
+        "self_employment_current": "Tôi làm việc cho chính mình ngay bây giờ, trong công ty riêng của tôi hoặc LLC",
+        "prior_employer_only": "Tôi đã có một công việc trước đây, nhưng tôi không làm việc ở đó nữa.",
+        "both": "Cả hai: hiện tôi tự làm việc và trước đây từng đi làm",
+        "neither": "Không có trường hợp nào"
+      }
+    },
+    "self_employment_statements_offer": {
+      "prompt": "Bạn có muốn dùng sao kê ngân hàng và thanh toán gần đây để thể hiện thu nhập này không?",
+      "help": "Bạn có thể chia sẻ các tập tin báo cáo từ ngân hàng hoặc dịch vụ thanh toán của bạn, hoặc tự nhập các số. Bất cứ điều gì bạn chia sẻ sẽ ở lại trên thiết bị này, được mã hóa — không có gì được gửi đi từ đây. Nói không chắc cũng được; chúng tôi sẽ hỏi các con số theo cách phù hợp với bạn.",
+      "options": {
+        "will_share": "Vâng, tôi có thể chia sẻ các sao kê",
+        "will_type": "Tôi sẽ tự gõ số.",
+        "not_sure_yet": "Chưa chắc chắn."
+      }
+    },
+    "prior_employer_current": {
+      "prompt": "Bạn vẫn làm việc cho người chủ cũ đó à?",
+      "help": "Tiền từ một công việc mà bạn không còn có có thể được đối xử khác với tiền bạn kiếm được bây giờ — văn phòng quyết định. Điều này có thể giúp cho thấy rằng tiền lương cũ không phải là thu nhập hiện tại.",
+      "options": {
+        "no_longer_there": "Không, tôi không làm việc ở đó nữa.",
+        "yes_still_there": "Vâng, tôi vẫn làm việc ở đó."
+      }
+    },
+    "prior_employer_last_month": {
+      "prompt": "Bạn được trả lương lần cuối cùng từ người sử dụng lao động đó vào tháng và năm nào?",
+      "help": "Ví dụ: tháng 3 năm 2025. Ký ức tốt nhất của bạn vẫn ổn. Điều này giúp cho thấy rằng tiền lương là từ quá khứ, không phải thu nhập hiện tại."
+    },
+    "job_income_amount": {
+      "prompt": "Khoảng bao nhiêu tiền đến từ công việc mỗi khi bạn được trả lương?",
+      "help": "Chỉ đoán tốt nhất là được. Bạn có thể nói 'không chắc chắn' nếu bạn không biết."
+    },
+    "job_income_frequency": {
+      "prompt": "Tiền công việc đó đến bao lâu một lần?",
+      "help": "Chọn số lần tiền lương đến.",
+      "options": {
+        "weekly": "Hàng tuần",
+        "biweekly": "Hai tuần một lần",
+        "twice_monthly": "Hai lần một tháng",
+        "monthly": "Mỗi tháng một lần",
+        "varies": "Thay đổi"
+      }
+    },
+    "job_income_seasonal": {
+      "prompt": "Tất cả công việc làm trong gia đình bạn là công việc theo mùa — chỉ xảy ra trong một phần của năm?",
+      "help": "Chỉ trả lời có nếu tất cả các công việc trong gia đình của bạn là theo mùa, như thu hoạch, nghỉ mát hoặc làm việc mùa hè. Nếu ai trong gia đình bạn có việc làm quanh năm, trả lời là không. Chọn 'không chắc chắn' nếu bạn không biết.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "job_income_seasonal_total": {
+      "prompt": "Tổng cộng cả gia đình bạn kiếm được bao nhiêu từ công việc theo mùa trong 6 tháng qua?",
+      "help": "Hãy cộng lại những gì mọi người trong gia đình bạn kiếm được từ công việc theo mùa trong 6 tháng qua, tốt nhất bạn có thể. Thu nhập từ công việc theo mùa có thể được tính trung bình trong 6 tháng, và tổng số này là những gì được tính trung bình."
+    },
+    "benefits_income_amount": {
+      "prompt": "Khoảng bao nhiêu tiền từ các khoản trợ cấp mỗi tháng?",
+      "help": "Đây là các khoản như trợ cấp khuyết tật hoặc hưu trí. Ước lượng cũng được."
+    },
+    "benefits_income_frequency": {
+      "prompt": "Tiền từ các khoản trợ cấp đó đến bao lâu một lần?",
+      "help": "Chọn xem thư chi trả (séc) được gửi đến bao lâu một lần.",
+      "options": {
+        "weekly": "Hàng tuần",
+        "biweekly": "Hai tuần một lần",
+        "twice_monthly": "Hai lần một tháng",
+        "monthly": "Mỗi tháng một lần",
+        "varies": "Thay đổi"
+      }
+    },
+    "other_income_amount": {
+      "prompt": "Khoảng bao nhiêu tiền khác đến mỗi tháng?",
+      "help": "Tiền từ gia đình hay bạn bè, tiền nuôi con, hay bất cứ thứ gì khác. Đoán cũng được."
+    },
+    "housing_status": {
+      "prompt": "Đêm qua bạn ngủ ở đâu?",
+      "help": "Hãy trả lời thật lòng. Điều này giúp chúng tôi tìm được hỗ trợ phù hợp và không ảnh hưởng đến bạn.",
+      "options": {
+        "shelter": "Ở nơi trú ẩn",
+        "car": "Trong xe hơi hoặc phương tiện",
+        "outdoors": "Bên ngoài hoặc ở nơi không dành cho ngủ",
+        "nowhere": "Tôi không có nơi nào để ngủ.",
+        "staying_with_others": "Ở cùng gia đình hoặc bạn bè",
+        "rental_or_own": "Ở một nơi tôi thuê hoặc sở hữu"
+      }
+    },
+    "housing_cost": {
+      "prompt": "Bạn trả bao nhiêu tiền cho nhà ở mỗi tháng?",
+      "help": "Tiền thuê nhà hoặc thế chấp, nếu có. Nhập 0 nếu bạn không trả tiền cho nhà ở."
+    },
+    "utilities_cost": {
+      "prompt": "Bạn trả bao nhiêu tiền cho các tiện ích mỗi tháng?",
+      "help": "Đèn, sưởi, nước, hoặc khí gas. Nhập 0 nếu bạn không trả bất kỳ."
+    },
+    "childcare_cost": {
+      "prompt": "Bạn trả bao nhiêu tiền cho việc chăm sóc trẻ mỗi tháng?",
+      "help": "Trường mầm non, trông trẻ, hay chăm sóc sau giờ học. Nhập 0 nếu bạn không trả tiền chăm sóc trẻ em."
+    },
+    "medical_cost": {
+      "prompt": "Bạn phải trả bao nhiêu tiền cho các chi phí y tế mỗi tháng?",
+      "help": "Thuốc, tiền đồng thanh toán (copay), đi khám bác sĩ. Nhập 0 nếu không có. Đoán cũng được."
+    },
+    "id_status": {
+      "prompt": "Bạn có tấm thẻ căn cước có hình không?",
+      "help": "Bất kỳ thẻ căn cước nào của chính phủ cũng được tính. Không sao nếu bạn mất nó hoặc chưa từng có. Chúng tôi vẫn có thể giúp.",
+      "options": {
+        "have_id": "Ừ, tôi có một cái.",
+        "need_id": "Không, tôi cần một cái.",
+        "id_in_progress": "Tôi đang cố thay thế nó.",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "id_issue_detail": {
+      "prompt": "Nếu muốn, hãy cho chúng tôi biết chuyện gì đã xảy ra với thẻ căn cước của bạn.",
+      "help": "Ví dụ: bị mất, bị đánh cắp, hoặc chưa bao giờ có một cái. Đây là tùy chọn. Nó giúp chúng tôi lên kế hoạch cho các bước tiếp theo với bạn."
+    },
+    "date_of_birth": {
+      "prompt": "Ngày sinh của bạn là gì?",
+      "help": "Nếu bạn không chắc chắn về ngày chính xác thì bạn có thể đoán."
+    },
+    "citizenship_status": {
+      "prompt": "Bạn sẽ mô tả tình trạng nhập cư hoặc quốc tịch của mình như thế nào?",
+      "help": "Câu hỏi này là riêng tư và ở trên máy chủ an toàn của chúng tôi. Nhiều loại trợ giúp không phụ thuộc vào câu trả lời này, và một số chương trình giúp các thành viên gia đình có tình trạng khác nhau. Chọn \"không chắc chắn\" nếu bạn không muốn nói hoặc không biết.",
+      "options": {
+        "us_citizen": "Công dân Hoa Kỳ",
+        "permanent_resident": "Người có thẻ xanh",
+        "other_status": "Tình trạng khác",
+        "not_sure": "Tôi không chắc / không muốn nói"
+      }
+    },
+    "disability_status": {
+      "prompt": "Có ai trong gia đình bạn bị khuyết tật hoặc bệnh tật hạn chế cuộc sống hàng ngày không?",
+      "help": "Điều này có thể mở ra thêm nhiều loại trợ giúp. Chọn \"không chắc chắn\" nếu bạn không biết.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "student_status": {
+      "prompt": "Bạn có đang đi học hoặc tham gia đào tạo hiện tại không?",
+      "help": "Đại học, đào tạo nghề, các lớp GED - bất kỳ điều gì trong số này đều được tính.",
+      "options": {
+        "not_student": "Không",
+        "full_time_student": "Có, toàn thời gian",
+        "part_time_student": "Có, bán thời gian"
+      }
+    },
+    "veteran_status": {
+      "prompt": "Bạn từng phục vụ trong quân đội chưa?",
+      "help": "Bất kỳ quân chủng nào, bất kỳ thời gian phục vụ nào. Cựu chiến binh có thể đủ điều kiện để được trợ giúp thêm."
+    },
+    "received_benefits_before": {
+      "prompt": "Trước đây bạn đã từng nhận được sự giúp đỡ từ một văn phòng trợ cấp chưa?",
+      "help": "Bây giờ hay trong quá khứ, ở bất kỳ bang nào. Điều này không ảnh hưởng đến việc bạn có thể được giúp đỡ ngay bây giờ hay không."
+    },
+    "mailing_situation": {
+      "prompt": "Bạn có thể nhận thư ở đâu?",
+      "help": "Chọn lựa chọn an toàn nhất phù hợp với bạn. Nhiều người nhận thư mà không có địa chỉ nhà.",
+      "options": {
+        "shelter": "Một nơi trú ẩn hoặc chương trình nơi tôi ở",
+        "family_or_friend": "Địa chỉ của gia đình hoặc bạn bè",
+        "po_box": "Hộp thư",
+        "general_delivery": "Giao thư chung tại bưu điện",
+        "day_center": "Trung tâm ghé thăm tự do hoặc trung tâm ban ngày",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "shelter_mail_consent": {
+      "prompt": "Nơi trú ẩn đã đồng ý giữ thư cho bạn chưa?",
+      "help": "Một số nơi trú ẩn chỉ giữ thư nếu bạn hỏi trước. Chỉ nói \"có\" nếu bạn chắc chắn họ đồng ý."
+    },
+    "contact_preference": {
+      "prompt": "Làm sao để chúng tôi liên lạc với bạn?",
+      "help": "Chọn cái phù hợp nhất với bạn. Không nhất thiết phải là điện thoại.",
+      "options": {
+        "call": "Gọi điện thoại",
+        "text": "Tin nhắn văn bản",
+        "email": "Email",
+        "in_person": "Gặp trực tiếp"
+      }
+    },
+    "phone_contact": {
+      "prompt": "Số điện thoại mà tin nhắn có thể đến được bạn là gì?",
+      "help": "Số của bạn bè hoặc số của nhà trú ẩn là tốt nếu nó hoạt động. Nó sẽ ở lại máy chủ an toàn của chúng tôi."
+    },
+    "email_contact": {
+      "prompt": "Địa chỉ email của bạn là gì?",
+      "help": "Nếu chưa có thì một tài khoản email miễn phí cũng dùng được. Nó sẽ ở lại máy chủ an toàn của chúng tôi."
+    },
+    "best_time_to_reach": {
+      "prompt": "Khi nào là thời gian tốt nhất để liên lạc với bạn?",
+      "help": "Chọn thời gian bạn có thể tự do nhất.",
+      "options": {
+        "morning": "Buổi sáng",
+        "afternoon": "Buổi chiều",
+        "evening": "Buổi tối"
+      }
+    },
+    "wr_exempt_situations": {
+      "prompt": "Bạn hoặc người đang xin Medicaid có thuộc một trong các trường hợp này không?",
+      "help": "Kiểm tra tất cả những gì áp dụng. Nếu một trong số đó áp dụng, bạn có thể không cần phải báo cáo các hoạt động làm việc cho người đó - nhà nước quyết định những gì được tính. Một người nộp đơn không ở trong một trong những tình huống này vẫn có thể cần báo cáo các hoạt động làm việc của họ, và nhà nước quyết định điều đó cho mỗi người.",
+      "options": {
+        "parent_child_under_18": "Cha mẹ của một đứa trẻ dưới 18 tuổi",
+        "nonparent_caregiver_child_under_14": "Người chăm sóc không phải là cha mẹ của trẻ dưới 14 tuổi, chẳng hạn như người thân hoặc bất kỳ ai cung cấp ít nhất 80 giờ chăm sóc mỗi tháng",
+        "caregiver_daily_activities": "Người chăm sóc một người cần giúp đỡ trong các hoạt động hàng ngày, chẳng hạn như người khuyết tật hoặc người lớn tuổi",
+        "already_snap_tanf_work_requirements": "Đã thuộc diện yêu cầu làm việc của SNAP hoặc TANF",
+        "none": "Không trường hợp nào áp dụng"
+      }
+    },
+    "wr_pregnant": {
+      "prompt": "Có ai trong số người đang làm đơn đang có thai hay đã có thai trong 12 tháng qua không?",
+      "help": "Bạn có thể bỏ qua nếu bạn không muốn trả lời — tiểu bang quyết định những gì được tính.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "wr_drug_alcohol_treatment": {
+      "prompt": "Có ai trong số người đang xin trợ cấp đang tham gia chương trình điều trị rối loạn do ma túy hay rượu không?",
+      "help": "Bạn có thể bỏ qua nếu bạn không muốn trả lời — tiểu bang quyết định những gì được tính.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "wr_drug_alcohol_disorder": {
+      "prompt": "Có ai trong số người đang làm đơn có rối loạn ma túy hoặc rượu khiến việc làm khó khăn không? Điều này bao gồm những người đã hồi phục trong vòng chưa đầy 5 năm.",
+      "help": "Bạn có thể bỏ qua nếu bạn không muốn trả lời — tiểu bang quyết định những gì được tính.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "wr_disability_hard_work": {
+      "prompt": "Có ai trong số người đang làm đơn có khuyết tật về thể chất, trí tuệ hoặc phát triển khiến cho việc làm việc và thực hiện các hoạt động hàng ngày (như ăn uống, đi bộ hoặc rời khỏi giường hoặc ghế) trở nên khó khăn không?",
+      "help": "Bạn có thể bỏ qua nếu bạn không muốn trả lời — tiểu bang quyết định những gì được tính.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "wr_mental_health_hard_work": {
+      "prompt": "Có ai trong số người đang làm đơn có rối loạn sức khỏe tâm thần khiến việc làm khó khăn (như tâm thần phân liệt, trầm cảm nặng, rối loạn lưỡng cực hoặc rối loạn hoảng loạn)?",
+      "help": "Bạn có thể bỏ qua nếu bạn không muốn trả lời — tiểu bang quyết định những gì được tính.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "wr_serious_health_condition": {
+      "prompt": "Có ai trong số người đang làm đơn có tình trạng sức khỏe nghiêm trọng làm cho việc khó khăn (như ung thư, đa xơ cứng, HIV / AIDS, hoặc viêm gan do vi-rút)?",
+      "help": "Bạn có thể bỏ qua nếu bạn không muốn trả lời — tiểu bang quyết định những gì được tính.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "wr_jail_prison_past_4_months": {
+      "prompt": "Có người nộp đơn nào đang ở tù hay nhà lao hiện tại, hoặc đã ở trong 4 tháng qua không?",
+      "help": "Bạn có thể bỏ qua nếu bạn không muốn trả lời — tiểu bang quyết định những gì được tính.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "wr_foster_care_under_26": {
+      "prompt": "Có người nộp đơn nào đã được chăm sóc thay thế (foster care) ở tuổi 18 và hiện dưới 26 tuổi không?",
+      "help": "Bạn có thể bỏ qua nếu bạn không muốn trả lời — tiểu bang quyết định những gì được tính.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "wr_veteran_100_disabled": {
+      "prompt": "Có người nộp đơn nào là cựu chiến binh khuyết tật với mức độ khuyết tật 100% không?",
+      "help": "Bạn có thể bỏ qua nếu bạn không muốn trả lời — tiểu bang quyết định những gì được tính.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "wr_applied_last_month": {
+      "prompt": "Có bất kỳ tình huống nào trong số này xảy ra trong tháng trước, nhưng không phải trong tháng này?",
+      "help": "Một tình huống đã áp dụng tháng trước vẫn có thể quan trọng đối với những gì được báo cáo. Nhà nước quyết định những gì quan trọng.",
+      "options": {
+        "yes": "Có",
+        "no": "Không"
+      }
+    },
+    "wr_applied_last_month_which": {
+      "prompt": "Những tình huống nào đã được áp dụng vào tháng trước, nhưng không áp dụng vào tháng này?",
+      "help": "Kiểm tra mọi tình huống áp dụng tháng trước nhưng không áp dụng tháng này.",
+      "options": {
+        "pregnant": "Mang thai hiện tại hoặc trong 12 tháng qua",
+        "parent_child_under_18": "Cha mẹ của một đứa trẻ dưới 18 tuổi",
+        "nonparent_caregiver_child_under_14": "Người không phải là cha mẹ chăm sóc trẻ dưới 14 tuổi",
+        "caregiver_daily_activities": "Người chăm sóc một người cần giúp đỡ với các hoạt động hàng ngày",
+        "already_snap_tanf_work_requirements": "Đã thuộc diện yêu cầu làm việc của SNAP hoặc TANF",
+        "drug_alcohol_treatment": "Trong chương trình điều trị cho rối loạn ma túy hoặc rượu",
+        "drug_alcohol_disorder": "Rối loạn ma túy hoặc rượu làm cho việc khó khăn",
+        "disability_hard_work": "Một khuyết tật về thể chất, trí tuệ hoặc phát triển",
+        "mental_health_hard_work": "Rối loạn sức khỏe tâm thần",
+        "serious_health_condition": "Một tình trạng sức khỏe nghiêm trọng",
+        "jail_prison_past_4_months": "Bị tù hoặc giam giữ trong 4 tháng qua",
+        "foster_care_under_26": "Đã được chăm sóc thay thế (foster care) ở tuổi 18 và hiện dưới 26 tuổi",
+        "veteran_100_disabled": "Một cựu chiến binh khuyết tật 100%",
+        "medical_travel_1hr": "Đi một giờ hoặc hơn để được chăm sóc y tế",
+        "hospital_care_24hr": "Được chăm sóc 24 giờ"
+      }
+    },
+    "wr_medical_travel_1hr": {
+      "prompt": "Có người nộp đơn nào di chuyển một giờ hoặc hơn để được chăm sóc y tế cho bản thân hoặc người phụ thuộc có tình trạng sức khỏe nghiêm trọng (bao gồm cả phối hợp di chuyển khiến việc làm khó khăn không)?",
+      "help": "Bạn có thể bỏ qua nếu bạn không muốn trả lời — tiểu bang quyết định những gì được tính.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "wr_hospital_care_24hr": {
+      "prompt": "Có người nộp đơn nào đang nhận được chăm sóc tại bệnh viện trong hơn 24 giờ, hoặc mức độ chăm sóc tương tự tại một địa điểm khác (như cơ sở điều dưỡng, bệnh viện tâm thần, phòng khám, VA, hoặc tại nhà)?",
+      "help": "Bạn có thể bỏ qua nếu bạn không muốn trả lời — tiểu bang quyết định những gì được tính.",
+      "options": {
+        "yes": "Có",
+        "no": "Không",
+        "not_sure": "Tôi không chắc"
+      }
+    },
+    "wr_student_enrolled": {
+      "prompt": "Có ai nộp đơn đăng ký là sinh viên (đại học, dạy nghề, hoặc chương trình GED) toàn thời gian hoặc ít nhất nửa thời gian không?",
+      "help": "Sinh viên bán thời gian có thể báo cáo giờ của họ theo hạng mục hoạt động làm việc thay vào đó.",
+      "options": {
+        "not_enrolled": "Không",
+        "full_time": "Có, toàn thời gian",
+        "at_least_half_time": "Có, ít nhất nửa thời gian"
+      }
+    },
+    "wr_income_580": {
+      "prompt": "Gia đình bạn có thu nhập ít nhất 580 đô la Mỹ mỗi tháng không? Điều này bao gồm tất cả các công việc, công việc gig, công việc theo mùa và thu nhập không kiếm được như thất nghiệp.",
+      "help": "Thu nhập từ công việc theo mùa có thể được tính trung bình trong 6 tháng. Nhà nước xem xét thu nhập hàng tháng của gia đình bạn khi quyết định.",
+      "options": {
+        "yes": "Có",
+        "no": "Không"
+      }
+    },
+    "wr_who_months": {
+      "prompt": "Đối với mỗi tình huống mà bạn nói với chúng tôi, nó áp dụng cho ai và tháng nào?",
+      "help": "Chọn người hay những người cho từng tình huống, sau đó tháng này, tháng trước, hoặc cả hai. Chọn 'không chắc chắn' nếu bạn không biết. Bạn có thể bỏ qua điều này - bỏ qua không bao giờ chặn đơn của bạn."
+    },
+    "wr_work_activity_who": {
+      "prompt": "Ai đã hoàn thành các hoạt động làm việc tháng trước?",
+      "help": "Báo cáo các hoạt động làm việc cho các thành viên gia đình đã hoàn thành ít nhất 80 giờ trong tháng trước. Tên hay biệt danh cũng được."
+    },
+    "wr_work_activity_types": {
+      "prompt": "Họ đã làm những loại hoạt động làm việc nào trong tháng trước?",
+      "help": "Kiểm tra tất cả những gì áp dụng. Tổng số giờ có thể là sự kết hợp của các loại hoạt động được liệt kê.",
+      "options": {
+        "job_internship": "Một công việc hoặc thực tập",
+        "self_employment": "Làm việc tự do",
+        "work_program": "Chương trình làm việc",
+        "community_service": "Dịch vụ cộng đồng hoặc công việc không được trả lương, bao gồm cả tình nguyện viên với một tổ chức phi lợi nhuận, trường học hoặc tổ chức khác, hoặc làm việc để đổi lấy nhà ở, bữa ăn hoặc các hàng hóa khác",
+        "part_time_student_hours": "Thời gian học sinh bán thời gian, nơi mà thời gian học, phòng thí nghiệm hoặc đào tạo được tính",
+        "caregiving": "Chăm sóc người khác"
+      }
+    },
+    "wr_work_activity_hours": {
+      "prompt": "Khoảng bao nhiêu giờ hoạt động làm việc đã được hoàn thành tháng trước?",
+      "help": "Mục tiêu hàng tháng là 80 giờ. Đối với sinh viên bán thời gian, 1 giờ tín dụng bằng 13 giờ hoạt động làm việc mỗi tháng. Đếm gần đúng cũng được."
+    },
+    "wr_work_rows": {
+      "prompt": "Mỗi người, họ đã làm những hoạt động nào trong tháng trước, và khoảng bao nhiêu giờ?",
+      "help": "Thêm một hàng cho mỗi người và hoạt động. Giờ tính theo từng người và không bao giờ cộng dồn giữa các người. Chọn 'không chắc chắn' cho các giờ nếu bạn không biết - ước tính là tốt. Tiểu bang quyết định công việc được tính như thế nào."
+    }
+  },
+  "chrome": {
+    "continue": "Tiếp tục",
+    "notSure": "Tôi không chắc",
+    "skipForNow": "Bỏ qua bây giờ",
+    "bestGuess": "Đây là phỏng đoán tốt nhất của tôi — tôi chưa xác minh.",
+    "languageLabel": "Ngôn ngữ",
+    "addPerson": "Thêm người khác",
+    "back": "Quay lại",
+    "addRow": "Thêm hàng",
+    "personName": "tên hoặc biệt danh",
+    "relationship": "Mối quan hệ",
+    "ageRange": "Độ tuổi",
+    "householdMember": "Thành viên hộ gia đình",
+    "activityType": "Loại hoạt động",
+    "hoursLastMonth": "Số giờ tháng trước",
+    "notSureHours": "Không chắc về số giờ",
+    "fromIncome": "Dựa trên câu trả lời về thu nhập, bạn có thể thêm:",
+    "removePerson": "Xóa người này",
+    "person": "Người",
+    "rowWord": "hàng",
+    "notPicked": "Không áp dụng / chưa chọn",
+    "duplicateRow": "Người này đã có một hàng cho hoạt động này. Hãy thay đổi một trong hai hàng hoặc xóa hàng này.",
+    "rosterFull": "Đây là tất cả những người chúng tôi có thể liệt kê ở đây. Bạn có thể thay đổi hoặc xóa một người ở trên.",
+    "nameHint": "Nhập tên hoặc biệt danh cho người này.",
+    "enterHours": "Nhập số giờ, hoặc đánh dấu “Không chắc về số giờ”.",
+    "negHours": "Số giờ không thể nhỏ hơn 0.",
+    "tooManyHours": "Số giờ này nhiều hơn số giờ trong một tháng. Vui lòng kiểm tra lại.",
+    "removeRow": "Xóa hàng này",
+    "yes": "Có",
+    "no": "Không",
+    "required": "bắt buộc",
+    "privateAnswer": "Vì quyền riêng tư, chúng tôi không hiển thị câu trả lời đã lưu của bạn ở đây. Để thay đổi, hãy nhập câu trả lời mới.",
+    "deviceOnly": "Chỉ có thể trả lời câu hỏi này khi câu trả lời của bạn được lưu trên thiết bị này. Bạn có thể bỏ qua tại đây — việc này không bao giờ chặn đơn của bạn.",
+    "noHouseholdList": "Chưa có danh sách hộ gia đình hoặc tình huống để gắn vào. Bạn có thể bỏ qua câu hỏi này — việc này không bao giờ chặn đơn của bạn.",
+    "rosterFirst": "Trước tiên hãy thêm danh sách hộ gia đình, sau đó thêm một hàng cho mỗi người. Bạn có thể bỏ qua câu hỏi này — việc này không bao giờ chặn đơn của bạn.",
+    "addRowFor": "Thêm một hàng cho {name}: {activity}",
+    "thisPerson": "người này",
+    "loading": "Đang tải câu hỏi…",
+    "allAnswered": "Hiện đã trả lời tất cả câu hỏi",
+    "nothingSubmitted": "Không có gì được gửi đi — bạn quyết định điều gì xảy ra tiếp theo.",
+    "stillOpen": "Vẫn còn bỏ ngỏ",
+    "answer": "Trả lời",
+    "reviewAnswer": "Xem lại câu trả lời này",
+    "noAnswerRecorded": "Chưa ghi nhận câu trả lời.",
+    "savedPrivately": "Đã lưu riêng tư — sẽ không hiển thị lại.",
+    "saveAndFinishLater": "Lưu và hoàn thành sau",
+    "saving": "Đang lưu…",
+    "deleting": "Đang xóa…",
+    "deleteButton": "Xóa câu trả lời của tôi khỏi thiết bị này",
+    "deleteConfirm": "Thao tác này xóa mọi câu trả lời đã lưu trong trình duyệt này cho biểu mẫu này. Không thể hoàn tác. Nếu bạn đã tải xuống một bản sao của biểu mẫu đã điền, hoặc lưu nó thành PDF khi in, tệp đó sẽ còn trên thiết bị này cho đến khi bạn xóa nó.",
+    "deleteYes": "Có, xóa chúng",
+    "deleteNo": "Giữ lại",
+    "keepPrompt": "Nếu trình duyệt của bạn hỏi có cho phép trang này lưu dữ liệu hay không, trả lời có giúp giữ cho các câu trả lời của bạn không bị xóa để giải phóng dung lượng.",
+    "genericError": "Đã xảy ra lỗi từ phía chúng tôi. Vui lòng thử lại.",
+    "requiredError": "Cần trả lời câu này để tiếp tục. Hãy chọn một lựa chọn hoặc chọn “Tôi không chắc”.",
+    "serverSaveBlurb": "Câu trả lời của bạn được lưu vào máy chủ của ứng dụng khi bạn tiếp tục. Bạn có thể dừng bất cứ lúc nào và quay lại sau trong trình duyệt này — không có gì được gửi đi cho đến khi bạn quyết định.",
+    "savedComeBack": "Đã lưu. Bạn có thể quay lại trình duyệt này bất cứ lúc nào — không có gì được gửi đi cho đến khi bạn quyết định.",
+    "savedProgress": "Đã lưu. Đã trả lời {answered}/{total}.",
+    "markedNotSure": "Đã đánh dấu là không chắc. Bạn có thể quay lại câu này.",
+    "progress": "Đã trả lời {answered}/{total} câu hỏi",
+    "remaining": "Còn {remaining} câu",
+    "noProofNeeded": "Bạn không cần giấy tờ hay giấy ghi chú của bác sĩ để trả lời câu hỏi này. Hãy trả lời theo những gì bạn biết hiện tại — tiểu bang có thể yêu cầu bằng chứng sau.",
+    "deviceKeptBlurb": "Câu trả lời của bạn được lưu trong trình duyệt này khi bạn trả lời, để bạn có thể quay lại trên thiết bị này và tiếp tục. Không có gì được gửi đi cho đến khi bạn quyết định.",
+    "deviceUnsupportedBlurb": "Trình duyệt này không thể lưu câu trả lời, nên chúng sẽ mất khi bạn đóng trang này. Không có gì được gửi đi cho đến khi bạn quyết định.",
+    "deviceUnavailableBlurb": "Bộ nhớ của trình duyệt này hiện không hoạt động, nên câu trả lời mới chỉ tồn tại đến khi bạn đóng trang này. Nếu trước đây bạn đã lưu câu trả lời ở đây, chúng vẫn ở trên thiết bị này cho đến khi bạn xóa.",
+    "deviceStoppedBlurb": "Trình duyệt này đã ngừng lưu câu trả lời. Những câu trả lời đã lưu vẫn ở trên thiết bị này, nhưng các thay đổi từ giờ sẽ không được lưu. Để xóa chúng, hãy dùng tùy chọn xóa ở bên dưới.",
+    "deviceStoppedNothingStoredBlurb": "Trình duyệt này đã ngừng lưu câu trả lời, nên chúng sẽ mất khi bạn đóng trang này. Không có gì được gửi đi cho đến khi bạn quyết định.",
+    "deviceVisibilityNote": "Bất kỳ ai dùng trình duyệt này đều có thể mở các câu trả lời này.",
+    "savedPrivatelyThisVisit": "Được ghi riêng cho lần truy cập này — không hiển thị lại."
+  },
+  "commonOptions": {
+    "yes": "Có",
+    "no": "Không",
+    "not_sure": "Tôi không chắc"
+  },
+  "relationships": {
+    "not_sure": "Không chắc lắm.",
+    "self": "Tôi",
+    "spouse_or_partner": "Vợ/chồng hoặc bạn đời",
+    "child": "Con",
+    "parent": "Cha mẹ",
+    "sibling": "Anh chị em ruột",
+    "other_family": "Thành viên khác trong gia đình",
+    "unrelated": "Một người khác sống với chúng tôi"
+  },
+  "ageBands": {
+    "not_sure": "Tôi không chắc",
+    "under_14": "Chưa đầy 14 tuổi",
+    "14_to_17": "14 đến 17",
+    "18_to_54": "18 đến 54",
+    "55_to_59": "55 đến 59",
+    "60_to_64": "60 đến 64",
+    "65_plus": "65 tuổi trở lên"
+  },
+  "months": {
+    "this_month": "Tháng này",
+    "last_month": "Tháng trước",
+    "both": "Cả hai tháng",
+    "not_sure": "Tôi không chắc"
+  },
+  "answerStatus": {
+    "known": "Bạn đã nói với chúng tôi",
+    "unknown": "Bạn không chắc chắn",
+    "unverified": "Trả lời nhưng không được xác minh"
+  }
+}

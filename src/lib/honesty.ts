@@ -73,6 +73,44 @@ export const BANNED_CLAIM_PATTERNS: readonly RegExp[] = [
   /\byou\s+(?:do\s+not|don't|don’t|will\s+not|won't|won’t)\s+(?:even\s+|have\s+to\s+)?need\s+to\s+report\b/i,
 ];
 
+/**
+ * Spanish banned-claim shapes (HACK-131): the same honesty rules in
+ * Spanish - eligibility determinations, approval promises, and
+ * guarantee claims. Kept beside the English patterns so any Spanish
+ * copy, wherever it lives, can be checked against the one gate.
+ */
+export const BANNED_CLAIM_PATTERNS_ES: readonly RegExp[] = [
+  /\b(?:ustedes\s+|usted\s+)?(?:es|eres|son|ser\u00e1|ser\u00e1n)\s+(?:definitivamente\s+)?elegibles?\b/i,
+  // With a subject pronoun and an unaccented "si" (typed for "sí", "yes"),
+  // the sentence is affirmative and decides the outcome, so it bites before
+  // the conditional exemption below can see it.
+  // (Written with the suffix nested so this file's own text is not a match
+  // for the patterns below: the scanner reads raw source.)
+  /\b(?:usted|t\u00fa|tu)\s+(?:s\u00ed|si)\s+calific(?:a(?:s|n)?)\b/i,
+  // A bare conditional clause is a condition, not a determination, so a
+  // preceding conditional marker keeps the verb out of the gate. The pattern
+  // covers every tense (including the future and conditional forms); the
+  // related noun is a rating (a VA disability rating, for one), not a
+  // determination, so it is deliberately not matched.
+  // Hedged forms ("podría calificar", "puede que califique") are the permitted
+  // framing, so a modal or a conditional marker before the verb exempts it.
+  /(?<!\bsi\s)(?<!\bsi\susted\s)(?<!\bpodr\u00eda\s)(?<!\bpodr\u00edan\s)(?<!\bpuede\s+que\s)(?<!\bpodr\u00eda\s+ser\s+que\s)(?<!\bquiz\u00e1\s)(?<!\bquiz\u00e1s\s)(?<!\btal\s+vez\s)(?<!\bes\s+posible\s+que\s)\b(?:calific(?:a(?:s|n|mos)?|ó|aste(?:is)?|aron|ad[oa]s?|ar(?:[\u00e1a]s?n?|[\u00ed]as?n?)?)|califiqu(?:é|e(?:s|n|mos)?))(?!\p{L})/iu,
+  // Other ways Spanish states a determination or an outcome.
+  /\bcumple(?:n)?\s+(?:con\s+)?(?:los|todos\s+los)\s+requisitos\b/i,
+  /\btiene(?:n)?\s+derecho\s+a\s+(?:recibir|obtener|beneficios|ayuda)\b/i,
+  /\b(?:fue|fueron|est\u00e1|est\u00e1n|queda|quedan|ya\s+est\u00e1)\s+aprobad[oa]s?\b/i,
+  /\bva(?:n)?\s+a\s+recibir\b/i,
+  /\bser\u00e1\s+aprobad[oa]s?\b/i,
+  /\baprobaci\u00f3n\s+garantizad[oa]s?\b/i,
+  // A disclaimer ("no está garantizado") is the honesty this gate enforces,
+  // so only affirmative guarantee claims bite.
+  /(?<!\bno\s)(?<!\bno\s(?:est\u00e1|est\u00e1n|queda|quedan|ser\u00e1|ser\u00e1n|nada)\s)\bgarantizad[oa]s?\b/i,
+  /\brecibir\u00e1n?(?=[\s.,;:!\)]|$)/i,
+  /\bsin duda\b/i,
+  /\b(?:usted\s+)?(?:est\u00e1|queda|ser\u00e1)\s+exent[oa]s?\b/i,
+  /\bno\s+(?:necesita|necesitas|tiene que|tienen que)\s+reportar\b/i,
+];
+
 export interface BannedClaimMatch {
   readonly patternSource: string;
   readonly matchedText: string;
@@ -97,7 +135,7 @@ export class BannedClaimError extends Error {
 /** Find banned promise language in a string (first match per pattern). */
 export function findBannedClaims(text: string): BannedClaimMatch[] {
   const matches: BannedClaimMatch[] = [];
-  for (const pattern of BANNED_CLAIM_PATTERNS) {
+  for (const pattern of [...BANNED_CLAIM_PATTERNS, ...BANNED_CLAIM_PATTERNS_ES]) {
     const found = pattern.exec(text);
     if (found) {
       matches.push({

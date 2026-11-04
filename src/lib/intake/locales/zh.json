@@ -1,0 +1,609 @@
+{
+  "questions": {
+    "application_role": {
+      "prompt": "这份申请是给谁的？",
+      "help": "选择最适合自己的选择。您可以稍后更改。",
+      "options": {
+        "self": "我",
+        "family_member": "一个家庭成员",
+        "someone_else": "我帮助的其他人"
+      }
+    },
+    "main_goal": {
+      "prompt": "您现在需要哪种帮助？",
+      "help": "选择最需要的。您可以稍后再添加。",
+      "options": {
+        "food": "食物",
+        "housing": "住房",
+        "healthcare": "医疗保健",
+        "cash_assistance": "现金援助",
+        "other": "其他事情"
+      }
+    },
+    "goal_detail": {
+      "prompt": "用您自己的话来说，什么样的帮助最有用？",
+      "help": "写一句简短的话就可以。这只用于帮助我们了解您的需求。"
+    },
+    "state": {
+      "prompt": "您居住在哪个州？",
+      "help": "规则因州而异。选择一个你经常睡觉的州",
+      "options": {
+        "AL": "Alabama",
+        "AK": "Alaska",
+        "AZ": "Arizona",
+        "AR": "Arkansas",
+        "CA": "California",
+        "CO": "Colorado",
+        "CT": "Connecticut",
+        "DE": "Delaware",
+        "FL": "Florida",
+        "GA": "Georgia",
+        "HI": "Hawaii",
+        "ID": "Idaho",
+        "IL": "Illinois",
+        "IN": "Indiana",
+        "IA": "Iowa",
+        "KS": "Kansas",
+        "KY": "Kentucky",
+        "LA": "Louisiana",
+        "ME": "Maine",
+        "MD": "Maryland",
+        "MA": "Massachusetts",
+        "MI": "Michigan",
+        "MN": "Minnesota",
+        "MS": "Mississippi",
+        "MO": "Missouri",
+        "MT": "Montana",
+        "NE": "Nebraska",
+        "NV": "Nevada",
+        "NH": "New Hampshire",
+        "NJ": "New Jersey",
+        "NM": "New Mexico",
+        "NY": "New York",
+        "NC": "North Carolina",
+        "ND": "North Dakota",
+        "OH": "Ohio",
+        "OK": "Oklahoma",
+        "OR": "Oregon",
+        "PA": "Pennsylvania",
+        "RI": "Rhode Island",
+        "SC": "South Carolina",
+        "SD": "South Dakota",
+        "TN": "Tennessee",
+        "TX": "Texas",
+        "UT": "Utah",
+        "VT": "Vermont",
+        "VA": "Virginia",
+        "WA": "Washington",
+        "WV": "West Virginia",
+        "WI": "Wisconsin",
+        "WY": "Wyoming"
+      }
+    },
+    "county": {
+      "prompt": "你住在哪个县或城市？",
+      "help": "由哪个地方办事处负责您，取决于这里填写的县。不确定的话，可以先留空。"
+    },
+    "household_size": {
+      "prompt": "您和多少人一起买并分享食物？",
+      "help": "算上自己和一起住的每个人，包括孩子。输入一个数字。"
+    },
+    "household_children": {
+      "prompt": "这些人中有多少个未满18岁？",
+      "help": "输入一个数字。如果没有孩子，请输入0。"
+    },
+    "household_seniors": {
+      "prompt": "您家有多少人60岁或以上？",
+      "help": "输入一个数字。如果没有，请输入0。"
+    },
+    "household_roster": {
+      "prompt": "您家中有谁？请逐个输入名字或昵称。",
+      "help": "姓名或昵称都可以 — 不需要正式全名。您可以添加、更改或删除成员。这份名单可以帮助后面的问题问对相应的人。"
+    },
+    "income_sources": {
+      "prompt": "您家的钱来自哪里？",
+      "help": "选择每一个符合的来源。如果没有钱，选择“无”",
+      "options": {
+        "job": "一份工作",
+        "self_employed": "自雇或打零工",
+        "benefits": "残疾或退休等福利",
+        "family_friends": "家人或朋友给的钱",
+        "child_support": "儿童抚养费",
+        "other": "其他事情",
+        "none": "目前没有收入"
+      }
+    },
+    "income_kind": {
+      "prompt": "您有什么收入？",
+      "help": "这决定了下一个问题是什么。选择最适合自己的。您也可以说您不确定，然后我们会问一般问题。",
+      "options": {
+        "self_employment_current": "我现在为自己工作，在自己的企业或LLC",
+        "prior_employer_only": "我以前有工作，但现在已经不在那里工作了。",
+        "both": "两者都有：我现在自雇，以前也打过工",
+        "neither": "两者都不是"
+      }
+    },
+    "self_employment_statements_offer": {
+      "prompt": "要不要用最近的银行或支付对账单来证明这些收入？",
+      "help": "您可以提供银行或支付服务的对账单文件，也可以自己输入数字。您分享的内容都会保存在这台设备上并加密，不会从这里发送出去。不确定也没关系，我们会用适合您的方式提出问题。",
+      "options": {
+        "will_share": "可以，我能分享对账单",
+        "will_type": "我自己输入数字",
+        "not_sure_yet": "还不确定"
+      }
+    },
+    "prior_employer_current": {
+      "prompt": "你还在为前一任雇主工作吗？",
+      "help": "以前那份工作的收入和您现在的收入可能会被区别对待，具体由办公方决定。这有助于说明那份旧工资不是当前收入。",
+      "options": {
+        "no_longer_there": "不，我已经不做了。",
+        "yes_still_there": "是的，我还在那工作"
+      }
+    },
+    "prior_employer_last_month": {
+      "prompt": "您最后一次从那个雇主那里得到薪水是哪个月和哪一年？",
+      "help": "例如：2025年3月。尽力回忆就好。这有助于说明那份薪水是过去的收入，而不是现在的收入。"
+    },
+    "job_income_amount": {
+      "prompt": "每次拿到工资时，工作收入大概是多少？",
+      "help": "你最好的猜测就可以。如果你不知道，可以选择“不确定”。"
+    },
+    "job_income_frequency": {
+      "prompt": "工作收入多久发一次？",
+      "help": "选择薪水的到来频率。",
+      "options": {
+        "weekly": "每周",
+        "biweekly": "每两周",
+        "twice_monthly": "每月两次",
+        "monthly": "每月一次",
+        "varies": "不固定"
+      }
+    },
+    "job_income_seasonal": {
+      "prompt": "您家中的所有工作都是季节性工作吗？也就是说它只发生在一年中的某段时间。",
+      "help": "只有当您家中的所有工作都是季节性的，比如收获、假期或夏季工作时，才回答“是”。如果有人整年工作，就回答“否”。不知道时选“不确定”。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "job_income_seasonal_total": {
+      "prompt": "您的家庭在过去六个月的季节性工作总收入是多少？",
+      "help": "请填写过去6个月全家从季节性工作中获得的收入总额，尽量准确。州政府可能会把这个总额按每个月平均计算。"
+    },
+    "benefits_income_amount": {
+      "prompt": "每月大约有多少福利收入？",
+      "help": "这意味着像残疾或退休支票。猜测是可以的。"
+    },
+    "benefits_income_frequency": {
+      "prompt": "这笔福利收入多久发一次？",
+      "help": "选择支票的到达频率。",
+      "options": {
+        "weekly": "每周",
+        "biweekly": "每两周",
+        "twice_monthly": "每月两次",
+        "monthly": "每月一次",
+        "varies": "不固定"
+      }
+    },
+    "other_income_amount": {
+      "prompt": "其他收入大概是多少呢？",
+      "help": "家庭或朋友的钱，儿童抚养费，或其他任何东西。猜测是可以的。"
+    },
+    "housing_status": {
+      "prompt": "您昨晚睡在哪里？",
+      "help": "请如实回答。这有助于我们找到适合的帮助，而且不会对您不利。",
+      "options": {
+        "shelter": "在一个庇护所",
+        "car": "在汽车或车辆中",
+        "outdoors": "在户外或非睡眠场所",
+        "nowhere": "我没有地方睡觉",
+        "staying_with_others": "住在家人或朋友家",
+        "rental_or_own": "在我租的或我拥有的地方"
+      }
+    },
+    "housing_cost": {
+      "prompt": "你每月住房费多少？",
+      "help": "租金或抵押贷款，如果您有支付。如果您不支付住房费用，请输入0。"
+    },
+    "utilities_cost": {
+      "prompt": "您每月的公共事业费用是多少？",
+      "help": "灯，热，水或气。如果您没有付款，请输入0。"
+    },
+    "childcare_cost": {
+      "prompt": "您每月为儿童保育费用支付多少？",
+      "help": "日托、保姆或课后照顾。如果您不支付儿童保育费用，请输入0。"
+    },
+    "medical_cost": {
+      "prompt": "你每月支付多少医疗费用？",
+      "help": "药费、挂号自付部分（共付额）、看医生的交通费。如果没有，请输入0。大概估计也可以。"
+    },
+    "id_status": {
+      "prompt": "现在有没有照片身份证？",
+      "help": "任何政府签发的带照片身份证都可以。丢过或从来没有，我们仍然可以帮助。",
+      "options": {
+        "have_id": "是的，我有一个",
+        "need_id": "不，我需要一个",
+        "id_in_progress": "我正在补办",
+        "not_sure": "不确定"
+      }
+    },
+    "id_issue_detail": {
+      "prompt": "如果您愿意，可以告诉我们您的身份证发生了什么情况。",
+      "help": "丢失、被盗或从未有过。这一题是可选的。它可以帮助我们一起规划下一步。"
+    },
+    "date_of_birth": {
+      "prompt": "您的出生日期是什么？",
+      "help": "如果您不确定确切的日期，写一个大概就行。"
+    },
+    "citizenship_status": {
+      "prompt": "您如何描述您的国籍或移民身份？",
+      "help": "这个问题属于隐私，会保留在我们安全的服务器上。许多帮助不取决于这个答案，有些项目也会帮助身份不同的家庭成员。如果不想说或不确定，请选“不确定”。",
+      "options": {
+        "us_citizen": "美国公民",
+        "permanent_resident": "绿卡持有者",
+        "other_status": "其他身份",
+        "not_sure": "不确定 / 不愿透露"
+      }
+    },
+    "disability_status": {
+      "prompt": "您家中是否有人有影响日常生活的残疾或健康问题？",
+      "help": "这可以为更多的帮助提供机会。如果您不知道，请选择“不确定”.",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "student_status": {
+      "prompt": "您现在是在上学还是参加培训？",
+      "help": "大学、职业培训、GED课程——任何一种都算。",
+      "options": {
+        "not_student": "否",
+        "full_time_student": "是，全日制",
+        "part_time_student": "是，非全日制"
+      }
+    },
+    "veteran_status": {
+      "prompt": "您以前参过军吗？",
+      "help": "无论什么军种，无论服务多久。退伍军人可能有资格获得额外的帮助。"
+    },
+    "received_benefits_before": {
+      "prompt": "您以前有没有从福利办公室获得过帮助？",
+      "help": "现在或过去，在任何一个州都可以。这不会影响您现在是否能得到帮助。"
+    },
+    "mailing_situation": {
+      "prompt": "哪里可以得到邮件？",
+      "help": "选择最适合您的安全选项。许多人没有家庭地址也能收到邮件。",
+      "options": {
+        "shelter": "我住的避难所或项目",
+        "family_or_friend": "家庭或朋友的地址",
+        "po_box": "邮箱",
+        "general_delivery": "邮局的一般投递",
+        "day_center": "日间服务中心",
+        "not_sure": "不确定"
+      }
+    },
+    "shelter_mail_consent": {
+      "prompt": "收容所同意为您保存邮件吗？",
+      "help": "一些收容所只有在您先问过之后才会帮您保存邮件。只有在您确定他们同意时，才回答“是”。"
+    },
+    "contact_preference": {
+      "prompt": "我们应该通过什么方式联系您？",
+      "help": "选择最适合自己的方式。这不一定是电话。",
+      "options": {
+        "call": "电话",
+        "text": "短信",
+        "email": "电子邮件",
+        "in_person": "亲自见面"
+      }
+    },
+    "phone_contact": {
+      "prompt": "哪个电话号码可以让信息送达您？",
+      "help": "如果能收到信息，朋友或庇护所的电话号码也可以。这个号码会保留在我们的安全服务器上。"
+    },
+    "email_contact": {
+      "prompt": "您的电子邮件地址是什么？",
+      "help": "没有电子邮件帐户也没关系，免费邮箱就可以用。这个地址会保留在我们安全的服务器上。"
+    },
+    "best_time_to_reach": {
+      "prompt": "什么时候联系您最好？",
+      "help": "选择一个您最方便的时间段。",
+      "options": {
+        "morning": "上午",
+        "afternoon": "下午",
+        "evening": "晚上"
+      }
+    },
+    "wr_exempt_situations": {
+      "prompt": "您或申请 Medicaid 的某人是否属于以下情况？",
+      "help": "选择所有适用的情况。如果其中一种情况适用，申请人可能不需要报告其工作活动；州政府决定怎么算。如果不符合这些情况，可能仍需要上报工作活动；州政府再按个人情况决定。",
+      "options": {
+        "parent_child_under_18": "未满18岁孩子的父母",
+        "nonparent_caregiver_child_under_14": "照顾14岁以下儿童的非父母照护者，例如亲属，或每月至少照护80小时的人",
+        "caregiver_daily_activities": "照护需要帮助完成日常活动的人，例如残障人士或老年人",
+        "already_snap_tanf_work_requirements": "已经受SNAP或TANF工作要求约束",
+        "none": "以上都不适用"
+      }
+    },
+    "wr_pregnant": {
+      "prompt": "是否有正在申请的人现在怀孕，或在过去12个月内怀孕？",
+      "help": "如果您不愿回答，可以跳过这个——什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "wr_drug_alcohol_treatment": {
+      "prompt": "有没有正在申请的人在治疗药物或酒精问题的项目中？",
+      "help": "如果您不愿回答，可以跳过这个——什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "wr_drug_alcohol_disorder": {
+      "prompt": "申请人是否有毒品或酒精障碍使得工作变得困难？这包括那些在康复中待了不到5年的患者。",
+      "help": "如果您不愿回答，可以跳过这个——什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "wr_disability_hard_work": {
+      "prompt": "申请人是否有身体，智力或发育障碍，使得工作和日常活动（如吃饭、走路或从床上或椅子上站起来） 变得困难？",
+      "help": "如果您不愿回答，可以跳过这个——什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "wr_mental_health_hard_work": {
+      "prompt": "申请人是否患有精神疾病，使得工作变得困难（如精神分裂症、严重抑郁症、双相情感障碍或恐慌症）？",
+      "help": "如果您不愿回答，可以跳过这个——什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "wr_serious_health_condition": {
+      "prompt": "申请人是否有严重的健康问题（如癌症、多发性硬化症、艾滋病或病毒性肝炎） 使得工作变得困难？",
+      "help": "如果您不愿回答，可以跳过这个——什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "wr_jail_prison_past_4_months": {
+      "prompt": "正在申请的人中，有人现在或过去4个月内在监狱里吗？",
+      "help": "如果您不愿回答，可以跳过这个——什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "wr_foster_care_under_26": {
+      "prompt": "正在申请的人中，有人在18岁时曾被寄养，且现在未满26岁吗？",
+      "help": "如果您不愿回答，可以跳过这个——什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "wr_veteran_100_disabled": {
+      "prompt": "正在申请的人中，有人是有100%残疾退伍军人身份吗？",
+      "help": "如果您不愿回答，可以跳过这个——什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "wr_applied_last_month": {
+      "prompt": "上个月是否有这些情况中的任何一种，而这个月没有？",
+      "help": "上个月适用的情况，仍可能影响需要报告的内容。什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否"
+      }
+    },
+    "wr_applied_last_month_which": {
+      "prompt": "哪些情况在上个月适用，而这个月不适用？",
+      "help": "勾选所有上个月适用而本月不适用的项目。",
+      "options": {
+        "pregnant": "现在或过去12个月内怀孕",
+        "parent_child_under_18": "18岁以下孩子的父母",
+        "nonparent_caregiver_child_under_14": "照顾14岁以下儿童的非父母",
+        "caregiver_daily_activities": "照顾需要帮助日常活动的人",
+        "already_snap_tanf_work_requirements": "已经受SNAP或TANF工作要求约束",
+        "drug_alcohol_treatment": "在药物或酒精障碍治疗计划中",
+        "drug_alcohol_disorder": "吸毒或酒精障碍使工作变得困难",
+        "disability_hard_work": "身体，智力或发育方面的残疾",
+        "mental_health_hard_work": "精神疾病",
+        "serious_health_condition": "严重的健康状况",
+        "jail_prison_past_4_months": "在过去4个月内被关押或监禁",
+        "foster_care_under_26": "18岁时接受寄养，现在未满26岁",
+        "veteran_100_disabled": "百分之百的残疾退伍军人",
+        "medical_travel_1hr": "需要医疗护理的旅行时间为1小时或更长",
+        "hospital_care_24hr": "接受24小时的护理"
+      }
+    },
+    "wr_medical_travel_1hr": {
+      "prompt": "申请人是否需要花费一个小时或更长时间来为自己或严重健康状况的受抚养者（包括使工作困难的旅行协调） 获得医疗护理？",
+      "help": "如果您不愿回答，可以跳过这个——什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "wr_hospital_care_24hr": {
+      "prompt": "申请人是否在医院接受超过24小时的护理，或在其他地方（如护理机构、精神病院、诊所、退伍军人院或家中） 接受类似的护理？",
+      "help": "如果您不愿回答，可以跳过这个——什么算数由州政府决定。",
+      "options": {
+        "yes": "是",
+        "no": "否",
+        "not_sure": "不确定"
+      }
+    },
+    "wr_student_enrolled": {
+      "prompt": "申请人是否已注册为全日制或至少一半时间就读的学生（大学、职业或GED课程）？",
+      "help": "兼职学生可以改为通过工作活动报告自己的小时数。",
+      "options": {
+        "not_enrolled": "否",
+        "full_time": "是，全日制",
+        "at_least_half_time": "是，至少一半时间就读"
+      }
+    },
+    "wr_income_580": {
+      "prompt": "您的家庭每月收入至少有580美元吗？这包括所有工作、零工、季节性工作，以及失业金等非劳动收入。",
+      "help": "季节性工作的收入可以按6个月平均计算。州政府在决定时会考虑您家庭的月收入。",
+      "options": {
+        "yes": "是",
+        "no": "否"
+      }
+    },
+    "wr_who_months": {
+      "prompt": "对于你告诉我们的每一个情况，谁适用，哪几个月？",
+      "help": "为每种情况选择相关的人，然后选择本月、上月或两者。如果您不知道，请选“不确定”。您可以跳过这一题——跳过也不会阻止您申请。"
+    },
+    "wr_work_activity_who": {
+      "prompt": "谁在上个月完成了工作活动？",
+      "help": "报告上个月至少完成80小时工作的家庭成员的工作活动。名字或昵称就可以。"
+    },
+    "wr_work_activity_types": {
+      "prompt": "上个月做了哪些工作活动？",
+      "help": "勾选所有适用项。总小时数可以是所列活动类型的合计。",
+      "options": {
+        "job_internship": "工作或实习",
+        "self_employment": "独立工作",
+        "work_program": "一个工作计划",
+        "community_service": "社区服务或无偿工作，包括在非营利性，学校或其他组织的志愿服务，或以换取住房，餐点或其他物品的工作",
+        "part_time_student_hours": "部分时间的学生时间，其中课堂，实验室或培训时间都会被计算",
+        "caregiving": "照护他人"
+      }
+    },
+    "wr_work_activity_hours": {
+      "prompt": "上个月大约完成了多少小时的工作活动？",
+      "help": "每月的工时目标是80小时。对于兼职学生，1学分相当于每月13小时的工作活动时间。只估算也可以。"
+    },
+    "wr_work_rows": {
+      "prompt": "对于每个人来说，他们上个月做了什么工作，大约多少小时？",
+      "help": "每个人和每种活动各添加一行。小时数按人计算，不会在人与人之间相加。如果您不知道，请选“不确定”——估算也可以。工作如何计算由州政府决定。"
+    }
+  },
+  "chrome": {
+    "continue": "继续",
+    "notSure": "不确定",
+    "skipForNow": "暂时跳过",
+    "bestGuess": "这是我能做出的最好估计，但我还没有核实。",
+    "languageLabel": "语言",
+    "addPerson": "添加一个人",
+    "back": "返回",
+    "addRow": "添加一行",
+    "personName": "姓名或昵称",
+    "relationship": "关系",
+    "ageRange": "年龄范围",
+    "householdMember": "家庭成员",
+    "activityType": "活动类型",
+    "hoursLastMonth": "上个月的工作时间",
+    "notSureHours": "不确定时间",
+    "fromIncome": "根据您的收入回答，您可以添加：",
+    "removePerson": "删除这个人",
+    "person": "人",
+    "rowWord": "行",
+    "notPicked": "不适用/尚未填写",
+    "duplicateRow": "此人已经有一行记录用于此活动。请更改其中一行或删除此行。",
+    "rosterFull": "这里最多只能列出这些人。您可以在上方更改或删除某人。",
+    "nameHint": "请输入此人的姓名或昵称。",
+    "enterHours": "输入小时数，或勾选“不确定小时数”。",
+    "negHours": "小时数不能为负数。",
+    "tooManyHours": "这比一个月的小时数还多。请检查数字。",
+    "removeRow": "删除此行",
+    "yes": "是",
+    "no": "否",
+    "required": "必填",
+    "privateAnswer": "为了保护您的隐私，我们不会在此显示您保存的答案。要更改，请输入新答案。",
+    "deviceOnly": "此问题仅在答案保存在此设备上时才能回答。您可以在此跳过；这绝不会阻止您的申请。",
+    "noHouseholdList": "尚无家庭名单或可用于关联的情况。您可以跳过此问题；这绝不会阻止您的申请。",
+    "rosterFirst": "请先添加您的家庭名单，然后为每个人添加一行。您可以跳过此问题；这绝不会阻止您的申请。",
+    "addRowFor": "为 {name} 添加一行：{activity}",
+    "thisPerson": "此人",
+    "loading": "正在加载您的问题…",
+    "allAnswered": "目前所有问题都已回答",
+    "nothingSubmitted": "不会提交任何内容；接下来由您决定。",
+    "stillOpen": "仍待回答",
+    "answer": "回答",
+    "reviewAnswer": "查看此答案",
+    "noAnswerRecorded": "尚未记录答案。",
+    "savedPrivately": "已私密保存；不会再次显示。",
+    "saveAndFinishLater": "保存并稍后完成",
+    "saving": "正在保存…",
+    "deleting": "正在删除…",
+    "deleteButton": "从此设备删除我的答案",
+    "deleteConfirm": "这将删除此浏览器中为此表单保存的所有答案。此操作无法撤销。如果您已下载填写完成的表单副本，或在打印时将其保存为 PDF，该文件将保留在此设备上，直到您将其删除。",
+    "deleteYes": "是，删除",
+    "deleteNo": "保留",
+    "keepPrompt": "如果浏览器询问是否允许此网站存储数据，回答“是”有助于防止您的答案因释放空间而被清除。",
+    "genericError": "我们这边出了问题。请重试。",
+    "requiredError": "继续前必须回答。请选择一个选项或选择“不确定”。",
+    "serverSaveBlurb": "您的答案会在您继续时保存到应用服务器。您可以随时停止，并稍后在此浏览器中继续；在您决定之前不会提交任何内容。",
+    "savedComeBack": "已保存。您可以随时回到此浏览器；在您决定之前不会提交任何内容。",
+    "savedProgress": "已保存。已回答 {answered}/{total}。",
+    "markedNotSure": "已标记为“不确定”。您可以返回此问题。",
+    "progress": "{total} 个问题中已回答 {answered} 个",
+    "remaining": "还剩 {remaining} 个",
+    "noProofNeeded": "回答此问题不需要任何文件或医生证明。请根据您目前所知回答；州政府之后可能会要求提供证明。",
+    "deviceKeptBlurb": "您的回答会随时保存在此浏览器中，您可以回到这台设备继续填写。在您决定之前，不会提交任何内容。",
+    "deviceUnsupportedBlurb": "此浏览器无法保存回答，所以关闭此页面后回答就会消失。在您决定之前，不会提交任何内容。",
+    "deviceUnavailableBlurb": "此浏览器的存储现在无法使用，所以新的回答只保留到您关闭此页面为止。如果您之前在这里保存过回答，它们仍在这台设备上，直到您删除为止。",
+    "deviceStoppedBlurb": "此浏览器已停止保存回答。它已保存的回答仍在这台设备上，但此后的更改不会被保存。要删除这些回答，请使用下方的删除选项。",
+    "deviceStoppedNothingStoredBlurb": "此浏览器已停止保存回答，所以关闭此页面后回答就会消失。在您决定之前，不会提交任何内容。",
+    "deviceVisibilityNote": "任何使用此浏览器的人都可以看到这些回答。",
+    "savedPrivatelyThisVisit": "已为本次访问私下记录，不会再次显示。"
+  },
+  "commonOptions": {
+    "yes": "是",
+    "no": "否",
+    "not_sure": "不确定"
+  },
+  "relationships": {
+    "not_sure": "不知道",
+    "self": "我",
+    "spouse_or_partner": "配偶或伴侣",
+    "child": "孩子",
+    "parent": "父母",
+    "sibling": "兄弟姐妹",
+    "other_family": "其他家庭成员",
+    "unrelated": "另一个和我们一起生活的人"
+  },
+  "ageBands": {
+    "not_sure": "不确定",
+    "under_14": "年龄在14岁以下",
+    "14_to_17": "十四至十七",
+    "18_to_54": "18至54岁",
+    "55_to_59": "55到59",
+    "60_to_64": "60到64",
+    "65_plus": "65岁或以上"
+  },
+  "months": {
+    "this_month": "这个月",
+    "last_month": "上个月",
+    "both": "两个月",
+    "not_sure": "不确定"
+  },
+  "answerStatus": {
+    "known": "你告诉我们",
+    "unknown": "你还不确定",
+    "unverified": "已回答但未核实"
+  }
+}

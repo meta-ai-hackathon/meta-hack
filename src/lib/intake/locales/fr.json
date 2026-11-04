@@ -1,0 +1,609 @@
+{
+  "questions": {
+    "application_role": {
+      "prompt": "Pour qui est cette demande ?",
+      "help": "Choisissez l'option qui vous convient le mieux. Vous pourrez la modifier plus tard.",
+      "options": {
+        "self": "Moi",
+        "family_member": "Un membre de la famille",
+        "someone_else": "Quelqu'un d'autre que j'aide"
+      }
+    },
+    "main_goal": {
+      "prompt": "Quel type d'aide recherchez-vous en ce moment ?",
+      "help": "Choisissez celle dont vous avez le plus besoin. Vous pourrez en ajouter plus tard.",
+      "options": {
+        "food": "Nourriture",
+        "housing": "Logement",
+        "healthcare": "Soins de santé",
+        "cash_assistance": "Aide en espèces",
+        "other": "Autre chose"
+      }
+    },
+    "goal_detail": {
+      "prompt": "Selon vous, qu'est-ce qui aiderait le plus ?",
+      "help": "Une phrase courte est bien. C'est seulement pour nous aider à vous montrer la bonne voie."
+    },
+    "state": {
+      "prompt": "Dans quel état habitez-vous ?",
+      "help": "Les règles changent selon les États. Choisissez l'État où vous dormez la plupart des nuits.",
+      "options": {
+        "AL": "Alabama",
+        "AK": "Alaska",
+        "AZ": "Arizona",
+        "AR": "Arkansas",
+        "CA": "California",
+        "CO": "Colorado",
+        "CT": "Connecticut",
+        "DE": "Delaware",
+        "FL": "Florida",
+        "GA": "Georgia",
+        "HI": "Hawaii",
+        "ID": "Idaho",
+        "IL": "Illinois",
+        "IN": "Indiana",
+        "IA": "Iowa",
+        "KS": "Kansas",
+        "KY": "Kentucky",
+        "LA": "Louisiana",
+        "ME": "Maine",
+        "MD": "Maryland",
+        "MA": "Massachusetts",
+        "MI": "Michigan",
+        "MN": "Minnesota",
+        "MS": "Mississippi",
+        "MO": "Missouri",
+        "MT": "Montana",
+        "NE": "Nebraska",
+        "NV": "Nevada",
+        "NH": "New Hampshire",
+        "NJ": "New Jersey",
+        "NM": "New Mexico",
+        "NY": "New York",
+        "NC": "North Carolina",
+        "ND": "North Dakota",
+        "OH": "Ohio",
+        "OK": "Oklahoma",
+        "OR": "Oregon",
+        "PA": "Pennsylvania",
+        "RI": "Rhode Island",
+        "SC": "South Carolina",
+        "SD": "South Dakota",
+        "TN": "Tennessee",
+        "TX": "Texas",
+        "UT": "Utah",
+        "VT": "Vermont",
+        "VA": "Virginia",
+        "WA": "Washington",
+        "WV": "West Virginia",
+        "WI": "Wisconsin",
+        "WY": "Wyoming"
+      }
+    },
+    "county": {
+      "prompt": "Dans quel comté ou dans quelle ville habitez-vous ?",
+      "help": "Votre bureau local dépend de cela. Vous n'êtes pas sûr ? Vous pouvez le laisser vide."
+    },
+    "household_size": {
+      "prompt": "Avec combien de personnes achetez-vous et partagez-vous la nourriture ?",
+      "help": "Comptez-vous et toutes les personnes avec qui vous vivez, y compris les enfants. Indiquez un nombre."
+    },
+    "household_children": {
+      "prompt": "Combien de ces personnes ont moins de 18 ans ?",
+      "help": "Indiquez un nombre. Mettez 0 s'il n'y a pas d'enfants."
+    },
+    "household_seniors": {
+      "prompt": "Combien de personnes dans votre ménage ont 60 ans ou plus ?",
+      "help": "Indiquez un nombre. Mettez 0 si aucune."
+    },
+    "household_roster": {
+      "prompt": "Qui vit dans votre maison ? Ajoutez chaque personne par son prénom ou son surnom.",
+      "help": "Les prénoms ou les surnoms sont acceptables - vous n'avez pas besoin de noms officiels. Vous pouvez ajouter, modifier ou supprimer des personnes. Cette liste aide à poser des questions ultérieures sur la bonne personne."
+    },
+    "income_sources": {
+      "prompt": "D'où vient l'argent pour votre ménage ?",
+      "help": "Choisissez chaque source qui s'applique. Choisissez « aucune » s'il n'y a pas d'argent qui entre.",
+      "options": {
+        "job": "Un travail",
+        "self_employed": "Travail indépendant ou occasionnel",
+        "benefits": "Prestations comme les allocations d'invalidité ou de retraite",
+        "family_friends": "L'argent de la famille ou des amis",
+        "child_support": "Pension alimentaire pour enfants",
+        "other": "Autre chose",
+        "none": "Aucun revenu pour le moment"
+      }
+    },
+    "income_kind": {
+      "prompt": "Quel type de revenus avez-vous ?",
+      "help": "Cela détermine les questions sur l'argent qui suivent. Choisissez ce qui vous correspond le mieux. Vous pouvez aussi dire que vous n'êtes pas sûr ; nous vous poserons alors les questions générales.",
+      "options": {
+        "self_employment_current": "Je travaille à mon compte en ce moment, dans mon entreprise ou ma LLC",
+        "prior_employer_only": "J'avais un emploi avant, mais je ne travaille plus là-bas",
+        "both": "Les deux : je travaille à mon compte maintenant et j'ai eu un emploi auparavant",
+        "neither": "Aucun des deux"
+      }
+    },
+    "self_employment_statements_offer": {
+      "prompt": "Voulez-vous apporter vos récents relevés bancaires et de paiement pour montrer ce revenu ?",
+      "help": "Vous pouvez partager les fichiers de relevé de compte de votre banque ou de votre service de paiement, ou saisir vous-même les montants. Tout ce que vous partagez reste sur cet appareil, crypté. Rien n'est envoyé d'ici. Vous pouvez dire que vous n'êtes pas sûr, nous vous demanderons les chiffres de la manière qui vous convient.",
+      "options": {
+        "will_share": "Oui, je peux partager des relevés",
+        "will_type": "Je vais saisir les montants moi-même.",
+        "not_sure_yet": "Je ne suis pas encore sûr."
+      }
+    },
+    "prior_employer_current": {
+      "prompt": "Vous travaillez toujours pour votre ancien employeur ?",
+      "help": "L'argent provenant d'un emploi que vous n'avez plus peut être traité différemment de l'argent que vous gagnez maintenant — le bureau décide. Cela peut aider à montrer que l'ancien salaire n'est pas un revenu courant.",
+      "options": {
+        "no_longer_there": "Non, je ne travaille plus là-bas",
+        "yes_still_there": "Oui, je travaille toujours là-bas."
+      }
+    },
+    "prior_employer_last_month": {
+      "prompt": "En quel mois et en quelle année avez-vous été payé pour la dernière fois par cet employeur ?",
+      "help": "Par exemple : mars 2025. Votre meilleur souvenir est valable. Cela permet de montrer que le salaire provient du passé et non du revenu actuel."
+    },
+    "job_income_amount": {
+      "prompt": "Environ combien d'argent votre emploi rapporte-t-il à chaque paie ?",
+      "help": "Votre meilleure estimation suffit. Vous pouvez répondre « pas sûr » si vous ne savez pas."
+    },
+    "job_income_frequency": {
+      "prompt": "Combien de fois cet argent de travail arrive ?",
+      "help": "Choisissez la fréquence à laquelle les chèques de paie arrivent.",
+      "options": {
+        "weekly": "Chaque semaine",
+        "biweekly": "Toutes les deux semaines",
+        "twice_monthly": "Deux fois par mois",
+        "monthly": "Une fois par mois",
+        "varies": "Varie"
+      }
+    },
+    "job_income_seasonal": {
+      "prompt": "Tout le travail effectué dans votre ménage est-il saisonnier — un travail qui n'a lieu qu'une partie de l'année ?",
+      "help": "Répondez oui uniquement si tous les travaux du ménage sont saisonniers, comme la récolte, les vacances ou les travaux d'été. Si quelqu'un de votre ménage a un travail toute l'année, répondez non. Choisissez \"pas sûr\" si vous ne savez pas.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "job_income_seasonal_total": {
+      "prompt": "Au total, combien tout votre ménage a-t-il gagné avec ce travail saisonnier au cours des 6 derniers mois ?",
+      "help": "Ajoutez ce que tout le monde dans votre ménage a gagné du travail saisonnier au cours des 6 derniers mois, du mieux que vous le pouvez. Le revenu du travail saisonnier peut être calculé en moyenne sur 6 mois, et c'est ce total qui est calculé en moyenne."
+    },
+    "benefits_income_amount": {
+      "prompt": "Quel montant de prestations recevez-vous chaque mois environ ?",
+      "help": "Cela comprend les allocations d'invalidité ou les chèques de retraite. Une estimation suffit."
+    },
+    "benefits_income_frequency": {
+      "prompt": "Combien de fois l'argent des prestations arrive-t-il ?",
+      "help": "Choisissez la fréquence à laquelle les chèques arrivent.",
+      "options": {
+        "weekly": "Chaque semaine",
+        "biweekly": "Toutes les deux semaines",
+        "twice_monthly": "Deux fois par mois",
+        "monthly": "Une fois par mois",
+        "varies": "Varie"
+      }
+    },
+    "other_income_amount": {
+      "prompt": "Combien d'argent des autres sources vient chaque mois ?",
+      "help": "L'argent de la famille ou des amis, la pension alimentaire, ou autre chose. Une supposition est bien."
+    },
+    "housing_status": {
+      "prompt": "Où avez-vous dormi la nuit dernière ?",
+      "help": "Répondez honnêtement. Cela nous aide à trouver l'aide adaptée et ne joue pas contre vous.",
+      "options": {
+        "shelter": "Dans un refuge",
+        "car": "Dans une voiture ou un véhicule",
+        "outdoors": "À l'extérieur ou dans un endroit non destiné au sommeil",
+        "nowhere": "Je n'avais nulle part où dormir.",
+        "staying_with_others": "Chez des proches ou des amis",
+        "rental_or_own": "Dans un endroit que je loue ou que je possède"
+      }
+    },
+    "housing_cost": {
+      "prompt": "Combien payez-vous pour le logement chaque mois ?",
+      "help": "Loyer ou remboursement d'hypothèque, si vous en payez un. Entrez 0 si vous ne payez pas de logement."
+    },
+    "utilities_cost": {
+      "prompt": "Combien payez-vous pour les services publics chaque mois ?",
+      "help": "Lumière, chaleur, eau ou gaz de cuisson. Entrez 0 si vous ne payez pas."
+    },
+    "childcare_cost": {
+      "prompt": "Combien payez-vous pour la garde de votre enfant chaque mois ?",
+      "help": "Une garderie, une baby-sitter, ou des soins après l'école. Entrez 0 si vous ne payez pas pour la garde des enfants."
+    },
+    "medical_cost": {
+      "prompt": "Combien payez-vous pour les frais médicaux chaque mois ?",
+      "help": "Des médicaments, des copays, des trajets pour aller chez le médecin. Entrez 0 si aucune. Une estimation est bien."
+    },
+    "id_status": {
+      "prompt": "Vous avez une pièce d'identité avec photo ?",
+      "help": "Toutes les cartes d'identité avec photo du gouvernement comptent. Ce n'est pas grave si vous l'avez perdue ou si vous n'en avez jamais eu. Nous pouvons toujours vous aider.",
+      "options": {
+        "have_id": "Oui, j'en ai une",
+        "need_id": "Non, je dois en avoir une",
+        "id_in_progress": "Je suis en train de le remplacer.",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "id_issue_detail": {
+      "prompt": "Dites-nous ce qui est arrivé à votre carte d'identité, si vous voulez.",
+      "help": "Par exemple : perdu, volé ou n'en ayant jamais eu. Ceci est facultatif. Ça nous aide à planifier les prochaines étapes avec vous."
+    },
+    "date_of_birth": {
+      "prompt": "Quelle est votre date de naissance ?",
+      "help": "Il est possible de deviner si vous n'êtes pas sûr du jour exact."
+    },
+    "citizenship_status": {
+      "prompt": "Comment décririez-vous votre citoyenneté ou votre statut d'immigration ?",
+      "help": "Cette question est privée et reste sur notre serveur sécurisé. De nombreuses aides ne dépendent pas de cette réponse, et certains programmes aident les membres de la famille ayant des statuts différents. Choisissez \"pas sûr\" si vous préférez ne pas le dire ou ne pas savoir.",
+      "options": {
+        "us_citizen": "Citoyen américain",
+        "permanent_resident": "Détenteur de la carte verte",
+        "other_status": "Autre statut",
+        "not_sure": "Je ne sais pas / je préfère ne pas le dire"
+      }
+    },
+    "disability_status": {
+      "prompt": "Quelqu'un de votre famille souffre-t-il d'un handicap ou d'une maladie qui limite sa vie quotidienne ?",
+      "help": "Cela peut ouvrir des types d'aide supplémentaires. Choisissez \"pas sûr\" si vous ne savez pas.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "student_status": {
+      "prompt": "Êtes-vous à l'école ou en formation en ce moment ?",
+      "help": "L'université, la formation professionnelle, les cours de GED... tout cela compte.",
+      "options": {
+        "not_student": "Non",
+        "full_time_student": "Oui, à temps plein",
+        "part_time_student": "Oui, à temps partiel"
+      }
+    },
+    "veteran_status": {
+      "prompt": "Avez-vous déjà servi dans l'armée ?",
+      "help": "N'importe quelle branche, n'importe quelle durée de service. Les vétérans peuvent être admissibles à une aide supplémentaire."
+    },
+    "received_benefits_before": {
+      "prompt": "Avez-vous déjà reçu de l'aide d'un bureau de prestations ?",
+      "help": "Maintenant ou dans le passé, dans n'importe quel état. Cela n'a aucune incidence sur le fait que vous puissiez obtenir de l'aide maintenant."
+    },
+    "mailing_situation": {
+      "prompt": "Où pouvez-vous recevoir du courrier ?",
+      "help": "Choisissez l'option la plus sûre qui vous convient. Beaucoup de gens reçoivent du courrier sans adresse.",
+      "options": {
+        "shelter": "Un refuge ou un programme où je reste",
+        "family_or_friend": "Adresse d'une famille ou d'un ami",
+        "po_box": "Une boîte postale.",
+        "general_delivery": "Livraison générale par les bureaux de poste",
+        "day_center": "Un centre de jour ou d'accueil",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "shelter_mail_consent": {
+      "prompt": "Le refuge a accepté de garder le courrier pour vous ?",
+      "help": "Certains refuges ne conservent le courrier que si vous leur demandez d'abord. Dites oui seulement si vous êtes sûr qu'ils ont accepté."
+    },
+    "contact_preference": {
+      "prompt": "Comment voulez-vous qu'on vous contacte ?",
+      "help": "Choisissez ce qui vous convient le mieux. Ce n'est pas forcément un téléphone.",
+      "options": {
+        "call": "Un appel téléphonique",
+        "text": "Message texte",
+        "email": "E-mail",
+        "in_person": "En personne"
+      }
+    },
+    "phone_contact": {
+      "prompt": "Quel est le numéro de téléphone où des messages peuvent vous parvenir ?",
+      "help": "Un numéro d'ami ou un numéro d'abri est bien si ça marche. Ça reste sur notre serveur sécurisé."
+    },
+    "email_contact": {
+      "prompt": "Quelle est votre adresse e-mail ?",
+      "help": "Un compte de messagerie gratuit fonctionne si vous n'en avez pas. Ça reste sur notre serveur sécurisé."
+    },
+    "best_time_to_reach": {
+      "prompt": "Quel est le meilleur moment pour vous joindre ?",
+      "help": "Choisissez le moment où vous êtes le plus susceptible d'être disponible.",
+      "options": {
+        "morning": "Matin",
+        "afternoon": "Après-midi",
+        "evening": "Soir"
+      }
+    },
+    "wr_exempt_situations": {
+      "prompt": "Vous ou une personne qui demande Medicaid êtes-vous dans l'une de ces situations ?",
+      "help": "Cochez tout ce qui s'applique. Si une situation s'applique, cette personne n'a peut-être pas besoin de déclarer ses activités professionnelles ; l'État décide de ce qui compte. Une personne qui demande et ne se trouve dans aucune de ces situations peut devoir déclarer ses activités professionnelles, et l'État décide au cas par cas.",
+      "options": {
+        "parent_child_under_18": "Parent d'un enfant de moins de 18 ans",
+        "nonparent_caregiver_child_under_14": "Une personne qui n'est pas le parent et qui s'occupe d'un enfant de moins de 14 ans, comme un membre de la famille ou toute personne qui fournit au moins 80 heures de soins par mois",
+        "caregiver_daily_activities": "Une personne qui s'occupe de quelqu'un qui a besoin d'aide pour les activités quotidiennes, comme une personne handicapée ou un adulte âgé.",
+        "already_snap_tanf_work_requirements": "Déjà soumis aux exigences de travail du SNAP ou du TANF",
+        "none": "Aucun de ces critères ne s'applique"
+      }
+    },
+    "wr_pregnant": {
+      "prompt": "Est-ce que quelqu'un qui demande est enceinte maintenant, ou a-t-elle été enceinte au cours des 12 derniers mois ?",
+      "help": "Vous pouvez sauter si vous préférez ne pas répondre — l'État décide ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "wr_drug_alcohol_treatment": {
+      "prompt": "Une personne qui fait la demande suit-elle actuellement un programme de traitement pour une dépendance à la drogue ou à l'alcool ?",
+      "help": "Vous pouvez sauter si vous préférez ne pas répondre — l'État décide ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "wr_drug_alcohol_disorder": {
+      "prompt": "Est-ce que quelqu'un qui demande a un trouble de la drogue ou de l'alcool qui rend difficile le travail ? Cela inclut les personnes qui sont en rétablissement depuis moins de 5 ans.",
+      "help": "Vous pouvez sauter si vous préférez ne pas répondre — l'État décide ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "wr_disability_hard_work": {
+      "prompt": "Est-ce que l'une des personnes qui font la demande présente un handicap physique, intellectuel ou de développement qui rend difficile le travail et les activités quotidiennes (comme manger, marcher ou se lever d'un lit ou d'une chaise) ?",
+      "help": "Vous pouvez sauter si vous préférez ne pas répondre — l'État décide ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "wr_mental_health_hard_work": {
+      "prompt": "Une personne qui fait la demande souffre-t-elle d'un trouble de santé mentale qui rend le travail difficile (comme la schizophrénie, la dépression majeure, le trouble bipolaire ou le trouble panique) ?",
+      "help": "Vous pouvez sauter si vous préférez ne pas répondre — l'État décide ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "wr_serious_health_condition": {
+      "prompt": "Une personne qui fait la demande souffre-t-elle d'une maladie grave qui rend le travail difficile (comme le cancer, la sclérose en plaques, le VIH/sida ou l'hépatite virale) ?",
+      "help": "Vous pouvez sauter si vous préférez ne pas répondre — l'État décide ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "wr_jail_prison_past_4_months": {
+      "prompt": "Est-ce que quelqu'un qui demande est en détention ou en prison actuellement, ou l'a été au cours des 4 derniers mois ?",
+      "help": "Vous pouvez sauter si vous préférez ne pas répondre — l'État décide ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "wr_foster_care_under_26": {
+      "prompt": "Est-ce que quelqu'un qui demande était en famille d'accueil à 18 ans, et a-t-il maintenant moins de 26 ans ?",
+      "help": "Vous pouvez sauter si vous préférez ne pas répondre — l'État décide ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "wr_veteran_100_disabled": {
+      "prompt": "Y a-t-il parmi les demandeurs un vétéran handicapé avec une cote d'invalidité de 100% ?",
+      "help": "Vous pouvez sauter si vous préférez ne pas répondre — l'État décide ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "wr_applied_last_month": {
+      "prompt": "Est-ce que l'une de ces situations s'est produite le mois dernier, mais pas ce mois-ci ?",
+      "help": "Une situation qui s'est produite le mois dernier peut encore avoir une incidence sur ce qui est rapporté. L'État décide de ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non"
+      }
+    },
+    "wr_applied_last_month_which": {
+      "prompt": "Quelles situations s'appliquaient le mois dernier, mais pas ce mois-ci ?",
+      "help": "Vérifiez chaque situation qui s'appliquait le mois dernier mais pas ce mois-ci.",
+      "options": {
+        "pregnant": "Grossesse actuelle ou au cours des 12 derniers mois",
+        "parent_child_under_18": "Parent d'un enfant de moins de 18 ans",
+        "nonparent_caregiver_child_under_14": "Un non-parent qui s'occupe d'un enfant de moins de 14 ans",
+        "caregiver_daily_activities": "Un aidant de quelqu'un qui a besoin d'aide pour les activités quotidiennes",
+        "already_snap_tanf_work_requirements": "Déjà soumis aux exigences de travail du SNAP ou du TANF",
+        "drug_alcohol_treatment": "Dans un programme de traitement pour un trouble de la drogue ou de l'alcool",
+        "drug_alcohol_disorder": "Un trouble de la drogue ou de l'alcool qui rend le travail difficile",
+        "disability_hard_work": "Une déficience physique, intellectuelle ou de développement",
+        "mental_health_hard_work": "Un trouble de santé mentale",
+        "serious_health_condition": "Un problème de santé grave",
+        "jail_prison_past_4_months": "Prison ou détention au cours des 4 derniers mois",
+        "foster_care_under_26": "Placé en famille d'accueil à 18 ans, aujourd'hui âgé de moins de 26 ans",
+        "veteran_100_disabled": "Un vétéran à 100% handicapé.",
+        "medical_travel_1hr": "Voyage d'une heure ou plus pour des soins médicaux",
+        "hospital_care_24hr": "Soins 24 heures sur 24"
+      }
+    },
+    "wr_medical_travel_1hr": {
+      "prompt": "Une personne qui fait la demande voyage-t-elle une heure ou plus pour obtenir des soins médicaux pour lui-même ou pour une personne à charge souffrant d'un problème de santé grave (y compris la coordination des déplacements qui rend difficile le travail) ?",
+      "help": "Vous pouvez sauter si vous préférez ne pas répondre — l'État décide ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "wr_hospital_care_24hr": {
+      "prompt": "Est-ce que quelqu'un qui demande reçoit des soins dans un hôpital pendant plus de 24 heures, ou un niveau de soins similaire dans un autre endroit (comme un établissement de soins infirmiers, un hôpital psychiatrique, une clinique, le VA, ou à la maison) ?",
+      "help": "Vous pouvez sauter si vous préférez ne pas répondre — l'État décide ce qui compte.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non",
+        "not_sure": "Je ne sais pas"
+      }
+    },
+    "wr_student_enrolled": {
+      "prompt": "Est-ce que quelqu'un qui fait une demande est inscrit comme étudiant (université, programme professionnel ou GED) à temps plein ou au moins à mi-temps ?",
+      "help": "Les étudiants à temps partiel peuvent déclarer leurs heures dans le cadre d'activités professionnelles.",
+      "options": {
+        "not_enrolled": "Non",
+        "full_time": "Oui, à temps plein",
+        "at_least_half_time": "Oui, au moins à mi-temps"
+      }
+    },
+    "wr_income_580": {
+      "prompt": "Votre ménage gagne au moins 580 dollars par mois ? Cela inclut tous les emplois, les travaux ponctuels, les travaux saisonniers et les revenus non acquis tels que le chômage.",
+      "help": "Le revenu du travail saisonnier peut être calculé en moyenne sur 6 mois. L'État examine le revenu mensuel de votre ménage lorsqu'il prend une décision.",
+      "options": {
+        "yes": "Oui",
+        "no": "Non"
+      }
+    },
+    "wr_who_months": {
+      "prompt": "Pour chaque situation dont vous nous avez parlé, à qui s'applique-t-elle et à quels mois ?",
+      "help": "Choisissez la ou les personnes pour chaque situation, puis ce mois-ci, le mois dernier, ou les deux. Choisissez \"pas sûr\" si vous ne savez pas. Vous pouvez sauter cette question — la sauter ne bloque jamais votre demande."
+    },
+    "wr_work_activity_who": {
+      "prompt": "Qui a terminé les activités de travail le mois dernier ?",
+      "help": "Activités de travail pour les membres du ménage qui ont accompli au moins 80 heures le mois dernier. Les prénoms ou les surnoms conviennent."
+    },
+    "wr_work_activity_types": {
+      "prompt": "Quelles activités professionnelles ont-ils réalisées le mois dernier ?",
+      "help": "Vérifiez tout ce qui s'applique. Le nombre total d'heures peut être une combinaison des types d'activités énumérés.",
+      "options": {
+        "job_internship": "Un emploi ou un stage",
+        "self_employment": "Travail indépendant",
+        "work_program": "Un programme de travail",
+        "community_service": "Services communautaires ou travail non rémunéré, y compris le bénévolat dans une organisation à but non lucratif, scolaire ou autre, ou le travail en échange d'un logement, de repas ou d'autres biens",
+        "part_time_student_hours": "Heures d'études à temps partiel, où le temps de cours, de laboratoire ou de formation compte",
+        "caregiving": "S'occuper d'autres personnes"
+      }
+    },
+    "wr_work_activity_hours": {
+      "prompt": "Combien d'heures d'activités de travail ont été accomplies le mois dernier ?",
+      "help": "L'objectif mensuel est de 80 heures. Pour les étudiants à temps partiel, 1 heure de crédit équivaut à 13 heures d'activité professionnelle par mois. Un compte approximatif suffit."
+    },
+    "wr_work_rows": {
+      "prompt": "Pour chaque personne, quelles activités de travail ont-elles effectuées le mois dernier, et environ combien d'heures ?",
+      "help": "Ajoutez une ligne pour chaque personne et chaque activité. Les heures sont par personne et ne sont jamais additionnées entre les personnes. Choisissez \"pas sûr\" pour les heures si vous ne le savez pas - l'estimation est acceptable. L'État décide de la façon dont le travail compte."
+    }
+  },
+  "chrome": {
+    "continue": "Continuer",
+    "notSure": "Je ne sais pas",
+    "skipForNow": "Passer pour l'instant",
+    "bestGuess": "C'est ma meilleure estimation — je ne l'ai pas vérifiée.",
+    "languageLabel": "Langue",
+    "addPerson": "Ajoutez une autre personne",
+    "back": "Retour",
+    "addRow": "Ajouter une ligne",
+    "personName": "prénom ou surnom",
+    "relationship": "Relation",
+    "ageRange": "Tranche d'âge",
+    "householdMember": "Membre du ménage",
+    "activityType": "Type d'activité",
+    "hoursLastMonth": "Heures le mois dernier",
+    "notSureHours": "Je ne connais pas les heures",
+    "fromIncome": "D'après vos réponses sur le revenu, vous pouvez ajouter :",
+    "removePerson": "Supprimer cette personne",
+    "person": "Personne",
+    "rowWord": "ligne",
+    "notPicked": "Ne s'applique pas / pas encore sélectionné",
+    "duplicateRow": "Cette personne a déjà une ligne pour cette activité. Modifiez l'une des deux lignes ou supprimez celle-ci.",
+    "rosterFull": "C'est tout le monde que nous pouvons afficher ici. Vous pouvez modifier ou supprimer une personne ci-dessus.",
+    "nameHint": "Saisissez le prénom ou le surnom de cette personne.",
+    "enterHours": "Saisissez les heures, ou cochez « Je ne connais pas les heures ».",
+    "negHours": "Les heures ne peuvent pas être inférieures à zéro.",
+    "tooManyHours": "Cela dépasse le nombre d'heures dans un mois. Vérifiez le nombre.",
+    "removeRow": "Supprimer cette ligne",
+    "yes": "Oui",
+    "no": "Non",
+    "required": "obligatoire",
+    "privateAnswer": "Pour votre confidentialité, nous n'affichons pas ici votre réponse enregistrée. Pour la modifier, saisissez-en une nouvelle.",
+    "deviceOnly": "Cette question ne peut être répondue que lorsque vos réponses sont enregistrées sur cet appareil. Vous pouvez l'ignorer ici — elle ne bloque jamais votre demande.",
+    "noHouseholdList": "Aucune liste de ménage ni situation à associer pour l'instant. Vous pouvez ignorer cette question — elle ne bloque jamais votre demande.",
+    "rosterFirst": "Ajoutez d'abord votre liste de ménage, puis une ligne pour chaque personne. Vous pouvez ignorer cette question — elle ne bloque jamais votre demande.",
+    "addRowFor": "Ajouter une ligne pour {name} : {activity}",
+    "thisPerson": "cette personne",
+    "loading": "Chargement de vos questions…",
+    "allAnswered": "Toutes les questions ont reçu une réponse pour l'instant",
+    "nothingSubmitted": "Rien n'est envoyé — vous décidez de la suite.",
+    "stillOpen": "En attente de réponse",
+    "answer": "Répondre",
+    "reviewAnswer": "Revoir cette réponse",
+    "noAnswerRecorded": "Aucune réponse enregistrée.",
+    "savedPrivately": "Enregistré en privé — ne sera plus affiché.",
+    "saveAndFinishLater": "Enregistrer et terminer plus tard",
+    "saving": "Enregistrement…",
+    "deleting": "Suppression…",
+    "deleteButton": "Supprimer mes réponses de cet appareil",
+    "deleteConfirm": "Cela supprime toutes les réponses enregistrées dans ce navigateur pour ce formulaire. Cette action est irréversible. Si vous avez téléchargé une copie du formulaire rempli, ou l'avez enregistrée en PDF lors de l'impression, ce fichier reste sur cet appareil jusqu'à ce que vous le supprimiez.",
+    "deleteYes": "Oui, les supprimer",
+    "deleteNo": "Les conserver",
+    "keepPrompt": "Si votre navigateur demande si vous autorisez ce site à stocker des données, répondre oui aide à empêcher que vos réponses ne soient effacées pour libérer de l'espace.",
+    "genericError": "Un problème est survenu de notre côté. Veuillez réessayer.",
+    "requiredError": "Cette question est nécessaire pour continuer. Choisissez une option ou « Je ne sais pas ».",
+    "serverSaveBlurb": "Vos réponses sont enregistrées sur le serveur de l'application au fur et à mesure. Vous pouvez vous arrêter à tout moment et reprendre plus tard dans ce navigateur — rien n'est envoyé tant que vous ne décidez pas.",
+    "savedComeBack": "Enregistré. Revenez dans ce navigateur quand vous voulez — rien n'est envoyé tant que vous ne décidez pas.",
+    "savedProgress": "Enregistré. {answered} réponses sur {total}.",
+    "markedNotSure": "Marqué comme « Je ne sais pas ». Vous pouvez y revenir.",
+    "progress": "{answered} réponses sur {total} questions",
+    "remaining": "encore {remaining}",
+    "noProofNeeded": "Vous n'avez pas besoin de papiers ni d'une note du médecin pour répondre à cette question. Répondez avec ce que vous savez maintenant — l'État pourra demander des preuves plus tard.",
+    "deviceKeptBlurb": "Vos réponses sont enregistrées dans ce navigateur au fur et à mesure, pour que vous puissiez revenir sur cet appareil et reprendre où vous en étiez. Rien n'est envoyé avant que vous ne décidiez.",
+    "deviceUnsupportedBlurb": "Ce navigateur ne peut pas enregistrer de réponses, elles disparaîtront donc quand vous fermerez cette page. Rien n'est envoyé avant que vous ne décidiez.",
+    "deviceUnavailableBlurb": "Le stockage de ce navigateur ne fonctionne pas pour le moment, vos nouvelles réponses ne durent donc que jusqu'à la fermeture de cette page. Si vous avez déjà enregistré des réponses ici, elles restent sur cet appareil jusqu'à ce que vous les supprimiez.",
+    "deviceStoppedBlurb": "Ce navigateur a cessé d'enregistrer les réponses. Celles qu'il a déjà enregistrées restent sur cet appareil, mais les modifications à partir de maintenant ne le sont pas. Pour les supprimer, utilisez l'option de suppression ci-dessous.",
+    "deviceStoppedNothingStoredBlurb": "Ce navigateur a cessé d'enregistrer les réponses, elles disparaîtront donc quand vous fermerez cette page. Rien n'est envoyé avant que vous ne décidiez.",
+    "deviceVisibilityNote": "Toute personne qui utilise ce navigateur peut ouvrir ces réponses.",
+    "savedPrivatelyThisVisit": "Noté en privé pour cette visite — ne sera plus affiché."
+  },
+  "commonOptions": {
+    "yes": "Oui",
+    "no": "Non",
+    "not_sure": "Je ne sais pas"
+  },
+  "relationships": {
+    "not_sure": "Je ne suis pas sûr.",
+    "self": "Moi",
+    "spouse_or_partner": "Le conjoint ou le partenaire",
+    "child": "Enfant",
+    "parent": "Parent",
+    "sibling": "Frère ou sœur",
+    "other_family": "Autre membre de la famille",
+    "unrelated": "Quelqu'un d'autre qui vit avec nous"
+  },
+  "ageBands": {
+    "not_sure": "Je ne sais pas",
+    "under_14": "Moins de 14 ans",
+    "14_to_17": "14 à 17",
+    "18_to_54": "18 à 54 ans",
+    "55_to_59": "55 à 59",
+    "60_to_64": "60 à 64",
+    "65_plus": "65 ans ou plus"
+  },
+  "months": {
+    "this_month": "Ce mois-ci",
+    "last_month": "Le mois dernier",
+    "both": "Les deux mois",
+    "not_sure": "Je ne sais pas"
+  },
+  "answerStatus": {
+    "known": "Vous nous l'avez dit",
+    "unknown": "Vous n'êtes pas sûr",
+    "unverified": "Répondue mais non vérifiée"
+  }
+}

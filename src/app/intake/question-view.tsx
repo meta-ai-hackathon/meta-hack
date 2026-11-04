@@ -3,10 +3,7 @@
 import { useEffect } from "react";
 
 import type { ClientAnswer, ClientQuestion } from "../../lib/intake/serialize";
-import {
-  NO_PROOF_NEEDED_NOTE_SINGLE,
-  isWorkRequirementsQuestionId,
-} from "../../lib/intake/work-requirements";
+import { isWorkRequirementsQuestionId } from "../../lib/intake/work-requirements";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { StatePicker } from "../../components/state-picker";
 import {
@@ -17,7 +14,15 @@ import {
   type WorkRow,
 } from "../../lib/intake/work-activities";
 import {
-  MONTH_LABELS,
+  addRowFor,
+  ageBandLabel,
+  monthLabel,
+  relationshipLabel,
+  translateQuestion,
+  uiText,
+  type Language,
+} from "../../lib/intake/i18n";
+import {
   MONTH_VALUES,
   draftAttribution,
   parseAttribution,
@@ -25,11 +30,9 @@ import {
   type Months,
 } from "../../lib/intake/attribution";
 import {
-  AGE_BAND_LABELS,
   MAX_ROSTER_MEMBERS,
   MAX_MEMBER_NAME_LENGTH,
   AGE_BAND_VALUES,
-  RELATIONSHIP_LABELS,
   RELATIONSHIP_VALUES,
   addMember,
   draftMembers,
@@ -40,6 +43,50 @@ import {
   type HouseholdMember,
 } from "../../lib/intake/roster";
 import { Field } from "../../components/field";
+import { QUESTION_BY_ID } from "../../lib/intake/spec";
+
+const ACTIVITY_QUESTION = QUESTION_BY_ID["wr_work_activity_types"];
+
+/**
+ * Activity labels come from the translated question's own option labels. English
+ * keeps the activity list's own short labels, so its copy does not change.
+ */
+function activityLabel(value: string, language: Language): string {
+  const fromActivities = activityTypes().find((activity) => activity.value === value)?.label;
+  if (language === "en") {
+    return fromActivities ?? value;
+  }
+  return (
+    translateQuestion(ACTIVITY_QUESTION, language).options?.find((option) => option.value === value)?.label ??
+    fromActivities ??
+    value
+  );
+}
+
+/** Situation labels in the attribution editor, translated where the spec has them. */
+function situationLabel(id: string, fallback: string, language: Language): string {
+  // English keeps the spec's short situation label: the prompt here is a long
+  // two-sentence question, and swapping it in would change English copy.
+  if (id === "wr_income_580" && language !== "en") {
+    return translateQuestion(QUESTION_BY_ID["wr_income_580"], language).prompt;
+  }
+  const translated = (questionId: string): string | undefined =>
+    translateQuestion(QUESTION_BY_ID[questionId], language)
+      .options?.find((option) => option.value === id)?.label;
+  // English keeps the short situation labels it always used: the spec option
+  // labels are longer and would change English copy.
+  if (language === "en") {
+    return fallback;
+  }
+  // Exemptions carry the common situations; the applied-last-month list covers
+  // the rest (pregnancy, treatment, and the others), so a translated editor
+  // never falls back to English mid-sentence.
+  return (
+    translated("wr_exempt_situations") ??
+    translated("wr_applied_last_month_which") ??
+    fallback
+  );
+}
 
 // One intake question per screen (BN-09): the plain-language prompt, help
 // text, and options come from the question spec; every question carries an
@@ -54,6 +101,8 @@ export interface QuestionViewProps {
   attributionContext?: import("../../lib/intake/attribution").AttributionContext;
   /** Roster + income prefill suggestions for the work-rows editor (device mode). */
   workContext?: import("../../lib/intake/work-activities").WorkContext;
+  /** Intake language (HACK-131); English when omitted. */
+  language?: import("../../lib/intake/i18n").Language;
   /** Stored answer for this question, when one exists. */
   answer?: ClientAnswer;
   /** Draft value being edited (undefined = nothing entered yet). */
@@ -92,6 +141,7 @@ export function QuestionView({
   question,
   attributionContext,
   workContext,
+  language = "en",
   answer,
   value,
   onValueChange,
@@ -125,7 +175,7 @@ export function QuestionView({
   const requiredMark = question.required ? (
     <span>
       <span aria-hidden="true">*</span>
-      <span className="sr-only">(required)</span>
+      <span className="sr-only">({uiText("required", language)})</span>
     </span>
   ) : null;
 
@@ -145,10 +195,10 @@ export function QuestionView({
           {question.prompt} {requiredMark}
         </legend>
         {[
-          { inputValue: "true", label: "Yes", selected: value === true, pick: () => onValueChange(true) },
+          { inputValue: "true", label: uiText("yes", language), selected: value === true, pick: () => onValueChange(true) },
           {
             inputValue: "false",
-            label: "No",
+            label: uiText("no", language),
             selected: value === false,
             pick: () => onValueChange(false),
           },
@@ -232,16 +282,16 @@ export function QuestionView({
         {question.help ? <p id={helpId} className="text-sm text-muted">{question.help}</p> : null}
         {attributionContext === undefined ? (
           <p className="text-sm text-muted">
-            This question can only be answered when your answers are saved on this device. You can skip it here - it never blocks your application.
+            {uiText("deviceOnly", language)}
           </p>
         ) : members.length === 0 || situations.length === 0 ? (
           <p className="text-sm text-muted">
-            There is no household list or situation to attach yet. You can skip this question - it never blocks your application.
+            {uiText("noHouseholdList", language)}
           </p>
         ) : (
           situations.map((situation) => (
             <fieldset key={situation.id} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3">
-              <legend className="text-base font-medium">{situation.label}</legend>
+              <legend className="text-base font-medium">{situationLabel(situation.id, situation.label, language)}</legend>
               {members.map((member) => {
                 const entry = entries.find((e) => e.memberId === member.id && e.situationId === situation.id);
                 return (
@@ -254,9 +304,9 @@ export function QuestionView({
                       onChange={(e) => { const next = setAttribution(entries, member.id, situation.id, e.target.value === "" ? null : (e.target.value as Months)); onValueChange(next.length === 0 ? undefined : next); }}
                       className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
                     >
-                      <option value="">Does not apply / not picked yet</option>
+                      <option value="">{uiText("notPicked", language)}</option>
                       {MONTH_VALUES.map((v) => (
-                        <option key={v} value={v}>{MONTH_LABELS[v]}</option>
+                        <option key={v} value={v}>{monthLabel(v, language)}</option>
                       ))}
                     </select>
                   </label>
@@ -286,15 +336,15 @@ export function QuestionView({
         {members.length === 0 ? (
           <p className="text-sm text-muted">
             {workContext === undefined
-              ? "This question can only be answered when your answers are saved on this device. You can skip it here - it never blocks your application."
-              : "Add your household list first, then add a row for each person. You can skip this question - it never blocks your application."}
+              ? uiText("deviceOnly", language)
+              : uiText("rosterFirst", language)}
           </p>
         ) : (
           <>
             {offered.length > 0 ? (
               <div className="flex flex-col gap-2 rounded-xl border border-teal/25 bg-teal-soft p-3">
                 <p className="text-sm text-muted">
-                  From your income answers, you could add:
+                  {uiText("fromIncome", language)}
                 </p>
                 {offered.map((s) => (
                   <button
@@ -304,7 +354,11 @@ export function QuestionView({
                     onClick={() => setRows([...rows, s])}
                     className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
                   >
-                    Add a row for {members.find((m) => m.id === s.memberId)?.displayName ?? "this person"}: {activityTypes().find((a) => a.value === s.activity)?.label ?? s.activity}
+                    {addRowFor(
+                      members.find((m) => m.id === s.memberId)?.displayName ?? uiText("thisPerson", language),
+                      activityLabel(s.activity, language),
+                      language,
+                    )}
                   </button>
                 ))}
               </div>
@@ -312,7 +366,7 @@ export function QuestionView({
             {rows.map((row, index) => (
               <div key={index} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3" data-work-row={index}>
                 <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${index}-member`}>
-                  Household member
+                  {uiText("householdMember", language)}
                   <select
                     id={`${question.id}-${index}-member`}
                     value={row.memberId}
@@ -326,7 +380,7 @@ export function QuestionView({
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${index}-activity`}>
-                  Type of activity
+                  {uiText("activityType", language)}
                   <select
                     id={`${question.id}-${index}-activity`}
                     value={row.activity}
@@ -335,12 +389,12 @@ export function QuestionView({
                     className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
                   >
                     {activityTypes().map((a) => (
-                      <option key={a.value} value={a.value}>{a.label}</option>
+                      <option key={a.value} value={a.value}>{activityLabel(a.value, language)}</option>
                     ))}
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${index}-hours`}>
-                  Hours last month
+                  {uiText("hoursLastMonth", language)}
                   <input
                     id={`${question.id}-${index}-hours`}
                     type="number"
@@ -359,22 +413,22 @@ export function QuestionView({
                     disabled={busy}
                     onChange={(e) => setRows(setWorkRow(rows, index, { hoursNotSure: e.target.checked, hours: e.target.checked ? null : row.hours }))}
                   />
-                  Not sure about the hours
+                  {uiText("notSureHours", language)}
                 </label>
                 {rows.some((r, i) => i !== index && r.memberId === row.memberId && r.activity === row.activity) ? (
-                  <p className="text-sm font-medium text-danger">This person already has a row for this activity. Change one of them or remove this row.</p>
+                  <p className="text-sm font-medium text-danger">{uiText("duplicateRow", language)}</p>
                 ) : null}
                 {row.hours !== null && row.hours < 0 ? (
-                  <p className="text-sm font-medium text-danger">Hours cannot be less than zero.</p>
+                  <p className="text-sm font-medium text-danger">{uiText("negHours", language)}</p>
                 ) : null}
                 {row.hours !== null && row.hours > 744 ? (
-                  <p className="text-sm font-medium text-danger">That is more hours than a month has. Please check the number.</p>
+                  <p className="text-sm font-medium text-danger">{uiText("tooManyHours", language)}</p>
                 ) : null}
                 {row.hours === null && row.hoursNotSure !== true ? (
-                  <p className="text-sm text-muted">Enter the hours, or tick Not sure about the hours.</p>
+                  <p className="text-sm text-muted">{uiText("enterHours", language)}</p>
                 ) : null}
-                <button type="button" aria-label={`Remove this row (row ${index + 1})`} disabled={busy} onClick={() => setRows(removeWorkRow(rows, index))} className="self-start text-sm text-muted underline">
-                  Remove this row
+                <button type="button" aria-label={`${uiText("removeRow", language)} (${uiText("rowWord", language)} ${index + 1})`} disabled={busy} onClick={() => setRows(removeWorkRow(rows, index))} className="self-start text-sm text-muted underline">
+                  {uiText("removeRow", language)}
                 </button>
               </div>
             ))}
@@ -388,7 +442,7 @@ export function QuestionView({
               }}
               className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
             >
-              Add a row
+              {uiText("addRow", language)}
             </button>
           </>
         )}
@@ -408,7 +462,7 @@ export function QuestionView({
         {members.map((member, index) => (
           <div key={member.id} className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3" data-roster-member={member.id}>
             <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-name`}>
-              Person {index + 1}: first name or nickname
+              {uiText("person", language)} {index + 1}: {uiText("personName", language)}
               <input
                 id={`${question.id}-${member.id}-name`}
                 type="text"
@@ -421,10 +475,10 @@ export function QuestionView({
               />
             </label>
             {member.displayName.trim() === "" ? (
-              <p id={`${question.id}-${member.id}-name-hint`} className="text-sm text-muted">Enter a first name or nickname for this person.</p>
+              <p id={`${question.id}-${member.id}-name-hint`} className="text-sm text-muted">{uiText("nameHint", language)}</p>
             ) : null}
             <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-relationship`}>
-              Relationship
+              {uiText("relationship", language)}
               <select
                 id={`${question.id}-${member.id}-relationship`}
                 value={member.relationship}
@@ -433,12 +487,12 @@ export function QuestionView({
                 className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
               >
                 {RELATIONSHIP_VALUES.map((v) => (
-                  <option key={v} value={v} disabled={v === "self" && member.relationship !== "self" && members.some((m) => m.relationship === "self")}>{RELATIONSHIP_LABELS[v]}</option>
+                  <option key={v} value={v} disabled={v === "self" && member.relationship !== "self" && members.some((m) => m.relationship === "self")}>{relationshipLabel(v, language)}</option>
                 ))}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-sm font-medium" htmlFor={`${question.id}-${member.id}-age`}>
-              Age range
+              {uiText("ageRange", language)}
               <select
                 id={`${question.id}-${member.id}-age`}
                 value={member.ageBand}
@@ -447,13 +501,13 @@ export function QuestionView({
                 className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base"
               >
                 {AGE_BAND_VALUES.map((v) => (
-                  <option key={v} value={v}>{AGE_BAND_LABELS[v]}</option>
+                  <option key={v} value={v}>{ageBandLabel(v, language)}</option>
                 ))}
               </select>
             </label>
             {members.length > 1 ? (
-              <button type="button" aria-label={`Remove this person (person ${index + 1}${member.displayName ? `: ${member.displayName}` : ""})`} disabled={busy} onClick={() => setMembers(removeMember(members, member.id))} className="self-start text-sm text-muted underline">
-                Remove this person
+              <button type="button" aria-label={`${uiText("removePerson", language)} (${uiText("person", language).toLowerCase()} ${index + 1}${member.displayName ? `: ${member.displayName}` : ""})`} disabled={busy} onClick={() => setMembers(removeMember(members, member.id))} className="self-start text-sm text-muted underline">
+                {uiText("removePerson", language)}
               </button>
             ) : null}
           </div>
@@ -464,10 +518,10 @@ export function QuestionView({
           onClick={() => setMembers(addMember(members, emptyMember(nextMemberId(members))))}
           className="min-h-11 self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
         >
-          Add another person
+          {uiText("addPerson", language)}
         </button>
         {members.length >= MAX_ROSTER_MEMBERS ? (
-          <p className="text-sm text-muted">That is everyone we can list here. You can change or remove a person above.</p>
+          <p className="text-sm text-muted">{uiText("rosterFull", language)}</p>
         ) : null}
       </fieldset>
     );
@@ -553,7 +607,7 @@ export function QuestionView({
           data-intake-proof-note
           className="text-sm text-muted"
         >
-          {NO_PROOF_NEEDED_NOTE_SINGLE}
+          {uiText("noProofNeeded", language)}
         </p>
       ) : null}
       {control}
@@ -580,10 +634,10 @@ export function QuestionView({
       ) : null}
       {answer ? (
         <div className="flex flex-col items-start gap-1">
-          <AnswerStatusBadge status={answer.status} />
+          <AnswerStatusBadge status={answer.status} language={language} />
           {question.pii ? (
             <p className="text-sm text-muted">
-              {"For your privacy, we don't show your saved answer here. To change it, enter a new one."}
+              {uiText("privateAnswer", language)}
             </p>
           ) : null}
         </div>
@@ -599,7 +653,7 @@ export function QuestionView({
           onChange={(event) => onBestGuessChange(event.target.checked)}
           disabled={busy}
         />
-        This is my best guess — I have not verified it
+        {uiText("bestGuess", language)}
       </label>
       <div className="flex flex-wrap items-center gap-3">
         <button
@@ -609,7 +663,7 @@ export function QuestionView({
           disabled={busy}
           className="rounded-full bg-teal-deep px-5 py-2 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50"
         >
-          Continue
+          {uiText("continue", language)}
         </button>
         <button
           type="button"
@@ -618,7 +672,7 @@ export function QuestionView({
           disabled={busy}
           className="rounded-full border border-surface-border bg-surface px-5 py-2 text-base font-medium hover:bg-teal-soft disabled:opacity-50"
         >
-          {"I'm not sure"}
+          {uiText("notSure", language)}
         </button>
         {!question.required ? (
           <button
@@ -628,7 +682,7 @@ export function QuestionView({
             disabled={busy}
             className="text-base text-muted underline hover:text-foreground disabled:opacity-50"
           >
-            Skip for now
+            {uiText("skipForNow", language)}
           </button>
         ) : null}
       </div>

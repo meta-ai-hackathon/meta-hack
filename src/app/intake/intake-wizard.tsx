@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ClientQuestion, IntakeClientState } from "../../lib/intake/client-state";
 import {
   DEVICE_INTAKE_COPY,
   answerOnDevice,
   askToKeepAnswers,
   deleteDeviceIntake,
-  keepingBlurb,
   keepsAnswers,
   loadDeviceIntake,
-  privateAnswerNote,
   refreshDeviceIntake,
   saveForLaterNotice,
   type DeviceIntake,
@@ -19,6 +17,21 @@ import { AnswerStatusBadge } from "../../components/answer-status-badge";
 import { StatusRegion } from "../../components/status-region";
 import { DeviceResults } from "./device-results";
 import { QuestionView } from "./question-view";
+import {
+  LANGUAGES,
+  clearStoredLanguage,
+  deviceBlurbKey,
+  languageDirection,
+  progressText,
+  savedProgressText,
+  storeLanguage,
+  storedLanguageServerSnapshot,
+  storedLanguageSnapshot,
+  subscribeLanguage,
+  translateQuestion,
+  uiText,
+  type Language,
+} from "../../lib/intake/i18n";
 import { attributionContextFromAnswers } from "../../lib/intake/attribution";
 import { workContextFromAnswers } from "../../lib/intake/work-activities";
 import { toAnswerMap } from "../../lib/intake/client-store";
@@ -49,7 +62,10 @@ import { toAnswerMap } from "../../lib/intake/client-store";
 
 type Wizard =
   | { phase: "loading" }
-  | { phase: "error"; message: string }
+  // A failure carries the server's message when there is one (English); the
+  // generic fallback is derived from the chosen language at render time, so
+  // switching language on the failure screen actually updates it.
+  | { phase: "error"; message?: string }
   | { phase: "ready"; state: IntakeClientState };
 
 /** A focus move the next render should make (the focusAfterDelete pattern). */
@@ -57,14 +73,9 @@ type FocusRequest =
   | { readonly kind: "question-heading"; readonly seq: number }
   | { readonly kind: "summary-card"; readonly questionId: string; readonly seq: number };
 
-const GENERIC_ERROR = "Something went wrong on our side. Please try again.";
 
 /** Where the wizard keeps answers. See the header comment. */
 export type IntakePersistence = "server" | "device";
-
-const SERVER_SAVE_BLURB =
-  "Your answers save as you go on the app's server. Stop any time and pick " +
-  "up later in this browser — nothing is submitted until you decide.";
 
 /**
  * How long after moving to a new question a click is ignored (device mode).
@@ -102,12 +113,12 @@ function isEmptyDraft(value: unknown): boolean {
 }
 
 /** Human-readable rendering of a stored answer value using spec labels. */
-function displayValue(question: ClientQuestion, value: unknown): string {
+function displayValue(question: ClientQuestion, value: unknown, language: Language): string {
   if (value === null || value === undefined) {
     return "";
   }
   if (question.type === "boolean") {
-    return value === true ? "Yes" : "No";
+    return value === true ? uiText("yes", language) : uiText("no", language);
   }
   if (question.type === "roster" && Array.isArray(value)) {
     return value.map((m) => (m && typeof m === "object" && "displayName" in m ? String((m as {displayName: unknown}).displayName) : "")).filter(Boolean).join(", ");
@@ -141,6 +152,7 @@ function SaveForLater(props: {
   saving: boolean;
   blurb: string;
   note?: string;
+  language: Language;
   children?: ReactNode;
 }) {
   return (
@@ -158,7 +170,7 @@ function SaveForLater(props: {
         aria-describedby={props.note ? "intake-save-note" : undefined}
         className="self-start rounded-full border border-surface-border bg-surface px-4 py-2 text-sm font-medium hover:bg-teal-soft disabled:opacity-50"
       >
-        {props.saving ? "Saving…" : "Save and finish later"}
+        {props.saving ? uiText("saving", props.language) : uiText("saveAndFinishLater", props.language)}
       </button>
       {props.children}
     </div>
@@ -178,6 +190,7 @@ function DeleteFromDevice(props: {
   onConfirm: () => void;
   onCancel: () => void;
   note?: string;
+  language: Language;
 }) {
   // Opening the confirmation moves focus to its safe choice, so keyboard
   // and screen-reader users land inside it (the group's label is read).
@@ -197,7 +210,7 @@ function DeleteFromDevice(props: {
           disabled={props.busy}
           className="self-start text-sm text-muted underline hover:text-foreground disabled:opacity-50"
         >
-          {DEVICE_INTAKE_COPY.deleteButton}
+          {uiText("deleteButton", props.language)}
         </button>
         {props.note ? <p className="text-sm text-muted">{props.note}</p> : null}
       </div>
@@ -210,7 +223,7 @@ function DeleteFromDevice(props: {
       className="flex flex-col gap-2"
     >
       <p id="intake-delete-confirm" className="text-sm">
-        {DEVICE_INTAKE_COPY.deleteConfirm}
+        {uiText("deleteConfirm", props.language)}
       </p>
       <div className="flex flex-wrap gap-2">
         <button
@@ -219,7 +232,7 @@ function DeleteFromDevice(props: {
           disabled={props.busy}
           className="rounded-full border border-surface-border bg-surface px-4 py-2 text-sm font-medium hover:bg-teal-soft disabled:opacity-50"
         >
-          {props.busy ? "Deleting…" : DEVICE_INTAKE_COPY.deleteYes}
+          {props.busy ? uiText("deleting", props.language) : uiText("deleteYes", props.language)}
         </button>
         <button
           ref={keepRef}
@@ -228,9 +241,43 @@ function DeleteFromDevice(props: {
           disabled={props.busy}
           className="rounded-full px-4 py-2 text-sm text-muted underline hover:text-foreground disabled:opacity-50"
         >
-          {DEVICE_INTAKE_COPY.deleteNo}
+          {uiText("deleteNo", props.language)}
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The language picker (HACK-131), shown wherever the person can change the
+ * language: the question screen and the all-answered summary, so a wrong
+ * language is not a dead end at the end of the intake.
+ */
+function LanguagePicker(props: {
+  readonly language: Language;
+  readonly onChoose: (language: Language) => void;
+}) {
+  return (
+    <div
+      // A dozen pills with long names ("Kreyòl Ayisyen") have to wrap, or the
+      // rows run off a phone screen and some languages sit out of reach.
+      className="flex flex-wrap items-center gap-2"
+      role="group"
+      aria-label={uiText("languageLabel", props.language)}
+    >
+      <span className="text-sm text-muted">{uiText("languageLabel", props.language)}:</span>
+      {LANGUAGES.map((info) => (
+        <button
+          key={info.code}
+          type="button"
+          aria-pressed={props.language === info.code}
+          lang={info.code}
+          onClick={() => props.onChoose(info.code)}
+          className="min-h-11 rounded-full border border-surface-border bg-surface px-4 py-2 text-base font-medium hover:bg-teal-soft"
+        >
+          {info.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -246,6 +293,18 @@ export function IntakeWizard(props: {
   readonly persistence?: IntakePersistence;
 } = {}) {
   const persistence: IntakePersistence = props.persistence ?? "server";
+  // The device's stored choice (HACK-131), read through an external store so
+  // hydration renders the server snapshot (English) first: the loading text is
+  // language-dependent, and reading storage during the first render would make
+  // the client's markup differ from the server's.
+  const language = useSyncExternalStore<Language>(
+    subscribeLanguage,
+    storedLanguageSnapshot,
+    storedLanguageServerSnapshot,
+  );
+  const chooseLanguage = (next: Language) => {
+    storeLanguage(next);
+  };
   const [wizard, setWizard] = useState<Wizard>({ phase: "loading" });
   const [current, setCurrent] = useState(0);
   const [draftValue, setDraftValue] = useState<unknown>(undefined);
@@ -432,10 +491,8 @@ export function IntakeWizard(props: {
           return;
         }
         if (!response.ok || data.error) {
-          setWizard({
-            phase: "error",
-            message: data?.error?.message ?? GENERIC_ERROR,
-          });
+          const serverMessage = data?.error?.message;
+          setWizard(serverMessage ? { phase: "error", message: serverMessage } : { phase: "error" });
           return;
         }
         setWizard({ phase: "ready", state: data });
@@ -443,7 +500,7 @@ export function IntakeWizard(props: {
       })
       .catch(() => {
         if (!cancelled) {
-          setWizard({ phase: "error", message: GENERIC_ERROR });
+          setWizard({ phase: "error" });
         }
       });
     return () => {
@@ -586,7 +643,7 @@ export function IntakeWizard(props: {
       try {
         await answerOnThisDevice(question.id, status);
       } catch {
-        setQuestionError(GENERIC_ERROR);
+        setQuestionError(uiText("genericError", language));
       } finally {
         setBusy(false);
       }
@@ -604,7 +661,7 @@ export function IntakeWizard(props: {
       });
       const data = await response.json();
       if (!response.ok || data.error) {
-        setQuestionError(data?.error?.message ?? GENERIC_ERROR);
+        setQuestionError(data?.error?.message ?? uiText("genericError", language));
         return;
       }
       setWizard({ phase: "ready", state: data });
@@ -616,11 +673,11 @@ export function IntakeWizard(props: {
       }
       setNotice(
         status === "unknown"
-          ? "Marked as not sure. You can come back to it."
-          : `Saved. ${data.progress.answered} of ${data.progress.total} answered.`,
+          ? uiText("markedNotSure", language)
+          : savedProgressText(data.progress.answered, data.progress.total, language),
       );
     } catch {
-      setQuestionError(GENERIC_ERROR);
+      setQuestionError(uiText("genericError", language));
     } finally {
       setBusy(false);
     }
@@ -688,6 +745,10 @@ export function IntakeWizard(props: {
     setDeleting(true);
     try {
       const result = await deleteDeviceIntake(intake);
+      // The answers are gone, so the stored language choice goes with them: on a
+      // shared computer it would otherwise tell the next visitor what language
+      // the last person picked. This visit keeps the language on screen.
+      clearStoredLanguage();
       setDeviceIntake(result.intake);
       if (result.intake.answers !== intake.answers) {
         setWizard({ phase: "ready", state: result.intake.view });
@@ -732,15 +793,13 @@ export function IntakeWizard(props: {
       });
       const data = await response.json();
       if (!response.ok || data.error) {
-        setNotice(data?.error?.message ?? GENERIC_ERROR);
+        setNotice(data?.error?.message ?? uiText("genericError", language));
         return;
       }
       setWizard({ phase: "ready", state: data.state });
-      setNotice(
-        "Saved. Come back in this browser any time — nothing is submitted until you decide.",
-      );
+      setNotice(uiText("savedComeBack", language));
     } catch {
-      setNotice(GENERIC_ERROR);
+      setNotice(uiText("genericError", language));
     } finally {
       setSavingForLater(false);
     }
@@ -782,7 +841,7 @@ export function IntakeWizard(props: {
         setAskedToKeep(true);
       }
     } catch {
-      setNotice(GENERIC_ERROR);
+      setNotice(uiText("genericError", language));
     } finally {
       setSavingForLater(false);
     }
@@ -809,9 +868,7 @@ export function IntakeWizard(props: {
         return;
       }
       if (question.required) {
-        setQuestionError(
-          "This one is needed to continue. Pick an option or choose I'm not sure.",
-        );
+        setQuestionError(uiText("requiredError", language));
         return;
       }
       advanceTo(current + 1, wizard.state);
@@ -822,16 +879,34 @@ export function IntakeWizard(props: {
 
   if (wizard.phase === "loading") {
     return (
-      <div data-intake-wizard className="flex flex-col gap-4">
-        <p role="status">Loading your questions…</p>
+      <div
+        data-intake-wizard
+        lang={language}
+        dir={languageDirection(language)}
+        className="flex flex-col gap-4"
+      >
+        <p role="status">{uiText("loading", language)}</p>
       </div>
     );
   }
 
   if (wizard.phase === "error") {
+    // The message is labelled with the language it is actually in: a server
+    // error arrives in English, the generic fallback follows the picker. The
+    // picker rides along so a wrong language is not a dead end here either.
+    const message = wizard.message ?? uiText("genericError", language);
+    const messageLanguage: Language = wizard.message ? "en" : language;
     return (
-      <div data-intake-wizard className="flex flex-col gap-4">
-        <StatusRegion message={wizard.message} />
+      <div
+        data-intake-wizard
+        lang={language}
+        dir={languageDirection(language)}
+        className="flex flex-col gap-4"
+      >
+        <div lang={messageLanguage} dir={languageDirection(messageLanguage)}>
+          <StatusRegion message={message} />
+        </div>
+        <LanguagePicker language={language} onChoose={chooseLanguage} />
       </div>
     );
   }
@@ -850,22 +925,24 @@ export function IntakeWizard(props: {
       onSave={() => void saveAndFinishLater()}
       busy={savingForLater || busy || deleting}
       saving={savingForLater}
-      blurb={shownDevice ? keepingBlurb(shownDevice) : SERVER_SAVE_BLURB}
+      blurb={
+        shownDevice ? uiText(deviceBlurbKey(shownDevice), language) : uiText("serverSaveBlurb", language)
+      }
+      language={language}
       note={
         shownDevice && keepsAnswers(shownDevice) && !askedToKeep
-          ? DEVICE_INTAKE_COPY.keepPrompt
+          ? uiText("keepPrompt", language)
           : undefined
       }
     >
       {shownDevice ? (
         <DeleteFromDevice
+          language={language}
           confirming={confirmingDelete}
           busy={deleting || busy || savingForLater}
           onAsk={() => setConfirmingDelete(true)}
           onConfirm={() => void deleteFromThisDevice()}
-          note={
-            keepsAnswers(shownDevice) ? DEVICE_INTAKE_COPY.visibilityNote : undefined
-          }
+          note={keepsAnswers(shownDevice) ? uiText("deviceVisibilityNote", language) : undefined}
           onCancel={() => {
             setConfirmingDelete(false);
             setFocusAfterDelete((previous) => ({
@@ -889,14 +966,17 @@ export function IntakeWizard(props: {
       <div
         data-intake-wizard
         ref={rootRef}
+        lang={language}
+        dir={languageDirection(language)}
         onPointerDownCapture={notePointer}
         className="flex flex-col gap-6"
       >
         {deviceStatus}
-        <h2 className="font-display text-2xl font-bold">All questions answered for now</h2>
+        <h2 className="font-display text-2xl font-bold">{uiText("allAnswered", language)}</h2>
         <p className="max-w-xl text-muted">
-          Nothing is submitted — you decide what happens next.
+          {uiText("nothingSubmitted", language)}
         </p>
+        <LanguagePicker language={language} onChoose={chooseLanguage} />
         {screenStatus}
         <ul className="flex flex-col gap-3">
           {answered.map((question) => {
@@ -909,16 +989,19 @@ export function IntakeWizard(props: {
                 className="flex flex-col gap-1 rounded-xl border border-surface-border bg-surface p-3 text-left"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">{question.prompt}</span>
-                  <AnswerStatusBadge status={answer.status} />
+                  <span className="font-medium">{translateQuestion(question, language).prompt}</span>
+                  <AnswerStatusBadge status={answer.status} language={language} />
                 </div>
                 <p className="text-sm text-muted">
                   {question.pii
                     ? shownDevice
-                      ? privateAnswerNote(shownDevice)
-                      : "Saved privately — not shown again."
-                    : displayValue(question, answer.value) ||
-                      "No answer recorded."}
+                      ? uiText(
+                          keepsAnswers(shownDevice) ? "savedPrivately" : "savedPrivatelyThisVisit",
+                          language,
+                        )
+                      : uiText("savedPrivately", language)
+                    : displayValue(translateQuestion(question, language), answer.value, language) ||
+                      uiText("noAnswerRecorded", language)}
                 </p>
                 <button
                   type="button"
@@ -927,7 +1010,7 @@ export function IntakeWizard(props: {
                   }
                   className="self-start text-sm text-muted underline hover:text-foreground"
                 >
-                  Review this answer
+                  {uiText("reviewAnswer", language)}
                 </button>
               </li>
             );
@@ -939,7 +1022,7 @@ export function IntakeWizard(props: {
             className="flex flex-col gap-2"
           >
             <h3 id="intake-remaining-heading" className="text-lg font-semibold">
-              Still open
+              {uiText("stillOpen", language)}
             </h3>
             <ul className="flex flex-col gap-2">
               {remaining.map((question) => (
@@ -948,7 +1031,7 @@ export function IntakeWizard(props: {
                   data-intake-summary-card={question.id}
                   className="flex items-center gap-2"
                 >
-                  <span>{question.prompt}</span>
+                  <span>{translateQuestion(question, language).prompt}</span>
                   <button
                     type="button"
                     onClick={() =>
@@ -956,7 +1039,7 @@ export function IntakeWizard(props: {
                     }
                     className="text-sm text-muted underline hover:text-foreground"
                   >
-                    Answer
+                    {uiText("answer", language)}
                   </button>
                 </li>
               ))}
@@ -991,9 +1074,14 @@ export function IntakeWizard(props: {
   const { progress } = state;
 
   return (
+    // Every phase carries lang/dir on its root so the translated chrome
+    // (progress, back, save and delete, the summary) is announced in the chosen
+    // language and laid out in its direction, not only the question view.
     <div
       data-intake-wizard
       ref={rootRef}
+      lang={language}
+      dir={languageDirection(language)}
       onPointerDownCapture={notePointer}
       className="flex flex-col gap-6"
     >
@@ -1007,15 +1095,14 @@ export function IntakeWizard(props: {
         data-intake-question-heading
         className="sr-only"
       >
-        {question.prompt}
+        {translateQuestion(question, language).prompt}
       </h2>
       <div className="flex flex-col gap-1">
         <p
           id="intake-progress-text"
           className="text-sm text-muted"
         >
-          Answered {progress.answered} of {progress.total} questions
-          {progress.remaining > 0 ? ` — ${progress.remaining} to go` : ""}
+          {progressText(progress, language)}
         </p>
         <progress
           aria-labelledby="intake-progress-text"
@@ -1025,10 +1112,12 @@ export function IntakeWizard(props: {
         />
       </div>
       {screenStatus}
+      <LanguagePicker language={language} onChoose={chooseLanguage} />
       <QuestionView
+        language={language}
         attributionContext={attributionContext}
         workContext={workContext}
-        question={question}
+        question={translateQuestion(question, language)}
         answer={answer}
         value={draftValue}
         onValueChange={(next) => {
@@ -1070,7 +1159,7 @@ export function IntakeWizard(props: {
           }}
           className="self-start text-base text-muted underline hover:text-foreground"
         >
-          Back
+          {uiText("back", language)}
         </button>
       ) : null}
       {saveForLaterSection}

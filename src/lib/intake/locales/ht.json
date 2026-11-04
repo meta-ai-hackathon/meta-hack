@@ -1,0 +1,609 @@
+{
+  "questions": {
+    "application_role": {
+      "prompt": "Pou ki moun aplikasyon sa a ye?",
+      "help": "Chwazi chwa ki pi bon pou ou. Ou ka chanje li pita.",
+      "options": {
+        "self": "Mwen",
+        "family_member": "Yon manm fanmi",
+        "someone_else": "Yon lòt moun mwen ede"
+      }
+    },
+    "main_goal": {
+      "prompt": "Ki kalite èd ou ap chèche kounye a?",
+      "help": "Chwazi youn nan sa ou bezwen pi plis la. Ou ka ajoute plis pita.",
+      "options": {
+        "food": "Manje",
+        "housing": "Lojman",
+        "healthcare": "Swen Sante",
+        "cash_assistance": "Èd lajan kach",
+        "other": "Yon lòt bagay"
+      }
+    },
+    "goal_detail": {
+      "prompt": "Nan pwòp mo ou, ki sa ki ta ede pi plis?",
+      "help": "Yon fraz kout se bon. Sa a se sèlman pou ede nou montre ou nan bon chemen an."
+    },
+    "state": {
+      "prompt": "Nan ki eta ou rete?",
+      "help": "Règleman yo chanje selon eta. Chwazi eta kote ou dòmi pifò nwit yo.",
+      "options": {
+        "AL": "Alabama",
+        "AK": "Alaska",
+        "AZ": "Arizona",
+        "AR": "Arkansas",
+        "CA": "California",
+        "CO": "Colorado",
+        "CT": "Connecticut",
+        "DE": "Delaware",
+        "FL": "Florida",
+        "GA": "Georgia",
+        "HI": "Hawaii",
+        "ID": "Idaho",
+        "IL": "Illinois",
+        "IN": "Indiana",
+        "IA": "Iowa",
+        "KS": "Kansas",
+        "KY": "Kentucky",
+        "LA": "Louisiana",
+        "ME": "Maine",
+        "MD": "Maryland",
+        "MA": "Massachusetts",
+        "MI": "Michigan",
+        "MN": "Minnesota",
+        "MS": "Mississippi",
+        "MO": "Missouri",
+        "MT": "Montana",
+        "NE": "Nebraska",
+        "NV": "Nevada",
+        "NH": "New Hampshire",
+        "NJ": "New Jersey",
+        "NM": "New Mexico",
+        "NY": "New York",
+        "NC": "North Carolina",
+        "ND": "North Dakota",
+        "OH": "Ohio",
+        "OK": "Oklahoma",
+        "OR": "Oregon",
+        "PA": "Pennsylvania",
+        "RI": "Rhode Island",
+        "SC": "South Carolina",
+        "SD": "South Dakota",
+        "TN": "Tennessee",
+        "TX": "Texas",
+        "UT": "Utah",
+        "VT": "Vermont",
+        "VA": "Virginia",
+        "WA": "Washington",
+        "WV": "West Virginia",
+        "WI": "Wisconsin",
+        "WY": "Wyoming"
+      }
+    },
+    "county": {
+      "prompt": "Nan ki distri oswa zòn vil ou rete?",
+      "help": "Biwo lokal ou a depann de sa. Ou pa sèten? Ou ka kite l vid."
+    },
+    "household_size": {
+      "prompt": "Konbyen moun ou achte epi pataje manje avèk yo?",
+      "help": "Konte tèt ou ak tout moun ou viv avèk yo, menm timoun yo. Antre yon nimewo."
+    },
+    "household_children": {
+      "prompt": "Konbyen nan moun sa yo ki anba 18?",
+      "help": "Antre yon nimewo. Antre 0 si pa gen timoun."
+    },
+    "household_seniors": {
+      "prompt": "Konbyen moun nan kay ou ki gen 60 an oswa plis?",
+      "help": "Antre yon nimewo. Antre 0 si pa gen okenn."
+    },
+    "household_roster": {
+      "prompt": "Ki moun ki rete nan kay ou? Ajoute chak moun pa premye non oswa ti non.",
+      "help": "Premye non oswa ti non yo bon - ou pa bezwen non legal. Ou ka ajoute, chanje, oswa retire moun. Lis sa a ede pita kesyon yo poze sou bon moun nan."
+    },
+    "income_sources": {
+      "prompt": "Ki kote lajan pou kay ou soti?",
+      "help": "Chwazi tout sous ki aplike. Chwazi 'Pa gen lajan k ap vini' si pa gen lajan k ap antre.",
+      "options": {
+        "job": "Yon travay",
+        "self_employed": "Travay endepandan oswa travay tanzantan",
+        "benefits": "Benefis tankou chèk andikap oswa retrèt",
+        "family_friends": "Lajan nan men fanmi oswa zanmi",
+        "child_support": "Pansyon pou timoun",
+        "other": "Yon lòt bagay",
+        "none": "Pa gen lajan k ap vini nan moman sa a"
+      }
+    },
+    "income_kind": {
+      "prompt": "Ki kalite revni ou genyen?",
+      "help": "Sa a deside ki kesyon lajan vini pwochen. Chwazi youn ki pi bon. Ou ka tou di ou pa sèten — lè sa a nou pral poze kesyon jeneral yo.",
+      "options": {
+        "self_employment_current": "Mwen travay pou tèt mwen kounye a, nan pwòp biznis mwen oswa LLC",
+        "prior_employer_only": "Mwen te gen yon travay anvan, men mwen pa travay la ankò",
+        "both": "Tou de: mwen travay pou tèt mwen kounye a e mwen te gen yon travay anvan",
+        "neither": "Ni youn ni lòt"
+      }
+    },
+    "self_employment_statements_offer": {
+      "prompt": "Èske ou vle pòte deklarasyon bank ou ak peman ou dènye yo pou montre revni sa a?",
+      "help": "Ou ka pataje fichye deklarasyon soti nan bank ou oswa sèvis peman ou, oswa tape nimewo yo tèt ou. Tout sa ou pataje rete sou aparèy sa a, ankrifre — pa gen anyen ki voye nenpòt kote soti isit la. Di 'mwen pa sèten' se byen; nou pral mande nimewo yo nan yon fason ki mache pou ou.",
+      "options": {
+        "will_share": "Wi, mwen ka pataje relve bank",
+        "will_type": "Mwen pral tape nimewo yo tèt mwen",
+        "not_sure_yet": "Mwen poko sèten"
+      }
+    },
+    "prior_employer_current": {
+      "prompt": "Èske w toujou ap travay pou ansyen anplwayè w la?",
+      "help": "Lajan ki soti nan yon travay ou pa gen ankò ka trete yon fason diferan pase lajan ou touche kounye a — biwo a deside. Sa ka ede montre ke ansyen salè se pa revni aktyèl.",
+      "options": {
+        "no_longer_there": "Non, mwen pa travay la ankò",
+        "yes_still_there": "Wi, mwen toujou travay la"
+      }
+    },
+    "prior_employer_last_month": {
+      "prompt": "Nan ki mwa ak ki ane ou te resevwa dènye peman soti nan anplwayè sa a?",
+      "help": "Pa egzanp: Mas 2025. Pi bon memwa ou a bon. Sa ede montre ke salè a se nan tan lontan an, pa revni aktyèl la."
+    },
+    "job_income_amount": {
+      "prompt": "Anviwon konbyen lajan vini nan travay chak fwa ou jwenn peye?",
+      "help": "Yon estimasyon se bon. Ou ka di 'pa sèten' si ou pa konnen."
+    },
+    "job_income_frequency": {
+      "prompt": "Konbyen fwa lajan travay sa a vini?",
+      "help": "Chwazi konbyen fwa chèk salè yo rive.",
+      "options": {
+        "weekly": "Chak semèn",
+        "biweekly": "Chak de semèn",
+        "twice_monthly": "De fwa pa mwa",
+        "monthly": "Yon fwa pa mwa",
+        "varies": "Varye"
+      }
+    },
+    "job_income_seasonal": {
+      "prompt": "Èske tout travay nan kay ou se travay sezon — travay ki fèt sèlman yon pati nan ane a?",
+      "help": "Reponn wi sèlman si tout travay nan kay ou se sezon, tankou rekòt, jou ferye, oswa travay ete. Si yon moun nan kay ou gen travay pandan tout ane a, reponn non. Chwazi 'pa sèten' si ou pa konnen.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "job_income_seasonal_total": {
+      "prompt": "Anviwon konbyen tout moun nan kay ou te fè nan travay sezon sa a nan 6 dènye mwa yo, an total?",
+      "help": "Ajoute sa tout moun nan kay ou te fè nan travay sezon nan 6 dènye mwa yo, pi bon ou kapab. Revni ki soti nan travay sezon ka mwayèn sou 6 mwa, ak total sa a se sa ki vin mwayèn."
+    },
+    "benefits_income_amount": {
+      "prompt": "Anviwon konbyen lajan ki soti nan benefis chak mwa?",
+      "help": "Sa vle di bagay tankou chèk andikap oswa retrèt. Yon estimasyon se bon."
+    },
+    "benefits_income_frequency": {
+      "prompt": "Konbyen fwa lajan benefis sa a vini?",
+      "help": "Chwazi konbyen fwa chèk yo rive.",
+      "options": {
+        "weekly": "Chak semèn",
+        "biweekly": "Chak de semèn",
+        "twice_monthly": "De fwa pa mwa",
+        "monthly": "Yon fwa pa mwa",
+        "varies": "Varye"
+      }
+    },
+    "other_income_amount": {
+      "prompt": "Anviwon konbyen lajan lòt vini nan chak mwa?",
+      "help": "Lajan nan men fanmi oswa zanmi, sipò pou timoun, oswa nenpòt lòt bagay. Yon devine se bon."
+    },
+    "housing_status": {
+      "prompt": "Ki kote ou te dòmi yè swa?",
+      "help": "Reponn onètman. Sa ede nou jwenn bon èd la, e li pa konte kont ou.",
+      "options": {
+        "shelter": "Nan yon abri",
+        "car": "Nan yon machin oswa yon lòt veyikil",
+        "outdoors": "Deyò oswa nan yon kote ki pa fèt pou dòmi",
+        "nowhere": "Mwen pa t gen kote pou m dòmi",
+        "staying_with_others": "Rete ak fanmi oswa zanmi",
+        "rental_or_own": "Nan yon kote mwen lwe oswa posede"
+      }
+    },
+    "housing_cost": {
+      "prompt": "Konbyen ou peye pou lojman chak mwa?",
+      "help": "Lwaye oswa ipotèk, si ou peye youn. Antre 0 si ou pa peye pou lojman."
+    },
+    "utilities_cost": {
+      "prompt": "Konbyen ou peye pou sèvis piblik chak mwa?",
+      "help": "Limyè, chalè, dlo, oswa gaz pou kwit manje. Antre 0 si ou pa peye okenn."
+    },
+    "childcare_cost": {
+      "prompt": "Konbyen ou peye pou gadri timoun chak mwa?",
+      "help": "Sèvis pou timoun, yon gadri, oswa swen apre lekòl. Antre 0 si ou pa peye pou swen timoun."
+    },
+    "medical_cost": {
+      "prompt": "Konbyen ou peye pou depans medikal chak mwa?",
+      "help": "Medikaman, co-peye, trajè pou ale doktè. Antre 0 si pa gen okenn. Yon devine se bon."
+    },
+    "id_status": {
+      "prompt": "Èske w gen yon foto ID kounye a?",
+      "help": "Nenpòt foto ID gouvènman konte. Li pa gen pwoblèm si ou pèdi li oswa pa janm te gen youn. Nou ka toujou ede.",
+      "options": {
+        "have_id": "Wi, mwen gen youn",
+        "need_id": "Non, mwen bezwen jwenn yon sèl",
+        "id_in_progress": "Mwen ap travay sou ranplase li",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "id_issue_detail": {
+      "prompt": "Di nou sa ki te rive ID ou, si ou ta renmen.",
+      "help": "Pou egzanp: pèdi, vòlè, oswa pa janm te gen yon sèl. Sa a se opsyonèl. Li ede nou planifye pwochen etap avèk ou."
+    },
+    "date_of_birth": {
+      "prompt": "Ki dat nesans ou?",
+      "help": "Yon devine se ok si ou pa sèten sou jou egzak la."
+    },
+    "citizenship_status": {
+      "prompt": "Ki jan ou ta dekri sitwayènte ou oswa estati imigrasyon ou?",
+      "help": "Kesyon sa a prive epi li rete sou sèvè sekirite nou an. Anpil kalite èd pa depann de repons sa a, e kèk pwogram ede manm fanmi ki gen estati diferan. Chwazi 'pa sèten' si ou ta pito pa di oswa ou pa konnen.",
+      "options": {
+        "us_citizen": "Sitwayen ameriken",
+        "permanent_resident": "Moun ki gen kat vèt la",
+        "other_status": "Yon lòt estati",
+        "not_sure": "Mwen pa sèten / preferè pa di"
+      }
+    },
+    "disability_status": {
+      "prompt": "Èske gen yon moun nan fanmi ou ki gen yon andikap oswa yon kondisyon sante ki limite lavi chak jou?",
+      "help": "Sa ka louvri lòt kalite èd. Chwazi 'pa sèten' si ou pa konnen.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "student_status": {
+      "prompt": "Eske w nan lekòl oubyen nan fòmasyon kounye a?",
+      "help": "Kolej, fòmasyon travay, klas GED — nenpòt youn nan sa yo konte.",
+      "options": {
+        "not_student": "Non",
+        "full_time_student": "Wi, an plen tan",
+        "part_time_student": "Wi, an tan pasyèl"
+      }
+    },
+    "veteran_status": {
+      "prompt": "Eske ou te janm sèvi nan lame a?",
+      "help": "Nenpòt branch, nenpòt ki longè sèvis. Veteran yo ka kalifye pou èd siplemantè."
+    },
+    "received_benefits_before": {
+      "prompt": "Eske ou te resevwa èd nan yon biwo benefis anvan?",
+      "help": "Kounye a oswa nan tan lontan an, nan nenpòt eta. Sa pa afekte si ou ka jwenn èd kounye a."
+    },
+    "mailing_situation": {
+      "prompt": "Ki kote ou ka jwenn lapòs?",
+      "help": "Chwazi opsyon ki pi an sekirite ki travay pou ou. Anpil moun resevwa lapòs san yo pa gen yon adrès lakay yo.",
+      "options": {
+        "shelter": "Yon abri oswa pwogram kote m rete",
+        "family_or_friend": "Adrès fanmi oswa zanmi w",
+        "po_box": "Yon bwat lapòs",
+        "general_delivery": "Livrezon jeneral nan biwo pòs la",
+        "day_center": "Yon sant vizit oswa yon sant lajounen",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "shelter_mail_consent": {
+      "prompt": "Èske abri a dakò pou kenbe lapòs pou ou?",
+      "help": "Gen kèk abri ki sèlman kenbe lapòs si ou mande yo an premye. Di wi sèlman si ou sèten yo dakò."
+    },
+    "contact_preference": {
+      "prompt": "Ki jan ou vle nou rive jwenn ou?",
+      "help": "Chwazi sa ki pi bon pou ou. Sa pa nesesèman yon telefòn.",
+      "options": {
+        "call": "Telefòn apèl",
+        "text": "Mesaj tèks",
+        "email": "Imèl",
+        "in_person": "An pèsòn"
+      }
+    },
+    "phone_contact": {
+      "prompt": "Ki nimewo telefòn kote mesaj ka rive jwenn ou?",
+      "help": "Nimewo yon zanmi oswa yon nimewo abri se bon si li travay. Sa a rete sou sèvè sekirite nou an."
+    },
+    "email_contact": {
+      "prompt": "Ki adrès imèl ou?",
+      "help": "Yon kont imel gratis travay si ou pa gen youn. Sa a rete sou sèvè sekirite nou an."
+    },
+    "best_time_to_reach": {
+      "prompt": "Ki lè pi bon pou nou kontakte ou?",
+      "help": "Chwazi lè ou gen plis chans pou w lib.",
+      "options": {
+        "morning": "Maten",
+        "afternoon": "Apremidi",
+        "evening": "Aswè"
+      }
+    },
+    "wr_exempt_situations": {
+      "prompt": "Eske ou menm oswa nenpòt moun ki ap aplike pou Medicaid nan youn nan sitiyasyon sa yo?",
+      "help": "Make tout sa ki aplike. Si yon sitiyasyon aplike, moun sa a ka pa bezwen rapòte aktivite travay li; Eta a deside sa ki konte. Yon moun k ap aplike ki pa nan youn nan sitiyasyon sa yo ka bezwen rapòte aktivite travay li, epi Eta a deside sa pou chak moun.",
+      "options": {
+        "parent_child_under_18": "Yon paran yon timoun ki poko gen 18 an",
+        "nonparent_caregiver_child_under_14": "Yon moun ki pa paran ki pran swen yon timoun ki gen mwens pase 14 an, tankou yon fanmi oswa nenpòt moun ki bay omwen 80 èdtan swen chak mwa",
+        "caregiver_daily_activities": "Yon moun ki pran swen yon moun ki bezwen èd nan aktivite chak jou, tankou yon moun ki andikape oswa yon granmoun aje.",
+        "already_snap_tanf_work_requirements": "Deja sijè a kondisyon travay SNAP oswa TANF",
+        "none": "Okenn nan sa yo aplike"
+      }
+    },
+    "wr_pregnant": {
+      "prompt": "Èske gen moun ki ap aplike ansent kounye a, oswa yo te ansent nan 12 mwa ki sot pase yo?",
+      "help": "Ou ka sote sa si ou pito pa reponn — Eta a deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "wr_drug_alcohol_treatment": {
+      "prompt": "Èske gen moun ki ap aplike nan yon pwogram tretman pou yon maladi dwòg oswa alkòl?",
+      "help": "Ou ka sote sa si ou pito pa reponn — Eta a deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "wr_drug_alcohol_disorder": {
+      "prompt": "Eske nenpòt moun ki ap aplike gen yon maladi dwòg oswa alkòl ki fè li difisil pou travay? Sa gen ladan moun ki te nan rekiperasyon pou mwens pase 5 ane.",
+      "help": "Ou ka sote sa si ou pito pa reponn — Eta a deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "wr_disability_hard_work": {
+      "prompt": "Èske nenpòt moun ki aplike gen yon andikap fizik, entelektyèl, oswa devlopman ki fè li difisil pou travay ak fè aktivite chak jou (tankou manje, mache, oswa leve soti nan kabann oswa chèz)?",
+      "help": "Ou ka sote sa si ou pito pa reponn — Eta a deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "wr_mental_health_hard_work": {
+      "prompt": "Èske nenpòt moun ki aplike gen yon maladi sante mantal ki fè li difisil pou travay (tankou skizofreni, gwo depresyon, maladi bipolar, oswa maladi panik)?",
+      "help": "Ou ka sote sa si ou pito pa reponn — Eta a deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "wr_serious_health_condition": {
+      "prompt": "Èske nenpòt moun ki aplike gen yon kondisyon sante grav ki fè li difisil pou travay (tankou kansè, skleroz miltip, VIH / SIDA, oswa epatit viral)?",
+      "help": "Ou ka sote sa si ou pito pa reponn — Eta a deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "wr_jail_prison_past_4_months": {
+      "prompt": "Eske gen moun ki ap aplike ki nan prizon kounye a, oswa ki te nan prizon nan 4 mwa ki sot pase yo?",
+      "help": "Ou ka sote sa si ou pito pa reponn — Eta a deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "wr_foster_care_under_26": {
+      "prompt": "Eske yon moun ki ap aplike te nan swen ranplasman (foster care) nan laj 18 an, e li gen mwens pase 26 an?",
+      "help": "Ou ka sote sa si ou pito pa reponn — Eta a deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "wr_veteran_100_disabled": {
+      "prompt": "Èske gen moun ki ap aplike ki se yon veteran andikape ak yon klasman andikap 100%?",
+      "help": "Ou ka sote sa si ou pito pa reponn — Eta a deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "wr_applied_last_month": {
+      "prompt": "Eske nenpòt nan sitiyasyon sa yo te aplike mwa pase a, men pa mwa sa a?",
+      "help": "Yon sitiyasyon ki te aplike mwa pase a ka toujou gen enpòtans pou sa ki rapòte. Leta deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non"
+      }
+    },
+    "wr_applied_last_month_which": {
+      "prompt": "Ki sitiyasyon ki te aplike mwa pase a, men ki pa aplike mwa sa a?",
+      "help": "Tcheke tout sitiyasyon ki te aplike mwa pase men ki pa aplike mwa sa a.",
+      "options": {
+        "pregnant": "Gwosès kounye a oswa nan 12 mwa ki sot pase yo",
+        "parent_child_under_18": "Yon paran yon timoun ki poko gen 18 an",
+        "nonparent_caregiver_child_under_14": "Yon moun ki pa paran ki ap pran swen yon timoun ki gen mwens pase 14 an",
+        "caregiver_daily_activities": "Yon moun k ap pran swen yon moun ki bezwen èd nan aktivite chak jou yo",
+        "already_snap_tanf_work_requirements": "Deja sijè a kondisyon travay SNAP oswa TANF",
+        "drug_alcohol_treatment": "Nan yon pwogram tretman pou yon maladi dwòg oswa alkòl",
+        "drug_alcohol_disorder": "Yon maladi dwòg oswa alkòl ki fè travay difisil",
+        "disability_hard_work": "Yon andikap fizik, entelektyèl, oswa devlopman",
+        "mental_health_hard_work": "Yon maladi mantal",
+        "serious_health_condition": "Yon kondisyon sante grav",
+        "jail_prison_past_4_months": "Nan prizon oswa nan kachò nan 4 mwa ki sot pase yo",
+        "foster_care_under_26": "Te nan fwaye ranplasman (foster care) a 18 an, poko gen 26 an",
+        "veteran_100_disabled": "Yon veteran ki andikape 100%",
+        "medical_travel_1hr": "Vwayaje yon èdtan oswa plis pou swen medikal",
+        "hospital_care_24hr": "Resevwa swen nivo 24 èdtan"
+      }
+    },
+    "wr_medical_travel_1hr": {
+      "prompt": "Èske nenpòt moun ki aplike vwayaje yon èdtan oswa plis pou jwenn swen medikal pou tèt yo oswa yon depandan ki gen yon kondisyon sante grav (ki gen ladan kowòdinasyon vwayaj ki fè li difisil pou travay)?",
+      "help": "Ou ka sote sa si ou pito pa reponn — Eta a deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "wr_hospital_care_24hr": {
+      "prompt": "Èske nenpòt moun ki aplike resevwa swen nan yon lopital pou plis pase 24 èdtan, oswa yon nivo swen menm jan an nan yon lòt kote (tankou yon etablisman enfimyè, lopital sikyatrik, klinik, VA, oswa nan kay)?",
+      "help": "Ou ka sote sa si ou pito pa reponn — Eta a deside sa ki konte.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non",
+        "not_sure": "Mwen pa sèten"
+      }
+    },
+    "wr_student_enrolled": {
+      "prompt": "Èske nenpòt moun ki aplike enskri kòm yon elèv (kolèj, pwogram vokasyonèl, oswa GED) an plen tan oswa omwen mwatye tan?",
+      "help": "Elèv an tan pasyèl ka rapòte èdtan yo anba aktivite travay pito.",
+      "options": {
+        "not_enrolled": "Non",
+        "full_time": "Wi, an plen tan",
+        "at_least_half_time": "Wi, omwen mwatye tan"
+      }
+    },
+    "wr_income_580": {
+      "prompt": "Èske kay ou fè omwen $580 nan revni chak mwa? Sa gen ladan tout travay, travay gig, travay sezon, ak revni ki pa touche tankou chomaj.",
+      "help": "Revni ki soti nan travay sezon ka mwayèn sou 6 mwa. Leta gade nan revni chak mwa nan kay ou lè li deside.",
+      "options": {
+        "yes": "Wi",
+        "no": "Non"
+      }
+    },
+    "wr_who_months": {
+      "prompt": "Pou chak sitiyasyon ou te di nou sou, ki moun li aplike a, ak ki mwa?",
+      "help": "Chwazi moun oswa moun yo pou chak sitiyasyon, apre sa mwa sa a, mwa pase a, oswa tou de. Chwazi 'pa sèten' si ou pa konnen. Ou ka sote sa - sote pa janm bloke aplikasyon ou."
+    },
+    "wr_work_activity_who": {
+      "prompt": "Ki moun ki te konplete aktivite travay mwa pase a?",
+      "help": "Rapòte aktivite travay pou manm kay ki te konplete omwen 80 èdtan nan dènye mwa a. Non premye oswa ti non yo bon."
+    },
+    "wr_work_activity_types": {
+      "prompt": "Ki kalite aktivite travay yo te fè mwa pase a?",
+      "help": "Tcheke tout sa ki aplike. Total èdtan yo kapab yon konbinezon de kalite aktivite ki nan lis la.",
+      "options": {
+        "job_internship": "Yon travay oswa estaj",
+        "self_employment": "Travay endepandan",
+        "work_program": "Yon pwogram travay",
+        "community_service": "Sèvis pou kominote a oswa travay ki pa peye, ki gen ladan volontè nan yon òganizasyon ki pa fè pwofi, lekòl, oswa lòt òganizasyon, oswa travay an echanj pou lojman, manje, oswa lòt machandiz",
+        "part_time_student_hours": "Èdtan elèv an tan pasyèl, kote tan klas, labwa, oswa fòmasyon konte",
+        "caregiving": "Bay swen"
+      }
+    },
+    "wr_work_activity_hours": {
+      "prompt": "Anviwon konbyen èdtan aktivite travay yo te konplete mwa pase a?",
+      "help": "Objektif la chak mwa se 80 èdtan. Pou elèv an tan pasyèl, 1 èdtan kredi egal ak 13 èdtan aktivite travay chak mwa. Yon pi bon konte se byen."
+    },
+    "wr_work_rows": {
+      "prompt": "Pou chak moun, ki aktivite travay yo te fè nan mwa pase a, e apeprè konbyen èdtan?",
+      "help": "Ajoute yon liy pou chak moun ak aktivite. Tan yo se pou chak moun epi yo pa janm ajoute ansanm atravè moun. Chwazi 'pa sèten' pou èdtan yo si ou pa konnen - estimasyon se oke. Leta deside kijan travay konte."
+    }
+  },
+  "chrome": {
+    "continue": "Kontinye",
+    "notSure": "Mwen pa sèten",
+    "skipForNow": "Sote kounye a",
+    "bestGuess": "Sa se pi bon estimasyon mwen — mwen pa verifye li.",
+    "languageLabel": "Lang",
+    "addPerson": "Ajoute yon lòt moun",
+    "back": "Retounen",
+    "addRow": "Ajoute yon ranje",
+    "personName": "prenon oswa ti non",
+    "relationship": "Relasyon",
+    "ageRange": "Gwoup laj",
+    "householdMember": "Manm nan kay la",
+    "activityType": "Kalite aktivite",
+    "hoursLastMonth": "Èdtan mwa pase a",
+    "notSureHours": "Mwen pa sèten de èdtan yo",
+    "fromIncome": "Dapre repons sou revni ou yo, ou ka ajoute:",
+    "removePerson": "Retire moun sa a",
+    "person": "Moun",
+    "rowWord": "ranje",
+    "notPicked": "Pa aplike / poko chwazi",
+    "duplicateRow": "Moun sa a deja gen yon ranje pou aktivite sa a. Chanje youn nan yo oswa retire ranje sa a.",
+    "rosterFull": "Se tout moun nou ka lis isit la. Ou ka chanje oswa retire yon moun ki anwo a.",
+    "nameHint": "Antre yon prenon oswa yon ti non pou moun sa a.",
+    "enterHours": "Antre èdtan yo, oswa make ‘Mwen pa sèten de èdtan yo’.",
+    "negHours": "Tan pa ka mwens pase zewo.",
+    "tooManyHours": "Sa se plis èdtan pase yon mwa genyen. Tanpri tcheke nimewo a.",
+    "removeRow": "Retire ranje sa a",
+    "yes": "Wi",
+    "no": "Non",
+    "required": "obligatwa",
+    "privateAnswer": "Pou vi prive ou, nou pa montre repons ou sove la a. Pou chanje li, antre yon nouvo repons.",
+    "deviceOnly": "Kesyon sa a kapab sèlman reponn lè repons ou yo sove sou aparèy sa a. Ou ka sote li isit la - li pa janm bloke aplikasyon ou.",
+    "noHouseholdList": "Pa gen okenn lis kay oswa sitiyasyon pou atache poko. Ou ka sote kesyon sa a - li pa janm bloke aplikasyon ou.",
+    "rosterFirst": "Ajoute lis fanmi w la an premye, apre sa ajoute yon liy pou chak moun. Ou ka sote kesyon sa a - li pa janm bloke aplikasyon ou.",
+    "addRowFor": "Ajoute yon liy pou {name}: {activity}",
+    "thisPerson": "moun sa a",
+    "loading": "Chaje kesyon ou yo...",
+    "allAnswered": "Tout kesyon reponn pou kounye a",
+    "nothingSubmitted": "Pa gen anyen ki soumèt — ou deside sa k ap pase apre.",
+    "stillOpen": "Toujou san repons",
+    "answer": "Reponn",
+    "reviewAnswer": "Revize repons sa a",
+    "noAnswerRecorded": "Pa gen repons anrejistre.",
+    "savedPrivately": "Sove an prive — pa montre ankò.",
+    "saveAndFinishLater": "Sove epi fini pita",
+    "saving": "Ap sove…",
+    "deleting": "Ap efase…",
+    "deleteButton": "Efase repons mwen yo nan aparèy sa a",
+    "deleteConfirm": "Sa a efase tout repons sove nan navigatè sa a pou fòm sa a, e li pa ka ranvèse. Si ou te telechaje yon kopi fòm ranpli a, oswa ou te sove li kòm PDF lè w t ap enprime, dosye a rete sou aparat sa a jiskaske ou efase l.",
+    "deleteYes": "Wi, efase yo",
+    "deleteNo": "Kenbe yo",
+    "keepPrompt": "Si navigatè w mande si ou pèmèt sit sa a estoke done, di wi; sa ede pou repons ou pa efase pou libere espas.",
+    "genericError": "Gen yon bagay ki te ale mal sou bò nou an. Tanpri eseye ankò.",
+    "requiredError": "Sa a obligatwa pou kontinye. Chwazi yon opsyon oswa ‘Mwen pa sèten’.",
+    "serverSaveBlurb": "Repons ou yo sove sou sèvè aplikasyon an pandan w ap avanse. Ou ka sispann nenpòt lè epi reprann pita nan navigatè sa a — pa gen anyen ki soumèt jiskaske ou deside.",
+    "savedComeBack": "Sove. Vini tounen nan navigatè sa a nenpòt lè — pa gen anyen ki soumèt jiskaske ou deside.",
+    "savedProgress": "Sove. Ou reponn {answered} sou {total}.",
+    "markedNotSure": "Make kòm pa sèten. Ou ka retounen sou li.",
+    "progress": "Ou reponn {answered} sou {total} kesyon",
+    "remaining": "{remaining} rete",
+    "noProofNeeded": "Ou pa bezwen okenn papye ni yon nòt doktè pou reponn kesyon sa a. Reponn ak sa ou konnen kounye a — Eta a ka mande prèv pita.",
+    "deviceKeptBlurb": "Repons ou yo anrejistre nan navigatè sa a pandan w ap reponn, konsa w ka tounen sou aparèy sa a epi kontinye kote w te kite a. Anyen pa voye jiskaske ou deside.",
+    "deviceUnsupportedBlurb": "Navigatè sa a pa ka anrejistre repons, kidonk y ap disparèt lè w fèmen paj sa a. Anyen pa voye jiskaske ou deside.",
+    "deviceUnavailableBlurb": "Depo navigatè sa a pa fonksyone kounye a, kidonk nouvo repons yo dire sèlman jiskaske w fèmen paj sa a. Si w te anrejistre repons isit la anvan, yo toujou sou aparèy sa a jiskaske w efase yo.",
+    "deviceStoppedBlurb": "Navigatè sa a sispann anrejistre repons. Repons li te deja anrejistre yo rete sou aparèy sa a, men chanjman apati kounye a pa anrejistre. Pou efase yo, sèvi ak opsyon efase ki anba a.",
+    "deviceStoppedNothingStoredBlurb": "Navigatè sa a sispann anrejistre repons, kidonk y ap disparèt lè w fèmen paj sa a. Anyen pa voye jiskaske ou deside.",
+    "deviceVisibilityNote": "Nenpòt moun ki sèvi ak navigatè sa a ka ouvri repons sa yo.",
+    "savedPrivatelyThisVisit": "Anrejistre an prive pou vizit sa a — p ap parèt ankò."
+  },
+  "commonOptions": {
+    "yes": "Wi",
+    "no": "Non",
+    "not_sure": "Mwen pa sèten"
+  },
+  "relationships": {
+    "not_sure": "Mwen pa sèten",
+    "self": "Mwen",
+    "spouse_or_partner": "Mari oswa madanm oswa patnè",
+    "child": "Timoun",
+    "parent": "Paran",
+    "sibling": "Frè oswa sè",
+    "other_family": "Lòt manm fanmi",
+    "unrelated": "Yon lòt moun ki ap viv avèk nou"
+  },
+  "ageBands": {
+    "not_sure": "Mwen pa sèten",
+    "under_14": "Anba 14",
+    "14_to_17": "14 pou rive 17",
+    "18_to_54": "18 pou rive 54",
+    "55_to_59": "55 pou rive 59",
+    "60_to_64": "60 pou rive 64",
+    "65_plus": "65 lane oswa plis"
+  },
+  "months": {
+    "this_month": "Mwa sa a",
+    "last_month": "Mwa pase a",
+    "both": "Tou de mwa",
+    "not_sure": "Mwen pa sèten"
+  },
+  "answerStatus": {
+    "known": "Ou te di nou sa",
+    "unknown": "Ou pa sèten",
+    "unverified": "Repons men pa verifye"
+  }
+}
