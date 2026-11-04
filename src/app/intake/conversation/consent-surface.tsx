@@ -57,8 +57,7 @@ function PathTerms({
           >
             {termsEntry.label}
           </a>{" "}
-          — what the provider does with sent content, verified by us on{" "}
-          {termsEntry.verifiedOn}.
+          — verified by us on {termsEntry.verifiedOn}.
         </span>
       ))}
     </span>
@@ -88,12 +87,10 @@ export function ConsentPanel(props: ConsentPanelProps) {
           Before anything is sent: your choice about sharing
         </h2>
         <p className="text-muted">
-          No AI provider receives anything from you until you allow it. Your
-          answers save on the app&apos;s server so you can finish later —
-          that is separate, and it is the only place they go while sharing is
-          off. You can change this at any time, and turning sharing off stops
-          sends immediately. The choice itself is stored on this device, with
-          you — it never carries your answers.
+          No AI provider receives anything until you allow it. Answers save
+          on the app&apos;s server so you can finish later. Change this at
+          any time — the choice stays on this device; turning sharing off
+          stops sends immediately.
         </p>
       </div>
 
@@ -115,7 +112,7 @@ export function ConsentPanel(props: ConsentPanelProps) {
               />
               <span>
                 Share the words you type with {aiPath.provider},{" "}
-                {aiPath.purpose}. What is sent: {aiPath.sends.join(" and ")}.
+                {aiPath.purpose}.
               </span>
             </span>
           </label>
@@ -130,14 +127,10 @@ export function ConsentPanel(props: ConsentPanelProps) {
             </span>
           )}
           <p className="text-sm text-muted">
-            To be fully honest: with sharing on, each message you type is sent
-            to Meta once — the step that pulls your answer out of your
-            sentence sees your words before anything is hidden. That is
-            exactly what this toggle allows; nothing is sent until you allow
-            it. Meta&apos;s commitments for the standard service say content
-            is not used to train its models, and that content is kept as
-            Meta&apos;s terms describe — that is not a promise that nothing
-            is kept.
+            Each typed message reaches Meta once — the step that reads your
+            answer sees your words before anything is hidden. Meta says
+            content is not used to train its models and is kept per its
+            terms — not a promise that nothing is kept.
           </p>
         </div>
       ) : null}
@@ -162,7 +155,7 @@ export function ConsentPanel(props: ConsentPanelProps) {
                 className="consent-switch mt-0.5"
               />
               <span>
-                Also share your voice: recordings go to {voicePath.provider}{" "}
+                Also share your voice with {voicePath.provider},{" "}
                 {voicePath.purpose}. What is sent:{" "}
                 {voicePath.sends.join(" and ")}.
               </span>
@@ -191,12 +184,9 @@ export function ConsentPanel(props: ConsentPanelProps) {
             </span>
           )}
           <p className="text-sm text-muted">
-            With voice sharing off, the microphone is never started and no
-            audio is ever transmitted. The ElevenLabs terms say content may
-            be used to provide and improve its services, with a training
-            opt-out in your account — so only the assistant&apos;s own reply
-            text ever goes there for reading replies aloud, never anything
-            you said or typed.
+            With voice off, the microphone never starts and no audio is ever
+            sent. Only the assistant&apos;s reply text goes to ElevenLabs —
+            never anything you said or typed.
           </p>
         </div>
       ) : null}
@@ -222,10 +212,8 @@ export function ConsentPanel(props: ConsentPanelProps) {
       </div>
       <p className="text-sm text-muted">
         The step-by-step form asks the same questions, and no AI provider
-        receives anything: you still get the same questions, honest status
-        labels, your benefit match, the review screen, and the filled PDF to
-        download. Your answers save on the app&apos;s server so you can pick
-        up later.
+        receives anything — the same honest status labels, benefit match,
+        review, and filled PDF to download.
       </p>
     </section>
   );

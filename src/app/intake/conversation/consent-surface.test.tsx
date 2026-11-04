@@ -119,6 +119,43 @@ describe("ConsentPanel copy (VAL-CONSENT-002)", () => {
   });
 });
 
+describe("ConsentPanel verbosity (HACK-127, VAL-UX-013)", () => {
+  /** Visible words of the rendered panel: tags stripped, entities decoded. */
+  function wordCount(html: string): number {
+    return textOf(html)
+      .replace(/<[^>]+>/g, " ")
+      .split(/\s+/)
+      .filter(Boolean).length;
+  }
+
+  it("is noticeably shorter while every informed-consent element stays (word budget)", () => {
+    // HACK-127: the consent request's copy around the two toggles was
+    // long enough to read as a wall of text; it must read noticeably
+    // shorter while still naming provider, purpose, and what is shared.
+    // The budget is a hard pin so verbosity cannot creep back; the other
+    // tests in this file keep every informed-consent element pinned.
+    expect(wordCount(panelMarkup())).toBeLessThanOrEqual(260);
+  });
+
+  it("stays within the budget and names the providers in EVERY toggle state (property)", () => {
+    // Property (repo property-based-testing skill): the verbosity pin is
+    // not an artifact of one render state — for both toggles checked or
+    // unchecked in any combination, the panel stays within the budget and
+    // still names both providers, the typed-send toggle, and the refusal
+    // control (refusal never blocks; provider/purpose stay named).
+    fc.assert(
+      fc.property(fc.boolean(), fc.boolean(), (aiChecked, voiceChecked) => {
+        const html = panelMarkup({ aiChecked, voiceChecked });
+        expect(wordCount(html)).toBeLessThanOrEqual(260);
+        expect(html).toMatch(/Meta/);
+        expect(html).toMatch(/ElevenLabs/);
+        expect(html).toContain("data-consent-ai-toggle");
+        expect(html).toContain("data-consent-decline");
+      }),
+    );
+  });
+});
+
 describe("ConsentPanel disabled toggles (VAL-CONSENT-004)", () => {
   it("keeps voice disabled until AI sharing is on (its own additional toggle)", () => {
     const html = panelMarkup({ aiChecked: false });

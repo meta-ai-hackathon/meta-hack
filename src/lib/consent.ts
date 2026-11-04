@@ -137,7 +137,7 @@ export const CONSENT_PATHS: readonly ConsentPathSpec[] = [
   {
     id: "voice",
     provider: "Meta (speech-to-text) and ElevenLabs (text-to-speech)",
-    sends: ["your recorded voice", "the assistant's reply text, to read it aloud"],
+    sends: ["your recorded voice", "the assistant's reply text"],
     purpose:
       "to turn your speech into text, and to read the assistant's replies aloud",
     terms: [
