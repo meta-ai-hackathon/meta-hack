@@ -570,16 +570,17 @@ export function IncomeStage(props: {
               body: JSON.stringify({ pullHandle: mintedHandle, clientPublicKey: ephemeral.publicKeySpki }),
             });
             if (!pullResponse.ok) throw new Error("pull");
-            const { envelope } = (await pullResponse.json()) as { envelope: BrokerEnvelope };
+            const { envelope, removed } = (await pullResponse.json()) as { envelope: BrokerEnvelope; removed?: boolean };
             const payload = (await decryptEnvelope(envelope, ephemeral.privateKey)) as MinimizedPlaidPayload;
-            pullHandle = null; // the pull route already removed the Plaid user
+            pullHandle = null; // the pull route attempted removal and reported it
             setPlaidPayload(payload); setPlaidClassifications({});
 
             const result = plaidIncomeProposals(payload, {});
             applyPlaidResult(result);
+            const removalHedge = removed === false ? " We could not confirm the test connection was removed." : "";
             setPlaidStatus(result.proposals.length > 0
-              ? "Check what we found, then save."
-              : "We could not find a reliable monthly pattern in that test bank, so nothing is proposed. You can type your income instead.");
+              ? "Check what we found, then save." + removalHedge
+              : "We could not find a reliable monthly pattern in that test bank, so nothing is proposed. You can type your income instead." + removalHedge);
           } catch { void releaseTestUser(); setPlaidStatus(READ_FAILED_NOTICE); }
           finally { setPlaidConnecting(false); }
         },
@@ -614,11 +615,11 @@ export function IncomeStage(props: {
     answer: { status: string; provenance?: string } | undefined,
   ): { readonly kind: string; readonly label: string } | null {
     const institution = plaidOrigins[questionId];
-    // The bank badge is valid only while the stored answer is still the one
-    // the bank card wrote: every untouched bank proposal (amount or
-    // schedule) is `unverified`. A later manual or tax-return save also
-    // clears the sealed origin (clearPlaidOriginsFor below), so a stale
-    // name can never claim the wrong source.
+    // The bank badge is valid only for a legacy bank answer (status
+    // `unverified`): the current card saves only person-edited values, so it
+    // writes no bank origin. A later manual or tax-return save clears the
+    // sealed origin (clearPlaidOriginsFor below), so a stale name can never
+    // claim the wrong source.
     const bankShaped = answer?.status === "unverified";
     if (institution && bankShaped) {
       return { kind: "plaid_institution", label: `From ${institution}` };
@@ -688,35 +689,25 @@ export function IncomeStage(props: {
     try {
       const response = await fetch("/api/intake/plaid/confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirmations: decided }) });
       if (!response.ok) { onNotice(SAVE_FAILED_NOTICE); return; }
-      const fresh = (await response.json()) as { state: IntakeClientState };
+      const fresh = (await response.json()) as {
+        state: IntakeClientState;
+        saved?: { questionId: string }[];
+      };
       onStateChange(fresh.state);
-      // A confirmed proposal keeps the institution name on this device;
-      // a corrected one drops it, because the value is now the person's,
-      // not the bank's. The map is sealed under the HACK-99 device key.
-      if (
-        decided.some((entry) => entry.action === "confirm") ||
-        Object.keys(plaidOrigins).length > 0
-      ) {
-        try {
-          const origins: Record<string, string | null> = {};
-          for (const entry of decided) {
-            origins[entry.questionId] =
-              entry.action === "confirm" ? plaidInstitutionName.trim() || null : null;
-          }
-          const persisted = await savePlaidOriginsToDevice(origins, {
-            expectStored: Object.keys(plaidOrigins).length > 0,
-          });
-          if (persisted.status === "saved") {
-            setPlaidOrigins(persisted.origins);
-          }
-        } catch {
-          // The answers saved; the bank name just won't survive a reload.
-        }
+      // Only values the person typed or chose were stored. Drop sealed
+      // institution names from older bank answers so no badge can claim a
+      // value this card did not save.
+      await clearPlaidOriginsFor(plaidResult.proposals.map((proposal) => proposal.questionId));
+      const savedIds = new Set((fresh.saved ?? []).map((row) => row.questionId));
+      const corrected = decided.filter((entry) => entry.action === "correct" && savedIds.has(entry.questionId));
+      if (corrected.length === 0) {
+        onNotice("Nothing was saved: untouched test-bank figures stay on the test bank. Edit a figure or schedule to your own to save it, or type your income instead. Nothing was submitted.");
+        return;
       }
       const name = plaidMemberName.trim();
       const prev = plaidSavedMembers[plaidSavedMembers.length - 1];
-      setPlaidSavedMembers((list) => [...list, { name, detail: decided.map((d) => d.questionId + ": " + String(d.value)).join("; ") }]);
-      const keptNote = "Test-bank answers you kept are marked unverified and do not count as confirmed; anything you edited is saved as your own." + (decided.every((entry) => entry.action === "confirm") ? " Edit a figure or schedule to your own to confirm it, or type your income instead." : "");
+      setPlaidSavedMembers((list) => [...list, { name, detail: corrected.map((d) => d.questionId + ": " + String(d.value)).join("; ") }]);
+      const keptNote = "Saved the figures and schedules you typed or chose. Untouched test-bank answers were not saved.";
       onNotice(prev && prev.name !== name ? "Saved for " + name + ". For now this replaced " + prev.name + "'s bank answers in the household income questions. " + keptNote : "Saved for " + name + ". " + keptNote + " Nothing was submitted.");
     } catch { onNotice(SAVE_FAILED_NOTICE); }
     finally { saveInFlight.current = false; setSaving(false); }
@@ -981,7 +972,7 @@ export function IncomeStage(props: {
       <section data-income-plaid-card aria-labelledby="income-plaid-heading" className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface p-4">
         <div className="flex flex-col gap-1">
           <h3 id="income-plaid-heading" className="text-lg font-semibold">Connect your bank (demo)</h3>
-          <p className="text-sm text-muted">Optional Plaid Sandbox demo with a synthetic test bank — not a real bank login, and never enter real bank credentials here: the test-bank figures are fake and must not be used for a real application. We fetch a Plaid Bank Income report once, show you what we find, and save nothing until you confirm. Bank pay also arrives after withholding, and every test-bank answer (amounts and pay schedules) that you keep as-is is saved as unverified and does not count as confirmed — edit it to your own figure or schedule to save it as confirmed. The one fetch passes through our server without being stored or logged, and the test connection is removed right after. Saying no changes nothing: you can upload a file or type your income instead.</p>
+          <p className="text-sm text-muted">Optional Plaid Sandbox demo with a synthetic test bank — not a real bank login, and never enter real bank credentials here: the test-bank figures are fake and must not be used for a real application. We fetch a Plaid Bank Income report once and show you what we find. Only a figure or schedule you type or choose yourself is saved; untouched test-bank answers are never saved and do not count as confirmed, so edit one to your own to save it. The one fetch passes through our server without being stored or logged, and we remove the test connection right after — if that fails, we say so. Saying no changes anything: you can upload a file or type your income instead.</p>
         </div>
         <label htmlFor="income-plaid-consent" className="flex min-h-11 items-start gap-2 text-base">
           <input id="income-plaid-consent" type="checkbox" checked={plaidConsent} onChange={(e) => setPlaidConsent(e.target.checked)} data-income-plaid-consent className="mt-1 h-5 w-5 shrink-0 accent-teal" />
@@ -1017,7 +1008,7 @@ export function IncomeStage(props: {
                 />
               ))}
             </ul>
-            {plaidResult.proposals.length > 0 ? <button type="button" data-income-plaid-save onClick={() => void savePlaidFindings()} disabled={saving || plaidMemberName.trim() === "" || plaidHasInvalidAmount} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{saving ? "Saving…" : "Save what I've decided"}</button> : null}
+            {plaidResult.proposals.length > 0 ? <button type="button" data-income-plaid-save onClick={() => void savePlaidFindings()} disabled={saving || plaidMemberName.trim() === "" || plaidHasInvalidAmount} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{saving ? "Saving…" : "Save my own figures"}</button> : null}
           </div>
         ) : null}
         {plaidSavedMembers.length > 0 ? <div className="flex flex-col gap-2" data-income-plaid-saved-list>{plaidSavedMembers.map((s, i) => <p key={i} className="text-sm text-muted">Saved for {s.name} — {s.detail}</p>)}<button type="button" data-income-plaid-another onClick={resetPlaidPull} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal">{"Connect another person's bank"}</button></div> : null}

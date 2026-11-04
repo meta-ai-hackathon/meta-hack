@@ -18,14 +18,14 @@ import { requestIdFromHeaders, runWithRequestId } from "../../../../../lib/telem
 
 // POST /api/intake/plaid/confirm (HACK-140): the bank card's save step.
 // The broker returned ciphertext and stored nothing; this call writes only
-// what the person decided, through the standard answer store:
+// a value the person typed or chose, through the standard answer store:
 //
-// Every untouched proposal (amount or frequency) saves `unverified` (Sandbox
-// test data, and salary is net of withholding); a person-corrected value
-// saves `known`/`user` — see plaid-confirm.ts. The bank's institution name
-// is pii:true metadata sealed
-// by the browser in the client-side encrypted store; it never reaches this
-// route or the answer table.
+// A person-corrected value saves `known`/`user`. An untouched proposal is
+// validated but never written — it is Sandbox income-verification data and
+// stays on the device, so synthetic figures and schedules cannot become a
+// real person's answers. The bank's institution name is pii:true metadata
+// sealed by the browser in the client-side encrypted store; it never
+// reaches this route or the answer table.
 //
 // Every entry is validated against the income spec BEFORE the session is
 // resolved, so a rejected batch saves nothing. Re-saving overwrites the

@@ -34,7 +34,8 @@ describe("PlaidClient Bank Income", () => {
   it("fetches Bank Income, drops accounts/owners/descriptions, deletes user after", async () => {
     const calls: string[] = [];
     const fetchFn: PlaidFetch = async (url) => { calls.push(url); if (url.endsWith("/credit/bank_income/get")) return jsonResponse(report); if (url.endsWith("/user/remove")) return jsonResponse({}); throw new Error(url); };
-    const payload = await new PlaidClient(config, fetchFn).pullBankIncome("user-sandbox-x");
+    const { payload, removed } = await new PlaidClient(config, fetchFn).pullBankIncome("user-sandbox-x");
+    expect(removed).toBe(true);
     const s = JSON.stringify(payload);
     for (const sentinel of ["ACC-SENTINEL", "SRC-SENTINEL", "SANDBOX-SECRET-SENTINEL"]) expect(s).not.toContain(sentinel);
     // Account names, masks, and owner names are absent from the payload
@@ -46,6 +47,16 @@ describe("PlaidClient Bank Income", () => {
     expect(s).not.toContain("Checking");
     expect(payload.streams[0]).toMatchObject({ incomeCategory: "SALARY", totalAmount: 6300, transactionCount: 3, isStripePayout: false });
     expect(calls.map((u) => u.split("/").slice(-2).join("/"))).toEqual(["bank_income/get", "user/remove"]);
+  });
+  it("reports a failed user removal without losing the report", async () => {
+    const fetchFn: PlaidFetch = async (url) => {
+      if (url.endsWith("/credit/bank_income/get")) return jsonResponse(report);
+      if (url.endsWith("/user/remove")) return { ok: false, json: async () => ({}) } as Response;
+      throw new Error(url);
+    };
+    const { payload, removed } = await new PlaidClient(config, fetchFn).pullBankIncome("u");
+    expect(removed).toBe(false);
+    expect(payload.streams[0]).toMatchObject({ totalAmount: 6300 });
   });
   it("retries while Bank Income is PRODUCT_NOT_READY, still deletes user on failure", async () => {
     let n = 0; const removed = vi.fn(async () => jsonResponse({}));

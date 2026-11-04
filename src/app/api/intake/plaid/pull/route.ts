@@ -12,6 +12,11 @@ import { openPlaidUserId } from "../../../../../lib/plaid/user-handle";
 // Honesty note: plaintext exists in this process's memory while Plaid is
 // called -- the claim is no storage, no logs, encrypted return transit,
 // discarded token; not end-to-end encryption against our own server.
+// Sandbox-only by contract: plaidConfig() refuses any PLAID_ENV other than
+// "sandbox" (pinned by config.test.ts). This broker must never run against
+// real bank data without a recorded owner decision under HACK-92 and a
+// matching person-authored rules.md change (HACK-140 production note
+// 7471d535); the income-verification rule keeps that data on the device.
 export async function POST(request: Request): Promise<Response> {
   try {
     const sessionId = await loadSession(readSessionCookie(request.headers.get("cookie")));
@@ -25,9 +30,9 @@ export async function POST(request: Request): Promise<Response> {
     }
     const userId = openPlaidUserId(sessionId, pullHandle);
     if (!userId) throw new AppError("validation_error", userMessageFor("validation_error"));
-    const payload = await new PlaidClient().pullBankIncome(userId);
+    const { payload, removed } = await new PlaidClient().pullBankIncome(userId);
     const envelope = encryptForBrowser(clientPublicKey, JSON.stringify(payload));
-    return Response.json({ envelope }, { headers: { "cache-control": "no-store" } });
+    return Response.json({ envelope, removed }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     if (error instanceof AppError) return errorResponse(error);
     return errorResponse(new AppError("internal", userMessageFor("internal")));

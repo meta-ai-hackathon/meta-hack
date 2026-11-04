@@ -6,7 +6,6 @@ import {
   MAX_PLAID_CONFIRMATIONS_PER_CALL,
   parsePlaidConfirmations,
   PLAID_PROPOSED_QUESTION_IDS,
-  plaidSaveFor,
 } from "./plaid-confirm";
 import { INCOME_STAGE_QUESTION_IDS } from "./income";
 
@@ -14,7 +13,7 @@ import { INCOME_STAGE_QUESTION_IDS } from "./income";
 // body is bounded, targets ONLY the seven income spec questions (so the
 // route can never become a general-purpose provenance writer and a
 // pii:true question can never cross it), `confirm` is admitted only for
-// the ids the bank card actually proposes (saved with provenance user), and
+// the ids the bank card actually proposes (validated, never persisted), and
 // every value is validated against the question spec before anything saves.
 
 function validationErrorOf(run: () => unknown): AppError {
@@ -45,19 +44,6 @@ function specValidValueFor(questionId: string): unknown {
 }
 
 describe("plaid confirmations (HACK-140)", () => {
-  it("saves every untouched test-bank proposal as unverified and corrections as known user values", () => {
-    // Review P2 on PR #172: Sandbox figures AND schedules must not enter the
-    // form as `known`; only a value the person typed or chose may do that.
-    expect(plaidSaveFor("confirm")).toEqual({
-      status: "unverified",
-      provenance: "user_supplied",
-    });
-    expect(plaidSaveFor("correct")).toEqual({
-      status: "known",
-      provenance: "user",
-    });
-  });
-
   it("targets only income spec questions, and every one is pii:false", () => {
     for (const questionId of INCOME_STAGE_QUESTION_IDS) {
       const question = QUESTIONS.find((entry) => entry.id === questionId);

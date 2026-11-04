@@ -170,6 +170,7 @@ function parseResponse(readable: boolean): Response {
 }
 
 let posts: { url: string; body: string }[] = [];
+let pullRemoved = true;
 let answerState: IntakeClientState | null = null;
 let confirmState: IntakeClientState | null = null;
 let uploadResponse: Response = parseResponse(true);
@@ -177,6 +178,7 @@ let uploadResponse: Response = parseResponse(true);
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   posts = [];
+  pullRemoved = true;
   answerState = null;
   confirmState = null;
   uploadResponse = parseResponse(true);
@@ -219,14 +221,18 @@ beforeEach(() => {
         const payload = { pulledAt: "2026-11-03T00:00:00.000Z", dateRange: { start: "2026-08-01", end: "2026-10-31" }, streams: [
           { incomeCategory: "SALARY", isStripePayout: false, payFrequency: "MONTHLY", totalAmount: 6300, transactionCount: 3, startDate: "2026-08-01", endDate: "2026-10-31", historicalMonths: [{ startDate: "2026-08-01", endDate: "2026-08-31", total: 2000 }, { startDate: "2026-09-01", endDate: "2026-09-30", total: 2200 }, { startDate: "2026-10-01", endDate: "2026-10-31", total: 2100 }] },
         ] };
-        return new Response(JSON.stringify({ envelope: encryptForBrowser(body.clientPublicKey, JSON.stringify(payload)) }), { status: 200, headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify({ envelope: encryptForBrowser(body.clientPublicKey, JSON.stringify(payload)), removed: pullRemoved }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (url === "/api/intake/plaid/remove") {
         return new Response(JSON.stringify({ removed: true }), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (url === "/api/intake/plaid/confirm") {
+        const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as { confirmations?: { questionId: string; action: string }[] };
+        const saved = (body.confirmations ?? [])
+          .filter((entry) => entry.action === "correct")
+          .map((entry) => ({ questionId: entry.questionId, status: "known", provenance: "user" }));
         return new Response(
-          JSON.stringify({ saved: [], state: confirmState ?? handledState() }),
+          JSON.stringify({ saved, state: confirmState ?? handledState() }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
@@ -249,6 +255,7 @@ afterEach(() => {
 async function renderStage(state: IntakeClientState = incomeState()): Promise<{
   container: HTMLElement;
   act: (fn: () => Promise<void> | void) => Promise<void>;
+  getNotice: () => string;
 }> {
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
@@ -278,8 +285,7 @@ async function renderStage(state: IntakeClientState = incomeState()): Promise<{
     );
   });
   await act(async () => undefined);
-  void notice;
-  return { container, act };
+  return { container, act, getNotice: () => notice };
 }
 
 const q = (container: HTMLElement, attr: string): Element | null =>
@@ -386,7 +392,7 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     expect(q(container, "income-plaid-status")?.textContent).toContain("test connection was removed");
   });
 
-  it("pulls, decrypts, proposes with basis, and saves only on confirm", async () => {
+  it("pulls, decrypts, proposes with basis, and posts the decisions only on save", async () => {
     (window as unknown as { Plaid: unknown }).Plaid = {
       create: (config: {
         onSuccess: (
@@ -401,7 +407,7 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
         },
       }),
     };
-    const { container, act } = await renderStage();
+    const { container, act, getNotice } = await renderStage();
     await act(async () => { (q(container, "income-plaid-consent") as HTMLInputElement).click(); });
     await act(async () => { (q(container, "income-plaid-connect") as HTMLButtonElement).click(); });
     expect(q(container, "income-plaid-proposals")).not.toBeNull();
@@ -435,13 +441,9 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
       { questionId: "job_income_amount", action: "confirm", value: 2100 },
       { questionId: "job_income_frequency", action: "confirm", value: "monthly" },
     ]);
-    expect(originStoreMock.save).toHaveBeenCalledWith(
-      {
-        job_income_amount: "First Platypus Bank",
-        job_income_frequency: "First Platypus Bank",
-      },
-      { expectStored: false },
-    );
+    // Untouched proposals are never stored, so no bank origin is saved.
+    expect(originStoreMock.save).not.toHaveBeenCalled();
+    expect(getNotice()).toContain("Nothing was saved");
   });
 
   it("saves a typed amount with separators as a number, not NaN", async () => {
@@ -477,6 +479,14 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
       { questionId: "job_income_amount", action: "correct", value: 1800 },
       { questionId: "job_income_frequency", action: "confirm", value: "monthly" },
     ]);
+  });
+
+  it("says so when the test connection could not be removed", async () => {
+    pullRemoved = false;
+    const { container } = await pullTestBank();
+    expect(q(container, "income-plaid-status")?.textContent).toContain(
+      "could not confirm the test connection was removed",
+    );
   });
 
   it("shows a field-level error and saves nothing for a non-numeric amount", async () => {
@@ -773,8 +783,8 @@ describe("the client-side Plaid origin (HACK-140)", () => {
     const state = incomeState({
       answers: {
         ...incomeState().answers,
-        // The bank confirm writes every untouched proposal as unverified
-        // (review P2); the sealed origin badge belongs to exactly that shape.
+        // An untouched bank proposal is never saved by the current card; the
+        // legacy badge shape is an unverified answer with a sealed origin.
         job_income_amount: {
           status: "unverified",
           value: 2100,

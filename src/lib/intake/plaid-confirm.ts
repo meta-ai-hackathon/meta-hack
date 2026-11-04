@@ -10,15 +10,13 @@ import { saveAnswer, validateAnswerInput } from "./store";
 // module is the server half of that decision, mirroring the tax-return
 // confirm flow:
 //
-// - action "confirm"  — the person accepts a bank proposal as-is. An
-//   untouched proposal (amount OR frequency) saves with status
-//   `unverified`, never `known`: every figure and schedule is Sandbox
-//   test-bank data, and a salary proposal is a NET deposit average while NC
-//   Medicaid counts GROSS pay. Keeping it unverified means no test-bank
-//   value is presented as a confirmed fact on the form, and an untouched
-//   bank proposal never satisfies the income-handled gate on its own.
+// - action "confirm"  — the person accepts a bank proposal as-is. It is
+//   validated but NOT persisted: every untouched proposal is Sandbox
+//   test-bank data, and income-verification data must stay on the device.
+//   Saving an untouched value would put a synthetic figure or schedule into
+//   a real person's application answers.
 // - action "correct"  — the person typed or chose their own value, saved
-//   `known` with provenance `user`.
+//   `known` with provenance `user`. Only corrections are written.
 //
 // The bank's institution name is NOT written here: it is pii:true metadata
 // captured from Plaid Link and sealed by the browser in the client-side
@@ -59,26 +57,12 @@ function validationError(): AppError {
 }
 
 /**
- * The status/provenance each decision saves with. Every untouched proposal
- * is unverified (Sandbox test data; salary is net of withholding); a value
- * the person typed or chose is their own and saves as known/user.
- */
-export function plaidSaveFor(action: PlaidConfirmationAction): {
-  readonly status: AnswerStatus;
-  readonly provenance: AnswerProvenance;
-} {
-  return action === "correct"
-    ? { status: "known", provenance: "user" }
-    : { status: "unverified", provenance: "user_supplied" };
-}
-
-/**
  * Validate the whole batch WITHOUT touching the database: every entry must
  * target an income question, carry a known action, and hold a spec-valid
- * value. A confirmed value claims a bank origin, so it is admitted only for
- * the bank card's real proposal ids; everything else must travel as a
- * person-corrected value. A bad entry anywhere rejects the batch and saves
- * nothing.
+ * value. A confirm entry is admitted only for the bank card's real proposal
+ * ids so the batch is well-formed, but it is never persisted; only a
+ * person-corrected value is written. A bad entry anywhere rejects the batch
+ * and saves nothing.
  */
 export function parsePlaidConfirmations(input: unknown): PlaidConfirmation[] {
   if (
@@ -114,9 +98,11 @@ export function parsePlaidConfirmations(input: unknown): PlaidConfirmation[] {
 }
 
 /**
- * Persist the person's confirmed/corrected bank-derived income answers
- * through the standard answer store. Returns ids, statuses and provenances
- * only — the values live in the returned client state, the person's answers.
+ * Persist only the person's own (corrected) bank-income values through the
+ * standard answer store. An untouched proposal is skipped: it came from
+ * Sandbox income verification and stays on the device. Returns ids,
+ * statuses and provenances only — the values live in the returned client
+ * state, the person's answers.
  */
 export async function saveConfirmedPlaidAnswers(
   sessionId: string,
@@ -124,9 +110,9 @@ export async function saveConfirmedPlaidAnswers(
 ): Promise<SavedPlaidAnswer[]> {
   const saved: SavedPlaidAnswer[] = [];
   for (const { questionId, action, value } of confirmations) {
-    const { status, provenance } = plaidSaveFor(action);
-    await saveAnswer(sessionId, questionId, status, value, provenance);
-    saved.push({ questionId, status, provenance });
+    if (action !== "correct") continue;
+    await saveAnswer(sessionId, questionId, "known", value, "user");
+    saved.push({ questionId, status: "known", provenance: "user" });
   }
   logInfo("plaid_confirmations_saved", { count: saved.length });
   return saved;

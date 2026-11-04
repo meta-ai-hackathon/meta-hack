@@ -21,8 +21,8 @@ import type { Question } from "./spec";
 //   this app) AND at least one visible income answer carries an
 //   income-stage provenance (`user` from the manual card or a person-edited
 //   bank value, or `tax_return` from a confirmed parser proposal; every
-//   UNTOUCHED bank proposal — amount or frequency — saves unverified and
-//   does not satisfy this clause).
+//   UNTOUCHED bank proposal — amount or frequency — is never saved and does
+//   not satisfy this clause).
 //
 // Why the second clause: the quick-questions and talk stages save income
 // answers with the default `user_supplied` provenance. Without the clause,

@@ -8,11 +8,11 @@ vi.mock("../../../../../lib/intake/store", () => ({
         ? "22222222-2222-4222-8222-222222222222"
         : null,
 }));
-const pullBankIncome = vi.fn(async () => ({
-
+const samplePayload = {
   streams: [{ incomeCategory: "SALARY", isStripePayout: false, payFrequency: "BIWEEKLY", totalAmount: 6300, transactionCount: 3, startDate: "2026-08-01", endDate: "2026-10-31", historicalMonths: [] }],
   pulledAt: "2026-11-03T00:00:00.000Z", dateRange: { start: "2026-08-01", end: "2026-10-31" },
-}));
+};
+const pullBankIncome = vi.fn(async () => ({ payload: samplePayload, removed: true }));
 vi.mock("../../../../../lib/plaid/client", () => ({ PlaidClient: class { pullBankIncome = pullBankIncome; createLinkToken = async () => ({ linkToken: "link-sandbox-SENTINEL", userId: "user-sandbox-x" }); } }));
 import { POST as pull } from "./route";
 import { POST as linkToken } from "../link-token/route";
@@ -44,8 +44,18 @@ describe("plaid broker routes", () => {
     expect(res.status).toBe(200);
     expect(text).not.toContain("PAYROLL-SENTINEL");
     expect(text).toContain("envelope");
+    expect((JSON.parse(text) as { removed: boolean }).removed).toBe(true);
     expect(pullBankIncome).toHaveBeenCalledTimes(1);
     expect(pullBankIncome).toHaveBeenCalledWith("user-sandbox-x");
+  });
+  it("reports when the Plaid user could not be removed", async () => {
+    pullBankIncome.mockResolvedValueOnce({ payload: samplePayload, removed: false });
+    const key = await generateEphemeralBrowserKey();
+    const res = await pull(request("http://x/api/intake/plaid/pull", { pullHandle: await mintHandle(), clientPublicKey: key.publicKeySpki }));
+    const body = (await res.json()) as { removed: boolean; envelope: unknown };
+    expect(res.status).toBe(200);
+    expect(body.removed).toBe(false);
+    expect(body.envelope).toBeTruthy();
   });
   it("rejects a handle minted for another session", async () => {
     const key = await generateEphemeralBrowserKey();

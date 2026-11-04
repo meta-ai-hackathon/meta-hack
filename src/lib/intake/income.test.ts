@@ -146,7 +146,7 @@ describe("incomeClientState (the results gate's income conjunct)", () => {
     );
   });
 
-  it("does not count an untouched bank proposal saved as unverified", () => {
+  it("does not count a legacy unverified bank proposal", () => {
     const answers = incomeAnswers({
       job_income_amount: {
         status: "unverified",

@@ -182,12 +182,23 @@ export class PlaidClient {
     await this.post("/user/remove", { user_id: userId });
   }
 
-  /** Fetch Bank Income once for this user, then delete the Plaid user so no grant lingers on Plaid's side beyond the demo fetch. */
-  async pullBankIncome(userId: string): Promise<MinimizedPlaidPayload> {
+  /**
+   * Fetch Bank Income once for this user, then delete the Plaid user so no
+   * grant lingers on Plaid's side beyond the demo fetch. Reports whether the
+   * delete succeeded so the route can tell the person when it did not; a
+   * failed delete never hides a successfully fetched report.
+   */
+  async pullBankIncome(
+    userId: string,
+  ): Promise<{ readonly payload: MinimizedPlaidPayload; readonly removed: boolean }> {
+    let payload: MinimizedPlaidPayload;
     try {
-      return await this.fetchBankIncome(userId);
-    } finally {
+      payload = await this.fetchBankIncome(userId);
+    } catch (error) {
       await this.removeUser(userId).catch(() => undefined);
+      throw error;
     }
+    const removed = await this.removeUser(userId).then(() => true).catch(() => false);
+    return { payload, removed };
   }
 }

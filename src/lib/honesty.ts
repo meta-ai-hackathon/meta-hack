@@ -209,13 +209,11 @@ export function isAnswerStatus(value: unknown): value is AnswerStatus {
  *   stage ("From your tax return"). Pairs only with status `known`.
  * - `user` — the person's own value through the income stage's paths (the
  *   manual card, or a bank/tax proposal they corrected). Pairs only with
- *   status `known`. An untouched bank proposal saves as `user_supplied`
- *   with status `unverified`, never `user`.
+ *   status `known`. An untouched bank proposal is never saved.
  *
  * A Plaid institution name is deliberately absent: it is pii:true metadata
  * kept in the client-side encrypted store (HACK-140), so an untouched bank
- * proposal saves as `unverified`/`user_supplied` and the browser, not
- * Postgres, knows the bank.
+ * proposal is not stored and the browser, not Postgres, knows the bank.
  */
 export const ANSWER_PROVENANCES = [
   "user_supplied",
