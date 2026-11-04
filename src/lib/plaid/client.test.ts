@@ -12,6 +12,22 @@ describe("PlaidClient Bank Income", () => {
     expect(bodies[1]).toMatchObject({ user_id: "user-sandbox-x", products: ["income_verification"], income_verification: { income_source_types: ["bank"], bank_income: { days_requested: 730 } } });
     expect(JSON.stringify(bodies)).not.toContain("transactions");
   });
+  it("removes the Plaid user if link-token creation fails", async () => {
+    const calls: string[] = [];
+    const fetchFn: PlaidFetch = async (url) => {
+      calls.push(url);
+      if (url.endsWith("/user/create")) return jsonResponse({ user_id: "user-orphan" });
+      if (url.endsWith("/link/token/create")) return { ok: false, json: async () => ({ error_code: "INVALID_REQUEST" }) } as Response;
+      if (url.endsWith("/user/remove")) return jsonResponse({});
+      throw new Error(url);
+    };
+    await expect(new PlaidClient(config, fetchFn).createLinkToken("session-1")).rejects.toThrow();
+    expect(calls.map((u) => u.replace("https://sandbox.plaid.com/", ""))).toEqual([
+      "user/create",
+      "link/token/create",
+      "user/remove",
+    ]);
+  });
   it("mints a fresh client_user_id for every pull, so two pulls never share a Plaid user", async () => {
     const clientUserIds: unknown[] = [];
     const fetchFn: PlaidFetch = async (url, init) => {

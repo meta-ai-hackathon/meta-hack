@@ -92,7 +92,12 @@ export class PlaidClient {
     return (await response.json()) as T;
   }
 
-  /** Create a fresh Plaid user (user-token flow, required for Bank Income), then a Link token for Bank Income only. Returns the user_id for the later pull; the browser only ever holds it sealed in a session-bound handle. */
+  /**
+   * Create a fresh Plaid user (user-token flow, required for Bank Income),
+   * then a Link token for Bank Income only. Returns the user_id for the later
+   * pull; the browser holds it in an HMAC-signed, session-bound handle
+   * (integrity-protected, not confidential).
+   */
   async createLinkToken(
     sessionId: string,
   ): Promise<{ linkToken: string; userId: string }> {
@@ -108,22 +113,29 @@ export class PlaidClient {
       client_user_id: clientUserId,
     });
     if (!user.user_id) throw new Error("Plaid request failed.");
-    const data = await this.post<{ link_token: string }>(
-      "/link/token/create",
-      {
-        client_name: "Benefits Navigator (Plaid Sandbox demo)",
-        language: "en",
-        country_codes: ["US"],
-        user_id: user.user_id,
-        products: ["income_verification"],
-        income_verification: {
-          income_source_types: ["bank"],
-          bank_income: { days_requested: DAYS_REQUESTED },
+    try {
+      const data = await this.post<{ link_token: string }>(
+        "/link/token/create",
+        {
+          client_name: "Benefits Navigator (Plaid Sandbox demo)",
+          language: "en",
+          country_codes: ["US"],
+          user_id: user.user_id,
+          products: ["income_verification"],
+          income_verification: {
+            income_source_types: ["bank"],
+            bank_income: { days_requested: DAYS_REQUESTED },
+          },
         },
-      },
-    );
-    if (!data.link_token) throw new Error("Plaid request failed.");
-    return { linkToken: data.link_token, userId: user.user_id };
+      );
+      if (!data.link_token) throw new Error("Plaid request failed.");
+      return { linkToken: data.link_token, userId: user.user_id };
+    } catch (error) {
+      // /user/create already made a user. A failed Link-token call returns no
+      // handle, so remove it here rather than leaving an orphan behind.
+      await this.removeUser(user.user_id).catch(() => undefined);
+      throw error;
+    }
   }
 
   async fetchBankIncome(

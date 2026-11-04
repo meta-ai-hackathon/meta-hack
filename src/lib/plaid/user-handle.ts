@@ -39,7 +39,7 @@ function signature(payload: string, secret: string): Buffer {
   return createHmac("sha256", DOMAIN + secret).update(payload).digest();
 }
 
-/** Seal a Plaid user_id to one intake session, expiring in 15 minutes. */
+/** Sign a Plaid user_id into a session-bound handle, expiring in 15 minutes. The payload is readable; the signature protects integrity, not confidentiality. */
 export function sealPlaidUserId(
   sessionId: string,
   userId: string,
@@ -53,8 +53,8 @@ export function sealPlaidUserId(
 }
 
 /**
- * The sealed user_id for this session, or null when the handle is malformed,
- * forged, expired, or belongs to another session.
+ * The user_id carried by a valid handle for this session, or null when the
+ * handle is malformed, forged, expired, or belongs to another session.
  */
 export function openPlaidUserId(
   sessionId: string,

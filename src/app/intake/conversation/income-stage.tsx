@@ -674,6 +674,7 @@ export function IncomeStage(props: {
           onNotice("Enter a number for " + proposal.questionId.replaceAll("_", " ") + ".");
           return;
         }
+        if (amount === proposal.value) continue; // same number, not an edit
         decided.push({ questionId: proposal.questionId, action: "correct", value: amount });
       } else {
         decided.push({ questionId: proposal.questionId, action: "correct", value: corrected });

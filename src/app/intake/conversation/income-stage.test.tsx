@@ -479,6 +479,37 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     );
   });
 
+  it("does not treat a reformatted same amount as an edit", async () => {
+    const { container, act, getNotice } = await pullTestBank();
+    await act(async () => {
+      const input = container.querySelector(
+        '[data-income-plaid-correct="job_income_amount"]',
+      ) as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "2,100");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      const input = container.querySelector(
+        "[data-income-plaid-member-name]",
+      ) as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "Alberta");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      (q(container, "income-plaid-save") as HTMLButtonElement).click();
+    });
+    expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
+    expect(getNotice()).toContain("Nothing was saved");
+  });
+
   it("says so when the test connection could not be removed", async () => {
     pullRemoved = false;
     const { container } = await pullTestBank();

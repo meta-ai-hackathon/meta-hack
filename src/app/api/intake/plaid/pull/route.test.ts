@@ -29,7 +29,7 @@ describe("plaid broker routes", () => {
     process.env.PLAID_HANDLE_SECRET = "vitest-plaid-handle-secret-0123456789abcdef";
     pullBankIncome.mockClear();
   });
-  it("link-token requires a session and returns a sealed handle, never the raw user id", async () => {
+  it("link-token requires a session and returns a session-bound signed handle, never a bare user id", async () => {
     expect((await linkToken(request("http://x/api/intake/plaid/link-token", undefined, "bad"))).status).toBe(400);
     const res = await linkToken(request("http://x/api/intake/plaid/link-token"));
     const body = (await res.json()) as { linkToken: string; pullHandle?: string; userId?: string };
