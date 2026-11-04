@@ -96,7 +96,7 @@ export function reviewFormEntry(formId: string): FormRegistryEntry | undefined {
 export async function fillReviewOnDevice(
   templateBytes: Uint8Array,
   fields: readonly ReviewFillField[],
-  drafts: Readonly<Record<string, string>> = {},
+  drafts: Readonly<Record<string, string>>,
   entry: FormRegistryEntry,
 ): Promise<ReviewFillResult> {
   // Box answers typed into the review count only as checked or unchecked

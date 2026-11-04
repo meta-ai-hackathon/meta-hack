@@ -282,8 +282,12 @@ describe("HandoffSection: honest copy", () => {
 describe("HandoffSection inside the review section", () => {
   function reviewData(formId: string, sessionStatus: SessionStatus) {
     const entry = getFormRegistryEntry(formId);
+    // A known private answer beside the public one, exactly the review
+    // route's payload shape: the view carries the status, never the
+    // value, and the known answer is not in the still-needed list.
     const view = buildFormFlow(entry, {
       household_size: { status: "known", value: 3 },
+      date_of_birth: { status: "known", value: "1979-07-08" },
     });
     return {
       hasSession: true,
@@ -470,6 +474,21 @@ describe("HandoffSection inside the review section", () => {
         expect(nextAction()).toBe("mark_handed_off");
         expect(container.querySelector("[data-where]")?.textContent).toBe("In the app");
         expect(handOff()?.disabled).toBe(false);
+        // The fill's blanks joined the still-needed list above. They belong
+        // to the payload they were filled from: a refreshed review (the
+        // next message's answers landed) drops them until the person
+        // downloads again — a stale row never lingers (claude-review P2,
+        // PR #150).
+        const mergedRows = container.querySelectorAll("[data-form-to-resolve] li").length;
+        await act(async () => {
+          root.render(<ReviewSectionContent data={{ ...reviewData(FORM, "prepared") }} />);
+        });
+        expect(container.querySelectorAll("[data-form-to-resolve] li").length).toBeLessThan(
+          mergedRows,
+        );
+        expect(container.querySelectorAll("[data-form-to-resolve] li").length).toBe(
+          reviewData(FORM, "prepared").toResolve.length,
+        );
       } finally {
         await act(async () => {
           root.unmount();
@@ -478,6 +497,6 @@ describe("HandoffSection inside the review section", () => {
         URL.createObjectURL = createObjectURL;
         URL.revokeObjectURL = revokeObjectURL;
       }
-    });
+    }, 15_000);
   });
 });

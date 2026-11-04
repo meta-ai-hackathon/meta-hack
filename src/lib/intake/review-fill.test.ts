@@ -346,8 +346,9 @@ describe("the browser fill's invariants (property)", () => {
             expect(toResolve.has(name), name).toBe(true);
           }
 
-          // The typed draft fills as typed; absent, blank + to-resolve.
-          if (nameDraft !== undefined) {
+          // The typed draft fills as typed; absent or blank after
+          // trimming (the fill's no-answer rule), blank + to-resolve.
+          if (nameDraft !== undefined && nameDraft.trim() !== "") {
             expect(form.getTextField("applicant_name").getText()).toBe(nameDraft.trim());
           } else {
             expect(form.getTextField("applicant_name").getText() ?? "").toBe("");

@@ -315,10 +315,15 @@ export function ReviewSectionContent({
   const [downloaded, setDownloaded] = useState(false);
   // The fill's own still-needed rows, joined to the review's after a
   // download (the private answers the page doesn't hold among them) —
-  // what is blank on the file is what the section lists.
-  const [fillBlanks, setFillBlanks] = useState<
-    readonly { fieldName: string; question: string }[]
-  >([]);
+  // what is blank on the file is what the section lists. They belong to
+  // the payload they were filled from: a refreshed review (the next
+  // message's answers landed) drops them until the person downloads
+  // again, so a stale row never lingers (claude-review P2, PR #150).
+  const [fill, setFill] = useState<{
+    readonly data: ReviewDataView;
+    readonly blanks: readonly { fieldName: string; question: string }[];
+  } | null>(null);
+  const fillBlanks = fill && fill.data === data ? fill.blanks : [];
   const stillNeeded: readonly { fieldName: string; question: string }[] = [
     ...data.toResolve,
     ...fillBlanks.filter(
@@ -427,7 +432,7 @@ export function ReviewSectionContent({
       // The fill's own still-needed list (the private answers the page
       // doesn't hold, among them) joins the review's, so what is blank on
       // the file is exactly what the section above lists.
-      setFillBlanks(result.outcome.toResolve);
+      setFill({ data, blanks: result.outcome.toResolve });
       setDownloaded(true);
       announce(DOWNLOAD_COPY.downloaded);
     } catch {
