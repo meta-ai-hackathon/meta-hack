@@ -319,8 +319,18 @@ export function IncomeStage(props: {
   const [plaidInstitutionName, setPlaidInstitutionName] = useState("");
 
   const proposals = proposalsFromMonthlyDerived(upload?.monthlyDerived ?? null);
+  // A bank proposal can target a question the flow's skip logic hid (for
+  // example job_income_amount after the person said they have no job). Never
+  // render or send those: the visible list is the only one the card owns
+  // (review P2, PR #172).
+  const plaidProposals =
+    plaidResult === null
+      ? []
+      : plaidResult.proposals.filter((proposal) =>
+          questions.some((question) => question.id === proposal.questionId),
+        );
   const plaidHasInvalidAmount =
-    plaidResult?.proposals.some((proposal) => {
+    plaidProposals.some((proposal) => {
       const question = questions.find((c) => c.id === proposal.questionId);
       const entered = plaidCorrections[proposal.questionId];
       return (
@@ -564,9 +574,15 @@ export function IncomeStage(props: {
             const result = plaidIncomeProposals(payload, {});
             applyPlaidResult(result);
             const removalHedge = removed === false ? " We could not confirm the test connection was removed." : "";
-            setPlaidStatus(result.proposals.length > 0
+            const visibleProposalCount = result.proposals.filter((proposal) =>
+              questions.some((question) => question.id === proposal.questionId),
+            ).length;
+            const hiddenOnly = result.proposals.length > 0 && visibleProposalCount === 0;
+            setPlaidStatus(visibleProposalCount > 0
               ? "Check what we found, then save." + removalHedge
-              : "We could not find a reliable monthly pattern in that test bank, so nothing is proposed. You can type your income instead." + removalHedge);
+              : hiddenOnly
+                ? "The test bank only proposed income details your answers skip, so nothing is proposed. You can type your income instead." + removalHedge
+                : "We could not find a reliable monthly pattern in that test bank, so nothing is proposed. You can type your income instead." + removalHedge);
           } catch { void releaseTestUser(); setPlaidStatus(READ_FAILED_NOTICE); }
           finally { setPlaidConnecting(false); }
         },
@@ -606,13 +622,13 @@ export function IncomeStage(props: {
   }
 
   async function savePlaidFindings(): Promise<void> {
-    if (saveInFlight.current || plaidResult === null || plaidResult.proposals.length === 0 || plaidMemberName.trim() === "" || plaidHasInvalidAmount) { onNotice(NOTHING_DECIDED_NOTICE); return; }
+    if (saveInFlight.current || plaidResult === null || plaidProposals.length === 0 || plaidMemberName.trim() === "" || plaidHasInvalidAmount) { onNotice(NOTHING_DECIDED_NOTICE); return; }
     const decided: {
       questionId: string;
       action: "correct";
       value: number | string;
     }[] = [];
-    for (const proposal of plaidResult.proposals) {
+    for (const proposal of plaidProposals) {
       // An untouched field is never sent to the server: it came from Sandbox
       // income verification and stays on the device. Only a real edit is a
       // correction (known/user). Selects compare by option value; amounts are
@@ -954,9 +970,9 @@ export function IncomeStage(props: {
               {rosterFromAnswers(state.answers, { includeUnverified: true }).length > 0 ? <select aria-label="Pick the household member" data-income-plaid-member-pick className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" defaultValue="" onChange={(e) => { const m = rosterFromAnswers(state.answers, { includeUnverified: true }).find((x) => x.id === e.target.value); if (m) setPlaidMemberName(m.displayName); }}><option value="" disabled>Pick the person…</option>{rosterFromAnswers(state.answers, { includeUnverified: true }).map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select> : null}
               <input id="income-plaid-member-name" type="text" value={plaidMemberName} onChange={(e) => setPlaidMemberName(e.target.value)} placeholder="First name or nickname" data-income-plaid-member-name className="min-h-11 w-64 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" />
             </div>
-            {plaidResult.proposals.length === 0 ? <p className="text-sm text-muted" data-income-plaid-no-proposals>Nothing here could be turned into a Medicaid number on its own -- see above for what we would need instead. You can also type your income below.</p> : null}
+            {plaidProposals.length === 0 ? <p className="text-sm text-muted" data-income-plaid-no-proposals>Nothing here could be turned into a Medicaid number on its own -- see above for what we would need instead. You can also type your income below.</p> : null}
             <ul className="flex flex-col gap-2">
-              {plaidResult.proposals.map((proposal) => (
+              {plaidProposals.map((proposal) => (
                 <PlaidProposalRow
                   key={proposal.questionId}
                   proposal={proposal}
@@ -968,7 +984,7 @@ export function IncomeStage(props: {
                 />
               ))}
             </ul>
-            {plaidResult.proposals.length > 0 ? <button type="button" data-income-plaid-save onClick={() => void savePlaidFindings()} disabled={saving || plaidMemberName.trim() === "" || plaidHasInvalidAmount} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{saving ? "Saving…" : "Save my own figures"}</button> : null}
+            {plaidProposals.length > 0 ? <button type="button" data-income-plaid-save onClick={() => void savePlaidFindings()} disabled={saving || plaidMemberName.trim() === "" || plaidHasInvalidAmount} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{saving ? "Saving…" : "Save my own figures"}</button> : null}
           </div>
         ) : null}
         {plaidSavedMembers.length > 0 ? <div className="flex flex-col gap-2" data-income-plaid-saved-list>{plaidSavedMembers.map((s, i) => <p key={i} className="text-sm text-muted">Saved for {s.name} — {s.detail}</p>)}<p className="text-sm text-muted" data-income-plaid-one-member>One bank connection is supported for now. Connecting a bank for a second person would replace these household answers, so it is not offered (HACK-143).</p></div> : null}

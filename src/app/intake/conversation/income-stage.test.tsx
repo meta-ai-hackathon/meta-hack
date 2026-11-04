@@ -354,7 +354,7 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
   });
 
   /** Render the stage and complete a Link success that yields two proposals. */
-  async function pullTestBank() {
+  async function pullTestBank(state: IntakeClientState = incomeState()) {
     (window as unknown as { Plaid: unknown }).Plaid = {
       create: (config: {
         onSuccess: (
@@ -369,7 +369,7 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
         },
       }),
     };
-    const rendered = await renderStage();
+    const rendered = await renderStage(state);
     await rendered.act(async () => {
       (q(rendered.container, "income-plaid-consent") as HTMLInputElement).click();
     });
@@ -450,6 +450,26 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     // Untouched proposals never leave the page: no confirm request at all.
     expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
     expect(getNotice()).toContain("Nothing was saved");
+  });
+
+  it("never renders a bank proposal for a question the flow hides", async () => {
+    // The bank report still proposes job_income_amount, but this state's
+    // visible questions omit it (the person said they have no job). The card
+    // must not render or save that hidden question's proposal.
+    const hiddenJobAmount = incomeState({
+      questions: [INCOME_SOURCES, INCOME_KIND, JOB_FREQUENCY],
+    });
+    const { container } = await pullTestBank(hiddenJobAmount);
+    expect(
+      container.querySelector(
+        '[data-income-plaid-correct="job_income_amount"]',
+      ),
+    ).toBeNull();
+    const rows = container.querySelectorAll("[data-income-plaid-correct]");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.getAttribute("data-income-plaid-correct")).toBe(
+      "job_income_frequency",
+    );
   });
 
   it("saves a typed amount with separators as a number, not NaN", async () => {

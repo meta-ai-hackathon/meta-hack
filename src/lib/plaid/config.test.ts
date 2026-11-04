@@ -19,6 +19,7 @@ const SANDBOX = {
 };
 const DEMO_ON = {
   ...SANDBOX,
+  PLAID_HANDLE_SECRET: "vitest-plaid-handle-secret-0123456789abcdef",
   NEXT_PUBLIC_PLAID_DEMO_ENABLED: "true",
   NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT: "synthetic",
 } as const;
@@ -109,16 +110,29 @@ describe("plaidDemoAvailable (server-rendered card gate)", () => {
     }
   });
 
-  it("stays closed while either public flag or a credential is missing", () => {
+  it("stays closed while either public flag, a credential, or the handle secret is missing", () => {
     for (const env of [
       { ...DEMO_ON, NEXT_PUBLIC_PLAID_DEMO_ENABLED: undefined },
       { ...DEMO_ON, NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT: undefined },
       { ...DEMO_ON, PLAID_CLIENT_ID: undefined },
       { ...DEMO_ON, PLAID_SECRET: undefined },
       { ...DEMO_ON, PLAID_SECRET: " " },
+      { ...DEMO_ON, PLAID_HANDLE_SECRET: undefined },
+      { ...DEMO_ON, PLAID_HANDLE_SECRET: "" },
+      { ...DEMO_ON, PLAID_HANDLE_SECRET: "short" },
+      { ...DEMO_ON, PLAID_HANDLE_SECRET: "x".repeat(31) },
     ]) {
       expect(plaidDemoAvailable(env)).toBe(false);
     }
+  });
+
+  it("offers the card once the handle secret reaches the 32-character minimum", () => {
+    expect(
+      plaidDemoAvailable({
+        ...DEMO_ON,
+        PLAID_HANDLE_SECRET: "x".repeat(32),
+      }),
+    ).toBe(true);
   });
 });
 

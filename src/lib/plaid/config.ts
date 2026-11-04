@@ -45,8 +45,8 @@ export function plaidDemoEnabled(
  * computes this and passes it to the client, because PLAID_ENV is server-only
  * and the browser cannot be trusted to decide. A deployment with the two
  * public flags but a non-Sandbox (or missing) PLAID_ENV never mounts the card
- * (review P2, PR #172). Credentials are included so the card is not offered
- * when every click would fail closed.
+ * (review P2, PR #172). Credentials and the handle secret are included so
+ * the card is not offered when every click would fail closed.
  */
 export function plaidDemoAvailable(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -55,7 +55,8 @@ export function plaidDemoAvailable(
     plaidDemoEnabled(env) &&
     env.PLAID_ENV === "sandbox" &&
     Boolean(env.PLAID_CLIENT_ID?.trim()) &&
-    Boolean(env.PLAID_SECRET?.trim())
+    Boolean(env.PLAID_SECRET?.trim()) &&
+    (env.PLAID_HANDLE_SECRET?.trim().length ?? 0) >= 32
   );
 }
 
