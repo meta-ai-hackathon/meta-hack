@@ -4,7 +4,7 @@ Guidance for any agent or human working in this repo. See the [README](README.md
 
 ## Repo map
 
-- `README.md` — status, timeline, repo map, rules
+- `README.md` — the public-repo user guide: what Tenet is, the journey, how to run it (status detail lives in `docs/status.md`)
 - `AGENTS.md` — this file, agent conventions
 - `info/` — hackathon reference material copied from the vault (event guide, links, grading, restrictions, workflow, stack)
 - `ideas/` — one file per idea plus the running scorecard
