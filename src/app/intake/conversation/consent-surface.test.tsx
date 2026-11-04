@@ -120,7 +120,7 @@ describe("ConsentPanel copy (VAL-CONSENT-002)", () => {
     expect(html).toMatch(/not used to train its models/);
     expect(html).toMatch(/not a promise that nothing is kept/);
     expect(html).toMatch(/may use it to improve its services/);
-    expect(html).toMatch(/opt-out in its terms/);
+    expect(html).toMatch(/training opt-out in your account/);
   });
 
   it("says the choice is per device and revocable", () => {

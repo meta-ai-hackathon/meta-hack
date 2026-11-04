@@ -186,8 +186,8 @@ export function ConsentPanel(props: ConsentPanelProps) {
           <p className="text-sm text-muted">
             With voice off, the microphone never starts and no audio is ever
             sent. Only the assistant&apos;s reply text goes to ElevenLabs,
-            which may use it to improve its services (opt-out in its terms) —
-            never anything you said or typed.
+            which may use it to improve its services (training opt-out in
+            your account) — never anything you said or typed.
           </p>
         </div>
       ) : null}
