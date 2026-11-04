@@ -377,12 +377,47 @@ describe("the device form against the server's, for the same answers", () => {
           }
         }
 
-        // A private field the payload structurally omits fills only on the
-        // device that holds it; on the review path it degrades to blank and
-        // is honestly named to-resolve.
+        // A field the review marks ASKED (the person still owes the answer)
+        // and does not hold privately is filled from the same information on
+        // both surfaces: neither holds a value for it, and neither may skip
+        // it (the device's fill-time skip map sees no more than the
+        // review's), so BOTH list it to-resolve. Conflict flags and
+        // not-applicable handling are pinned per fill (fill-core's own
+        // suite, review-fill.test.ts): the two surfaces hold different
+        // truths — the payload structurally omits private values, and the
+        // fill-time skip map is allowlist-redacted — so their to-resolve
+        // lists legitimately differ beyond this shared core (a field gated
+        // by a private answer the form's allowlist doesn't admit prints
+        // blank on BOTH surfaces and lands in the device's to-resolve even
+        // when the review marks it not-needed).
         const reviewToResolve = new Set(
           reviewFill.outcome.toResolve.map((item) => item.fieldName),
         );
+        const deviceToResolveNames = new Set(
+          deviceFill.outcome.toResolve.map((item) => item.fieldName),
+        );
+        const askedNonPrivate = views.filter(
+          (field) => field.state === "asked" && !field.piiLikely,
+        );
+        for (const field of askedNonPrivate) {
+          expect(reviewToResolve.has(field.fieldName), field.fieldName).toBe(
+            true,
+          );
+          expect(
+            deviceToResolveNames.has(field.fieldName),
+            field.fieldName,
+          ).toBe(true);
+          expect(deviceFilled.has(field.fieldName), field.fieldName).toBe(
+            false,
+          );
+          expect(reviewFilled.has(field.fieldName), field.fieldName).toBe(
+            false,
+          );
+        }
+
+        // A private field the payload structurally omits fills only on the
+        // device that holds it; on the review path it degrades to blank and
+        // is honestly named to-resolve.
         for (const field of views) {
           if (field.state !== "prefilled" || !field.piiLikely) {
             continue;

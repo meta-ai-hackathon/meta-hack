@@ -303,8 +303,15 @@ describe("AcroForm round-trip on the device fill (VAL-PDF-003)", () => {
     ).rejects.toMatchObject({ code: "validation_error" });
   });
 
-  it("bad templates fill nothing on the device either (VAL-PDF-004)", async () => {
-    // Encrypted bytes never open: nothing is filled.
+  it("bad templates fill nothing on the device either", async () => {
+    // VAL-PDF-004's clean taxonomy rejection lives at the machinery gate
+    // (the two cases above). The device fills have no upload path at all —
+    // only the committed registered templates reach them (pinned to pass
+    // that very gate) — so the honest on-device pin is the fail-closed
+    // behavior on a bad template, NOT parity with the route's rejection:
+    // encrypted bytes never open (unreadable_form, nothing filled), and
+    // XFA bytes carry no fillable AcroForm fields (nothing fills and
+    // nothing is fabricated — every field lands in to-resolve).
     const encrypted = await fillFormOnDevice(
       encryptedTemplate(),
       deviceState({}),
@@ -312,8 +319,6 @@ describe("AcroForm round-trip on the device fill (VAL-PDF-003)", () => {
       ENTRY,
     );
     expect(encrypted.kind).toBe("unreadable_form");
-    // XFA bytes carry no fillable AcroForm fields: nothing fills and
-    // nothing is fabricated — every field lands in to-resolve.
     const xfa = await fillFormOnDevice(xfaTemplate(), deviceState({}), {}, ENTRY);
     if (xfa.kind !== "filled") {
       throw new Error(`expected an empty fill, got ${xfa.kind}`);

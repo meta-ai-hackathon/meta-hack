@@ -168,7 +168,13 @@ describe("the on-device fills never persist server-side (VAL-PDF-005)", () => {
       expect(source, relative).not.toMatch(/require\(["'](node:)?fs/);
       expect(source, relative).not.toContain("writeFile");
       expect(source, relative).not.toContain("appendFile");
-      expect(source, relative).not.toMatch(/from\s+["'].*lib\/db/);
+      // Any relative specifier that resolves to the database or vault module
+      // at any depth ("../db" from lib/intake, "../../lib/db" from deeper
+      // nests), or the Postgres driver directly.
+      expect(source, relative).not.toMatch(
+        /(?:from\s+|import\s*\(\s*|require\(\s*)["'](?:\.{1,2}\/)+(?:lib\/)?(?:db|vault)["']/,
+      );
+      expect(source, relative).not.toMatch(/from\s+["']postgres["']/);
       expect(source, relative).not.toMatch(/\bfetch\s*\(/);
       expect(source, relative).not.toContain("XMLHttpRequest");
       expect(source, relative).not.toContain("sendBeacon");
