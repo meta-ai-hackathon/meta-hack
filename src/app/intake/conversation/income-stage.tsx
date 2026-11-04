@@ -311,8 +311,9 @@ export function IncomeStage(props: {
   const [plaidSavedMembers, setPlaidSavedMembers] = useState<readonly { readonly name: string; readonly detail: string }[]>([]);
   const [plaidCorrections, setPlaidCorrections] = useState<Record<string, string>>({});
   // The institution name is pii:true and never reaches the server: Link
-  // metadata fills the in-page name, and the sealed device map (HACK-140)
-  // supplies it after a reload. It is keyed by the question it belongs to.
+  // metadata fills the in-page name. The sealed device map (HACK-140) is
+  // legacy-only: it is read so old entries can be cleared, never written by
+  // the current card. It is keyed by the question it belongs to.
   const [plaidInstitutionName, setPlaidInstitutionName] = useState("");
   const [plaidOrigins, setPlaidOrigins] = useState<PlaidOrigins>({});
 
@@ -972,7 +973,7 @@ export function IncomeStage(props: {
       <section data-income-plaid-card aria-labelledby="income-plaid-heading" className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface p-4">
         <div className="flex flex-col gap-1">
           <h3 id="income-plaid-heading" className="text-lg font-semibold">Connect your bank (demo)</h3>
-          <p className="text-sm text-muted">Optional Plaid Sandbox demo with a synthetic test bank — not a real bank login, and never enter real bank credentials here: the test-bank figures are fake and must not be used for a real application. We fetch a Plaid Bank Income report once and show you what we find. Only a figure or schedule you type or choose yourself is saved; untouched test-bank answers are never saved and do not count as confirmed, so edit one to your own to save it. The one fetch passes through our server without being stored or logged, and we remove the test connection right after — if that fails, we say so. Saying no changes anything: you can upload a file or type your income instead.</p>
+          <p className="text-sm text-muted">Optional Plaid Sandbox demo with a synthetic test bank — not a real bank login, and never enter real bank credentials here: the test-bank figures are fake and must not be used for a real application. We fetch a Plaid Bank Income report once and show you what we find. Only a figure or schedule you type or choose yourself is saved; untouched test-bank answers are never saved and do not count as confirmed, so edit one to your own to save it. The one fetch passes through our server without being stored or logged, and we remove the test connection right after — if that fails, we say so. Saying no changes nothing: you can upload a file or type your income instead.</p>
         </div>
         <label htmlFor="income-plaid-consent" className="flex min-h-11 items-start gap-2 text-base">
           <input id="income-plaid-consent" type="checkbox" checked={plaidConsent} onChange={(e) => setPlaidConsent(e.target.checked)} data-income-plaid-consent className="mt-1 h-5 w-5 shrink-0 accent-teal" />

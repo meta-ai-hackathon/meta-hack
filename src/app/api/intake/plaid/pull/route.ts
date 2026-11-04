@@ -21,7 +21,10 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const sessionId = await loadSession(readSessionCookie(request.headers.get("cookie")));
     if (!sessionId) throw new AppError("validation_error", "Start a session before connecting your bank.");
-    const body = (await parseJsonBody(request)) as Record<string, unknown>;
+    const body = ((await parseJsonBody(request)) ?? {}) as Record<
+      string,
+      unknown
+    >;
     const pullHandle = body.pullHandle;
     const clientPublicKey = body.clientPublicKey;
     if (typeof pullHandle !== "string" || pullHandle.length < 10 || pullHandle.length > 512 ||

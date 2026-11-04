@@ -12,10 +12,13 @@ import {
 
 // The Plaid institution name is pii:true: it can identify the person's
 // bank. The answer table therefore never carries it. The browser captures
-// it from Plaid Link and keeps it here, sealed under the same
+// it from Plaid Link and can keep it here, sealed under the same
 // non-extractable device key as the HACK-99 answer store, keyed by the
 // income question it belongs to (HACK-140).
 //
+// The current bank card saves only person-edited values and therefore never
+// writes a name; this store remains to read and purge entries written by
+// earlier builds, and to clear them when another save path owns the answer.
 // This is metadata about an answer, not an answer: it is validated only
 // against the ids the Plaid card actually proposes and is never merged into
 // the answer records or sent to the server. `purgeDeviceAnswers` deletes this

@@ -211,7 +211,7 @@ describe("POST /api/intake/plaid/confirm", () => {
 
     await POST(
       confirmRequest(cookie, [
-        { questionId: "job_income_amount", action: "confirm", value: 2100 },
+        { questionId: "job_income_amount", action: "correct", value: 2100 },
       ]),
     );
     const response = await POST(
@@ -229,7 +229,27 @@ describe("POST /api/intake/plaid/confirm", () => {
     });
   });
 
-  it("returns ids and provenances only, never values, in the saved list", async () => {
+  it("returns only person-edited ids and provenances in the saved list", async () => {
+    const cookie = await createSessionAndGetCookie();
+
+    const response = await POST(
+      confirmRequest(cookie, [
+        { questionId: "job_income_amount", action: "correct", value: 2100 },
+      ]),
+    );
+
+    const body = await response.json();
+    expect(body.saved).toEqual([
+      {
+        questionId: "job_income_amount",
+        status: "known",
+        provenance: "user",
+      },
+    ]);
+    expect(JSON.stringify(body.state)).toContain("2100");
+  });
+
+  it("does not echo a confirmed value into the saved list or state", async () => {
     const cookie = await createSessionAndGetCookie();
 
     const response = await POST(
@@ -239,13 +259,7 @@ describe("POST /api/intake/plaid/confirm", () => {
     );
 
     const body = await response.json();
-    expect(body.saved).toEqual([
-      {
-        questionId: "job_income_amount",
-        status: "unverified",
-        provenance: "user_supplied",
-      },
-    ]);
-    expect(JSON.stringify(body.state)).toContain("2100");
+    expect(body.saved).toEqual([]);
+    expect(JSON.stringify(body.state)).not.toContain("2100");
   });
 });
