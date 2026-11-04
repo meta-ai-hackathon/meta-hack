@@ -112,6 +112,17 @@ describe("ConsentPanel copy (VAL-CONSENT-002)", () => {
     expect(html).toMatch(/sees your words before anything is hidden/);
   });
 
+  it("keeps both providers' retention postures disclosed inline (review P2 pin)", () => {
+    // The Meta note states the no-training commitment AND the retention
+    // honesty; the ElevenLabs note states the improve-services use and the
+    // account opt-out. Neither may silently drop to link-only.
+    const html = panelMarkup();
+    expect(html).toMatch(/not used to train its models/);
+    expect(html).toMatch(/not a promise that nothing is kept/);
+    expect(html).toMatch(/may use it to improve its services/);
+    expect(html).toMatch(/opt-out in its terms/);
+  });
+
   it("says the choice is per device and revocable", () => {
     const html = panelMarkup();
     expect(html).toMatch(/on this device/);
@@ -130,27 +141,36 @@ describe("ConsentPanel verbosity (HACK-127, VAL-UX-013)", () => {
 
   it("is noticeably shorter while every informed-consent element stays (word budget)", () => {
     // HACK-127: the consent request's copy around the two toggles was
-    // long enough to read as a wall of text; it must read noticeably
-    // shorter while still naming provider, purpose, and what is shared.
-    // The budget is a hard pin so verbosity cannot creep back; the other
-    // tests in this file keep every informed-consent element pinned.
-    expect(wordCount(panelMarkup())).toBeLessThanOrEqual(260);
+    // long enough to read as a wall of text (412 words); it must read
+    // noticeably shorter while still naming provider, purpose, and what is
+    // shared. The budget is a hard pin so verbosity cannot creep back —
+    // sized to hold every reviewer-mandated disclosure with margin; the
+    // other tests in this file keep each informed-consent element pinned.
+    expect(wordCount(panelMarkup())).toBeLessThanOrEqual(290);
   });
 
   it("stays within the budget and names the providers in EVERY toggle state (property)", () => {
     // Property (repo property-based-testing skill): the verbosity pin is
     // not an artifact of one render state — for both toggles checked or
     // unchecked in any combination, the panel stays within the budget and
-    // still names both providers, the typed-send toggle, and the refusal
-    // control (refusal never blocks; provider/purpose stay named).
+    // still names both providers, every purpose and rendered send from the
+    // registry (the consent copy renders FROM CONSENT_PATHS), and the
+    // refusal control (refusal never blocks).
     fc.assert(
       fc.property(fc.boolean(), fc.boolean(), (aiChecked, voiceChecked) => {
         const html = panelMarkup({ aiChecked, voiceChecked });
-        expect(wordCount(html)).toBeLessThanOrEqual(260);
+        expect(wordCount(html)).toBeLessThanOrEqual(290);
         expect(html).toMatch(/Meta/);
         expect(html).toMatch(/ElevenLabs/);
         expect(html).toContain("data-consent-ai-toggle");
         expect(html).toContain("data-consent-decline");
+        for (const path of CONSENT_PATHS) {
+          if (path.id === "fax") continue; // post-submission path — not this surface's toggle
+          expect(html).toContain(path.purpose);
+          for (const send of path.sends) {
+            expect(html).toContain(send);
+          }
+        }
       }),
     );
   });

@@ -111,7 +111,7 @@ export function ConsentPanel(props: ConsentPanelProps) {
                 className="consent-switch mt-0.5"
               />
               <span>
-                Share the words you type with {aiPath.provider},{" "}
+                Share {aiPath.sends.join(" and ")} with {aiPath.provider},{" "}
                 {aiPath.purpose}.
               </span>
             </span>
@@ -127,10 +127,10 @@ export function ConsentPanel(props: ConsentPanelProps) {
             </span>
           )}
           <p className="text-sm text-muted">
-            Each typed message reaches Meta once — the step that reads your
-            answer sees your words before anything is hidden. Meta says
-            content is not used to train its models and is kept per its
-            terms — not a promise that nothing is kept.
+            With sharing on, each typed message reaches Meta once — the step
+            that reads your answer sees your words before anything is hidden.
+            Meta says content is not used to train its models and is kept per
+            its terms — not a promise that nothing is kept.
           </p>
         </div>
       ) : null}
@@ -185,7 +185,8 @@ export function ConsentPanel(props: ConsentPanelProps) {
           )}
           <p className="text-sm text-muted">
             With voice off, the microphone never starts and no audio is ever
-            sent. Only the assistant&apos;s reply text goes to ElevenLabs —
+            sent. Only the assistant&apos;s reply text goes to ElevenLabs,
+            which may use it to improve its services (opt-out in its terms) —
             never anything you said or typed.
           </p>
         </div>
@@ -213,7 +214,8 @@ export function ConsentPanel(props: ConsentPanelProps) {
       <p className="text-sm text-muted">
         The step-by-step form asks the same questions, and no AI provider
         receives anything — the same honest status labels, benefit match,
-        review, and filled PDF to download.
+        review, and filled PDF to download. Your answers save on the
+        app&apos;s server so you can pick up later.
       </p>
     </section>
   );
