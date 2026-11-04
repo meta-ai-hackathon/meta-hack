@@ -862,11 +862,15 @@ export function ConversationChat() {
 
   // Returns true when the turn landed (the reply rendered); false on any
   // failure — the typed path's echo confirmation hangs off that signal
-  // (HACK-156). Voice callers ignore the return value.
+  // (HACK-156). onConfirmed fires the moment the optimistic echo has been
+  // swapped for the server's redacted transcript — BEFORE the later
+  // enhancement work (playback, handoff) that could throw, so the caller
+  // never rolls a confirmed turn back. Voice callers ignore both.
   async function handleTurnResponse(
     response: Response,
     spoken: boolean,
     echoTurnId?: string,
+    onConfirmed?: () => void,
   ): Promise<boolean> {
     if (!response.ok) {
       const data = (await response.json()) as ConversationErrorResponse;
@@ -952,6 +956,9 @@ export function ConversationChat() {
         assistantTurn,
       ];
     });
+    if (echoTurnId !== undefined) {
+      onConfirmed?.();
+    }
     setState(data.state);
     setDraft("");
     setNotice(
@@ -1058,14 +1065,17 @@ export function ConversationChat() {
     // honest-failure paths behave exactly as they did before.
     const echoTurnId = nextLocalTurnId();
     let sent = false;
+    // Set the moment the echo is confirmed in place (inside the turn
+    // handler, before its later enhancement work) — a throw AFTER the
+    // confirmation must never roll the confirmed turn back (review P3).
+    let confirmed = false;
     // The patience line (VAL-UX-003): past the wait threshold the same
     // still-working line shows in the transcript bubble and is announced
     // via the StatusRegion (the voice path's 5 s escalate-notice
-    // precedent). Cleared on every settle path in the finally below.
-    const slowReplyTimer = setTimeout(() => {
-      setSlowTypedReply(true);
-      setNotice(SLOW_REPLY_NOTE);
-    }, SLOW_REPLY_WAIT_MS);
+    // precedent). The clock covers the REPLY wait — it starts with the
+    // send, after the on-device shield has passed — and is cleared on
+    // every settle path in the finally below.
+    let slowReplyTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       const prepaid = await shield.protectTyped(text);
       if (prepaid.kind === "blocked") {
@@ -1081,6 +1091,10 @@ export function ConversationChat() {
       setDraft("");
       setTypedInFlight(true);
       sent = true;
+      slowReplyTimer = setTimeout(() => {
+        setSlowTypedReply(true);
+        setNotice(SLOW_REPLY_NOTE);
+      }, SLOW_REPLY_WAIT_MS);
       const response = await fetch("/api/conversation/turn", {
         method: "POST",
         headers: attachConsentHeader(
@@ -1088,7 +1102,14 @@ export function ConversationChat() {
         ),
         body: JSON.stringify({ text: prepaid.text }),
       });
-      const landed = await handleTurnResponse(response, false, echoTurnId);
+      const landed = await handleTurnResponse(
+        response,
+        false,
+        echoTurnId,
+        () => {
+          confirmed = true;
+        },
+      );
       if (!landed) {
         // The turn failed: the echo was never confirmed, so it goes and
         // the draft returns (today's honest-failure end state).
@@ -1098,7 +1119,7 @@ export function ConversationChat() {
         setDraft(text);
       }
     } catch {
-      if (sent) {
+      if (sent && !confirmed) {
         setTurns((previous) =>
           previous.filter((turn) => turn.id !== echoTurnId),
         );
@@ -1111,7 +1132,9 @@ export function ConversationChat() {
       });
       setNotice("The assistant could not reply just now.");
     } finally {
-      clearTimeout(slowReplyTimer);
+      if (slowReplyTimer !== undefined) {
+        clearTimeout(slowReplyTimer);
+      }
       setTypedInFlight(false);
       setSlowTypedReply(false);
       setBusy(false);

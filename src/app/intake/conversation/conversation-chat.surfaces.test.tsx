@@ -1225,15 +1225,16 @@ describe("typed sends through the on-device shield (HACK-107)", () => {
       // The send DID happen (the fetch ran)…
       expect(turnCalls).toHaveLength(1);
       // …and the failure is honest: the error surface shows, the echo is
-      // gone, no reply bubble exists, and the draft is back verbatim so
-      // the person can try again. (The draft lives back in the textarea,
-      // so the nothing-fabricated check is scoped to the transcript.)
+      // gone (asserted on the words THIS test typed — the draft lives
+      // back in the textarea, so the check is scoped to the transcript),
+      // no reply bubble exists, and the draft is back verbatim so the
+      // person can try again.
       expect(q(container, "conversation-error")).not.toBeNull();
       expect(q(container, "typing-indicator")).toBeNull();
       const transcript = container.querySelector(
         "[data-conversation-transcript]",
       );
-      expect(transcript?.textContent ?? "").not.toContain("Testy McTestface");
+      expect(transcript?.textContent ?? "").not.toContain("My name is Carlos");
       expect(transcript?.textContent ?? "").not.toContain(
         "a household of three",
       );
