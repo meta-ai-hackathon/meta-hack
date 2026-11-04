@@ -238,9 +238,10 @@ describe("ConsentPanel layers its fine print (HACK-165)", () => {
   /**
    * What shows before any tap. The panel showed 289 words at once before
    * the layering. With both providers' data-use caveats kept in short form,
-   * the first layer is 222 words on a first visit (208 with typed sharing
-   * on), so this pins the cut with only 3 words of headroom. The whole
-   * panel is 289 against the 290 budget above.
+   * the first layer is 224 words on a first visit (210 with typed sharing
+   * on), so this pins the cut with 1 word of headroom. The whole panel is
+   * 290, exactly the budget above, so any new consent copy has to replace
+   * words rather than add them.
    */
   const FIRST_LAYER_BUDGET = 225;
 
@@ -280,7 +281,7 @@ describe("ConsentPanel layers its fine print (HACK-165)", () => {
         // Each provider's data-use caveat keeps a short form in the first
         // layer; the rest of its wording is in the fine print.
         expect(visible).toMatch(/Meta may keep them per its terms/);
-        expect(visible).toMatch(/Only reply text goes to ElevenLabs, which may use it to improve its services/);
+        expect(visible).toMatch(/Only the assistant's reply text goes to ElevenLabs, which may use it to improve its services/);
         expect(visible).toMatch(/the microphone never starts and no audio is ever sent/);
         expect(visible).toMatch(/answers save on the app's server/i);
         expect(visible).toContain("data-consent-continue");
