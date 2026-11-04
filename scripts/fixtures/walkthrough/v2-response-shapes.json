@@ -278,10 +278,10 @@
       "example": { "ok": true }
     },
     {
-      "shape": "filled-PDF attachment (binary)",
-      "surface": "POST /api/forms/<formId>/fill",
-      "rationale": "The person's own filled application returning to them as a download: it carries their answers BY DESIGN (VAL-PDF-003) and is never persisted server-side (VAL-PDF-005). Text detectors do not scan binary bytes; the journey instead shape-checks the response (content-type application/pdf, %PDF magic, attachment disposition) and the detectors cover every JSON surface around it.",
-      "example": { "contentDisposition": "attachment; filename=\"sample-application-form.pdf\"", "contentType": "application/pdf", "magic": "%PDF" }
+      "shape": "blank form template (binary)",
+      "surface": "GET /forms/<formId>.pdf",
+      "rationale": "The blank public form the browser's on-device fill loads (the server fill route was retired on HACK-138): the person's answers never ride any request, the page fills the downloaded blank from the values it already holds, and the fill is never persisted server-side (VAL-PDF-005). Text detectors do not scan binary bytes; the journey instead shape-checks the response (content-type application/pdf, %PDF magic) and the detectors cover every JSON surface around it.",
+      "example": { "contentType": "application/pdf", "magic": "%PDF" }
     },
     {
       "shape": "spoken reply audio (binary)",

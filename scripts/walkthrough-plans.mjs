@@ -572,32 +572,3 @@ export const FORM_JOURNEY_PLAN = [
     intent: "known",
   },
 ];
-
-/**
- * The sample form's unmapped fields (no spec question behind them): their
- * answers ride the fill request and are never stored server-side. These
- * values are fictional demo data for the fictional persona.
- */
-export const SAMPLE_FORM_UNMAPPED_ANSWERS = Object.freeze({
-  applicant_name: "Jamie Watts",
-  case_number: "SAMPLE-000000",
-});
-
-/**
- * The sprint cross-journey proof's in-request fill answers for the TWO
- * REAL applications (milestone snap-form part 4, VAL-SPRINT-002): the
- * person's typed name and signature have no spec question behind them —
- * they ride the fill request and are never stored server-side (the fresh
- * in-request semantics the fill route enforces; VAL-SNAP-009). These
- * values are fictional demo data for the fictional persona.
- */
-export const SPRINT_FORM_UNMAPPED_ANSWERS = Object.freeze({
-  "dhb-5200": Object.freeze({
-    "1 First name Middle name Last name  Suffix": "Jamie Watts",
-    Signature: "Jamie Watts",
-  }),
-  "dss-8207": Object.freeze({
-    "First Name Middle Initial Last Name": "Jamie Watts",
-    "Date Signed": "11/02/2026",
-  }),
-});
