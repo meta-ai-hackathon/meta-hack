@@ -4,6 +4,7 @@ import { PDFDocument } from "@cantoo/pdf-lib";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { buildFormFlow } from "../forms/flow";
+import type { StoredAnswer } from "../intake/flow";
 import { parseCommittedRegistryEntries } from "../forms/registry-core";
 import {
   fillReviewOnDevice,
@@ -279,7 +280,7 @@ describe("the browser fill's invariants (property)", () => {
         async (householdSize, housingCost, dateOfBirth, phone, nameDraft, provenance) => {
           // The review payload, built exactly as the review route builds
           // it: the answers below, private ones valueless in the view.
-          const answers: Parameters<typeof buildFormFlow>[1] = {};
+          const answers: Record<string, StoredAnswer> = {};
           if (householdSize !== undefined) {
             answers.household_size = { status: "known", value: householdSize, provenance };
           }
@@ -293,7 +294,7 @@ describe("the browser fill's invariants (property)", () => {
             answers.phone_contact = { status: "known", value: phone, provenance };
           }
           const fields = payloadViews(SAMPLE_ENTRY, answers);
-          const drafts =
+          const drafts: Record<string, string> =
             nameDraft !== undefined ? { applicant_name: nameDraft } : {};
           const result = await fillReviewOnDevice(SAMPLE_BYTES(), fields, drafts, SAMPLE_ENTRY);
           if (result.kind !== "filled") {
