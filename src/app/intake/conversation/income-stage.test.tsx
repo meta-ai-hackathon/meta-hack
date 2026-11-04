@@ -402,6 +402,9 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     expect(q(container, "income-plaid-proposals")).not.toBeNull();
     expect(container.textContent).toContain("From First Platypus Bank");
     expect(q(container, "income-plaid-basis")?.textContent).toContain("3 deposits");
+    // Confirming alone saves nothing, so the heading must say what actually
+    // works: editing a figure to the person's own.
+    expect(container.textContent).toContain("edit any figure to your own to save it");
     expect((container.querySelector('[data-income-plaid-correct="job_income_amount"]') as HTMLInputElement).value).toBe("2100");
     // A pay schedule is a select over the question's spec options, not a
     // numeric field: mobile keyboards cannot type "monthly" (review P2).
@@ -465,6 +468,9 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     expect(q(container, "income-plaid-one-member")?.textContent).toContain(
       "One bank connection",
     );
+    // The copy says a second connection is not offered, so the control is
+    // actually unavailable once a member's values are saved.
+    expect((q(container, "income-plaid-connect") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("does not treat a reformatted same amount as an edit", async () => {

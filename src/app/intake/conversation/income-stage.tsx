@@ -922,11 +922,11 @@ export function IncomeStage(props: {
           <input id="income-plaid-consent" type="checkbox" checked={plaidConsent} onChange={(e) => setPlaidConsent(e.target.checked)} data-income-plaid-consent className="mt-1 h-5 w-5 shrink-0 accent-teal" />
           <span>I agree to connect a Plaid Sandbox test bank and fetch its Bank Income report once to propose income answers.</span>
         </label>
-        <button type="button" data-income-plaid-connect onClick={() => void connectBank()} disabled={!plaidConsent || plaidConnecting} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{plaidConnecting ? "Connecting…" : "Connect test bank"}</button>
+        <button type="button" data-income-plaid-connect onClick={() => void connectBank()} disabled={!plaidConsent || plaidConnecting || plaidSavedMembers.length > 0} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{plaidConnecting ? "Connecting…" : "Connect test bank"}</button>
         <p data-income-plaid-status aria-live="polite" className={plaidStatus === "" ? "hidden" : "rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"}>{plaidStatus}</p>
         {plaidResult !== null ? (
           <div className="flex flex-col gap-2" data-income-plaid-proposals>
-            <h4 className="text-base font-semibold">{plaidInstitutionName ? `From ${plaidInstitutionName}` : "From your test bank"} — confirm or correct each one</h4>
+            <h4 className="text-base font-semibold">{plaidInstitutionName ? `From ${plaidInstitutionName}` : "From your test bank"} — edit any figure to your own to save it</h4>
             <p className="text-sm text-muted" data-income-plaid-basis>Based on {plaidResult.basis.depositCount} deposits from {plaidResult.basis.dateRange.start} to {plaidResult.basis.dateRange.end} ({plaidResult.basis.months.map((m) => `${m.month}: ${m.total.toLocaleString("en-US")}`).join("; ")}). Plaid Bank Income classified these into {plaidResult.basis.streamCount} income stream(s); see each one below.</p>
             {plaidResult.basis.stripePayoutDepositCount > 0 ? <p className="text-sm text-muted" data-income-plaid-stripe-warning>Some deposits look like Stripe payouts. If you also add Stripe, do not count the same money twice.</p> : null}
             {plaidResult.basis.streams.map((s) => <p key={s.category} className="text-sm text-muted" data-income-plaid-stream={s.category}>{s.category.replaceAll("_", " ")}: {s.count} deposit(s), {s.total.toLocaleString("en-US")} total -- {s.disposition.replaceAll("_", " ")}. {s.reason}</p>)}
