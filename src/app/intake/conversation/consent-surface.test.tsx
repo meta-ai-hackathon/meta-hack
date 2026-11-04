@@ -237,9 +237,12 @@ describe("ConsentPanel layers its fine print (HACK-165)", () => {
 
   /**
    * What shows before any tap. The panel showed 289 words at once before
-   * the layering, and 201 after it, so this pins the cut with a little margin.
+   * the layering. With both providers' data-use caveats kept in short form,
+   * the first layer is 222 words on a first visit (208 with typed sharing
+   * on), so this pins the cut with only 3 words of headroom. The whole
+   * panel is 289 against the 290 budget above.
    */
-  const FIRST_LAYER_BUDGET = 210;
+  const FIRST_LAYER_BUDGET = 225;
 
   const everyToggleState: [boolean, boolean][] = [
     [false, false],
@@ -274,8 +277,10 @@ describe("ConsentPanel layers its fine print (HACK-165)", () => {
         }
         // The lines that change what someone agrees to stay in the first layer.
         expect(visible).toMatch(/sees your words before anything is hidden/);
-        // The retention caveat's short form stays visible; its full wording is in the fine print.
+        // Each provider's data-use caveat keeps a short form in the first
+        // layer; the rest of its wording is in the fine print.
         expect(visible).toMatch(/Meta may keep them per its terms/);
+        expect(visible).toMatch(/Only reply text goes to ElevenLabs, which may use it to improve its services/);
         expect(visible).toMatch(/the microphone never starts and no audio is ever sent/);
         expect(visible).toMatch(/answers save on the app's server/i);
         expect(visible).toContain("data-consent-continue");
@@ -283,8 +288,8 @@ describe("ConsentPanel layers its fine print (HACK-165)", () => {
         // Retention and data use: in the fine print, still on the panel.
         expect(finePrint(html, "ai-conversation")).toMatch(/not used to train its models/);
         expect(finePrint(html, "ai-conversation")).toMatch(/not a promise that nothing is kept/);
-        expect(finePrint(html, "voice")).toMatch(/may use it to improve its services/);
         expect(finePrint(html, "voice")).toMatch(/training opt-out in your account/);
+        expect(finePrint(html, "voice")).toMatch(/never gets anything you said or typed/);
         expect(visibleWords(visible)).toBeLessThanOrEqual(FIRST_LAYER_BUDGET);
       }),
       { examples: everyToggleState },

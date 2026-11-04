@@ -25,8 +25,8 @@ import {
 // the choice informed: each toggle's label (what is sent, to whom, for
 // what, from the registry), the line that Meta sees typed words before
 // anything is hidden and may keep them, the line that the microphone never
-// starts with voice off, any unverified or dependency notice, and both
-// buttons. Each path's
+// starts with voice off and that ElevenLabs may use reply text, any
+// unverified or dependency notice, and both buttons. Each path's
 // verified terms and its retention or data-use line sit in that path's
 // FinePrint, a closed native disclosure on the same panel, one tap away
 // before anything is sent.
@@ -224,7 +224,8 @@ export function ConsentPanel(props: ConsentPanelProps) {
           )}
           <p className="text-sm text-muted">
             With voice off, the microphone never starts and no audio is ever
-            sent.
+            sent. Only reply text goes to ElevenLabs, which may use it to
+            improve its services.
           </p>
           <FinePrint
             pathId={voicePath.id}
@@ -236,9 +237,8 @@ export function ConsentPanel(props: ConsentPanelProps) {
           >
             {voicePath.termsVerified ? <PathTerms terms={voicePath.terms} /> : null}
             <p>
-              Only the assistant&apos;s reply text goes to ElevenLabs, which
-              may use it to improve its services (training opt-out in your
-              account) — never anything you said or typed.
+              ElevenLabs offers a training opt-out in your account, and it
+              never gets anything you said or typed.
             </p>
           </FinePrint>
         </div>
