@@ -6,6 +6,7 @@ import type {
   IntakeClientState,
 } from "../../../lib/intake/serialize";
 import type { AnswerStatus } from "../../../lib/honesty";
+import { StatePicker } from "../../../components/state-picker";
 import {
   INCOME_580_QUESTION_ID,
   NO_PROOF_NEEDED_NOTE,
@@ -517,24 +518,52 @@ function QuestionCard(props: {
       </fieldset>
     );
   } else if (question.type === "single_select") {
-    control = (
-      <fieldset aria-describedby={describedBy} className="flex flex-col gap-2">
-        <legend className="mb-1 text-base font-medium">
-          {question.prompt}
-          {question.required ? (
-            <span className="ml-1">
-              <span aria-hidden="true">*</span>
-              <span className="sr-only">(required)</span>
-            </span>
-          ) : null}
-        </legend>
-        {(question.options ?? []).map((option) =>
-          optionRow(question.id, option, "radio", effectiveDraft === option.value, () =>
-            setDraft(option.value),
-          ),
-        )}
-      </fieldset>
-    );
+    if (question.id === "state") {
+      // HACK-142: the state card's 50-radio page becomes a compact
+      // type-to-filter picker. The draft is still the spec's option
+      // value, so the save path (existing tri-state route, server-side
+      // provenance) is unchanged.
+      control = (
+        <div className="flex flex-col gap-1.5" data-qq-state-picker>
+          <label htmlFor="qq-state-picker-input" className="text-base font-medium">
+            {question.prompt}
+            {question.required ? (
+              <span className="ml-1">
+                <span aria-hidden="true">*</span>
+                <span className="sr-only">(required)</span>
+              </span>
+            ) : null}
+          </label>
+          <StatePicker
+            id="qq-state-picker"
+            options={question.options ?? []}
+            value={typeof effectiveDraft === "string" ? effectiveDraft : undefined}
+            onChange={(next) => setDraft(next)}
+            disabled={saving}
+            describedBy={describedBy}
+          />
+        </div>
+      );
+    } else {
+      control = (
+        <fieldset aria-describedby={describedBy} className="flex flex-col gap-2">
+          <legend className="mb-1 text-base font-medium">
+            {question.prompt}
+            {question.required ? (
+              <span className="ml-1">
+                <span aria-hidden="true">*</span>
+                <span className="sr-only">(required)</span>
+              </span>
+            ) : null}
+          </legend>
+          {(question.options ?? []).map((option) =>
+            optionRow(question.id, option, "radio", effectiveDraft === option.value, () =>
+              setDraft(option.value),
+            ),
+          )}
+        </fieldset>
+      );
+    }
   } else if (question.type === "boolean") {
     control = (
       <fieldset aria-describedby={describedBy} className="flex flex-col gap-2">

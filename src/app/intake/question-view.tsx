@@ -8,6 +8,7 @@ import {
   isWorkRequirementsQuestionId,
 } from "../../lib/intake/work-requirements";
 import { AnswerStatusBadge } from "../../components/answer-status-badge";
+import { StatePicker } from "../../components/state-picker";
 import {
   activityTypes,
   draftWorkRows,
@@ -172,31 +173,53 @@ export function QuestionView({
       </fieldset>
     );
   } else if (question.type === "single_select") {
-    control = (
-      <fieldset aria-describedby={describedBy} className="flex flex-col gap-2">
-        <legend className="mb-1 text-base font-medium">
-          {question.prompt} {requiredMark}
-        </legend>
-        {(question.options ?? []).map((option) => (
-          <label
-            key={option.value}
-            htmlFor={`${question.id}-${option.value}`}
-            className="flex items-center gap-2 rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-base has-[:checked]:border-teal has-[:checked]:bg-teal-soft"
-          >
-            <input
-              type="radio"
-              id={`${question.id}-${option.value}`}
-              name={question.id}
-              value={option.value}
-              checked={value === option.value}
-              onChange={() => onValueChange(option.value)}
-              disabled={busy}
-            />
-            {option.label}
+    if (question.id === "state") {
+      // HACK-142: the state question's 50-option radio page becomes a
+      // compact type-to-filter picker. The value is still the spec's
+      // option value, so the answer route, validation, and provenance are
+      // unchanged; the prompt label and help wiring stay on the input.
+      control = (
+        <div className="flex flex-col gap-2" data-intake-state-picker>
+          <label htmlFor="state-picker-input" className="text-base font-medium">
+            {question.prompt} {requiredMark}
           </label>
-        ))}
-      </fieldset>
-    );
+          <StatePicker
+            id="state-picker"
+            options={question.options ?? []}
+            value={typeof value === "string" ? value : undefined}
+            onChange={(next) => onValueChange(next)}
+            disabled={busy}
+            describedBy={describedBy}
+          />
+        </div>
+      );
+    } else {
+      control = (
+        <fieldset aria-describedby={describedBy} className="flex flex-col gap-2">
+          <legend className="mb-1 text-base font-medium">
+            {question.prompt} {requiredMark}
+          </legend>
+          {(question.options ?? []).map((option) => (
+            <label
+              key={option.value}
+              htmlFor={`${question.id}-${option.value}`}
+              className="flex items-center gap-2 rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-base has-[:checked]:border-teal has-[:checked]:bg-teal-soft"
+            >
+              <input
+                type="radio"
+                id={`${question.id}-${option.value}`}
+                name={question.id}
+                value={option.value}
+                checked={value === option.value}
+                onChange={() => onValueChange(option.value)}
+                disabled={busy}
+              />
+              {option.label}
+            </label>
+          ))}
+        </fieldset>
+      );
+    }
   } else if (question.type === "attribution") {
     const entries = draftAttribution(value, attributionContext);
     const members = attributionContext?.members ?? [];
