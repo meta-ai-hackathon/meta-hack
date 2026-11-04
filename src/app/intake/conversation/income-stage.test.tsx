@@ -453,7 +453,7 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
   });
 
   it("saves a typed amount with separators as a number, not NaN", async () => {
-    const { container, act } = await pullTestBank();
+    const { container, act, getNotice } = await pullTestBank();
     await act(async () => {
       const input = container.querySelector(
         '[data-income-plaid-correct="job_income_amount"]',
@@ -484,6 +484,10 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     expect(JSON.parse(confirm?.body ?? "{}").confirmations).toEqual([
       { questionId: "job_income_amount", action: "correct", value: 1800 },
     ]);
+    // Notices can be spoken, so the typed member name stays out of them
+    // (review P2, PR #172). The page-local saved list may still show it.
+    expect(getNotice()).toContain("Saved the figures");
+    expect(getNotice()).not.toContain("Alberta");
     expect(q(container, "income-plaid-another")).toBeNull();
     expect(q(container, "income-plaid-one-member")?.textContent).toContain(
       "One bank connection",

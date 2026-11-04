@@ -661,8 +661,12 @@ export function IncomeStage(props: {
       // for per-member persistence; remove it if that behavior changes.
       const prev = plaidSavedMembers[plaidSavedMembers.length - 1];
       setPlaidSavedMembers((list) => [...list, { name, detail: savedEdits.map((d) => d.questionId + ": " + String(d.value)).join("; ") }]);
+      // Notices can be spoken and are not the place for a typed household
+      // member's name (review P2, PR #172). The saved-members list below is
+      // page-local display state; the notice stays name-free.
       const keptNote = "Saved the figures and schedules you typed or chose. Untouched test-bank answers were not saved.";
-      onNotice(prev && prev.name !== name ? "Saved for " + name + ". For now this replaced " + prev.name + "'s bank answers in the household income questions. " + keptNote : "Saved for " + name + ". " + keptNote + " Nothing was submitted.");
+      const replacedNote = prev && prev.name !== name ? " This replaced the previous person's bank answers in the household income questions." : "";
+      onNotice(keptNote + replacedNote + " Nothing was submitted.");
     } catch { onNotice(SAVE_FAILED_NOTICE); }
     finally { saveInFlight.current = false; setSaving(false); }
   }
