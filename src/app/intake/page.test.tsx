@@ -2,7 +2,7 @@ import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { IntakeWizard } from "./intake-wizard";
-import IntakePage from "./page";
+import IntakePage, { metadata } from "./page";
 import { ServerAnswersNotice } from "./server-answers-notice";
 
 /** Every element in a tree returned by a component, without rendering children components. */
@@ -44,5 +44,14 @@ describe("Intake page shell", () => {
     const notice = tree.findIndex((element) => element.type === ServerAnswersNotice);
     expect(notice).toBeGreaterThanOrEqual(0);
     expect(notice).toBeLessThan(tree.findIndex((element) => element.type === IntakeWizard));
+  });
+
+  it("carries a meta description with no a-few promise (HACK-161, VAL-UX-009)", () => {
+    // The page opens with the honest "Answered 0 of 61 questions" counter,
+    // so its description never promises "a few" questions either — same
+    // over-claim, same page, dropped in the same PR.
+    expect(metadata.description).not.toMatch(/a few/i);
+    expect(metadata.description).toMatch(/Plain-language questions, one at a time/);
+    expect(metadata.description).toMatch(/Nothing you enter on this page is sent to us/);
   });
 });

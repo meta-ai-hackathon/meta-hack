@@ -79,6 +79,19 @@ describe("Home page (the round-2 entry shell, VAL-FIX-003)", () => {
     expect(html).toContain('href="/intake"');
   });
 
+  it("names the step-by-step path once and says where its answers are kept (HACK-161, VAL-UX-009)", () => {
+    const html = renderToStaticMarkup(<Home />);
+    // ONE name everywhere: the link's old home-page name ("Use the form
+    // instead") read as a third thing next to the conversation page's
+    // "Use the wizard instead" and the sharing screen's "step-by-step
+    // form". The entry point also states the storage difference — the
+    // step-by-step form keeps answers only on this device.
+    expect(html).toContain("Use the step-by-step form instead");
+    expect(html).toContain("It keeps answers only on this device");
+    expect(html).not.toContain("Use the form instead");
+    expect(html).not.toContain("Use the wizard instead");
+  });
+
   it("keeps a hierarchical heading outline with no skipped levels", () => {
     const levels = headingLevels(renderToStaticMarkup(<Home />));
     expect(levels.length).toBeGreaterThan(1);

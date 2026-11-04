@@ -78,7 +78,7 @@ export const DOWNLOADED_COPY_STAYS =
 
 export const DEVICE_INTAKE_COPY = {
   pageIntro:
-    "A few plain-language questions, one at a time. You can stop at any " +
+    "Plain-language questions, one at a time. You can stop at any " +
     "point. While you answer here, nothing you enter on this page is sent " +
     "to us.",
   keptBlurb:

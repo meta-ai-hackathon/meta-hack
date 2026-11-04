@@ -130,6 +130,38 @@ describe("ReviewSectionContent structure", () => {
     expect(nextAction, "the next-step box leads the buttons").toBeLessThan(prepare);
   });
 
+  it("points the download note's 'typed below' the right way — the typed fields render after it (HACK-161, VAL-UX-009)", () => {
+    // HACK-153 moved the download to the top of the review, which also
+    // settled the ticket's third direction complaint: today the typed
+    // fields (the signature step and the remaining-fields list) really do
+    // render BELOW the note under the download button. Pin the order so a
+    // future re-layout cannot silently point the line the wrong way again.
+    const dhb = getFormRegistryEntry("dhb-5200");
+    const view = buildFormFlow(dhb, {
+      household_size: { status: "known" as const, value: 1 },
+      date_of_birth: { status: "known" as const, value: "1990-01-01" },
+    });
+    const html = decodeEntities(
+      renderToStaticMarkup(
+        <ReviewSectionContent
+          data={{
+            ...reviewData(dhb, { household_size: { status: "known", value: 1 } }),
+            householdSize: 1,
+            fields: view.fields,
+            toResolve: view.toResolve,
+            counts: view.counts,
+          }}
+        />,
+      ),
+    );
+    const note = html.indexOf("data-download-note");
+    const signature = html.indexOf("data-signature-step");
+    const remaining = html.indexOf("data-review-remaining");
+    expect(note, "the download note renders").toBeGreaterThan(-1);
+    expect(note, "the typed signature step is below the note").toBeLessThan(signature);
+    expect(note, "the typed remaining fields are below the note").toBeLessThan(remaining);
+  });
+
   it("styles exactly one primary button (HACK-49 rule via HACK-119)", () => {
     const html = renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />);
     // The primary style is the filled teal pill; every other control is

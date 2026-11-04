@@ -40,9 +40,9 @@ export default function Home() {
       <p className="px-5 pb-8 text-sm text-muted min-[761px]:px-9 min-[761px]:pb-10">
         Prefer step-by-step questions?{" "}
         <Link href="/intake" className="text-teal underline hover:opacity-80">
-          Use the form instead
+          Use the step-by-step form instead
         </Link>
-        .
+        . It keeps answers only on this device.
       </p>
     </div>
   );

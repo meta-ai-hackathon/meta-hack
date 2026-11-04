@@ -209,9 +209,9 @@
       }
     },
     {
-      "shape": "form review — handoff steps and lifecycle",
+      "shape": "form review — lifecycle and portal links",
       "surface": "GET /api/forms/sample-application-form/review",
-      "rationale": "The ordered handoff steps and the session's BN-25 lifecycle status: prepared, never submitted (the app never submits for you).",
+      "rationale": "The session's BN-25 lifecycle status and the dated official portal links: prepared, never submitted (the app never submits for you). The review serves no handoff steps — the client renders the KB-sourced companion instead (HACK-119).",
       "example": {
         "sessionStatus": "draft",
         "allowedSessionTransitions": ["prepared", "handed_off", "user_reported_submitted", "user_reported_decided"],
@@ -221,12 +221,6 @@
             "url": "https://epass.nc.gov/",
             "retrievedAt": "2026-10-30"
           }
-        ],
-        "steps": [
-          { "title": "Review every field", "detail": "Check each answer below. Anything marked as still needed is left blank on the form." },
-          { "title": "Download your application", "detail": "The filled PDF is generated when you tap download, and the filled form itself isn't kept on our side." },
-          { "title": "Submit it yourself", "detail": "Use the official portal link, or mail or drop off the printed form — the app never submits for you." },
-          { "title": "Tell us what happened", "detail": "After you submit, let us know so your progress here reflects reality." }
         ]
       }
     },
