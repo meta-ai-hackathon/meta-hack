@@ -562,8 +562,11 @@ export function PurgeSection({ onPurged }: { onPurged: () => void }) {
 export function PurgeDisclosure({ onPurged }: { onPurged: () => void }) {
   return (
     <details data-purge-disclosure className="flex flex-col gap-3">
+      {/* The calm offer phrasing (claude-review P3 on the HACK-149 PR):
+      a collapsed control that reads as a gentle option, not a command —
+      and no exact repetition of the section heading it reveals. */}
       <summary className="min-h-11 cursor-pointer self-start py-2 text-sm font-medium text-muted underline decoration-surface-border underline-offset-4 hover:text-foreground hover:decoration-teal">
-        Delete my information
+        When you&apos;re done, you can delete your information
       </summary>
       <PurgeSection onPurged={onPurged} />
     </details>

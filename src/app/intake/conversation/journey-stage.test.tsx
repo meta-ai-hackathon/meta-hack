@@ -982,6 +982,25 @@ describe("the quick-questions stage between entry and talk (VAL-QQ-002/004/006/0
     expect(container.textContent).toContain("Your answers so far");
     expect(q(container, "purge-wrapper")).not.toBeNull();
   });
+
+  it("the typed journey's END renders the full purge section, not the collapsed disclosure (claude-review P3 on the HACK-149 PR)", async () => {
+    // The typed/declined path never reaches the voice results stage
+    // (resultsStage is voice-gated), so its completed session — the
+    // review/download handoff in view — renders the full purge surface
+    // inline, exactly like the results stage; only the stages BEFORE
+    // completion get the collapsed disclosure.
+    stubFetch(COMPLETE_STATE);
+    const { container, act: actFn } = await renderChat();
+    await actFn(async () => {
+      saveConsentReceipt(declinedReceipt());
+    });
+    expect(container.textContent).toContain("Every question is answered");
+    expect(q(container, "purge-wrapper")).not.toBeNull();
+    expect(q(container, "purge-disclosure")).toBeNull();
+    expect(container.textContent).toContain(
+      "your answers, your chat, and the private details you told us",
+    );
+  });
 });
 
 describe("fallback honesty (VAL-TTS2-002)", () => {

@@ -159,7 +159,11 @@ describe("PurgeDisclosure (the early-flow affordance, HACK-149)", () => {
     // mandated disclosure included) one interaction away (VAL-VJS-003).
     expect(html).toContain("data-purge-disclosure");
     expect(html).toContain("<summary");
-    expect(html).toContain("Delete my information");
+    // The summary is the gentle offer, not a repeat of the section
+    // heading it reveals (claude-review P3, HACK-149 PR).
+    expect(html).toContain(
+      "When you&#x27;re done, you can delete your information",
+    );
     expect(html).toContain("data-purge-wrapper");
     expect(markupWithBannedClaims(html)).toEqual([]);
   });

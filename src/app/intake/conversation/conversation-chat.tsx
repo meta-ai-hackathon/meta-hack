@@ -2195,10 +2195,18 @@ export function ConversationChat() {
       ) : !voiceConsented ? (
         <>
           {journeySections}
-          {/* The typed paths' early stages: the deletion control stays
-          reachable (VAL-VJS-003) as HACK-149's collapsed, calm disclosure
-          instead of the standing danger panel. */}
-          {state ? <PurgeDisclosure onPurged={purgeClientState} /> : null}
+          {/* The typed paths: the collapsed, calm disclosure keeps deletion
+          reachable without making it the opening act (HACK-149,
+          VAL-VJS-003) — and once this typed journey is complete (the
+          review/download handoff in view), the full purge section renders,
+          matching the voice journey's results stage. */}
+          {state ? (
+            state.complete ? (
+              <PurgeSection onPurged={purgeClientState} />
+            ) : (
+              <PurgeDisclosure onPurged={purgeClientState} />
+            )
+          ) : null}
         </>
       ) : null}
 
