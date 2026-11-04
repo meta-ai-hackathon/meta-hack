@@ -18,6 +18,7 @@ import {
   deviceFormReview,
   deviceMatch,
 } from "../../lib/intake/device-form";
+import { peopleOnApplication, personShowsField } from "../../lib/forms/review-layout";
 import { QUESTIONS, type Question } from "../../lib/intake/spec";
 import { KB_ENTRIES } from "../../lib/kb";
 import { DEVICE_RESULTS_COPY, DeviceResults, type TypedReviewAnswers } from "./device-results";
@@ -241,7 +242,7 @@ describe("the device results, for any answers on the device", () => {
     fc.assert(
       fc.property(deviceAnswersArb, (state) => {
         const { root } = render(state);
-        const inputs = [...root.querySelectorAll<HTMLInputElement>("[data-review-fields] input")];
+        const inputs = [...root.querySelectorAll<HTMLInputElement>('[data-review-fields] input[type="text"]')];
         expect(inputs.length).toBeGreaterThan(0);
         // The full DHB-5200 mapping puts hundreds of typed fields on this
         // screen, so look labels and ids up once per render: the first
@@ -262,14 +263,40 @@ describe("the device results, for any answers on the device", () => {
     );
   }, RENDER_TIMEOUT_MS);
 
-  it("keep typed answers out of the browser's spellcheck and saved form entries", () => {
-    // Enhanced spellcheck in Chrome and Edge sends the text of a field to
-    // the vendor's servers, and these fields take names, addresses, and the
-    // Social Security number. A field marked spellcheck="false" is never sent.
+  it("render every box question as a Yes/No pair, never free text (HACK-154)", () => {
     fc.assert(
       fc.property(deviceAnswersArb, (state) => {
         const { root } = render(state);
-        for (const input of root.querySelectorAll<HTMLInputElement>("[data-review-fields] input")) {
+        const review = deviceFormReview(state);
+        const people = peopleOnApplication(state);
+        const boxFields = review.fields.filter(
+          (field) =>
+            field.state === "asked" &&
+            field.specQuestionId === null &&
+            personShowsField(field.question, people) &&
+            (field.type === "checkbox" || field.type === "radio"),
+        );
+        expect(boxFields.length).toBeGreaterThan(0);
+        for (const field of boxFields) {
+          const item = root.querySelector(`[data-review-field="${field.fieldName}"]`);
+          expect(item, field.fieldName).not.toBeNull();
+          const radios = [...item!.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+          expect(radios.map((radio) => radio.value).sort(), field.fieldName).toEqual(["checked", "unchecked"]);
+          expect(item!.querySelector('input[type="text"]'), field.fieldName).toBeNull();
+        }
+      }),
+      { numRuns: 30 },
+    );
+  }, RENDER_TIMEOUT_MS);
+
+  it("keep typed answers out of the browser's spellcheck and saved form entries", () => {
+    // Enhanced spellcheck in Chrome and Edge sends the text of a field to
+    // the vendor's servers, and these fields take names, addresses, and
+    // the Social Security number.
+    fc.assert(
+      fc.property(deviceAnswersArb, (state) => {
+        const { root } = render(state);
+        for (const input of root.querySelectorAll<HTMLInputElement>('[data-review-fields] input[type="text"]')) {
           expect(input.getAttribute("spellcheck"), input.id).toBe("false");
           expect(input.getAttribute("autocomplete"), input.id).toBe("off");
         }
@@ -283,9 +310,13 @@ describe("the device results, for any answers on the device", () => {
       fc.property(deviceAnswersArb, (state) => {
         const { root } = render(state);
         const review = deviceFormReview(state);
+        const people = peopleOnApplication(state);
         const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-review-fields] button")];
         const asked = review.fields.filter(
-          (field) => field.state === "asked" && field.specQuestionId !== null,
+          (field) =>
+            field.state === "asked" &&
+            field.specQuestionId !== null &&
+            personShowsField(field.question, people),
         );
         expect(buttons).toHaveLength(asked.length);
         for (const button of buttons) {
@@ -319,18 +350,39 @@ describe("the device results, for any answers on the device", () => {
   it("account for every field on the form exactly once, in the review or as left blank", () => {
     // The full DHB-5200 mapping (VAL-FIX-007): a field either takes an
     // answer, so the review lists it, or the coverage list says why it
-    // stays blank and on which page, whatever the answers.
+    // stays blank and on which page, whatever the answers. The restructure
+    // (HACK-153/154) adds the person scoping: a per-person field for
+    // somebody who is not on the application renders NO row, and the
+    // collapsed list says so in prose instead.
     const coverage = new Map(deviceFormCoverage().fields.map((field) => [field.fieldName, field]));
     fc.assert(
       fc.property(deviceAnswersArb, (state) => {
         const { root } = render(state);
+        const people = peopleOnApplication(state);
         const reviewed = [...root.querySelectorAll("[data-review-field]")].map(
           (item) => item.getAttribute("data-review-field") ?? "",
         );
         const blank = [...root.querySelectorAll("[data-coverage-field]")].map(
           (item) => item.getAttribute("data-coverage-field") ?? "",
         );
-        expect([...reviewed, ...blank].sort()).toEqual(
+        const hidden = DEVICE_FORM_ENTRY.fields.filter(
+          (field) =>
+            field.disposition === "mapped" &&
+            !blank.includes(field.name) &&
+            !reviewed.includes(field.name),
+        );
+        // A mapped field renders no row only when its person is not on
+        // the application — and then the prose accounting is present.
+        for (const field of hidden) {
+          expect(
+            personShowsField(field.question, people),
+            `field ${field.name} hidden without a person reason`,
+          ).toBe(false);
+        }
+        if (hidden.length > 0) {
+          expect(root.textContent).toContain("finish it by hand");
+        }
+        expect([...reviewed, ...blank, ...hidden.map((field) => field.name)].sort()).toEqual(
           DEVICE_FORM_ENTRY.fields.map((field) => field.name).sort(),
         );
         for (const name of reviewed) {
@@ -363,13 +415,14 @@ describe("the device results, for any answers on the device", () => {
 
   it("offer to show the filled form first, with nothing on the screen that downloads or embeds a file", () => {
     // Whatever the answers, the end of /intake offers to show the filled
-    // form, with the note on what that does. Nothing on the screen downloads
-    // or embeds a file: a copy is downloaded only from the pages, once the
-    // person has asked for them, and only when they press Download a copy
-    // (device-results.test.tsx).
+    // form beside the one-line count, ABOVE the collapsed remaining list
+    // (HACK-154: the button sat ~93,600 px down). Nothing on the screen
+    // downloads or embeds a file: a copy is downloaded only from the
+    // pages, once the person has asked for them, and only when they press
+    // Download a copy (device-results.test.tsx).
     fc.assert(
       fc.property(deviceAnswersArb, (state) => {
-        const { root } = render(state);
+        const { html, root } = render(state);
         const show = root.querySelectorAll<HTMLButtonElement>('button[data-action="show-form"]');
         expect(show).toHaveLength(1);
         expect(show[0].textContent).toBe(DEVICE_RESULTS_COPY.showFormButton);
@@ -379,6 +432,12 @@ describe("the device results, for any answers on the device", () => {
         // the person asks for them.
         expect(root.querySelector("[data-print-preview], [data-print-pages], canvas")).toBeNull();
         expect(root.querySelector('[data-action="download-copy"]')).toBeNull();
+        // Top placement: the button and the count line come before the
+        // collapsed remaining-fields list in the document.
+        const buttonAt = html.indexOf('data-action="show-form"');
+        const remainingAt = html.indexOf("data-review-remaining");
+        expect(buttonAt).toBeGreaterThan(-1);
+        expect(remainingAt).toBeGreaterThan(buttonAt);
       }),
       { numRuns: 20 },
     );
@@ -427,8 +486,9 @@ describe("the device results copy", () => {
     // later section says so, on the same screen), so the note never says
     // nothing at all is saved.
     expect(note).not.toMatch(/\bnothing is saved\b/i);
-    // The lists that come with the pages point at the form, not at a file.
-    expect(DEVICE_RESULTS_COPY.leftBlankHeading).toBe("Left blank on the form below");
+    // The blank fields are listed once — collapsed above the pages — and
+    // the conflict list is the only list the pages carry.
+    expect(DEVICE_RESULTS_COPY.remainingSummary).toContain("collapsed");
     expect(DEVICE_RESULTS_COPY.conflictsHeading).toBe("Check these on the form below");
     expect(DEVICE_RESULTS_COPY.conflictsBody).toContain("on the printed form");
   });
@@ -462,8 +522,7 @@ describe("the device results copy", () => {
     expect(DEVICE_RESULTS_COPY.drawFailed).toContain("You can still download a copy below, or try again");
     expect(DEVICE_RESULTS_COPY.downloadOnlyBody).toContain("there's nothing to print from this page");
     expect(DEVICE_RESULTS_COPY.downloadOnlyBody).toContain("This goes away when you change an answer or leave");
-    // Its lists point at the form, with no pages below them.
-    expect(DEVICE_RESULTS_COPY.leftBlankHeadingNoPages).toBe("Left blank on the form");
+    // The conflict list points at the form, with no pages below it.
     expect(DEVICE_RESULTS_COPY.conflictsHeadingNoPages).toBe("Check these on the form");
   });
 

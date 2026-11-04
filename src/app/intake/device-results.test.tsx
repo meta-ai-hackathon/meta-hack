@@ -5,6 +5,7 @@ import { webcrypto } from "node:crypto";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { peopleOnApplication, personShowsField } from "../../lib/forms/review-layout";
 
 // The step-by-step page to the end (HACK-115), driven through the DOM: a
 // person answers every question, sees the match and the review of the
@@ -768,9 +769,11 @@ describe("/intake to the review and the filled form, on the device", () => {
     expect(first.form.getTextField("14 Phone Number").getText()).toBe("704-555-0142");
     expect(first.form.getTextField("undefined_10").getText()).toBe("1200");
     expect(first.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
-    // Nothing guessed: what no one answered stays blank, and the page says so.
+    // Nothing guessed: what no one answered stays blank, and the page
+    // says so on the field's own row in the collapsed list.
     expect(first.form.getTextField("5 Social Security Number SSN").getText() ?? "").toBe("");
-    expect(page.container.querySelector("[data-left-blank]")?.textContent).toContain("Social Security number");
+    const ssnRow = page.container.querySelector('[data-review-field="5 Social Security Number SSN"]');
+    expect(ssnRow?.querySelector("[data-left-blank-reason]")?.textContent).toContain("No answer yet");
 
     // pdf.js got the filled bytes and nothing that would make it request
     // anything, and its document is gone once the pages are drawn.
@@ -891,10 +894,12 @@ describe("/intake to the review and the filled form, on the device", () => {
     await reloaded.unmount();
   }, 60_000);
 
-  it("prints both boxes of a check-one line as typed and says to fix them", async () => {
+  it("prints both boxes of a check-one line as answered and says to fix them", async () => {
     // The full DHB-5200 mapping (VAL-FIX-007): the fill never picks a side
-    // when two boxes of one check-one group are checked. The form shows
-    // both, and the page names the question above the filled pages.
+    // when two boxes of one check-one group are checked. The Yes/No pairs
+    // (HACK-154) let the person answer both boxes of the line yes; the
+    // form shows both, and the page names the question above the filled
+    // pages.
     const { DEVICE_FORM_ENTRY } = await import("../../lib/intake/device-form");
     const [employed, selfEmployed] = ["Employed_2", "SelfEmployed_2"].map(
       (name) => DEVICE_FORM_ENTRY.fields.find((field) => field.name === name)!,
@@ -905,10 +910,9 @@ describe("/intake to the review and the filled form, on the device", () => {
     const page = await visit();
     await page.answerEverything();
     for (const field of [employed, selfEmployed]) {
-      await page.type(
-        page.container.querySelector<HTMLInputElement>(`[data-review-field="${field.name}"] input`)!,
-        "checked",
-      );
+      const row = page.container.querySelector(`[data-review-field="${field.name}"]`)!;
+      expect(row.querySelector('input[type="text"]')).toBeNull();
+      await page.click(row.querySelector<HTMLInputElement>('input[type="radio"][value="checked"]')!);
     }
     expect(page.container.querySelector("[data-check-conflicts]")).toBeNull();
     const filled = await page.showForm();
@@ -1045,36 +1049,34 @@ describe("/intake to the review and the filled form, on the device", () => {
     await page.unmount();
   }, 60_000);
 
-  it("holds the filled form back until every box answer reads checked or unchecked", async () => {
-    // A box answer the fill can't read would print as an unchecked box that
-    // counts as filled, so "yes" for "Is Person 2 employed?" is listed to
-    // fix, and nothing is filled or fetched until it is.
+  it("fills a yes/no field from its pair, with no free-text box to mistype", async () => {
+    // A box answer the fill can't read would print as an unchecked box
+    // that counts as filled — the old free-text review let "yes" for
+    // "Is Person 2 employed?" do exactly that. The Yes/No pair (HACK-154)
+    // puts only the two words the fill trusts in the draft, so the
+    // mistake cannot be typed here anymore; the word-check itself stays
+    // pinned at review-fill's level and in device-review-answers.
     const page = await visit();
     await page.answerEverything();
-    const input = (name: string) =>
-      page.container.querySelector<HTMLInputElement>(`[data-review-field="${name}"] input`)!;
-    await page.type(input(NAME_FIELD), TYPED_NAME);
-    await page.type(input("Employed_2"), "yes");
-    await page.type(input("SelfEmployed_2"), " Checked ");
-    await page.click(page.container.querySelector<HTMLButtonElement>('[data-action="show-form"]')!);
-    await page.waitFor(() => page.text().includes(page.copy.unreadableBoxes), "the box answers notice");
-    expect(pdfjs.documents).toEqual([]);
-    expect(page.pages()).toEqual([]);
-    expect(requests.map((request) => request.url)).toEqual(["/api/intake/state"]);
-    const listed = [...page.container.querySelectorAll("[data-unreadable-box]")].map((item) =>
-      item.getAttribute("data-unreadable-box"),
+    const row = page.container.querySelector('[data-review-field="Employed_2"]')!;
+    expect(row.querySelector('input[type="text"]')).toBeNull();
+    const yes = row.querySelector<HTMLInputElement>('input[type="radio"][value="checked"]')!;
+    const no = row.querySelector<HTMLInputElement>('input[type="radio"][value="unchecked"]')!;
+    await page.click(yes);
+    // The name still types as text beside it.
+    await page.type(
+      page.container.querySelector<HTMLInputElement>(`[data-review-field="${NAME_FIELD}"] input`)!,
+      TYPED_NAME,
     );
-    expect(listed).toEqual(["Employed_2"]);
-    expect(input("Employed_2").getAttribute("aria-invalid")).toBe("true");
-    expect(input("SelfEmployed_2").getAttribute("aria-invalid")).toBeNull();
-
-    // Fixed, the list goes away and the form fills as answered.
-    await page.type(input("Employed_2"), "unchecked");
-    expect(page.container.querySelector("[data-unreadable-boxes]")).toBeNull();
     const filled = await page.showForm();
-    expect(filled.form.getCheckBox("Employed_2").isChecked()).toBe(false);
-    expect(filled.form.getCheckBox("SelfEmployed_2").isChecked()).toBe(true);
-    expect(filled.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
+    expect(filled.form.getCheckBox("Employed_2").isChecked()).toBe(true);
+
+    // Picking No instead prints the box unchecked, on purpose — an
+    // explicit no is an answer, not a blank.
+    await page.click(no);
+    const second = await page.showForm();
+    expect(second.form.getCheckBox("Employed_2").isChecked()).toBe(false);
+    expect(second.form.getTextField(NAME_FIELD).getText()).toBe(TYPED_NAME);
     expectNoAnswerInRequests([...PRIVATE_VALUES, TYPED_NAME]);
     await page.unmount();
   }, 60_000);
@@ -1084,30 +1086,62 @@ describe("/intake to the review and the filled form, on the device", () => {
     // answering or rereading a question doesn't wipe the rest. One visit
     // keeps this cheap: each trip after the first rereads the last question.
     const { DEVICE_FORM_ENTRY } = await import("../../lib/intake/device-form");
-    const typedFields = DEVICE_FORM_ENTRY.fields
-      .filter((field) => field.disposition === "mapped" && field.specQuestionId === null)
-      .map((field) => field.name);
-    const typedArb = fc.dictionary(
-      fc.constantFrom(...typedFields),
-      fc.oneof(fc.stringMatching(/^[A-Za-z0-9][A-Za-z0-9 .,#'-]{0,30}$/), fc.constantFrom("checked", "unchecked")),
+    // The review only renders fields for people on the application
+    // (HACK-153), so the pools of typeable fields follow that scoping
+    // under the persona's household of two.
+    const people = peopleOnApplication(PERSONA);
+    const mappedFields = DEVICE_FORM_ENTRY.fields.filter(
+      (field) =>
+        field.disposition === "mapped" &&
+        field.specQuestionId === null &&
+        personShowsField(field.question, people),
+    );
+    const textFields = mappedFields.filter(
+      (field) => field.type !== "checkbox" && field.type !== "radio",
+    );
+    const boxFields = mappedFields.filter(
+      (field) => field.type === "checkbox" || field.type === "radio",
+    );
+    // Text fields take text; a box field's pair is clicked (the two words
+    // the fill trusts, HACK-154).
+    const typedTextArb = fc.dictionary(
+      fc.constantFrom(...textFields.map((field) => field.name)),
+      fc.stringMatching(/^[A-Za-z0-9][A-Za-z0-9 .,#'-]{0,30}$/),
       { minKeys: 1, maxKeys: 6 },
+    );
+    const typedBoxArb = fc.dictionary(
+      fc.constantFrom(...boxFields.map((field) => field.name)),
+      fc.constantFrom("checked", "unchecked"),
+      { minKeys: 1, maxKeys: 3 },
     );
     const page = await visit();
     // Not sure of the county, so the review asks for it.
     await page.answerEverything(new Set(["county"]));
     const input = (name: string) =>
-      page.container.querySelector<HTMLInputElement>(`[data-review-field="${name}"] input`)!;
+      page.container.querySelector<HTMLInputElement>(`[data-review-field="${name}"] input[type="text"]`)!;
+    const radio = (name: string, value: string) =>
+      page.container.querySelector<HTMLInputElement>(
+        `[data-review-field="${name}"] input[type="radio"][value="${value}"]`,
+      )!;
     const typedSoFar: Record<string, string> = {};
     async function typeIntoReview(typed: Readonly<Record<string, string>>) {
       for (const [name, value] of Object.entries(typed)) {
-        await page.type(input(name), value);
+        if (value === "checked" || value === "unchecked") {
+          await page.click(radio(name, value));
+        } else {
+          await page.type(input(name), value);
+        }
         typedSoFar[name] = value;
       }
     }
     function expectEverythingTyped() {
       expect(page.text()).toContain("All questions answered for now");
       for (const [name, value] of Object.entries(typedSoFar)) {
-        expect(input(name).value, name).toBe(value);
+        if (value === "checked" || value === "unchecked") {
+          expect(radio(name, value).checked, name).toBe(true);
+        } else {
+          expect(input(name).value, name).toBe(value);
+        }
       }
     }
 
@@ -1124,8 +1158,9 @@ describe("/intake to the review and the filled form, on the device", () => {
 
     // Review this answer, for whatever was typed: everything typed so far survives.
     await fc.assert(
-      fc.asyncProperty(typedArb, async (typed) => {
-        await typeIntoReview(typed);
+      fc.asyncProperty(typedTextArb, typedBoxArb, async (text, boxes) => {
+        await typeIntoReview(text);
+        await typeIntoReview(boxes);
         const reviews = [...page.container.querySelectorAll<HTMLButtonElement>("button")].filter(
           (button) => button.textContent === "Review this answer",
         );
