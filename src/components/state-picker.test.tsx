@@ -351,6 +351,285 @@ describe("StatePicker (HACK-142)", () => {
       expect(chip()).toContain("Picked: North Carolina");
     });
   });
+
+  // HACK-164 follow-up (claude-review P2 on PR #154): the open list used
+  // to FLOAT over the "Picked" chip, a visible needed-to-continue error,
+  // and the controls below while the input was focused, so a click aimed
+  // through it at a covered control hit an option instead. The list now
+  // renders in normal flow — it can never overlay anything — and the
+  // close lives entirely outside pointer presses: a press's blur neither
+  // closes the list nor resets the query (either would reflow the page
+  // between the press's mousedown and its click, and the click would land
+  // on whatever shifted under the pointer), while the close-and-yield
+  // happens on that press's own click after it lands. Continue therefore
+  // still picks and advances in one press (VAL-UX-001).
+  describe("in-flow list + close outside pointer presses (HACK-164 follow-up)", () => {
+    let outside: HTMLButtonElement;
+    let outsideClicks: number;
+
+    beforeEach(() => {
+      outsideClicks = 0;
+      outside = document.createElement("button");
+      outside.type = "button";
+      outside.onclick = () => {
+        outsideClicks += 1;
+      };
+      document.body.append(outside);
+    });
+
+    it("renders the open listbox in normal flow so it can never overlay the error, the chip, or the controls below", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("caro"));
+      const list = listbox();
+      // The floating listbox of PR #154 is gone: no absolute positioning,
+      // no z layer — an in-flow list occupies its own space and pushes the
+      // content below it down instead of covering it.
+      expect(list.className).not.toContain("absolute");
+      expect(list.className).not.toContain("top-full");
+      expect(list.className).not.toContain("z-10");
+    });
+
+    it("closes on a click outside the picker and yields the input to the picked label", async () => {
+      const { act } = await renderPicker({ value: "NC" });
+      await act(() => type("north"));
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      await act(() => {
+        outside.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(listbox().className).toContain("hidden");
+      // The same yield Escape performs: the typed query gives way to the
+      // picked label once the list closes.
+      expect(input().value).toBe("North Carolina");
+    });
+
+    it("a click outside with nothing picked closes the list and clears the query", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north"));
+      await act(() => {
+        outside.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("");
+    });
+
+    it("a click inside the picker never closes the list via the outside close", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north carolina"));
+      // Typing means the input has focus (the state a person is in when
+      // they click back into their own text).
+      await act(() => input().focus());
+      await act(() => {
+        input().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      expect(listbox().className).not.toContain("hidden");
+    });
+
+    it("a press aimed at a control below lands on it: the press's blur neither closes nor resets, the click completes, then the list closes and the query yields", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north"));
+      // The press begins: pointerdown on a control below the picker.
+      await act(() => {
+        outside.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+      });
+      // The press's mousedown blurs the input. The typed "north" is
+      // ambiguous, so nothing commits — and nothing reflows: the list
+      // stays open and the query stays put, because a close or reset here
+      // would move the aimed control between the press's mousedown and
+      // its click.
+      await act(() => {
+        input().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      expect(input().value).toBe("north");
+      // The press's click lands on the control it aimed at, and only then
+      // does the list close and the query yield to the picked label.
+      await act(() => {
+        outside.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(outsideClicks).toBe(1);
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("");
+    });
+
+    it("a TOUCH tap aimed at a control below lands on it: pointerup fires before the blur, yet the list still stays open through the press (touch event order)", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north"));
+      // Touch order: pointerdown, pointerup, touchend — and only THEN the
+      // compatibility mousedown, whose blur would close and reset. The
+      // press flag must therefore survive pointerup (claude-review P2 on
+      // this PR): pointerup lands while the finger is still "pressing".
+      await act(() => {
+        outside.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+      });
+      await act(() => {
+        outside.dispatchEvent(new Event("pointerup", { bubbles: true }));
+      });
+      await act(() => {
+        input().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      // The tap's blur must neither close nor reset — the list is in
+      // flow, so either would reflow the page before the tap's click.
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      expect(input().value).toBe("north");
+      // The tap's click lands on the aimed control; the list closes and
+      // the query yields afterwards.
+      await act(() => {
+        outside.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(outsideClicks).toBe(1);
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("");
+    });
+
+    it("a right-click never arms the press flag, so the keyboard blur that follows keeps its close-and-yield (claude-review P3: a contextmenu press produces no click)", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north"));
+      await act(() => {
+        outside.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 2 }),
+        );
+      });
+      // Tab-away: a right-click never becomes a primary click, so this
+      // blur is an ordinary non-press blur — the list closes and the
+      // query yields exactly as it did before this PR.
+      await act(() => {
+        input().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("");
+    });
+
+    it("a text-selection drag that starts in the input and releases outside keeps the list open and the typed query (claude-review P3)", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north"));
+      // The drag starts inside the picker (on the focused input, selecting
+      // text) — in a real browser the input keeps focus through it.
+      await act(() => {
+        input().focus();
+        input().dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+      });
+      // The release happens outside the picker, so the click lands on a
+      // common ancestor above both — with the input still focused, the
+      // picker must not treat it as an outside click and discard the
+      // typed query.
+      await act(() => {
+        document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      expect(input().value).toBe("north");
+      // A genuinely outside press still closes and yields.
+      await act(() => {
+        outside.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+      });
+      await act(() => {
+        outside.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(outsideClicks).toBe(1);
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("");
+    });
+
+    it("a press on the Picked chip blurs the input and its click closes the list, leaving no open list on an unfocused combobox (claude-review P2 on e69120e)", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north"));
+      // The press starts inside the picker (the chip line, not the
+        // listbox, so nothing prevents the mousedown) and blurs the input.
+      await act(() => {
+        container
+          .querySelector("[data-state-picker-selected]")!
+          .dispatchEvent(
+            new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+          );
+      });
+      await act(() => {
+        input().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      // The press branch held the list open through the press…
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      // …but the input is blurred now, so the press's own click closes
+      // the list and yields the query: no open list on an unfocused
+      // combobox.
+      await act(() => {
+        container
+          .querySelector("[data-state-picker-selected]")!
+          .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("");
+    });
+
+    it("a pointer-press pick leaves no stale press flags: after the pick, reopening and blurring without a press still closes and yields (claude-review P2: the flags die with the listeners)", async () => {
+      const { act, rerender } = await renderPicker();
+      // A pointer press on an option picks it: pointerdown arms the press
+      // flags, the click lands the pick and closes the list.
+      await act(() => {
+        container
+          .querySelector('[data-state-picker-option="NC"]')!
+          .dispatchEvent(
+            new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+          );
+      });
+      await act(() => {
+        container
+          .querySelector('[data-state-picker-option="NC"]')!
+          .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(onChange).toHaveBeenCalledWith("NC");
+      await rerender({ value: "NC" });
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      // Reopen from the keyboard and blur WITHOUT any press: the flags
+      // from the picked press died with the closed list's listeners, so
+      // this blur takes the ordinary path — the list closes and the
+      // query yields — instead of leaving the picker stuck open.
+      await act(() => type("caro"));
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      await act(() => {
+        input().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("North Carolina");
+    });
+
+    it("typing the full name and pressing a control below picks it during the press and the click still lands (VAL-UX-001 in one press)", async () => {
+      const { act, rerender } = await renderPicker();
+      await act(() => type("north carolina"));
+      await act(() => {
+        outside.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+      });
+      // The blur the press causes commits the pick…
+      await act(() => {
+        input().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      expect(onChange).toHaveBeenCalledWith("NC");
+      // …without reflowing: the list is still open when the click lands.
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      // The click lands on the aimed control; the list closes afterwards.
+      await act(() => {
+        outside.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(outsideClicks).toBe(1);
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      // The close's yield must not blank the just-committed pick while the
+      // parent has not re-rendered yet: the input keeps the picked label
+      // (the yield reads the last-reported value, not the stale closure —
+      // claude-review P3 on this PR).
+      expect(input().value).toBe("North Carolina");
+      await rerender({ value: "NC" });
+      expect(chip()).toContain("Picked: North Carolina");
+    });
+  });
 });
 
 describe("StatePicker filter properties (fast-check)", () => {
