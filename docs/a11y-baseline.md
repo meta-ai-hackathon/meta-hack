@@ -1,7 +1,7 @@
 # Accessibility baseline (BN-07)
 
-Accessibility is core correctness here, not polish: people using Benefits
-Navigator may be on borrowed or shared devices, in stressful settings, or
+Accessibility is core correctness here, not polish: people using Tenet may
+be on borrowed or shared devices, in stressful settings, or
 with a caseworker driving the keyboard. The baseline ships in the app shell
 and reusable components so every later flow inherits it.
 

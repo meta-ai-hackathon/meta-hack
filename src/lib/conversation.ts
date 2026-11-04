@@ -83,7 +83,7 @@ const DATA_WRAP_START = "<<<DATA>>>";
 const DATA_WRAP_END = "<<<END>>>";
 
 export const REPLY_SYSTEM_PROMPT_PREFIX =
-  "You are the Benefits Navigator intake assistant.";
+  "You are the Tenet intake assistant.";
 
 /** How many recent (redacted) turns ground the combined call. */
 const REPLY_HISTORY_TURNS = 8;

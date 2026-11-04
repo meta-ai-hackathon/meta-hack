@@ -48,10 +48,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-hidden="true"
               className="flex h-9 w-9 items-center justify-center rounded-full bg-teal font-display text-lg font-bold text-teal-contrast"
             >
-              B
+              T
             </span>
             <span className="font-display text-xl font-bold text-foreground">
-              Benefits Navigator
+              Tenet
             </span>
           </Link>
           <DisplayControls />

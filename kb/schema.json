@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/meta-ai-hackathon/meta-hack/main/kb/schema.json",
-  "title": "Benefits Navigator knowledge-base entry",
+  "title": "Tenet knowledge-base entry",
   "description": "Contract for a versioned, source-linked program entry (BN-04/HACK-29). Every fact a user can see must trace to an official source with a retrieval date, and stale or withdrawn entries must never be cited silently: the consuming API surfaces the entry status alongside any fact it shows.",
   "type": "object",
   "additionalProperties": false,

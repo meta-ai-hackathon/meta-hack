@@ -37,7 +37,7 @@ python3 -m pytest tests/ -q
 python3 -m mypy scripts/ tests/
 ```
 
-## App commands (Benefits Navigator, `src/`)
+## App commands (Tenet, `src/`)
 
 The web app is Next.js (App Router, TypeScript strict) with pnpm, Vitest, and ESLint. Requires Node 22 (`.nvmrc`) and pnpm (pinned by the `packageManager` field in `package.json`). Run from the repo root:
 

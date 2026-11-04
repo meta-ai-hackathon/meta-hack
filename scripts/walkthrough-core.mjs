@@ -2346,8 +2346,8 @@ export function usage() {
     "Usage: pnpm walkthrough [--mode <wizard|conversation|form>]" +
       " [--url <base-url>] [--timeout <ms>]",
     "",
-    "Walks a full user journey over HTTP against a running Benefits",
-    "Navigator: create session, mixed tri-state answers, observed skips,",
+    "Walks a full user journey over HTTP against a running Tenet:",
+    "create session, mixed tri-state answers, observed skips,",
     "save, exit, resume, transcript with honest-status labels.",
     "",
     "Modes:",

@@ -602,8 +602,8 @@ export function usage() {
   return [
     "Usage: node scripts/eval-record.mjs [--url <base-url>] [--deployed] [--commit <sha>] [--out <file>] [--force] [--timeout <ms>]",
     "",
-    "Runs the frozen, labeled cases in scripts/eval-cases.mjs against a running",
-    "Benefits Navigator over HTTP, scores each one, and writes the BN-38",
+    "Runs the frozen, labeled cases in scripts/eval-cases.mjs against Tenet",
+    "over HTTP, scores each one, and writes the BN-38",
     "evaluation record: its denominator, counts per category, and every",
     "negative case. Each category runs in a fresh synthetic session that is",
     "purged at the end. Typed turns only, with the AI consent receipt (voice off).",

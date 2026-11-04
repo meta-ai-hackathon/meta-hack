@@ -1,4 +1,4 @@
-# Architecture — Benefits Navigator
+# Architecture — Tenet
 
 The build contract for the hackathon project. Agents: read this before writing any code. A PR that changes pipeline semantics must update this doc in the same PR, or it gets rejected. Legal and privacy rules with the force of invariants live in the Legal section of `AGENTS.md`.
 

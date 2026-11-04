@@ -23,7 +23,7 @@ const serifDisplay = Source_Serif_4({
 });
 
 export const metadata: Metadata = {
-  title: "Benefits Navigator",
+  title: "Tenet",
   description:
     "A guided companion for benefits applications. We help you prepare; you decide what gets submitted.",
 };

@@ -2,11 +2,11 @@
 
 Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to Nov 4, 2026. $1M prize pool, solo entry, indie track.
 
-**Status: Benefits Navigator built and validated — 128/128 validation assertions green, all demo-day and layout fixes merged with CI, and the full DHB-5200 form-mapping round is merged. Submission due Wed Nov 4, 9 PM ET (internal target 6 PM ET).**
+**Status: Tenet built and validated — 128/128 validation assertions green, all demo-day and layout fixes merged with CI, and the full DHB-5200 form-mapping round is merged. Submission due Wed Nov 4, 9 PM ET (internal target 6 PM ET).**
 
 ## Where we stand
 
-- **Product:** Benefits Navigator (app contract in `architecture.md`; feature map in `feature.md`) — a guided North Carolina **initial MAGI Medicaid** application journey. One persona anchors the demo: a North Carolina resident with current self-employment (LLC) income and no tax return showing it yet, plus stale prior-year internship W-2 income. Earlier footage-search and rescue-vertical ideas (`ideas/`) are historical, not the build.
+- **Product:** Tenet (app contract in `architecture.md`; feature map in `feature.md`) — a guided North Carolina **initial MAGI Medicaid** application journey. One persona anchors the demo: a North Carolina resident with current self-employment (LLC) income and no tax return showing it yet, plus stale prior-year internship W-2 income. Earlier footage-search and rescue-vertical ideas (`ideas/`) are historical, not the build.
 - **Two problems, one product:** applicants face high-stakes, paperwork-heavy applications; state offices face H.R. 1 six-month redeterminations with income verification funded at roughly $200M across all 50 states. At that budget neither a legacy system nor manual caseworker review is affordable, so the product automates consented income verification and form preparation instead.
 - **Privacy rules that shape every build decision** (recorded as agent rules in the Legal section of `AGENTS.md`): answers live on the user's device and fill forms from an on-device vault; the only way form data leaves the device is the user-consented fax at the end; PII goes to an API only with explicit informed consent (voice and the fax); the app never acts as the applicant's authorized representative; after the fax confirmation, the app shows it purging the user's answers. All mission milestones are validated (128/128 assertions), and the demo-day fix round of Oct 31 is merged to main with CI green (PRs #87, #89, #90, #92): researched prompt endpointing for the voice journey, honest per-turn pipeline timing, a fixed-height auto-scrolling transcript pane that now mirrors the Lovable prototype's frame geometry exactly, and the three-stage journey shell as the entry/home. The form-mapping round of Nov 1 (PRs #99-#104) is also merged: the form registry now covers all 614 discovered fields across all 21 pages of the real NC DHB-5200, with every field dispositioned.
 
@@ -36,15 +36,15 @@ Repo for the Meta Global AI Developer Hackathon (Cerebral Valley) — Oct 26 to 
 | `skills/` | Agent-runnable skills — `skills/evaluate-idea/SKILL.md` scores any new idea end to end |
 | `demo/` | Demo video script and filming materials — `demo/demo-script-v0.md` is the 3-minute storyline draft |
 | `architecture.md` | The build contract: pipeline stages, invariants, quality gates |
-| `src/` | **Benefits Navigator** — the app (Next.js, App Router, TypeScript strict) |
+| `src/` | **Tenet** — the app (Next.js, App Router, TypeScript strict) |
 | `specs/question-spec/` | The intake question spec the app and its tests are built from |
 | `migrations/` | Plain-SQL schema migrations, applied by `pnpm db:migrate` |
 | `scripts/` | Standalone checks — link checker, Meta API smoke test, walkthrough CLI |
 | `docs/` | Deployment, save and resume, the accessibility baseline, and [`docs/runbooks.md`](docs/runbooks.md), what to do when something fails during a demo |
 
-## Benefits Navigator
+## Tenet
 
-The repo builds **Benefits Navigator**: a benefits-application companion that
+The repo builds **Tenet**: a benefits-application companion that
 surfaces uncertainty instead of hiding it. It never promises an outcome, keeps
 private answers out of prompts, logs, and payloads, and lets a person leave
 and resume anytime. Run it locally with Postgres on Docker:
