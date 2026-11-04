@@ -64,6 +64,11 @@ describe("plaid broker routes", () => {
     expect(res.status).toBe(400);
     expect(pullBankIncome).not.toHaveBeenCalled();
   });
+  it("rejects a malformed browser key before calling Plaid", async () => {
+    const res = await pull(request("http://x/api/intake/plaid/pull", { pullHandle: await mintHandle(), clientPublicKey: "A".repeat(122) }));
+    expect(res.status).toBe(400);
+    expect(pullBankIncome).not.toHaveBeenCalled();
+  });
   it("rejects a tampered handle and a raw user id", async () => {
     const key = await generateEphemeralBrowserKey();
     const handle = await mintHandle();

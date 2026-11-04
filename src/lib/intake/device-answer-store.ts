@@ -39,9 +39,10 @@ export const DEVICE_ANSWERS_ENVELOPE_KEY = "intake-answers";
 /** KV key for the sealed Rampart session table (HACK-107), sealed under the same device key. */
 export const DEVICE_SESSION_ENVELOPE_KEY = "rampart-session";
 /**
- * KV key for the sealed Plaid institution-name map (HACK-140), sealed
- * under the same device key. The names are pii:true and never leave the
- * device; the purge deletes this envelope with the answers.
+ * Purge-only cleanup for a legacy key (HACK-140 review P3): no current build
+ * writes a Plaid institution-name map -- the bank card keeps the name in page
+ * memory. The purge still deletes this envelope so a rolled-back build cannot
+ * leave a stale pii map on the device.
  */
 export const DEVICE_PLAID_ORIGINS_ENVELOPE_KEY = "plaid-origins";
 export const DEVICE_ANSWERS_CRYPTO_KEY_KEY = "intake-answers-key";

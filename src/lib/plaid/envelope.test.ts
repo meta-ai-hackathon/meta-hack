@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { plaidConfig } from "./config";
-import { encryptForBrowser } from "./envelope";
+import { assertBrowserPublicKey, encryptForBrowser } from "./envelope";
 import { decryptEnvelope, generateEphemeralBrowserKey } from "./envelope-client";
 describe("plaidConfig (fail closed)", () => {
   it("accepts sandbox with both credentials", () => {
@@ -12,6 +12,24 @@ describe("plaidConfig (fail closed)", () => {
   });
   it("rejects missing credentials", () => {
     expect(() => plaidConfig({ PLAID_ENV: "sandbox" })).toThrowError(/^Plaid is not available/);
+  });
+});
+describe("browser key validation before the Plaid fetch", () => {
+  it("accepts a generated P-256 SPKI key", async () => {
+    const key = await generateEphemeralBrowserKey();
+    expect(() => assertBrowserPublicKey(key.publicKeySpki)).not.toThrow();
+  });
+  it("rejects wrong length, wrong SPKI prefix, and an off-curve point", async () => {
+    expect(() => assertBrowserPublicKey("A".repeat(122))).toThrow(/Invalid browser key/);
+    const key = await generateEphemeralBrowserKey();
+    const bytes = Buffer.from(key.publicKeySpki, "base64url");
+    const badPrefix = Buffer.from(bytes);
+    badPrefix[0] ^= 0xff;
+    expect(() => assertBrowserPublicKey(badPrefix.toString("base64url"))).toThrow(/Invalid browser key/);
+    const offCurve = Buffer.from(bytes);
+    offCurve[offCurve.length - 1] ^= 0xff;
+    offCurve[offCurve.length - 2] ^= 0xff;
+    expect(() => assertBrowserPublicKey(offCurve.toString("base64url"))).toThrow();
   });
 });
 describe("blind-broker envelope round trip", () => {

@@ -2,7 +2,10 @@ import { errorResponse, parseJsonBody } from "../../../../../lib/intake/api";
 import { loadSession, readSessionCookie } from "../../../../../lib/intake/store";
 import { AppError, userMessageFor } from "../../../../../lib/telemetry";
 import { PlaidClient } from "../../../../../lib/plaid/client";
-import { encryptForBrowser } from "../../../../../lib/plaid/envelope";
+import {
+  assertBrowserPublicKey,
+  encryptForBrowser,
+} from "../../../../../lib/plaid/envelope";
 import {
   plaidDemoDisabledResponse,
   plaidDemoEnabled,
@@ -20,10 +23,12 @@ import { openPlaidUserId } from "../../../../../lib/plaid/user-handle";
 // (NEXT_PUBLIC_PLAID_DEMO_ENABLED === "true") makes this route answer a
 // plain 404 until an operator turns the demo on.
 // Sandbox-only by contract: plaidConfig() refuses any PLAID_ENV other than
-// "sandbox" (pinned by config.test.ts). This broker must never run against
-// real bank data without a recorded owner decision under HACK-92 and a
-// matching person-authored rules.md change (HACK-140 production note
-// 7471d535); the income-verification rule keeps that data on the device.
+// "sandbox" and pins the base URL to the Sandbox host (both pinned by
+// config.test.ts). This broker must never run against real bank data: any
+// non-Sandbox use first needs a recorded owner decision under HACK-92, a
+// matching person-authored rules.md change, AND a client-side design with no
+// server relay (HACK-140 production note 7471d535). The income-verification
+// rule keeps that data on the device.
 export async function POST(request: Request): Promise<Response> {
   try {
     // Demo gate FIRST: off by default, so a disabled demo reveals nothing.
@@ -38,6 +43,14 @@ export async function POST(request: Request): Promise<Response> {
     const clientPublicKey = body.clientPublicKey;
     if (typeof pullHandle !== "string" || pullHandle.length < 10 || pullHandle.length > 512 ||
         typeof clientPublicKey !== "string" || clientPublicKey.length < 100 || clientPublicKey.length > 512) {
+      throw new AppError("validation_error", userMessageFor("validation_error"));
+    }
+    // Validate the browser key BEFORE the Plaid fetch: a malformed key must
+    // be a 400 here, not a wasted pull (and Plaid user) followed by a 500 in
+    // encryptForBrowser (review P3 on PR #172).
+    try {
+      assertBrowserPublicKey(clientPublicKey);
+    } catch {
       throw new AppError("validation_error", userMessageFor("validation_error"));
     }
     const userId = openPlaidUserId(sessionId, pullHandle);

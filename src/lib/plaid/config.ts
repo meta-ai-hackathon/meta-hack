@@ -12,10 +12,10 @@
 // - The demo is Sandbox-only by decision (HACK-65/HACK-140), so this module
 //   FAILS CLOSED unless PLAID_ENV is exactly "sandbox" -- a production or
 //   development credential dropped into the environment by mistake cannot
-//   turn this demo into a live bank pull. Any non-Sandbox path needs an owner
-//   decision under HACK-92 and a matching person-authored rules.md change;
-//   the relay design is not approved for real bank data (HACK-140 production
-//   note 7471d535).
+//   turn this demo into a live bank pull. Any non-Sandbox path first needs an
+//   owner decision under HACK-92, a matching person-authored rules.md change,
+//   AND a client-side design with no server relay; the relay design is not
+//   approved for real bank data (HACK-140 production note 7471d535).
 export interface PlaidConfig {
   readonly clientId: string;
   readonly secret: string;

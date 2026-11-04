@@ -986,7 +986,11 @@ declare global {
  * from cdn.plaid.com, which serves the latest SDK, so there is no version
  * to pin and no SRI hash to publish. Owner sign-off for the unversioned
  * script is recorded on HACK-140 (2026-11-04, review P2 on PR #172). The
- * script is fetched only after the distinct Plaid consent is checked.
+ * sign-off covers the missing version pin and SRI hash; it does not cover
+ * the script's same-origin access to this page's on-device answer store. A
+ * CSP limiting script-src/connect-src to Plaid's hosts on this page is still
+ * open, recorded on HACK-140 (review P3 on PR #172). The script is fetched
+ * only after the distinct Plaid consent is checked.
  */
 let plaidLinkLoad: Promise<void> | null = null;
 

@@ -107,7 +107,7 @@ describe("plaid confirmations (HACK-140)", () => {
   it("rejects spec-invalid values and unbounded bodies", () => {
     validationErrorOf(() =>
       parsePlaidConfirmations([
-        { questionId: "job_income_amount", action: "confirm", value: Number.NaN },
+        { questionId: "job_income_amount", action: "correct", value: Number.NaN },
       ]),
     );
     validationErrorOf(() => parsePlaidConfirmations([]));
@@ -116,7 +116,7 @@ describe("plaid confirmations (HACK-140)", () => {
       parsePlaidConfirmations(
         Array.from({ length: MAX_PLAID_CONFIRMATIONS_PER_CALL + 1 }, () => ({
           questionId: "job_income_amount",
-          action: "confirm",
+          action: "correct",
           value: 1,
         })),
       ),

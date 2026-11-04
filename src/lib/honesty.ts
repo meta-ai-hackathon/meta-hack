@@ -212,8 +212,8 @@ export function isAnswerStatus(value: unknown): value is AnswerStatus {
  *   status `known`. An untouched bank proposal is never saved.
  *
  * A Plaid institution name is deliberately absent: it is pii:true metadata
- * kept in the client-side encrypted store (HACK-140), so an untouched bank
- * proposal is not stored and the browser, not Postgres, knows the bank.
+ * held only in the intake page's memory (HACK-140), so an untouched bank
+ * proposal is not stored and Postgres never learns the bank.
  */
 export const ANSWER_PROVENANCES = [
   "user_supplied",

@@ -68,6 +68,12 @@ describe("plaidConfig (HACK-140 Sandbox-only gate)", () => {
     });
   });
 
+  it("pins the broker to the Sandbox base URL, so no route can be pointed elsewhere", () => {
+    const config = plaidConfig(DEMO_ON);
+    expect(config.env).toBe("sandbox");
+    expect(config.baseUrl).toBe("https://sandbox.plaid.com");
+  });
+
   it("fails closed for every other environment, including case and padding", () => {
     for (const PLAID_ENV of [
       undefined,
