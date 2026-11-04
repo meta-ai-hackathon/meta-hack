@@ -117,7 +117,9 @@ const HANDOFF_STEPS: readonly { title: string; detail: string }[] = [
   {
     title: "Download your application",
     detail:
-      "The filled PDF is generated when you tap download, and the filled form itself isn't kept on our side.",
+      "The filled PDF is created right on your device when you tap download — " +
+      "nothing about it is kept on our side. Answers shown with a status " +
+      "instead of a value stay blank on the file: finish those lines by hand.",
   },
   {
     title: "Submit it yourself",

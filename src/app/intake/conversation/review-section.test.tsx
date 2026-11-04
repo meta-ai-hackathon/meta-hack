@@ -167,6 +167,30 @@ describe("ReviewSectionContent structure", () => {
     expect(findBannedClaims(note)).toEqual([]);
   });
 
+  it("describes the download as an on-device fill with the file disclosure (HACK-138)", () => {
+    // The sanctioned-download rule's copy condition (rules.md, HACK-115),
+    // beside the download button: the fill is made on the device from the
+    // values the page holds, nothing is sent to make it, and the saved
+    // file is disclosed (filled answers, private ones included,
+    // unencrypted, delete it after). The private answers the page shows
+    // only as a status badge stay blank on the file — said plainly.
+    const html = decodeEntities(
+      renderToStaticMarkup(<ReviewSectionContent data={reviewData()} />),
+    );
+    const note = html.match(/data-download-note[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+    expect(note).not.toBe("");
+    expect(note).toContain("filled right on this device");
+    expect(note).toContain("no answers are sent");
+    expect(note).toContain("stay blank on the file");
+    expect(note).toContain("finish those lines by hand");
+    // The file disclosure: what the file is, in plain language.
+    expect(note).toContain("private ones included");
+    expect(note).toContain("isn't encrypted");
+    expect(note).toContain("delete it once you've printed or sent it");
+    // The download copy scans clean of banned claims.
+    expect(findBannedClaims(note)).toEqual([]);
+  });
+
   it("renders the distinct typed-signature step for the signature field (VAL-VJS2-002)", () => {
     // The REAL form's payload: the DHB-5200's Signature field is unmapped
     // and asked — its rendering is the distinct signing step, not the

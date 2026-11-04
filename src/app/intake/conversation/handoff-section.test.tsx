@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import fc from "fast-check";
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -33,6 +35,7 @@ const REAL = parseKbEntry(realEntryJson as unknown);
 // The form the pilot's review section shows, which the KB steps are for.
 const FORM = PILOT_CONFIG.formRegistryId;
 const COMPANION = handoffCompanionForForm(FORM)!;
+const REPO_ROOT = path.resolve(import.meta.dirname, "../../../..");
 
 const stateArb: fc.Arbitrary<HandoffState> = fc.record({
   sessionStatus: fc.constantFrom(...SESSION_STATUSES),
@@ -279,8 +282,12 @@ describe("HandoffSection: honest copy", () => {
 describe("HandoffSection inside the review section", () => {
   function reviewData(formId: string, sessionStatus: SessionStatus) {
     const entry = getFormRegistryEntry(formId);
+    // A known private answer beside the public one, exactly the review
+    // route's payload shape: the view carries the status, never the
+    // value, and the known answer is not in the still-needed list.
     const view = buildFormFlow(entry, {
       household_size: { status: "known", value: 3 },
+      date_of_birth: { status: "known", value: "1979-07-08" },
     });
     return {
       hasSession: true,
@@ -401,12 +408,22 @@ describe("HandoffSection inside the review section", () => {
     });
 
     it("moves the next step from download to mark handed off", async () => {
-      // The fill route answers with the filled PDF. jsdom has no object
-      // URLs and no navigation, so the blob URL and the anchor click are
-      // stubbed for this test only and restored after it.
-      const fetchSpy = vi.fn(() =>
-        Promise.resolve(new Response(new Blob(["%PDF-1.7"]), { status: 200 })),
+      // The download fills the form IN THE BROWSER (HACK-138): the one
+      // request is the blank public template's GET — a fill POST to the
+      // server (the old path, outside the sanctioned download) would fail
+      // this test. jsdom has no object URLs and no navigation, so the blob
+      // URL and the anchor click are stubbed for this test only and
+      // restored after it.
+      const realForm = readFileSync(
+        path.join(REPO_ROOT, "src/lib/forms/fixtures/dhb-5200-ia-9-2020.pdf"),
       );
+      const fetchSpy = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === `/forms/${FORM}.pdf`) {
+          return Promise.resolve(new Response(new Uint8Array(realForm), { status: 200 }));
+        }
+        return Promise.reject(new TypeError(`unexpected request: ${url}`));
+      });
       vi.stubGlobal("fetch", fetchSpy);
       const { createObjectURL, revokeObjectURL } = URL;
       URL.createObjectURL = () => "blob:filled-form";
@@ -437,16 +454,41 @@ describe("HandoffSection inside the review section", () => {
         const download = container.querySelector<HTMLButtonElement>('[data-action="download"]');
         await act(async () => {
           download?.click();
-          for (let tick = 0; tick < 10; tick += 1) {
-            await new Promise((done) => setTimeout(done, 0));
+          // The real form fills in the browser here (355 fields checked
+          // over the 21-page template), which takes the fill a moment:
+          // wait for the download it produces, bounded.
+          for (let tick = 0; tick < 500 && clickSpy.mock.calls.length === 0; tick += 1) {
+            await new Promise((done) => setTimeout(done, 10));
           }
         });
 
-        expect(fetchSpy).toHaveBeenCalledWith(`/api/forms/${FORM}/fill`, { method: "POST" });
+        // The one request: the blank form's bodiless GET. The fill itself
+        // made no request at all.
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy).toHaveBeenCalledWith(`/forms/${FORM}.pdf`, {
+          method: "GET",
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+        });
         expect(clickSpy).toHaveBeenCalled();
         expect(nextAction()).toBe("mark_handed_off");
         expect(container.querySelector("[data-where]")?.textContent).toBe("In the app");
         expect(handOff()?.disabled).toBe(false);
+        // The fill's blanks joined the still-needed list above. They belong
+        // to the payload they were filled from: a refreshed review (the
+        // next message's answers landed) drops them until the person
+        // downloads again — a stale row never lingers (claude-review P2,
+        // PR #150).
+        const mergedRows = container.querySelectorAll("[data-form-to-resolve] li").length;
+        await act(async () => {
+          root.render(<ReviewSectionContent data={{ ...reviewData(FORM, "prepared") }} />);
+        });
+        expect(container.querySelectorAll("[data-form-to-resolve] li").length).toBeLessThan(
+          mergedRows,
+        );
+        expect(container.querySelectorAll("[data-form-to-resolve] li").length).toBe(
+          reviewData(FORM, "prepared").toResolve.length,
+        );
       } finally {
         await act(async () => {
           root.unmount();
@@ -455,6 +497,78 @@ describe("HandoffSection inside the review section", () => {
         URL.createObjectURL = createObjectURL;
         URL.revokeObjectURL = revokeObjectURL;
       }
-    });
+    }, 15_000);
+
+    it("names the blocking box question in the announcement, and fills nothing", async () => {
+      // A box answer typed in any other word stops the fill before
+      // anything is drawn (review-fill's rule). The announcement names
+      // the blocking question — "fix the ones listed" is nothing without
+      // the list (claude-review P2, PR #150).
+      const realForm = readFileSync(
+        path.join(REPO_ROOT, "src/lib/forms/fixtures/dhb-5200-ia-9-2020.pdf"),
+      );
+      const fetchSpy = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === `/forms/${FORM}.pdf`) {
+          return Promise.resolve(new Response(new Uint8Array(realForm), { status: 200 }));
+        }
+        return Promise.reject(new TypeError(`unexpected request: ${url}`));
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+      const { createObjectURL, revokeObjectURL } = URL;
+      URL.createObjectURL = () => "blob:filled-form";
+      URL.revokeObjectURL = () => undefined;
+      const clickSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => undefined);
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(<ReviewSectionContent data={reviewData(FORM, "prepared")} />);
+        });
+        const input = container.querySelector<HTMLInputElement>(
+          'input[id$="form-answer-Employed_2"]',
+        );
+        expect(input).not.toBeNull();
+        // jsdom carries no value through a synthetic event: set it the way
+        // React reads it, through the native setter, then let the change flow.
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        await act(async () => {
+          setter?.call(input, "yes");
+          input?.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await act(async () => {
+          container.querySelector<HTMLButtonElement>('[data-action="download"]')?.click();
+        });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(clickSpy).not.toHaveBeenCalled();
+        // The announcement lands on a timer (the StatusRegion must change
+        // its text to speak): wait for it, bounded.
+        const regions = () => container.querySelectorAll('[role="status"]');
+        for (let tick = 0; tick < 100; tick += 1) {
+          if (regions()[regions().length - 1]?.textContent !== "") {
+            break;
+          }
+          await act(async () => {
+            await new Promise((done) => setTimeout(done, 10));
+          });
+        }
+        expect(regions()[regions().length - 1]?.textContent).toContain(
+          "Is Person 2 employed?",
+        );
+      } finally {
+        await act(async () => {
+          root.unmount();
+        });
+        clickSpy.mockRestore();
+        URL.createObjectURL = createObjectURL;
+        URL.revokeObjectURL = revokeObjectURL;
+      }
+    }, 15_000);
   });
 });
