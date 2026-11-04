@@ -1592,6 +1592,26 @@ describe("the chat opens with the first question (HACK-160, VAL-UX-004)", () => 
     expect(note?.textContent ?? "").toContain("step-by-step form above");
   });
 
+  it("sharing off: above the step-by-step form there's a plain heading and one short line, not a technical paragraph (HACK-167)", async () => {
+    // Kurt on the Nov 4 call: the "Nothing goes to any AI provider"
+    // heading and its paragraph sat above every question of the form.
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(declinedReceipt());
+    });
+    const section = q(container, "zero-send-mode");
+    expect(section).not.toBeNull();
+    const heading = section?.querySelector("#zero-send-heading")?.textContent?.trim() ?? "";
+    expect(heading).toBe("Step-by-step questions");
+    const line = (q(container, "zero-send-note")?.textContent ?? "").replace(/\s+/g, " ").trim();
+    // The one line keeps the storage statement every step-by-step entry carries (HACK-161).
+    expect(line).toMatch(/answers save on the app's server/i);
+    expect(line.split(" ").length).toBeLessThanOrEqual(20);
+    for (const text of [heading, line]) {
+      expect(text).not.toMatch(/AI provider/i);
+    }
+  });
+
   it("with nothing left to ask, the empty chat keeps the plain invite line and no seed", async () => {
     historyState = {
       ...EMPTY_STATE,
