@@ -1639,8 +1639,7 @@ export function ConversationChat() {
         >
           Use the step-by-step form instead
         </Link>
-        . It keeps answers only on this device and doesn&apos;t see what you
-        tell the chat.
+        . It keeps answers only on this device.
       </p>
 
       {panelOpen ? (
@@ -1661,15 +1660,15 @@ export function ConversationChat() {
           aria-labelledby="zero-send-heading"
           className="flex flex-col gap-3"
         >
+          {/* HACK-167: a plain heading and one line, not a technical
+              paragraph above every question. The line keeps the storage
+              statement every step-by-step entry carries (HACK-161). */}
           <h2 id="zero-send-heading" className="font-display text-2xl font-bold">
-            Nothing goes to any AI provider
+            Step-by-step questions
           </h2>
-          <p className="max-w-xl text-muted">
-            Sharing is off. The step-by-step form below drives the same
-            application right here — with honest status labels, your benefit
-            match, the review screen, and the filled PDF to download when you
-            are ready. Your answers save on the app&apos;s server so you can
-            pick up later; no AI provider receives any of it.
+          <p data-zero-send-note className="max-w-xl text-muted">
+            Sharing is off. Your answers save on the app&apos;s server so you
+            can pick up later.
           </p>
           <IntakeWizard onAnswersChanged={() => setAnswersRefresh((n) => n + 1)} />
         </section>
