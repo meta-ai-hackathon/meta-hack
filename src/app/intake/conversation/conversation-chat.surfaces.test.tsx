@@ -3,6 +3,7 @@ import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CONSENT_PROVIDER_ID,
+  declinedReceipt,
   saveConsentReceipt,
   type ConsentReceipt,
 } from "../../../lib/consent";
@@ -174,9 +175,19 @@ const EMPTY_STATE: IntakeClientState = {
 
 let turnCalls: { headers: Headers; body: string }[] = [];
 
+// The engine's next unanswered question, as the real history route carries
+// it (HACK-160). Undefined = the stub omits the field (an older server);
+// the component treats absent and null alike: no seed.
+let historyNextQuestion: { id: string; prompt: string } | null | undefined =
+  undefined;
+
 function historyResponse(): Response {
   return new Response(
-    JSON.stringify({ turns: [], state: EMPTY_STATE }),
+    JSON.stringify({
+      turns: [],
+      state: EMPTY_STATE,
+      nextQuestion: historyNextQuestion ?? null,
+    }),
     { status: 200, headers: { "content-type": "application/json" } },
   );
 }
@@ -234,6 +245,7 @@ beforeEach(() => {
   sessionOps = [];
   fakeCapturing = false;
   turnCalls = [];
+  historyNextQuestion = undefined;
   replyText = "Got it. What is your zip code?";
   configureShield({ status: "ready", protective: true });
   stubFetch();
@@ -1387,6 +1399,131 @@ describe("the mode is asked once (HACK-157, VAL-UX-002)", () => {
     expect(q(container, "mode-choice")).not.toBeNull();
     expect(container.textContent ?? "").toContain(
       "How would you like to talk?",
+    );
+  });
+});
+
+// The chat opens with the first question visible (HACK-160, VAL-UX-004):
+// with sharing on the empty conversation shows the engine's first question
+// as the assistant's first bubble — sourced from the question engine with
+// no model call; with sharing off the now-meaningless prompt line gives
+// way to a short note pointing to the step-by-step questions above.
+describe("the chat opens with the first question (HACK-160, VAL-UX-004)", () => {
+  it("sharing on: the empty chat shows the engine's first question as the assistant's first bubble — without any turn send", async () => {
+    historyNextQuestion = {
+      id: "application_role",
+      prompt: "Who is this application for?",
+    };
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(false));
+    });
+    const seed = q(container, "first-question");
+    expect(seed).not.toBeNull();
+    expect(seed?.textContent ?? "").toContain("Who is this application for?");
+    // It renders as the assistant's bubble inside the transcript list.
+    expect(
+      seed?.closest("ul")?.hasAttribute("data-conversation-transcript"),
+    ).toBe(true);
+    // Opening the chat made NO model call — the seed is engine content,
+    // not a send.
+    expect(turnCalls).toHaveLength(0);
+  });
+
+  it("sharing on: the invite line stays, and the seeded bubble hands over to the real transcript after the first reply", async () => {
+    historyNextQuestion = {
+      id: "application_role",
+      prompt: "Who is this application for?",
+    };
+    // The ai-only typed path: a textarea, no voice session.
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(false));
+    });
+    // The invite line coexists with the seeded first question.
+    expect(container.textContent ?? "").toContain(
+      "Say hello, or answer the first question",
+    );
+    expect(q(container, "first-question")).not.toBeNull();
+    // A turn fetch that pends until the test releases it, so the
+    // in-flight window is observable.
+    let releaseTurn: (response?: Response) => void = () => undefined;
+    const pending = new Promise<Response>((resolve) => {
+      releaseTurn = (response) => resolve(response ?? turnResponse());
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return pending;
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      const ta = container.querySelector("textarea") as HTMLTextAreaElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(ta, "It is for me.");
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      (
+        container.querySelector('button[type="submit"]') as HTMLButtonElement
+      )?.click();
+    });
+    // In flight: the seeded question stays visible — it is the question
+    // being answered, not a duplicate of the echo.
+    expect(q(container, "first-question")).not.toBeNull();
+    // The reply lands: the real transcript takes over, the seed leaves.
+    await act(async () => releaseTurn());
+    expect(q(container, "first-question")).toBeNull();
+    expect(container.textContent ?? "").toContain(
+      "Got it. What is your zip code?",
+    );
+  });
+
+  it("sharing off: the empty-chat prompt line is replaced with a short note pointing to the questions above", async () => {
+    historyNextQuestion = {
+      id: "application_role",
+      prompt: "Who is this application for?",
+    };
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(declinedReceipt());
+    });
+    // No seeded bubble in zero-send mode — there is no chat to seed.
+    expect(q(container, "first-question")).toBeNull();
+    // The stale line is gone…
+    expect(container.textContent ?? "").not.toContain(
+      "Say hello, or answer the first question",
+    );
+    // …replaced by a short note pointing to the step-by-step questions
+    // above.
+    const note = q(container, "zero-send-chat-note");
+    expect(note).not.toBeNull();
+    expect(note?.textContent ?? "").toContain("step-by-step questions above");
+  });
+
+  it("without the engine's next question (nothing left to ask), the empty chat keeps the plain invite line and no seed", async () => {
+    historyNextQuestion = null;
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(false));
+    });
+    expect(q(container, "first-question")).toBeNull();
+    expect(container.textContent ?? "").toContain(
+      "Say hello, or answer the first question",
     );
   });
 });

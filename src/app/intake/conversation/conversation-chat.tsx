@@ -209,6 +209,14 @@ interface ConversationErrorResponse {
 interface HistoryResponse {
   turns: ConversationTurn[];
   state: IntakeClientState;
+  /**
+   * The question engine's next unanswered talk-saveable question
+   * (HACK-160, VAL-UX-004): the empty chat's first bubble is seeded from
+   * it — engine content the server computed with the same pure function
+   * every turn uses, so opening the chat makes no model call. Null when
+   * nothing is left to ask.
+   */
+  nextQuestion: { id: string; prompt: string } | null;
 }
 
 interface TurnResponse {
@@ -334,6 +342,14 @@ export function ConversationChat() {
   } | null>(null);
   const [notice, setNotice] = useState("");
   const [loaded, setLoaded] = useState(false);
+  // The empty chat's seeded first question (HACK-160, VAL-UX-004): the
+  // question engine's next unanswered talk-saveable question, carried by
+  // the history response — never a model call. Display-only; it yields
+  // the moment a real assistant turn exists.
+  const [nextQuestion, setNextQuestion] = useState<{
+    id: string;
+    prompt: string;
+  } | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   // The fixed-height transcript pane (VAL-FIX-002): the scrollable
   // container on the talk stage, plus whether it is parked at the latest
@@ -466,6 +482,7 @@ export function ConversationChat() {
         const shield = shieldRef.current;
         setTurns(revealHistory(data.turns, shield));
         setState(data.state);
+        setNextQuestion(data.nextQuestion ?? null);
       } catch {
         if (!cancelled) {
           setNotice("We could not load your earlier conversation just now.");
@@ -513,6 +530,7 @@ export function ConversationChat() {
         if (!cancelled) {
           setTurns(revealHistory(data.turns, shieldRef.current));
           setState(data.state);
+          setNextQuestion(data.nextQuestion ?? null);
         }
       })
       .catch(() => undefined);
@@ -608,6 +626,20 @@ export function ConversationChat() {
     !resultsStage &&
     !incomeStage &&
     (!voiceSharingOn || typingMode || micBlocked);
+
+  // The empty chat's seeded first question (HACK-160, VAL-UX-004): with
+  // sharing on, the conversation opens showing the question engine's next
+  // question as the assistant's first bubble — so the person never has to
+  // guess what to type or say. It is DISPLAY-ONLY engine content (spec
+  // prompt text the server computed with the same pure function every
+  // turn uses — no model call, no consent-relevant send), and it yields
+  // the moment a real assistant turn exists: until then it stays visible
+  // through the first send's in-flight window, because it is the very
+  // question being answered. Never rendered with sharing off (the note
+  // below replaces the prompt line instead).
+  const noAssistantTurnYet = turns.every((turn) => turn.role !== "assistant");
+  const firstQuestionSeed =
+    aiSharingOn && noAssistantTurnYet ? nextQuestion : null;
 
   // Auto-scroll (VAL-FIX-002): the talk-stage transcript is a
   // fixed-height pane — keep the latest turns in view WITHOUT ever
@@ -1647,9 +1679,20 @@ export function ConversationChat() {
               <PresenceOrb phase={voicePhase} />
             </div>
             {loaded && turns.length === 0 ? (
-              <p className="max-w-xl text-muted">
-                Say hello, or answer the first question whenever you are ready.
-              </p>
+              zeroSend ? (
+                // Sharing off (HACK-160, VAL-UX-004): there is no chat box
+                // to say hello into — the step-by-step questions rendered
+                // above are the way through, so the stale prompt line
+                // becomes a short pointer to them.
+                <p data-zero-send-chat-note className="max-w-xl text-muted">
+                  Sharing is off, so there is no chat box here — the
+                  step-by-step questions above are the way to keep going.
+                </p>
+              ) : (
+                <p className="max-w-xl text-muted">
+                  Say hello, or answer the first question whenever you are ready.
+                </p>
+              )
             ) : null}
             {/* The fixed-height scrollable pane (VAL-FIX-002), on the talk
             stage only: the conversation can grow without ever growing the
@@ -1679,6 +1722,22 @@ export function ConversationChat() {
               }
             >
               <ul className="flex flex-col gap-3" data-conversation-transcript>
+              {/* The seeded first question (HACK-160, VAL-UX-004): the
+              engine's next question as the assistant's first bubble, so
+              the opening chat never makes the person guess what to type
+              or say. Engine content from the question spec — not user
+              text, so the injection/data-not-instructions handling is
+              untouched — and never a model send. It yields to the real
+              transcript the moment an assistant turn exists. */}
+              {firstQuestionSeed ? (
+                <li
+                  data-first-question={firstQuestionSeed.id}
+                  className="max-w-[85%] self-start rounded-3xl rounded-bl-lg border border-surface-border bg-surface px-4 py-2.5"
+                >
+                  <span className="sr-only">The assistant said:</span>
+                  {firstQuestionSeed.prompt}
+                </li>
+              ) : null}
               {turns.map((turn) =>
                 turn.role === "user" ? (
                   <li
