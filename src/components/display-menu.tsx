@@ -11,8 +11,10 @@ import { DisplayControls } from "./display-controls";
 //
 // The controls stay mounted while the menu is closed, so the stored
 // settings still load and apply on every page, and the polite status
-// region they own is never torn down. Escape closes the menu and returns
-// focus to its button. A press anywhere outside the menu closes it.
+// region they own is never torn down. Escape closes the menu and, if focus
+// was in it, returns focus to its button. A press anywhere outside the menu
+// closes it, and so does keyboard focus leaving it. The "Aa" glyph and the
+// arrow are decorative; each visible label is part of the button's name.
 
 export const DISPLAY_MENU_PANEL_ID = "display-menu-panel";
 
@@ -33,8 +35,14 @@ export function DisplayMenu() {
     }
     function closeOnEscape(event: KeyboardEvent): void {
       if (event.key === "Escape") {
+        // Focus goes back to the button only if it was in the menu, so
+        // Escape never pulls focus away from somewhere else on the page.
+        const focused = document.activeElement;
+        const focusWasInside = focused instanceof Node && root.current?.contains(focused) === true;
         setOpen(false);
-        button.current?.focus();
+        if (focusWasInside) {
+          button.current?.focus();
+        }
       }
     }
     document.addEventListener("pointerdown", closeOnOutsidePress);
@@ -46,7 +54,19 @@ export function DisplayMenu() {
   }, [open]);
 
   return (
-    <div ref={root} data-display-menu className="relative">
+    <div
+      ref={root}
+      data-display-menu
+      className="relative"
+      onBlur={(event) => {
+        // Keyboard focus leaving the menu closes it, so the open panel never
+        // sits over the field someone just tabbed to.
+        const next = event.relatedTarget;
+        if (open && next instanceof Node && !event.currentTarget.contains(next)) {
+          setOpen(false);
+        }
+      }}
+    >
       <button
         ref={button}
         type="button"
@@ -60,10 +80,10 @@ export function DisplayMenu() {
         <span aria-hidden="true" className="font-display text-lg leading-none">
           Aa
         </span>
-        <span aria-hidden="true" className="min-[761px]:hidden">
+        <span aria-hidden="true" data-button-label className="min-[761px]:hidden">
           Text size
         </span>
-        <span aria-hidden="true" className="hidden min-[761px]:inline">
+        <span aria-hidden="true" data-button-label className="hidden min-[761px]:inline">
           Text size and contrast
         </span>
         <span aria-hidden="true" className={`text-sm transition-transform ${open ? "rotate-180" : ""}`}>

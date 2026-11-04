@@ -56,13 +56,33 @@ function panel(): HTMLElement {
   return document.getElementById(DISPLAY_MENU_PANEL_ID)!;
 }
 
-type Action = "toggle" | "escape" | "other key" | "press outside" | "press inside";
+type Action =
+  | "toggle"
+  | "tap"
+  | "escape"
+  | "other key"
+  | "press outside"
+  | "press inside"
+  | "tab into panel"
+  | "tab out";
 
 function perform(action: Action): void {
   act(() => {
     switch (action) {
       case "toggle":
+        // A real press focuses the button, then clicks it.
+        menuButton().focus();
         menuButton().click();
+        break;
+      case "tap":
+        // A tap in iPhone Safari clicks the button without focusing it.
+        menuButton().click();
+        break;
+      case "tab into panel":
+        panel().querySelector<HTMLButtonElement>("[data-zoom-in]")!.focus();
+        break;
+      case "tab out":
+        elsewhere.focus();
         break;
       case "escape":
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
@@ -89,40 +109,86 @@ describe("the header's display menu", () => {
     expect(html).toMatch(new RegExp(`id="${DISPLAY_MENU_PANEL_ID}"[^>]*hidden`));
     // The controls render inside the panel even while it's closed.
     expect(html).toContain('data-display-controls="true"');
-    // Every visible label is part of the button's name, so asking for
-    // "Text size" by voice still finds it.
-    for (const visible of ["Text size", "Text size and contrast"]) {
-      expect("Text size and contrast").toContain(visible);
+  });
+
+  it("puts every visible label inside the button's name, so asking for it by voice finds it", () => {
+    mount();
+    const name = menuButton().getAttribute("aria-label") ?? "";
+    const labels = [...menuButton().querySelectorAll("[data-button-label]")].map((span) => span.textContent?.trim() ?? "");
+    expect(labels).toHaveLength(2);
+    for (const label of labels) {
+      expect(label).not.toBe("");
+      expect(name).toContain(label);
     }
   });
 
-  it("opens and closes like a disclosure for any sequence of presses and keys (property)", () => {
-    const actions = fc.constantFrom<Action>("toggle", "escape", "other key", "press outside", "press inside");
+  it("opens and closes like a disclosure for any sequence of presses, keys and focus moves (property)", () => {
+    const actions = fc.constantFrom<Action>(
+      "toggle",
+      "tap",
+      "escape",
+      "other key",
+      "press outside",
+      "press inside",
+      "tab into panel",
+      "tab out",
+    );
     fc.assert(
-      fc.property(fc.array(actions, { maxLength: 12 }), (sequence) => {
+      fc.property(fc.array(actions, { maxLength: 14 }), (sequence) => {
         act(() => root.unmount());
         root = createRoot(container);
+        act(() => (document.activeElement as HTMLElement | null)?.blur());
         mount();
+        // The model: whether the menu is open, and whether focus is in it.
         let open = false;
+        let focusInside = false;
         expect(panel().hidden).toBe(true);
         for (const action of sequence) {
+          if (action === "tab into panel" && !open) {
+            continue; // a closed panel has nothing to tab to
+          }
           const wasOpen = open;
+          const focusWasInside = focusInside;
+          const focusedBefore = document.activeElement;
           perform(action);
-          if (action === "toggle") {
-            open = !open;
-          } else if (action === "escape" || action === "press outside") {
-            open = false;
+          switch (action) {
+            case "toggle":
+              open = !open;
+              focusInside = true;
+              break;
+            case "tap":
+              open = !open;
+              break;
+            case "escape":
+              open = false;
+              break;
+            case "press outside":
+              open = false;
+              break;
+            case "tab into panel":
+              focusInside = true;
+              break;
+            case "tab out":
+              // Keyboard focus leaving the open menu closes it.
+              if (focusWasInside) {
+                open = false;
+              }
+              focusInside = false;
+              break;
+            default:
+              break;
           }
           expect(panel().hidden).toBe(!open);
           expect(menuButton().getAttribute("aria-expanded")).toBe(String(open));
           if (action === "escape" && wasOpen) {
-            expect(document.activeElement).toBe(menuButton());
+            // Focus returns to the button only from inside the menu.
+            expect(document.activeElement).toBe(focusWasInside ? menuButton() : focusedBefore);
           }
           // Open or closed, the controls never unmount.
           expect(container.querySelector("[data-display-controls]")).not.toBeNull();
         }
       }),
-      { numRuns: 60 },
+      { numRuns: 80 },
     );
   });
 
