@@ -63,8 +63,10 @@ export const RENEWAL_PREVIEW_COPY = {
   changedNote: "In the real app, you'd update just this part before confirming. This preview keeps the details from last time.",
   reviewHeading: "Here's what would be sent",
   reviewIntro: "Everything else stays as it was on your last application.",
+  needsUpdate: "Needs updating",
   markedChanged: "You said this changed, so in the real app you'd update it here.",
   confirmCheck: "I've checked these details and they're correct.",
+  confirmCheckChanged: "I've checked these details and marked what needs updating.",
   confirmNote: "In the real app, you'd see the filled renewal form and sign it yourself before anything is sent.",
   confirm: "Confirm my renewal",
   doneHeading: "Preview finished. Nothing was sent.",
@@ -196,6 +198,9 @@ export function RenewalPreview() {
           <h2 id="renewal-step-heading" ref={heading} tabIndex={-1} className="font-display text-2xl font-bold">
             {RENEWAL_PREVIEW_COPY.reviewHeading}
           </h2>
+          {/* Anything the person said changed shows "Needs updating" in place of
+              last time's value, so the review never presents a stale answer as
+              what would be sent. Last time's value stays below it, labeled. */}
           <dl className="flex flex-col gap-3">
             {PREVIEW_CHECKS.map((check) => (
               <div
@@ -204,12 +209,19 @@ export function RenewalPreview() {
                 className="flex flex-col gap-1 rounded-xl border border-surface-border bg-surface p-4"
               >
                 <dt className="text-sm text-muted">{check.label}</dt>
-                <dd className="text-lg font-medium">{check.lastTime}</dd>
                 {changed.has(check.id) ? (
-                  <dd data-marked-changed className="text-sm font-medium text-amber-ink">
-                    {RENEWAL_PREVIEW_COPY.markedChanged}
-                  </dd>
-                ) : null}
+                  <>
+                    <dd data-marked-changed className="text-lg font-semibold text-amber-ink">
+                      {RENEWAL_PREVIEW_COPY.needsUpdate}
+                    </dd>
+                    <dd className="text-sm text-muted">
+                      {RENEWAL_PREVIEW_COPY.lastTime}: {check.lastTime}
+                    </dd>
+                    <dd className="text-sm text-muted">{RENEWAL_PREVIEW_COPY.markedChanged}</dd>
+                  </>
+                ) : (
+                  <dd className="text-lg font-medium">{check.lastTime}</dd>
+                )}
               </div>
             ))}
           </dl>
@@ -222,7 +234,9 @@ export function RenewalPreview() {
               checked={checked}
               onChange={(event) => setChecked(event.target.checked)}
             />
-            <span>{RENEWAL_PREVIEW_COPY.confirmCheck}</span>
+            <span data-confirm-label>
+              {changed.size > 0 ? RENEWAL_PREVIEW_COPY.confirmCheckChanged : RENEWAL_PREVIEW_COPY.confirmCheck}
+            </span>
           </label>
           <p id="renewal-confirm-note" className="text-sm text-muted">
             {RENEWAL_PREVIEW_COPY.confirmNote}

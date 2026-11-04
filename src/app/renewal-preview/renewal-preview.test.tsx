@@ -53,6 +53,14 @@ function text(): string {
   return container.textContent ?? "";
 }
 
+/** One answer a question: true when the person says it changed. */
+const answerMixes = fc.array(fc.boolean(), { minLength: PREVIEW_CHECKS.length, maxLength: PREVIEW_CHECKS.length });
+
+/** There are only 2^3 mixes, so every property runs each one as an example before its random runs. */
+const everyAnswerMix: [boolean[]][] = Array.from({ length: 2 ** PREVIEW_CHECKS.length }, (_, bits) => [
+  PREVIEW_CHECKS.map((_, index) => (bits & (1 << index)) !== 0),
+]);
+
 /** Walk the three questions, answering each as `changes` says, and land on the review. */
 function walk(changes: readonly boolean[]): void {
   press("start");
@@ -107,9 +115,9 @@ describe("the one-click renewal concept preview", () => {
     expect(sessionStorage.length).toBe(0);
   });
 
-  it("marks exactly the answers the person said changed, for any mix of answers, and never confirms unchecked", () => {
+  it("marks exactly the answers the person said changed, never shows a stale value as what would be sent, and never confirms unchecked", () => {
     fc.assert(
-      fc.property(fc.array(fc.boolean(), { minLength: PREVIEW_CHECKS.length, maxLength: PREVIEW_CHECKS.length }), (changes) => {
+      fc.property(answerMixes, (changes) => {
         act(() => root.unmount());
         root = createRoot(container);
         mount();
@@ -118,9 +126,26 @@ describe("the one-click renewal concept preview", () => {
           .filter((item) => item.querySelector("[data-marked-changed]") !== null)
           .map((item) => item.getAttribute("data-review-item"));
         expect(marked).toEqual(PREVIEW_CHECKS.filter((_, index) => changes[index]).map((check) => check.id));
+        // Each item's shown value is last time's answer only when the person said
+        // nothing changed. Otherwise it says the item needs updating, and last
+        // time's answer appears only labeled as last time's.
+        PREVIEW_CHECKS.forEach((check, index) => {
+          const item = container.querySelector(`[data-review-item="${check.id}"]`);
+          const shown = item?.querySelector("dd")?.textContent;
+          if (changes[index]) {
+            expect(shown).toBe(RENEWAL_PREVIEW_COPY.needsUpdate);
+            expect(item?.textContent).toContain(`${RENEWAL_PREVIEW_COPY.lastTime}: ${check.lastTime}`);
+          } else {
+            expect(shown).toBe(check.lastTime);
+            expect(item?.textContent).not.toContain(RENEWAL_PREVIEW_COPY.needsUpdate);
+          }
+        });
+        expect(container.querySelector("[data-confirm-label]")?.textContent).toBe(
+          changes.some(Boolean) ? RENEWAL_PREVIEW_COPY.confirmCheckChanged : RENEWAL_PREVIEW_COPY.confirmCheck,
+        );
         expect(container.querySelector<HTMLButtonElement>('[data-action="confirm"]')!.disabled).toBe(true);
       }),
-      { numRuns: 16 },
+      { examples: everyAnswerMix, numRuns: 16 },
     );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
