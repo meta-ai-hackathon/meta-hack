@@ -598,7 +598,7 @@ function QuestionCard(props: {
     );
   } else if (question.type === "work_activity") {
     // Per-person work rows (HACK-128) are filled in from the household
-    // list in the step-by-step questions, where the roster lives on the
+    // list in the step-by-step form, where the roster lives on the
     // device. Here the card explains that and stays optional.
     control = (
       <div className="flex flex-col gap-1.5">
@@ -607,13 +607,13 @@ function QuestionCard(props: {
           <p id={`${question.id}-qq-help`} className="text-sm text-muted">{question.help}</p>
         ) : null}
         <p className="text-sm text-muted">
-          When your answers are kept on this device, the step-by-step questions let you add a row for each person and activity. You can skip this here - it never blocks your application.
+          When your answers are kept on this device, the step-by-step form lets you add a row for each person and activity. You can skip this here - it never blocks your application.
         </p>
       </div>
     );
   } else if (question.type === "attribution") {
     // Per-person attribution (HACK-135) is filled in from the household
-    // list in the step-by-step questions, where the roster lives on the
+    // list in the step-by-step form, where the roster lives on the
     // device. Here the card explains that and stays optional: Not sure
     // or Skip always work, and nothing blocks progress.
     control = (
@@ -623,7 +623,7 @@ function QuestionCard(props: {
           <p id={`${question.id}-qq-help`} className="text-sm text-muted">{question.help}</p>
         ) : null}
         <p className="text-sm text-muted">
-          When your answers are kept on this device, the step-by-step questions let you say who each situation applies to and which months. You can skip this here - it never blocks your application.
+          When your answers are kept on this device, the step-by-step form lets you say who each situation applies to and which months. You can skip this here - it never blocks your application.
         </p>
       </div>
     );

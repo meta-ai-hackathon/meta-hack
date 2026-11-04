@@ -543,6 +543,11 @@ describe("honest copy", () => {
     // unsupported/unavailable states.
     expect(DEVICE_INTAKE_COPY.pageIntro).toMatch(/nothing you enter on this page is sent to us/);
     expect(DEVICE_INTAKE_COPY.pageIntro).not.toMatch(/stay on this device/);
+    // HACK-161 (VAL-UX-009): the intro sits right above the honest "N of M"
+    // counter, so it never promises "a few" questions — the flow may ask
+    // many more than a few. The intro names the shape, not the size.
+    expect(DEVICE_INTAKE_COPY.pageIntro).not.toMatch(/a few/i);
+    expect(DEVICE_INTAKE_COPY.pageIntro).toMatch(/Plain-language questions, one at a time/);
     // The standing blurb keeps the resume promise and the submission
     // boundary, and carries no deletion messaging of its own: deletion
     // lives behind the person's own controls and the honest outcome copy.

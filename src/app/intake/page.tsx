@@ -6,10 +6,10 @@ import { ServerAnswersNotice } from "./server-answers-notice";
 export const metadata: Metadata = {
   title: "Your application — Tenet",
   description:
-    "Answer a few plain-language questions. Nothing you enter on this page is sent to us.",
+    "Plain-language questions, one at a time. Nothing you enter on this page is sent to us.",
 };
 
-// The intake flow's page shell (BN-09). One h1; the wizard below renders
+// The intake flow's page shell (BN-09). One h1; the step-by-step form below renders
 // exactly one question per screen, driven by the question spec. Answers on
 // this page live only on the person's device (HACK-99). The notice above it
 // shows only when this browser still has answers on the server from before

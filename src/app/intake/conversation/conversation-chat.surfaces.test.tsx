@@ -976,6 +976,12 @@ describe("typed sends through the on-device shield (HACK-107)", () => {
     });
     expect(turnCalls).toHaveLength(0);
     expect(container.textContent ?? "").toContain("failed to load");
+    // HACK-161 (VAL-UX-009): the alternatives carry the step-by-step
+    // form's ONE name and never point "below" — with sharing on there is
+    // no wizard under this notice, so the old "the wizard below" pointed
+    // at nothing.
+    expect(container.textContent ?? "").toContain("use the step-by-step form instead");
+    expect(container.textContent ?? "").not.toContain("wizard below");
   });
 
   // The typed send acknowledges itself (HACK-156, VAL-UX-003): the sent
@@ -1239,6 +1245,11 @@ describe("typed sends through the on-device shield (HACK-107)", () => {
       // person can try again.
       expect(q(container, "conversation-error")).not.toBeNull();
       expect(q(container, "typing-indicator")).toBeNull();
+      // The fallback link carries the step-by-step form's ONE name
+      // (HACK-161, VAL-UX-009) — the old "Open the wizard" named the
+      // path a third way.
+      const fallback = q(container, "wizard-fallback-link");
+      expect(fallback?.textContent).toBe("Open the step-by-step form");
       const transcript = container.querySelector(
         "[data-conversation-transcript]",
       );
@@ -1573,11 +1584,12 @@ describe("the chat opens with the first question (HACK-160, VAL-UX-004)", () => 
     expect(container.textContent ?? "").not.toContain(
       "Say hello, or answer the first question",
     );
-    // …replaced by a short note pointing to the step-by-step questions
-    // above.
+    // …replaced by a short note pointing to the step-by-step form
+    // above (HACK-161: the form's ONE name, and the note points where
+    // the form really is).
     const note = q(container, "zero-send-chat-note");
     expect(note).not.toBeNull();
-    expect(note?.textContent ?? "").toContain("step-by-step questions above");
+    expect(note?.textContent ?? "").toContain("step-by-step form above");
   });
 
   it("with nothing left to ask, the empty chat keeps the plain invite line and no seed", async () => {

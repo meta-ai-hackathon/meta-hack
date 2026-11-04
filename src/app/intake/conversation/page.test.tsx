@@ -34,7 +34,11 @@ describe("Conversation page shell", () => {
 
   it("links to the step-by-step page that keeps answers only on this device (HACK-99)", () => {
     const html = renderToStaticMarkup(<ConversationPage />);
-    const link = html.match(/<a[^>]*href="([^"]*)"[^>]*>Use the wizard instead<\/a>/);
+    // ONE name everywhere (HACK-161, VAL-UX-009): the conversation page's
+    // link uses the step-by-step form's canonical name, not "wizard".
+    const link = html.match(
+      /<a[^>]*href="([^"]*)"[^>]*>Use the step-by-step form instead<\/a>/,
+    );
     expect(link?.[1]).toBe("/intake");
     // The sentence after the link describes that page; intake/page.test.tsx
     // pins that /intake runs the wizard in device mode.
@@ -80,10 +84,12 @@ describe("Conversation page shell", () => {
   it("carries the honest meta description and nothing else changed (HACK-149, VAL-UX-012)", () => {
     // The meta description rode the same over-claim family HACK-158 fixed
     // in the intro ("private details stay private"); the description now
-    // makes the intro's honest claim instead. The title is untouched.
+    // makes the intro's honest claim instead. HACK-161 (VAL-UX-009) also
+    // dropped its "a few" promise — the conversation can ask many more
+    // than a few questions. The title is untouched.
     expect(metadata.title).toBe("Chat — Tenet");
     expect(metadata.description).toBe(
-      'Answer a few plain-language questions in a conversation. Your answers save as you go, and answers to private questions show as "You told us".',
+      'Plain-language questions, one at a time, in a conversation. Your answers save as you go, and answers to private questions show as "You told us".',
     );
     expect(metadata.description).not.toContain("private details stay private");
   });

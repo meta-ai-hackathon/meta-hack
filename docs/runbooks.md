@@ -9,9 +9,9 @@ with no model key: a typed turn, two saved answers, the review, the filled PDF, 
 and `pnpm walkthrough`.
 
 The one move to remember is to turn sharing off on the same page when the assistant stops
-answering. The step-by-step questions take over in place, keep every answer the chat
-already saved, and still end at the review and the filled DHB-5200. The "Open the wizard"
-link in the error and the "Use the wizard instead" link at the top of the page go somewhere
+answering. The step-by-step form takes over in place, keep every answer the chat
+already saved, and still end at the review and the filled DHB-5200. The "Open the step-by-step form"
+link in the error and the "Use the step-by-step form instead" link at the top of the page go somewhere
 else (see the first runbook).
 
 On that path, like the chat itself, the person's answers stay in the app's server-side
@@ -101,7 +101,7 @@ and explains the program from the knowledge base's own facts instead of the mode
 To keep going without losing anything:
 
 1. Under "Your privacy choices", press "Turn off sharing".
-2. "Nothing goes to any AI provider" appears with the step-by-step questions. They start
+2. "Nothing goes to any AI provider" appears with the step-by-step form. It starts
    at the first question still open, with every answer the chat already saved.
 3. Keep answering. "Your answers so far", "Benefits that may be worth pursuing" and "Your
    application, prepared from your answers" stay below, and "Download the filled PDF"
@@ -213,7 +213,7 @@ still cites a stale entry with its flag. Marking the entry stale on a scratch co
 When the chat saved the wrong value, the person can say what's right in the chat, and the
 next turn can save the new value over the old one. That depends on the model, so it
 wasn't rehearsed. The reliable fix is to turn sharing off, press "Back" in the step-by-step
-questions until the question shows, change the answer, and press "Continue". A saved
+form until the question shows, change the answer, and press "Continue". A saved
 answer shows filled in, except a private one, which the page never shows again, so type
 that one in full. The new answer replaces the old one, and the questions move on to the
 next one still unanswered. Once every question is answered, the list of answers has a
@@ -238,7 +238,7 @@ stayed at 6 of 35.
 ## The database is down
 
 This happens when Postgres is unreachable or `DATABASE_URL` is missing. The chat page
-shows "We could not load your earlier conversation just now." The step-by-step questions on
+shows "We could not load your earlier conversation just now." The step-by-step form on
 it show "Something went wrong on our side. Please try again." The match, review and delete
 sections don't appear. `/api/health` still answers `{"ok":true}`.
 

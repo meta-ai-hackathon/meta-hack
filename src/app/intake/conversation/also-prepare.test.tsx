@@ -45,11 +45,6 @@ function dssReviewPayload(answers: AnswerMap) {
     coverage: buildDispositionReport(DSS_ENTRY),
     sessionStatus: "draft",
     portalLinks: SNAP.portalLinks,
-    steps: [
-      { title: "Review every field", detail: "Check each answer below." },
-      { title: "Download your application", detail: "Generated on download." },
-      { title: "Submit it yourself", detail: "The app never submits for you." },
-    ],
   };
 }
 

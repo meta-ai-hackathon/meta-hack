@@ -1118,7 +1118,7 @@ export function ConversationChat() {
     if (shield === null || shield.status !== "ready") {
       setNotice(
         shieldStatus === "failed"
-          ? "This session's privacy shield failed to load, so typed messages can't be sent right now. Refresh to try again — voice or the wizard below still work."
+          ? "This session's privacy shield failed to load, so typed messages can't be sent right now. Refresh to try again — voice still works, or use the step-by-step form instead."
           : "Hold on — the privacy shield is still loading. Nothing is sent before it is ready.",
       );
       return;
@@ -1637,7 +1637,7 @@ export function ConversationChat() {
           href={WIZARD_FALLBACK_URL}
           className="underline hover:text-foreground"
         >
-          Use the wizard instead
+          Use the step-by-step form instead
         </Link>
         . It keeps answers only on this device and doesn&apos;t see what you
         tell the chat.
@@ -1665,7 +1665,7 @@ export function ConversationChat() {
             Nothing goes to any AI provider
           </h2>
           <p className="max-w-xl text-muted">
-            Sharing is off. The step-by-step questions below drive the same
+            Sharing is off. The step-by-step form below drives the same
             application right here — with honest status labels, your benefit
             match, the review screen, and the filled PDF to download when you
             are ready. Your answers save on the app&apos;s server so you can
@@ -1722,12 +1722,12 @@ export function ConversationChat() {
             {loaded && turns.length === 0 ? (
               zeroSend ? (
                 // Sharing off (HACK-160, VAL-UX-004): there is no chat box
-                // to say hello into — the step-by-step questions rendered
-                // above are the way through, so the stale prompt line
-                // becomes a short pointer to them.
+                // to say hello into — the step-by-step form rendered
+                // above is the way through, so the stale prompt line
+                // becomes a short pointer to it.
                 <p data-zero-send-chat-note className="max-w-xl text-muted">
                   Sharing is off, so there is no chat box here — the
-                  step-by-step questions above are the way to keep going.
+                  step-by-step form above is the way to keep going.
                 </p>
               ) : (
                 <p className="max-w-xl text-muted">
@@ -1883,7 +1883,7 @@ export function ConversationChat() {
                 data-wizard-fallback-link
                 className="font-semibold underline"
               >
-                Open the wizard
+                Open the step-by-step form
               </Link>
             </p>
           ) : null}
