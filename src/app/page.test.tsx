@@ -36,7 +36,7 @@ describe("Home page (the round-2 entry shell, VAL-FIX-003)", () => {
     const html = renderToStaticMarkup(<Home />);
     const h1Count = (html.match(/<h1[\s>]/g) ?? []).length;
     expect(h1Count).toBe(1);
-    expect(html).toContain("Benefits Navigator");
+    expect(html).toContain("Tenet");
   });
 
   it("carries the approved mode-choice card as the framed content", () => {

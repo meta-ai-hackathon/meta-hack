@@ -4,7 +4,7 @@ import { IntakeWizard } from "./intake-wizard";
 import { ServerAnswersNotice } from "./server-answers-notice";
 
 export const metadata: Metadata = {
-  title: "Your application — Benefits Navigator",
+  title: "Your application — Tenet",
   description:
     "Answer a few plain-language questions. Nothing you enter on this page is sent to us.",
 };

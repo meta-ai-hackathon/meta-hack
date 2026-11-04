@@ -25,7 +25,7 @@ export default function Home() {
     <div className="flex w-full flex-1 flex-col">
       <div className="flex flex-col gap-2 px-5 pt-7 min-[761px]:px-9 min-[761px]:pt-9">
         <h1 className="font-display text-4xl font-bold tracking-tight">
-          Benefits Navigator
+          Tenet
         </h1>
         <p className="max-w-xl text-lg text-muted">
           A step-by-step companion for benefits applications. We help you

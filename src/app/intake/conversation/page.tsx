@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ConversationChat } from "./conversation-chat";
 
 export const metadata: Metadata = {
-  title: "Chat — Benefits Navigator",
+  title: "Chat — Tenet",
   description:
     "Answer a few plain-language questions in a conversation. Your answers save as you go, and private details stay private.",
 };

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { RenewalPreview } from "./renewal-preview";
 
 export const metadata: Metadata = {
-  title: "Renewal preview — Benefits Navigator",
+  title: "Renewal preview — Tenet",
   description:
     "A concept preview of one-click renewals, with made-up details. Nothing on this page is sent or saved.",
   robots: { index: false, follow: false },
