@@ -190,9 +190,14 @@ html {
 }
 
 /* The same word-safety for links at every size: a long source URL
-   (medicaid.ncdhhs.gov/apply) wraps instead of overflowing its card. */
+   (medicaid.ncdhhs.gov/apply) wraps instead of overflowing its card.
+   break-word (not anywhere) so the rule never lowers a link's
+   min-content width — a button-styled link in a flex row keeps its
+   natural size at every zoom step (claude-review P3, PR #163); inside
+   the app's shrinkable panels the URL still breaks when its line
+   overflows. */
 main a {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 body {

@@ -50,7 +50,11 @@ describe("the HACK-155 reflow block in globals.css", () => {
     );
   });
 
-  it("lets links break anywhere at every size (long source URLs wrap)", () => {
-    expect(css).toMatch(/main a \{[^}]*overflow-wrap:\s*anywhere/);
+  it("lets links break at every size without lowering their min-content width", () => {
+    // break-word (claude-review P3, PR #163): a long source URL still
+    // wraps when its line overflows, but a button-styled link in a flex
+    // row can never shrink and break mid-word at normal size.
+    expect(css).toMatch(/main a \{[^}]*overflow-wrap:\s*break-word/);
+    expect(css).not.toMatch(/main a \{[^}]*overflow-wrap:\s*anywhere/);
   });
 });
