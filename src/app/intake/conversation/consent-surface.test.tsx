@@ -226,6 +226,11 @@ describe("ConsentPanel layers its fine print (HACK-165)", () => {
     return html.match(new RegExp(`<details data-consent-details="${id}"[^>]*>[\\s\\S]*?</details>`))?.[0] ?? "";
   }
 
+  /** The text of a disclosure's summary. */
+  function summaryOf(details: string): string | undefined {
+    return details.match(/<summary[^>]*>([\s\S]*?)<\/summary>/)?.[1];
+  }
+
   function visibleWords(html: string): number {
     return html.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length;
   }
@@ -260,6 +265,8 @@ describe("ConsentPanel layers its fine print (HACK-165)", () => {
           const details = finePrint(html, path.id);
           expect(details).not.toBe("");
           expect(details).not.toMatch(/^<details[^>]*\sopen/);
+          // A verified path's summary says the terms are inside, because they are.
+          expect(summaryOf(details)).toMatch(/terms/);
           for (const terms of path.terms) {
             expect(details).toContain(terms.url);
             expect(visible).not.toContain(terms.url);
@@ -267,6 +274,8 @@ describe("ConsentPanel layers its fine print (HACK-165)", () => {
         }
         // The lines that change what someone agrees to stay in the first layer.
         expect(visible).toMatch(/sees your words before anything is hidden/);
+        // The retention caveat's short form stays visible; its full wording is in the fine print.
+        expect(visible).toMatch(/Meta may keep them per its terms/);
         expect(visible).toMatch(/the microphone never starts and no audio is ever sent/);
         expect(visible).toMatch(/answers save on the app's server/i);
         expect(visible).toContain("data-consent-continue");
@@ -290,6 +299,8 @@ describe("ConsentPanel layers its fine print (HACK-165)", () => {
       const html = panelMarkup({ paths, aiChecked: true, voiceChecked: false });
       expect(firstLayer(html)).toMatch(/haven't verified this provider's data-handling terms/);
       expect(finePrint(html, unverifiedId)).not.toMatch(/haven't verified/);
+      // With no verified terms inside, the summary doesn't promise any.
+      expect(summaryOf(finePrint(html, unverifiedId))).not.toMatch(/terms/);
     }
   });
 });

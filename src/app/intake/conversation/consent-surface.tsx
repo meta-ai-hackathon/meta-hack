@@ -24,8 +24,9 @@ import {
 // The panel is a layered notice (HACK-165). The first layer is what makes
 // the choice informed: each toggle's label (what is sent, to whom, for
 // what, from the registry), the line that Meta sees typed words before
-// anything is hidden, the line that the microphone never starts with voice
-// off, any unverified or dependency notice, and both buttons. Each path's
+// anything is hidden and may keep them, the line that the microphone never
+// starts with voice off, any unverified or dependency notice, and both
+// buttons. Each path's
 // verified terms and its retention or data-use line sit in that path's
 // FinePrint, a closed native disclosure on the same panel, one tap away
 // before anything is sent.
@@ -161,12 +162,16 @@ export function ConsentPanel(props: ConsentPanelProps) {
           <p className="text-sm text-muted">
             With sharing on, each typed message reaches Meta once — the step
             that reads your answer sees your words before anything is hidden.
+            Meta may keep them per its terms.
           </p>
-          <FinePrint pathId={aiPath.id} summary="Meta's terms and data use">
+          <FinePrint
+            pathId={aiPath.id}
+            summary={aiEnabled ? "Meta's terms and data use" : "Meta's data use"}
+          >
             {aiEnabled ? <PathTerms terms={aiPath.terms} /> : null}
             <p>
-              Meta says content is not used to train its models and is kept
-              per its terms — not a promise that nothing is kept.
+              Meta says content is not used to train its models — not a
+              promise that nothing is kept.
             </p>
           </FinePrint>
         </div>
@@ -221,7 +226,14 @@ export function ConsentPanel(props: ConsentPanelProps) {
             With voice off, the microphone never starts and no audio is ever
             sent.
           </p>
-          <FinePrint pathId={voicePath.id} summary="ElevenLabs' terms and data use">
+          <FinePrint
+            pathId={voicePath.id}
+            summary={
+              voicePath.termsVerified
+                ? "ElevenLabs' terms and data use"
+                : "ElevenLabs' data use"
+            }
+          >
             {voicePath.termsVerified ? <PathTerms terms={voicePath.terms} /> : null}
             <p>
               Only the assistant&apos;s reply text goes to ElevenLabs, which
