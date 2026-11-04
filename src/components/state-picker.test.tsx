@@ -296,11 +296,31 @@ describe("StatePicker (HACK-142)", () => {
       expect(input().value).toBe("South Carolina");
     });
 
-    it("commits the value code typed exactly", async () => {
+    it("commits the value code typed exactly when it is the unique match", async () => {
       const { act } = await renderPicker();
       await act(() => type("nc"));
       await blurInput();
       expect(onChange).toHaveBeenCalledWith("NC");
+    });
+
+    it("never commits an ambiguous prefix that happens to equal a value code (claude-review P2: 'ma' must not pick Massachusetts)", async () => {
+      const { act: actWithCodes } = await renderPicker({
+        options: [
+          { value: "MA", label: "Massachusetts" },
+          { value: "MD", label: "Maryland" },
+          { value: "ME", label: "Maine" },
+        ],
+      });
+      await actWithCodes(() => type("ma"));
+      await blurInput();
+      // Three options still match "ma" — nothing is picked and the
+      // Continue gate keeps biting.
+      expect(onChange).not.toHaveBeenCalled();
+      expect(chip()).toContain("No state picked yet");
+      // The full name still commits (the exact label match).
+      await actWithCodes(() => type("massachusetts"));
+      await blurInput();
+      expect(onChange).toHaveBeenCalledWith("MA");
     });
 
     it("leaves an ambiguous query unpicked on blur and keeps the reset behavior", async () => {
@@ -413,7 +433,7 @@ describe("StatePicker commit properties (fast-check, HACK-164)", () => {
     (query) => !query.includes("\u0000"),
   );
 
-  it("the commit never invents an option: it is a real option, and only an exact or unique match", () => {
+  it("the commit never invents an option: it is a real option, an exact label match, or the unique filter match", () => {
     fc.assert(
       fc.property(optionLists, queries, (options, query) => {
         const candidate = commitCandidate(options, query);
@@ -424,18 +444,15 @@ describe("StatePicker commit properties (fast-check, HACK-164)", () => {
         // answer route's option validation always holds.
         expect(options.includes(candidate)).toBe(true);
         const normalized = query.trim().toLowerCase();
-        const exact = options.filter(
-          (option) =>
-            option.label.toLowerCase() === normalized ||
-            option.value.toLowerCase() === normalized,
+        const exactLabel = options.find(
+          (option) => option.label.toLowerCase() === normalized,
         );
-        if (exact.length > 0) {
-          // An exact match wins, and only when one really exists.
-          expect(
-            exact.some((option) => option.value === candidate.value),
-          ).toBe(true);
+        if (exactLabel) {
+          // An exact label match wins, and only when one really exists.
+          expect(candidate.value).toBe(exactLabel.value);
         } else {
-          // Without an exact match, the commit is the ONLY filter match.
+          // Without an exact label, the commit is the ONLY filter match —
+          // a value code alone ("ma" = MA) never overrides ambiguity.
           const matches = options.filter((option) =>
             matchesQuery(option, normalized),
           );
@@ -460,22 +477,22 @@ describe("StatePicker commit properties (fast-check, HACK-164)", () => {
     );
   });
 
-  it("an ambiguous query with no exact match never commits (typing cannot sneak a pick past the person)", () => {
+  it("an ambiguous query with no exact label match never commits, value codes included (typing cannot sneak a pick past the person)", () => {
     fc.assert(
       fc.property(optionLists, queries, (options, query) => {
         const normalized = query.trim().toLowerCase();
-        const exact = options.some(
-          (option) =>
-            option.label.toLowerCase() === normalized ||
-            option.value.toLowerCase() === normalized,
+        const exactLabel = options.some(
+          (option) => option.label.toLowerCase() === normalized,
         );
-        if (exact || normalized === "") {
+        if (exactLabel || normalized === "") {
           return;
         }
         const matches = options.filter((option) =>
           matchesQuery(option, normalized),
         );
         if (matches.length !== 1) {
+          // Ambiguous prefixes that equal a value code ("ma") are caught
+          // here: several options match, so nothing commits.
           expect(commitCandidate(options, query)).toBeUndefined();
         }
       }),
