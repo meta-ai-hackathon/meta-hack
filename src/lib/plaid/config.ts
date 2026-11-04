@@ -3,12 +3,15 @@
 // browser: no NEXT_PUBLIC_ variable is read here for credentials, and no
 // value is logged.
 //
-// Two gates, both off by default:
-// - The explicit demo switch (NEXT_PUBLIC_PLAID_DEMO_ENABLED === "true"):
-//   the Sandbox bank card is a demo, so every /api/intake/plaid/* route
-//   answers 404 and the card stays hidden until an operator turns it on
-//   (review P2, PR #172). The flag is public by design -- the browser reads
-//   it to hide the card -- and carries no credential.
+// Three gates, all off by default:
+// - The explicit demo switch (NEXT_PUBLIC_PLAID_DEMO_ENABLED === "true").
+// - The deployment marker (NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT === "synthetic"):
+//   the card and every route require it too, so a deployment marked for real
+//   applicants (or left unmarked) cannot turn the demo on with the public
+//   switch alone (review P2, PR #172). Both values are public by design --
+//   the browser reads them to hide the card -- and carry no credential.
+//   With both on, every /api/intake/plaid/* route still answers 404 and the
+//   card stays hidden until an operator deliberately opts this deployment in.
 // - The demo is Sandbox-only by decision (HACK-65/HACK-140), so this module
 //   FAILS CLOSED unless PLAID_ENV is exactly "sandbox" -- a production or
 //   development credential dropped into the environment by mistake cannot
@@ -23,11 +26,18 @@ export interface PlaidConfig {
   readonly baseUrl: "https://sandbox.plaid.com";
 }
 
-/** The explicit demo switch: on only for the exact string "true". */
+/**
+ * The demo gate: on only for the exact strings "true" and "synthetic". The
+ * deployment marker is a second, independent switch, so an applicant
+ * deployment that accidentally inherits the public flag stays closed.
+ */
 export function plaidDemoEnabled(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
-  return env.NEXT_PUBLIC_PLAID_DEMO_ENABLED === "true";
+  return (
+    env.NEXT_PUBLIC_PLAID_DEMO_ENABLED === "true" &&
+    env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT === "synthetic"
+  );
 }
 
 /**

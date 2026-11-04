@@ -505,6 +505,7 @@ beforeEach(() => {
   queueSpeechMock.mockClear();
   answerPosts = [];
   process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
+  process.env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT = "synthetic";
   stubFetch(OPEN_STATE);
 });
 

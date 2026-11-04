@@ -41,6 +41,7 @@ describe("plaid user cleanup route", () => {
   beforeEach(() => {
     process.env.PLAID_HANDLE_SECRET = SECRET;
     process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
+    process.env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT = "synthetic";
     removeUser.mockClear();
   });
 

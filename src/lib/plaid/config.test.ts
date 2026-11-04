@@ -1,7 +1,8 @@
 // plaidConfig is the fail-closed gate for the HACK-140 bank pull (review P2
-// on PR #172). These tests pin both gates: the explicit demo switch must be
-// exactly "true" AND PLAID_ENV must be exactly "sandbox" with both server
-// credentials. They also pin the response every route returns while off.
+// on PR #172). These tests pin every gate: the explicit demo switch must be
+// exactly "true", the deployment must be exactly marked "synthetic", AND
+// PLAID_ENV must be exactly "sandbox" with both server credentials. They also
+// pin the response every route returns while off.
 import { describe, expect, it } from "vitest";
 import {
   plaidConfig,
@@ -18,10 +19,11 @@ const SANDBOX = {
 const DEMO_ON = {
   ...SANDBOX,
   NEXT_PUBLIC_PLAID_DEMO_ENABLED: "true",
+  NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT: "synthetic",
 } as const;
 
 describe("the explicit demo switch", () => {
-  it("is off unless the public flag is exactly the string true", () => {
+  it("is off unless the public switch is exactly the string true", () => {
     for (const flag of [
       undefined,
       "",
@@ -31,19 +33,49 @@ describe("the explicit demo switch", () => {
       "true ",
       "yes",
     ]) {
-      expect(plaidDemoEnabled({ NEXT_PUBLIC_PLAID_DEMO_ENABLED: flag })).toBe(
-        false,
-      );
+      expect(
+        plaidDemoEnabled({
+          NEXT_PUBLIC_PLAID_DEMO_ENABLED: flag,
+          NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT: "synthetic",
+        }),
+      ).toBe(false);
     }
-    expect(plaidDemoEnabled({ NEXT_PUBLIC_PLAID_DEMO_ENABLED: "true" })).toBe(
-      true,
-    );
+    expect(
+      plaidDemoEnabled({
+        NEXT_PUBLIC_PLAID_DEMO_ENABLED: "true",
+        NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT: "synthetic",
+      }),
+    ).toBe(true);
+  });
+
+  it("is off unless the deployment is explicitly marked synthetic", () => {
+    for (const marker of [
+      undefined,
+      "",
+      "demo",
+      "applicant",
+      "production",
+      "true",
+      "SYNTHETIC",
+      "synthetic ",
+    ]) {
+      expect(
+        plaidDemoEnabled({
+          NEXT_PUBLIC_PLAID_DEMO_ENABLED: "true",
+          NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT: marker,
+        }),
+      ).toBe(false);
+    }
   });
 
   it("keeps plaidConfig closed while the demo switch is off", () => {
     for (const flag of [undefined, "", "false", "TRUE"]) {
       expect(() =>
-        plaidConfig({ ...SANDBOX, NEXT_PUBLIC_PLAID_DEMO_ENABLED: flag }),
+        plaidConfig({
+          ...SANDBOX,
+          NEXT_PUBLIC_PLAID_DEMO_ENABLED: flag,
+          NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT: "synthetic",
+        }),
       ).toThrow(UNAVAILABLE);
     }
   });
@@ -102,6 +134,7 @@ describe("plaidConfig (HACK-140 Sandbox-only gate)", () => {
       plaidConfig({
         PLAID_ENV: "sandbox",
         NEXT_PUBLIC_PLAID_DEMO_ENABLED: "true",
+        NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT: "synthetic",
         NEXT_PUBLIC_PLAID_CLIENT_ID: "client-id",
         NEXT_PUBLIC_PLAID_SECRET: "server-secret",
       }),

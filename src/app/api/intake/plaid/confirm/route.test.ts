@@ -38,6 +38,7 @@ beforeAll(async () => {
   testDb = postgres(testUrl, { max: 1 });
   process.env.DATABASE_URL = testUrl;
   process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
+  process.env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT = "synthetic";
   await runMigrations(testDb);
   setLogSink(() => undefined);
 });

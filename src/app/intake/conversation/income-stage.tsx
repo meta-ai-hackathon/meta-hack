@@ -649,6 +649,9 @@ export function IncomeStage(props: {
         return;
       }
       const name = plaidMemberName.trim();
+      // HACK-143: a second bank pull is disabled after the first save, so
+      // `prev` is always undefined here today. Keep the replaced-member notice
+      // for per-member persistence; remove it if that behavior changes.
       const prev = plaidSavedMembers[plaidSavedMembers.length - 1];
       setPlaidSavedMembers((list) => [...list, { name, detail: savedEdits.map((d) => d.questionId + ": " + String(d.value)).join("; ") }]);
       const keptNote = "Saved the figures and schedules you typed or chose. Untouched test-bank answers were not saved.";

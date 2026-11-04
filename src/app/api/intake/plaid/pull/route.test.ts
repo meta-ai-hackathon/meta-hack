@@ -28,6 +28,7 @@ describe("plaid broker routes", () => {
   beforeEach(() => {
     process.env.PLAID_HANDLE_SECRET = "vitest-plaid-handle-secret-0123456789abcdef";
     process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
+    process.env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT = "synthetic";
     pullBankIncome.mockClear();
   });
   it("link-token requires a session and returns a session-bound signed handle, never a bare user id", async () => {

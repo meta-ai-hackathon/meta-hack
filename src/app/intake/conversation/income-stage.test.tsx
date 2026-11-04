@@ -169,6 +169,7 @@ beforeEach(() => {
   confirmState = null;
   uploadResponse = parseResponse(true);
   process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
+  process.env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT = "synthetic";
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -330,6 +331,16 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
       expect(posts.some((post) => post.url.startsWith("/api/intake/plaid/"))).toBe(false);
     } finally {
       process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
+    }
+  });
+
+  it("hides the card when the deployment is not marked synthetic, even with the switch on", async () => {
+    delete process.env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT;
+    try {
+      const { container } = await renderStage();
+      expect(q(container, "income-plaid-card")).toBeNull();
+    } finally {
+      process.env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT = "synthetic";
     }
   });
 

@@ -19,9 +19,10 @@ import { openPlaidUserId } from "../../../../../lib/plaid/user-handle";
 // Honesty note: plaintext exists in this process's memory while Plaid is
 // called -- the claim is no storage, no logs, encrypted return transit,
 // discarded token; not end-to-end encryption against our own server.
-// Off by default: the explicit demo switch
-// (NEXT_PUBLIC_PLAID_DEMO_ENABLED === "true") makes this route answer a
-// plain 404 until an operator turns the demo on.
+// Off by default: this route answers a plain 404 unless the explicit demo
+// switch is exactly "true" AND the deployment is explicitly marked
+// NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT=synthetic. The second switch keeps an
+// applicant deployment closed even if it inherits the public demo flag.
 // Sandbox-only by contract: plaidConfig() refuses any PLAID_ENV other than
 // "sandbox" and pins the base URL to the Sandbox host (both pinned by
 // config.test.ts). This broker must never run against real bank data: any
