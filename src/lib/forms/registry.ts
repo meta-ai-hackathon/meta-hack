@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { AppError } from "../telemetry";
 import { parseCommittedRegistryEntries, type FormRegistryEntry } from "./registry-core";
 
@@ -53,22 +51,4 @@ export function getFormRegistryEntry(formId: string): FormRegistryEntry {
     );
   }
   return entry;
-}
-
-/**
- * The committed template bytes for a registry entry — the fixture the
- * pipeline fills when the caller does not upload a template of their own
- * (the UI download path). Reading a COMMITTED template is not persistence:
- * the file is repo fixture data, carries no person data, and is never
- * written. Filled OUTPUT bytes never touch disk anywhere (VAL-PDF-005).
- */
-export function loadTemplatePdf(entry: FormRegistryEntry): Uint8Array {
-  try {
-    return new Uint8Array(readFileSync(path.join(process.cwd(), entry.pdfPath)));
-  } catch {
-    throw new AppError(
-      "not_found",
-      "We couldn't find a copy of that form. Try again in a moment.",
-    );
-  }
 }
