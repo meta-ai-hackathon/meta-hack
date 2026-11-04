@@ -319,6 +319,10 @@ export function ReviewSectionContent({
   // the payload they were filled from: a refreshed review (the next
   // message's answers landed) drops them until the person downloads
   // again, so a stale row never lingers (claude-review P2, PR #150).
+  // Keyed by the payload's identity, which is sound here because the
+  // parent (ReviewSection) holds `data` in state: the identity changes
+  // only when the effect refetches a refreshed review, never on a parent
+  // re-render.
   const [fill, setFill] = useState<{
     readonly data: ReviewDataView;
     readonly blanks: readonly { fieldName: string; question: string }[];
