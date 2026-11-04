@@ -124,6 +124,12 @@ export function StatePicker({
   // close-and-yield runs on the press's own click, which also clears the
   // flag; pointercancel covers a press that never becomes a click.
   const pressingRef = useRef(false);
+  // Whether the press that is in flight STARTED inside the picker: a
+  // text-selection drag in the input that releases outside fires its
+  // click on a common ancestor outside the root, and that release must
+  // not close the list or discard the typed query (claude-review P3 on
+  // this PR).
+  const pressStartedInsideRef = useRef(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -147,19 +153,31 @@ export function StatePicker({
   // blank the input while the chip already names the pick.
   useEffect(() => {
     if (!open) return;
-    const onDocPointerDown = (): void => {
+    const pressBeganInside = (event: PointerEvent | MouseEvent): boolean =>
+      Boolean(
+        rootRef.current &&
+          event.target instanceof Node &&
+          rootRef.current.contains(event.target),
+      );
+    const onDocPointerDown = (event: PointerEvent): void => {
+      // Only a primary-button press can end in the click that lands the
+      // aim. Right- and middle-clicks fire pointerdown but never a click,
+      // so arming the flag for them would suppress a later keyboard
+      // blur's close-and-yield until some unrelated click came along.
+      if (event.button !== 0) return;
       pressingRef.current = true;
+      pressStartedInsideRef.current = pressBeganInside(event);
     };
     const onDocPointerCancel = (): void => {
       pressingRef.current = false;
     };
     const onDocClick = (event: MouseEvent): void => {
       pressingRef.current = false;
-      if (
-        rootRef.current &&
-        event.target instanceof Node &&
-        rootRef.current.contains(event.target)
-      ) {
+      // A press that began inside the picker (picking an option; a
+      // text-selection drag in the input that releases outside) never
+      // aims at a control below: such a click's target is the picker or
+      // a common ancestor, never a button, so it closes nothing.
+      if (pressStartedInsideRef.current || pressBeganInside(event)) {
         return;
       }
       setOpen(false);

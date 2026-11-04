@@ -428,7 +428,9 @@ describe("StatePicker (HACK-142)", () => {
       await act(() => type("north"));
       // The press begins: pointerdown on a control below the picker.
       await act(() => {
-        outside.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        outside.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
       });
       // The press's mousedown blurs the input. The typed "north" is
       // ambiguous, so nothing commits — and nothing reflows: the list
@@ -458,7 +460,9 @@ describe("StatePicker (HACK-142)", () => {
       // press flag must therefore survive pointerup (claude-review P2 on
       // this PR): pointerup lands while the finger is still "pressing".
       await act(() => {
-        outside.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        outside.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
       });
       await act(() => {
         outside.dispatchEvent(new Event("pointerup", { bubbles: true }));
@@ -480,11 +484,62 @@ describe("StatePicker (HACK-142)", () => {
       expect(input().value).toBe("");
     });
 
+    it("a right-click never arms the press flag, so the keyboard blur that follows keeps its close-and-yield (claude-review P3: a contextmenu press produces no click)", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north"));
+      await act(() => {
+        outside.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 2 }),
+        );
+      });
+      // Tab-away: a right-click never becomes a primary click, so this
+      // blur is an ordinary non-press blur — the list closes and the
+      // query yields exactly as it did before this PR.
+      await act(() => {
+        input().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("");
+    });
+
+    it("a text-selection drag that starts in the input and releases outside keeps the list open and the typed query (claude-review P3)", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north"));
+      // The drag starts inside the picker (on the input, selecting text).
+      await act(() => {
+        input().dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+      });
+      // The release happens outside the picker, so the click lands on a
+      // common ancestor above both — the picker must not treat it as an
+      // outside click and discard the typed query.
+      await act(() => {
+        document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      expect(input().value).toBe("north");
+      // A genuinely outside press still closes and yields.
+      await act(() => {
+        outside.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+      });
+      await act(() => {
+        outside.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(outsideClicks).toBe(1);
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("");
+    });
+
     it("typing the full name and pressing a control below picks it during the press and the click still lands (VAL-UX-001 in one press)", async () => {
       const { act, rerender } = await renderPicker();
       await act(() => type("north carolina"));
       await act(() => {
-        outside.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        outside.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
       });
       // The blur the press causes commits the pick…
       await act(() => {
