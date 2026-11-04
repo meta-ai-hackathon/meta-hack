@@ -3,6 +3,7 @@ import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CONSENT_PROVIDER_ID,
+  declinedReceipt,
   saveConsentReceipt,
   type ConsentReceipt,
 } from "../../../lib/consent";
@@ -174,9 +175,13 @@ const EMPTY_STATE: IntakeClientState = {
 
 let turnCalls: { headers: Headers; body: string }[] = [];
 
+// The client state the history stub serves (HACK-160 tests vary it; the
+// default is the fresh-session state).
+let historyState: IntakeClientState = EMPTY_STATE;
+
 function historyResponse(): Response {
   return new Response(
-    JSON.stringify({ turns: [], state: EMPTY_STATE }),
+    JSON.stringify({ turns: [], state: historyState }),
     { status: 200, headers: { "content-type": "application/json" } },
   );
 }
@@ -234,6 +239,7 @@ beforeEach(() => {
   sessionOps = [];
   fakeCapturing = false;
   turnCalls = [];
+  historyState = EMPTY_STATE;
   replyText = "Got it. What is your zip code?";
   configureShield({ status: "ready", protective: true });
   stubFetch();
@@ -1011,9 +1017,11 @@ describe("typed sends through the on-device shield (HACK-107)", () => {
     const transcriptBubbles = (container: HTMLElement): Element[] =>
       Array.from(
         // Turn bubbles only — the in-flight typing bubble is also a list
-        // child while a send is pending, and it is not a turn.
+        // child while a send is pending, and it is not a turn; neither is
+        // the display-only seeded first question (HACK-160), which is
+        // engine content, never a stored or echoed message.
         container.querySelectorAll(
-          "[data-conversation-transcript] > li:not([data-typing-indicator])",
+          "[data-conversation-transcript] > li:not([data-typing-indicator]):not([data-first-question])",
         ),
       );
 
@@ -1387,6 +1395,212 @@ describe("the mode is asked once (HACK-157, VAL-UX-002)", () => {
     expect(q(container, "mode-choice")).not.toBeNull();
     expect(container.textContent ?? "").toContain(
       "How would you like to talk?",
+    );
+  });
+});
+
+// The chat opens with the first question visible (HACK-160, VAL-UX-004):
+// with sharing on the empty conversation shows the question engine's next
+// unanswered talk-saveable question — read from the live client state,
+// so no model call and never a question already answered — as the
+// assistant's first bubble; with sharing off the now-meaningless prompt
+// line gives way to a short note pointing to the step-by-step questions
+// above.
+describe("the chat opens with the first question (HACK-160, VAL-UX-004)", () => {
+  it("sharing on: the empty chat shows the engine's first question as the assistant's first bubble — without any turn send", async () => {
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(false));
+    });
+    const seed = q(container, "first-question");
+    expect(seed).not.toBeNull();
+    expect(seed?.textContent ?? "").toContain("Who is this application for?");
+    // It renders as the assistant's bubble inside the transcript list.
+    expect(
+      seed?.closest("ul")?.hasAttribute("data-conversation-transcript"),
+    ).toBe(true);
+    // Opening the chat made NO model call — the seed is engine content,
+    // not a send.
+    expect(turnCalls).toHaveLength(0);
+  });
+
+  it("the seed reads the LIVE state: after the quick-questions answers, it asks what is actually next — never a question already answered", async () => {
+    // The post-quick-questions state: application_role is answered, the
+    // engine's next question is main_goal. (The droid-review P1 pin: a
+    // fetch-frozen seed would still show the already-answered first
+    // question here.)
+    historyState = {
+      ...EMPTY_STATE,
+      questions: [
+        {
+          id: "application_role",
+          prompt: "Who is this application for?",
+          help: "",
+          type: "text",
+          required: true,
+          pii: false,
+        },
+        {
+          id: "main_goal",
+          prompt: "What kind of help are you looking for right now?",
+          help: "",
+          type: "text",
+          required: true,
+          pii: false,
+        },
+      ],
+      answers: { application_role: { status: "known", value: "self" } },
+      progress: { answered: 1, remaining: 1, total: 2 },
+      currentIndex: 1,
+    };
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(false));
+    });
+    const seed = q(container, "first-question");
+    expect(seed?.getAttribute("data-first-question")).toBe("main_goal");
+    expect(seed?.textContent ?? "").toContain(
+      "What kind of help are you looking for right now?",
+    );
+    expect(seed?.textContent ?? "").not.toContain(
+      "Who is this application for?",
+    );
+  });
+
+  it("the seed skips the structured wizard-only questions the talk path never asks", async () => {
+    // Everything answered except the roster (a structured question the
+    // engine never extracts in the chat, HACK-134): no chat-askable
+    // question remains, so no seed — never a question a typed answer
+    // could not save.
+    historyState = {
+      ...EMPTY_STATE,
+      questions: [
+        {
+          id: "application_role",
+          prompt: "Who is this application for?",
+          help: "",
+          type: "text",
+          required: true,
+          pii: false,
+        },
+        {
+          id: "household_roster",
+          prompt: "Who lives in your household?",
+          help: "",
+          type: "roster",
+          required: true,
+          pii: false,
+        },
+      ],
+      answers: { application_role: { status: "known", value: "self" } },
+      progress: { answered: 1, remaining: 1, total: 2 },
+      currentIndex: 1,
+    };
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(false));
+    });
+    expect(q(container, "first-question")).toBeNull();
+  });
+
+  it("sharing on: the invite line stays, and the seeded bubble hands over to the real transcript after the first reply", async () => {
+    // The ai-only typed path: a textarea, no voice session.
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(false));
+    });
+    // The invite line coexists with the seeded first question.
+    expect(container.textContent ?? "").toContain(
+      "Say hello, or answer the first question",
+    );
+    expect(q(container, "first-question")).not.toBeNull();
+    // A turn fetch that pends until the test releases it, so the
+    // in-flight window is observable.
+    let releaseTurn: (response?: Response) => void = () => undefined;
+    const pending = new Promise<Response>((resolve) => {
+      releaseTurn = (response) => resolve(response ?? turnResponse());
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversation/history") {
+          return historyResponse();
+        }
+        if (url === "/api/conversation/turn") {
+          turnCalls.push({
+            headers: new Headers(init?.headers),
+            body: String(init?.body),
+          });
+          return pending;
+        }
+        throw new Error(`unexpected request to ${url}`);
+      }),
+    );
+    await act(async () => {
+      const ta = container.querySelector("textarea") as HTMLTextAreaElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(ta, "It is for me.");
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      (
+        container.querySelector('button[type="submit"]') as HTMLButtonElement
+      )?.click();
+    });
+    // In flight: the seeded question stays visible — it is the question
+    // being answered, not a duplicate of the echo.
+    expect(q(container, "first-question")).not.toBeNull();
+    // The reply lands: the real transcript takes over, the seed leaves.
+    await act(async () => releaseTurn());
+    expect(q(container, "first-question")).toBeNull();
+    expect(container.textContent ?? "").toContain(
+      "Got it. What is your zip code?",
+    );
+  });
+
+  it("sharing off: the empty-chat prompt line is replaced with a short note pointing to the questions above", async () => {
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(declinedReceipt());
+    });
+    // No seeded bubble in zero-send mode — there is no chat to seed.
+    expect(q(container, "first-question")).toBeNull();
+    // The stale line is gone…
+    expect(container.textContent ?? "").not.toContain(
+      "Say hello, or answer the first question",
+    );
+    // …replaced by a short note pointing to the step-by-step questions
+    // above.
+    const note = q(container, "zero-send-chat-note");
+    expect(note).not.toBeNull();
+    expect(note?.textContent ?? "").toContain("step-by-step questions above");
+  });
+
+  it("with nothing left to ask, the empty chat keeps the plain invite line and no seed", async () => {
+    historyState = {
+      ...EMPTY_STATE,
+      answers: { application_role: { status: "known", value: "self" } },
+      progress: { answered: 1, remaining: 0, total: 1 },
+      currentIndex: null,
+      complete: true,
+      quickQuestions: {
+        ...EMPTY_STATE.quickQuestions,
+        remainingIds: [],
+        remainingCount: 0,
+        complete: true,
+      },
+    };
+    const { container, act } = await renderChat();
+    await act(async () => {
+      saveConsentReceipt(voiceReceipt(false));
+    });
+    expect(q(container, "first-question")).toBeNull();
+    expect(container.textContent ?? "").toContain(
+      "Say hello, or answer the first question",
     );
   });
 });
