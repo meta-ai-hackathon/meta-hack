@@ -179,6 +179,17 @@ export function refineThinkingPhase(
 }
 
 /**
+ * The typed send's patience line (HACK-156, VAL-UX-003): how long a typed
+ * reply may wait before the still-working line appears, and the line's
+ * exact words. Model latency is a recorded known limit (HACK-116); this is
+ * presentation-only — the line never fabricates reply content and never
+ * claims success, it only says the wait is expected.
+ */
+export const SLOW_REPLY_WAIT_MS = 8000;
+export const SLOW_REPLY_NOTE =
+  "Still working on it. This can take up to half a minute.";
+
+/**
  * The short wrap-up spoken when the deterministic engine has no
  * unanswered question left (VAL-VJS-003), and the visible handoff line
  * at the top of the results stage (VAL-VJS-004). One text for both so
@@ -261,6 +272,12 @@ export function ConversationChat() {
   const [state, setState] = useState<IntakeClientState | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusyState] = useState(false);
+  // The typed send's in-flight window (HACK-156, VAL-UX-003): from the
+  // send until the turn settles, the assistant side shows a typing bubble;
+  // past the patience threshold a still-working line joins it. Bound to
+  // the TYPED path only — voice turns keep their own state bar and orb.
+  const [typedInFlight, setTypedInFlight] = useState(false);
+  const [slowTypedReply, setSlowTypedReply] = useState(false);
   // The interim perceived-latency phase (VAL-VLAT-001): "listening" while
   // the session's mic is open, "transcribing" from the instant an
   // utterance ends until the turn response lands, "speaking" while the
@@ -609,7 +626,7 @@ export function ConversationChat() {
       return;
     }
     pane.scrollTop = pane.scrollHeight;
-  }, [turns, voicePhase, talkStage]);
+  }, [turns, voicePhase, talkStage, typedInFlight, slowTypedReply]);
 
   function handlePaneScroll(): void {
     const pane = transcriptPaneRef.current;
@@ -843,10 +860,18 @@ export function ConversationChat() {
     }
   }
 
+  // Returns true when the turn landed (the reply rendered); false on any
+  // failure — the typed path's echo confirmation hangs off that signal
+  // (HACK-156). onConfirmed fires the moment the optimistic echo has been
+  // swapped for the server's redacted transcript — BEFORE the later
+  // enhancement work (playback, handoff) that could throw, so the caller
+  // never rolls a confirmed turn back. Voice callers ignore both.
   async function handleTurnResponse(
     response: Response,
     spoken: boolean,
-  ): Promise<void> {
+    echoTurnId?: string,
+    onConfirmed?: () => void,
+  ): Promise<boolean> {
     if (!response.ok) {
       const data = (await response.json()) as ConversationErrorResponse;
       if (data.error?.code === "consent_required") {
@@ -858,7 +883,7 @@ export function ConversationChat() {
         setNotice(
           "Your sharing choice was missing, so nothing was sent. Choose again to continue.",
         );
-        return;
+        return false;
       }
       setError({
         code: data.error?.code ?? "internal",
@@ -869,7 +894,7 @@ export function ConversationChat() {
           data.error?.wizardFallbackUrl ?? WIZARD_FALLBACK_URL,
       });
       setNotice("The assistant could not reply just now.");
-      return;
+      return false;
     }
     const data = (await response.json()) as TurnResponse;
     const wasComplete = state?.complete ?? false;
@@ -893,16 +918,47 @@ export function ConversationChat() {
     const shield = shieldRef.current;
     const displayReply =
       shield?.reveal(data.assistantReply) ?? data.assistantReply;
-    setTurns((previous) => [
-      ...previous,
-      {
+    setTurns((previous) => {
+      const assistantTurn: ConversationTurn = {
         id: nextLocalTurnId(),
-        role: "user",
-        transcript: data.redactedUserTranscript,
-        ...(turnThemes.length > 0 ? { themes: turnThemes } : {}),
-      },
-      { id: nextLocalTurnId(), role: "assistant", transcript: displayReply },
-    ]);
+        role: "assistant",
+        transcript: displayReply,
+      };
+      // The typed echo (HACK-156): the optimistic turn is CONFIRMED in
+      // place — same list position, same React key — its words swapped
+      // for the server's redacted transcript. A missing echo (purged
+      // mid-flight) falls back to the plain two-turn append.
+      if (
+        echoTurnId !== undefined &&
+        previous.some((turn) => turn.id === echoTurnId)
+      ) {
+        return [
+          ...previous.map((turn) =>
+            turn.id === echoTurnId
+              ? {
+                  ...turn,
+                  transcript: data.redactedUserTranscript,
+                  ...(turnThemes.length > 0 ? { themes: turnThemes } : {}),
+                }
+              : turn,
+          ),
+          assistantTurn,
+        ];
+      }
+      return [
+        ...previous,
+        {
+          id: nextLocalTurnId(),
+          role: "user",
+          transcript: data.redactedUserTranscript,
+          ...(turnThemes.length > 0 ? { themes: turnThemes } : {}),
+        },
+        assistantTurn,
+      ];
+    });
+    if (echoTurnId !== undefined) {
+      onConfirmed?.();
+    }
     setState(data.state);
     setDraft("");
     setNotice(
@@ -965,6 +1021,7 @@ export function ConversationChat() {
       sessionRef.current?.hold();
       playbackHoldRef.current = true;
     }
+    return true;
   }
 
   async function submitTurn(): Promise<void> {
@@ -998,6 +1055,27 @@ export function ConversationChat() {
     setBusy(true);
     setError(null);
     setNotice("");
+    // HACK-156 (VAL-UX-003): the send acknowledges itself — the person's
+    // words land in the transcript IMMEDIATELY and the box clears, so the
+    // 10-33 s model latency (a recorded known limit, HACK-116) never reads
+    // as a frozen app. Nothing is fabricated: the echo is the person's own
+    // words, it is replaced by the server's redacted transcript when the
+    // turn lands, and ANY failure (error response or network throw)
+    // removes the echo and restores the draft verbatim — the
+    // honest-failure paths behave exactly as they did before.
+    const echoTurnId = nextLocalTurnId();
+    let sent = false;
+    // Set the moment the echo is confirmed in place (inside the turn
+    // handler, before its later enhancement work) — a throw AFTER the
+    // confirmation must never roll the confirmed turn back (review P3).
+    let confirmed = false;
+    // The patience line (VAL-UX-003): past the wait threshold the same
+    // still-working line shows in the transcript bubble and is announced
+    // via the StatusRegion (the voice path's 5 s escalate-notice
+    // precedent). The clock covers the REPLY wait — it starts with the
+    // send, after the on-device shield has passed — and is cleared on
+    // every settle path in the finally below.
+    let slowReplyTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       const prepaid = await shield.protectTyped(text);
       if (prepaid.kind === "blocked") {
@@ -1006,6 +1084,17 @@ export function ConversationChat() {
         );
         return;
       }
+      setTurns((previous) => [
+        ...previous,
+        { id: echoTurnId, role: "user", transcript: text },
+      ]);
+      setDraft("");
+      setTypedInFlight(true);
+      sent = true;
+      slowReplyTimer = setTimeout(() => {
+        setSlowTypedReply(true);
+        setNotice(SLOW_REPLY_NOTE);
+      }, SLOW_REPLY_WAIT_MS);
       const response = await fetch("/api/conversation/turn", {
         method: "POST",
         headers: attachConsentHeader(
@@ -1013,8 +1102,29 @@ export function ConversationChat() {
         ),
         body: JSON.stringify({ text: prepaid.text }),
       });
-      await handleTurnResponse(response, false);
+      const landed = await handleTurnResponse(
+        response,
+        false,
+        echoTurnId,
+        () => {
+          confirmed = true;
+        },
+      );
+      if (!landed) {
+        // The turn failed: the echo was never confirmed, so it goes and
+        // the draft returns (today's honest-failure end state).
+        setTurns((previous) =>
+          previous.filter((turn) => turn.id !== echoTurnId),
+        );
+        setDraft(text);
+      }
     } catch {
+      if (sent && !confirmed) {
+        setTurns((previous) =>
+          previous.filter((turn) => turn.id !== echoTurnId),
+        );
+        setDraft(text);
+      }
       setError({
         code: "internal",
         message: "Something went wrong on our side. Please try again.",
@@ -1022,6 +1132,11 @@ export function ConversationChat() {
       });
       setNotice("The assistant could not reply just now.");
     } finally {
+      if (slowReplyTimer !== undefined) {
+        clearTimeout(slowReplyTimer);
+      }
+      setTypedInFlight(false);
+      setSlowTypedReply(false);
       setBusy(false);
       // A typed turn can also play audio (the spoken wrap-up) and run
       // alongside an active voice session: the same settled cleanup
@@ -1616,6 +1731,31 @@ export function ConversationChat() {
                     data-live-caret
                     className="live-caret inline-block h-4 w-0.5 rounded-full bg-teal"
                   />
+                </li>
+              ) : null}
+              {/* The typed send's in-flight bubble (HACK-156, VAL-UX-003):
+              while a typed reply is on its way the assistant side shows a
+              typing bubble, and past the patience threshold a still-working
+              line joins it — the 10-33 s model wait never reads as a frozen
+              app. Presentation only: no reply content is ever fabricated
+              here, and the bubble is bound to the TYPED path's window
+              (voice turns keep their own state bar and orb). Not a live
+              region: the StatusRegion announces the same wait (the 8 s
+              patience notice), matching the voice state bar's convention. */}
+              {typedInFlight ? (
+                <li
+                  data-typing-indicator="true"
+                  className="max-w-[85%] self-start rounded-3xl rounded-bl-lg border border-surface-border bg-surface px-4 py-2.5"
+                >
+                  Writing a reply…
+                  {slowTypedReply ? (
+                    <span
+                      data-slow-reply-note
+                      className="mt-1 block text-sm text-muted"
+                    >
+                      {SLOW_REPLY_NOTE}
+                    </span>
+                  ) : null}
                 </li>
               ) : null}
               </ul>

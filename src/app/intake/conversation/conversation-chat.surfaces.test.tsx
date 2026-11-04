@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CONSENT_PROVIDER_ID,
@@ -969,6 +970,327 @@ describe("typed sends through the on-device shield (HACK-107)", () => {
     });
     expect(turnCalls).toHaveLength(0);
     expect(container.textContent ?? "").toContain("failed to load");
+  });
+
+  // The typed send acknowledges itself (HACK-156, VAL-UX-003): the sent
+  // message lands in the transcript IMMEDIATELY, the box clears, a visible
+  // in-flight bubble covers the 10-33 s model latency (a recorded known
+  // limit, HACK-116), and past ~8 s a still-working line appears. Nothing
+  // is ever fabricated: the echo is the person's own words, it is replaced
+  // by the server's redacted transcript when the turn lands, and any
+  // failure removes the echo and restores the draft. Voice turns keep
+  // their own state bar and orb — this window is the typed path's.
+  describe("the send acknowledges itself (HACK-156, VAL-UX-003)", () => {
+    // A turn fetch that pends until the test releases it, so the
+    // in-flight window is observable.
+    function stubPendingTurn(): { release: (response?: Response) => void } {
+      let releaseTurn: (response: Response) => void = () => undefined;
+      const pending = new Promise<Response>((resolve) => {
+        releaseTurn = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url === "/api/conversation/history") {
+            return historyResponse();
+          }
+          if (url === "/api/conversation/turn") {
+            turnCalls.push({
+              headers: new Headers(init?.headers),
+              body: String(init?.body),
+            });
+            return pending;
+          }
+          throw new Error(`unexpected request to ${url}`);
+        }),
+      );
+      return { release: (response) => releaseTurn(response ?? turnResponse()) };
+    }
+
+    const transcriptBubbles = (container: HTMLElement): Element[] =>
+      Array.from(
+        // Turn bubbles only — the in-flight typing bubble is also a list
+        // child while a send is pending, and it is not a turn.
+        container.querySelectorAll(
+          "[data-conversation-transcript] > li:not([data-typing-indicator])",
+        ),
+      );
+
+    // An act that works while fake timers are installed: the real helper's
+    // setTimeout(0) settling loops would never fire on a frozen clock.
+    const fakeAct = async (fn: () => Promise<void> | void): Promise<void> => {
+      const React = await import("react");
+      await React.act(async () => {
+        await fn();
+        for (let i = 0; i < 10; i += 1) {
+          await Promise.resolve();
+        }
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    };
+
+    it("the echo: a sent message is in the transcript and the box is cleared while the reply is still on its way", async () => {
+      const { container, act } = await typingMode();
+      const { release } = stubPendingTurn();
+      await typeText(
+        container,
+        act,
+        "Hi, I'm Testy McTestface and I need Medicaid.",
+      );
+      await act(async () => {
+        (
+          container.querySelector('button[type="submit"]') as HTMLButtonElement
+        )?.click();
+      });
+      // Before ANY response: the person's words are in the transcript…
+      const echoed = transcriptBubbles(container).filter((li) =>
+        li.textContent?.includes("Testy McTestface"),
+      );
+      expect(echoed).toHaveLength(1);
+      // …the box is clear…
+      expect(
+        (container.querySelector("textarea") as HTMLTextAreaElement).value,
+      ).toBe("");
+      // …and the assistant side shows a visible in-flight bubble while
+      // the button is honestly busy.
+      expect(q(container, "typing-indicator")).not.toBeNull();
+      const send = container.querySelector(
+        'button[type="submit"]',
+      ) as HTMLButtonElement;
+      expect(send.textContent).toBe("Sending…");
+      expect(send.disabled).toBe(true);
+      // The turn lands: the echo is CONFIRMED — replaced by the server's
+      // redacted transcript, never duplicated — the reply renders, and the
+      // in-flight bubble leaves.
+      await act(async () => release());
+      expect(transcriptBubbles(container)).toHaveLength(2);
+      expect(container.textContent).toContain("a household of three");
+      expect(container.textContent).toContain("Got it. What is your zip code?");
+      expect(container.textContent ?? "").not.toContain("Testy McTestface");
+      expect(q(container, "typing-indicator")).toBeNull();
+    });
+
+    it("property: for any typed message the echo shows the words immediately, confirms to exactly one redacted bubble, and clears the box", async () => {
+      await fc.assert(
+        // The send trims the draft (what goes out is the trimmed words),
+        // so the arbitrary constructs already-trimmed strings — word
+        // character first and last, no filter.
+        fc.asyncProperty(
+          fc.stringMatching(/^[\w](?:[\w ,.!?'-]{0,58}[\w])?$/u),
+          async (text) => {
+            const { container, act } = await typingMode();
+            const { release } = stubPendingTurn();
+            await typeText(container, act, text);
+            await act(async () => {
+              (
+                container.querySelector(
+                  'button[type="submit"]',
+                ) as HTMLButtonElement
+              )?.click();
+            });
+            // In flight: the box is clear, the words are echoed, the
+            // indicator is visible.
+            expect(
+              (container.querySelector("textarea") as HTMLTextAreaElement)
+                .value,
+            ).toBe("");
+            const echoed = transcriptBubbles(container).filter((li) =>
+              li.textContent?.includes(text),
+            );
+            expect(echoed).toHaveLength(1);
+            expect(q(container, "typing-indicator")).not.toBeNull();
+            // Settled: exactly two bubbles — one user (the redacted
+            // transcript, in the echo's place) and one assistant reply.
+            await act(async () => release());
+            const settled = transcriptBubbles(container);
+            expect(settled).toHaveLength(2);
+            expect(settled[0]!.textContent).toContain("a household of three");
+            expect(settled[1]!.textContent).toContain(
+              "Got it. What is your zip code?",
+            );
+            expect(q(container, "typing-indicator")).toBeNull();
+            document.body.replaceChildren();
+          },
+        ),
+        { numRuns: 12 },
+      );
+    });
+
+    it("the patience line: past ~8 s of waiting the still-working line appears, and it leaves when the reply lands", async () => {
+      const { container, act } = await typingMode();
+      await typeText(container, act, "Are you still there?");
+      const { release } = stubPendingTurn();
+      vi.useFakeTimers();
+      try {
+        await fakeAct(async () => {
+          (
+            container.querySelector(
+              'button[type="submit"]',
+            ) as HTMLButtonElement
+          )?.click();
+        });
+        // Inside the wait: the indicator shows, the line does not.
+        expect(q(container, "typing-indicator")).not.toBeNull();
+        expect(q(container, "slow-reply-note")).toBeNull();
+        // Past the threshold the still-working line appears — honestly
+        // phrased, no phase claim, no fabricated content.
+        await fakeAct(async () => {
+          await vi.advanceTimersByTimeAsync(8000);
+        });
+        expect(q(container, "slow-reply-note")).not.toBeNull();
+        expect(container.textContent).toContain(
+          "Still working on it. This can take up to half a minute.",
+        );
+        expect(q(container, "typing-indicator")).not.toBeNull();
+        // The reply lands: the line and the bubble leave, the reply
+        // renders.
+        await fakeAct(async () => {
+          release();
+        });
+        expect(q(container, "slow-reply-note")).toBeNull();
+        expect(q(container, "typing-indicator")).toBeNull();
+        expect(container.textContent).toContain(
+          "Got it. What is your zip code?",
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("a reply that lands inside the wait never shows the still-working line", async () => {
+      const { container, act } = await typingMode();
+      await typeText(container, act, "Quick one:");
+      const { release } = stubPendingTurn();
+      vi.useFakeTimers();
+      try {
+        await fakeAct(async () => {
+          (
+            container.querySelector(
+              'button[type="submit"]',
+            ) as HTMLButtonElement
+          )?.click();
+        });
+        await fakeAct(async () => {
+          release();
+        });
+        expect(q(container, "slow-reply-note")).toBeNull();
+        expect(q(container, "typing-indicator")).toBeNull();
+        expect(container.textContent).toContain(
+          "Got it. What is your zip code?",
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("honest failure: an error reply removes the echo, restores the draft, and fabricates nothing", async () => {
+      const { container, act } = await typingMode();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url === "/api/conversation/history") {
+            return historyResponse();
+          }
+          if (url === "/api/conversation/turn") {
+            turnCalls.push({
+              headers: new Headers(init?.headers),
+              body: String(init?.body),
+            });
+            return new Response(
+              JSON.stringify({
+                error: {
+                  code: "model_unavailable",
+                  message: "The assistant is unavailable right now.",
+                  wizardFallbackUrl: "/intake",
+                },
+              }),
+              { status: 503, headers: { "content-type": "application/json" } },
+            );
+          }
+          throw new Error(`unexpected request to ${url}`);
+        }),
+      );
+      await typeText(
+        container,
+        act,
+        "My name is Carlos and this is about Medicaid.",
+      );
+      await act(async () => {
+        (
+          container.querySelector('button[type="submit"]') as HTMLButtonElement
+        )?.click();
+      });
+      // The send DID happen (the fetch ran)…
+      expect(turnCalls).toHaveLength(1);
+      // …and the failure is honest: the error surface shows, the echo is
+      // gone (asserted on the words THIS test typed — the draft lives
+      // back in the textarea, so the check is scoped to the transcript),
+      // no reply bubble exists, and the draft is back verbatim so the
+      // person can try again.
+      expect(q(container, "conversation-error")).not.toBeNull();
+      expect(q(container, "typing-indicator")).toBeNull();
+      const transcript = container.querySelector(
+        "[data-conversation-transcript]",
+      );
+      expect(transcript?.textContent ?? "").not.toContain("My name is Carlos");
+      expect(transcript?.textContent ?? "").not.toContain(
+        "a household of three",
+      );
+      expect(
+        (container.querySelector("textarea") as HTMLTextAreaElement).value,
+      ).toBe("My name is Carlos and this is about Medicaid.");
+    });
+
+    it("honest failure: a network failure restores the draft the same way", async () => {
+      const { container, act } = await typingMode();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url === "/api/conversation/history") {
+            return historyResponse();
+          }
+          throw new TypeError("network down");
+        }),
+      );
+      await typeText(container, act, "Carlos again.");
+      await act(async () => {
+        (
+          container.querySelector('button[type="submit"]') as HTMLButtonElement
+        )?.click();
+      });
+      expect(q(container, "conversation-error")).not.toBeNull();
+      expect(q(container, "typing-indicator")).toBeNull();
+      // The draft is restored INTO the textarea (jsdom renders a
+      // textarea's value as its content), so scope the
+      // nothing-left-behind check to the transcript.
+      expect(
+        container
+          .querySelector("[data-conversation-transcript]")
+          ?.textContent ?? "",
+      ).not.toContain("Carlos again.");
+      expect(
+        (container.querySelector("textarea") as HTMLTextAreaElement).value,
+      ).toBe("Carlos again.");
+    });
+
+    it("voice mode is unaffected: a voice turn in flight shows no typing bubble", async () => {
+      const { container, act } = await renderChat();
+      await beginMode(container, act, "voice-only");
+      const { release } = stubPendingTurn();
+      await act(async () => {
+        sessionCallbacks.onUtterance(
+          new Blob(["first"], { type: "audio/webm" }),
+        );
+      });
+      // The voice turn is in flight (its own state bar covers it); the
+      // typed path's typing bubble must not appear.
+      expect(q(container, "typing-indicator")).toBeNull();
+      await act(async () => release());
+      expect(container.textContent).toContain("Got it. What is your zip code?");
+    });
   });
 });
 
