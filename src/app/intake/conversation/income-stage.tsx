@@ -16,7 +16,11 @@ import {
 } from "../../../lib/plaid/envelope-client";
 import type { BrokerEnvelope } from "../../../lib/plaid/envelope-shared";
 import type { MinimizedPlaidPayload } from "../../../lib/plaid/client";
-import { plaidIncomeProposals, type PlaidProposalResult } from "../../../lib/income/plaid-proposal";
+import {
+  plaidIncomeProposals,
+  type PlaidIncomeProposal,
+  type PlaidProposalResult,
+} from "../../../lib/income/plaid-proposal";
 import {
   loadPlaidOriginsFromDevice,
   savePlaidOriginsToDevice,
@@ -325,6 +329,18 @@ export function IncomeStage(props: {
   }, []);
 
   const proposals = proposalsFromMonthlyDerived(upload?.monthlyDerived ?? null);
+  const plaidHasInvalidAmount =
+    plaidResult?.proposals.some((proposal) => {
+      const question = questions.find((c) => c.id === proposal.questionId);
+      const entered = plaidCorrections[proposal.questionId];
+      return (
+        question?.type === "number" &&
+        entered !== undefined &&
+        entered !== "" &&
+        entered !== String(proposal.value) &&
+        parseAmountInput(entered) === null
+      );
+    }) ?? false;
 
   async function applyAnswerPost(questionId: string): Promise<boolean> {
     const response = await fetch("/api/intake/answer", {
@@ -635,22 +651,37 @@ export function IncomeStage(props: {
   }
 
   async function savePlaidFindings(): Promise<void> {
-    if (saveInFlight.current || plaidResult === null || plaidResult.proposals.length === 0 || plaidMemberName.trim() === "") { onNotice(NOTHING_DECIDED_NOTICE); return; }
-    const decided = plaidResult.proposals.map((proposal) => {
-      // An untouched prefilled input is a CONFIRM (provenance user); only a
-      // real edit is a correction (also user). The field is
-      // prefilled with String(proposal.value), so the comparison is exact.
+    if (saveInFlight.current || plaidResult === null || plaidResult.proposals.length === 0 || plaidMemberName.trim() === "" || plaidHasInvalidAmount) { onNotice(NOTHING_DECIDED_NOTICE); return; }
+    const decided: {
+      questionId: string;
+      action: "confirm" | "correct";
+      value: number | string;
+    }[] = [];
+    for (const proposal of plaidResult.proposals) {
+      // An untouched field is a CONFIRM (saved unverified); a real edit is a
+      // correction (known). Selects compare by option value; amounts are
+      // sanitized so "1,800" is a number, not NaN.
       const entered = plaidCorrections[proposal.questionId];
       const corrected =
         entered !== undefined && entered !== "" && entered !== String(proposal.value)
           ? entered
           : "";
-      if (corrected !== undefined && corrected !== "") {
-        const question = questions.find((c) => c.id === proposal.questionId);
-        return { questionId: proposal.questionId, action: "correct" as const, value: question?.type === "number" ? Number(corrected) : corrected };
+      if (corrected === "") {
+        decided.push({ questionId: proposal.questionId, action: "confirm", value: proposal.value });
+        continue;
       }
-      return { questionId: proposal.questionId, action: "confirm" as const, value: proposal.value };
-    });
+      const question = questions.find((c) => c.id === proposal.questionId);
+      if (question?.type === "number") {
+        const amount = parseAmountInput(corrected);
+        if (amount === null) {
+          onNotice("Enter a number for " + proposal.questionId.replaceAll("_", " ") + ".");
+          return;
+        }
+        decided.push({ questionId: proposal.questionId, action: "correct", value: amount });
+      } else {
+        decided.push({ questionId: proposal.questionId, action: "correct", value: corrected });
+      }
+    }
     saveInFlight.current = true; setSaving(true);
     try {
       const response = await fetch("/api/intake/plaid/confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirmations: decided }) });
@@ -683,7 +714,8 @@ export function IncomeStage(props: {
       const name = plaidMemberName.trim();
       const prev = plaidSavedMembers[plaidSavedMembers.length - 1];
       setPlaidSavedMembers((list) => [...list, { name, detail: decided.map((d) => d.questionId + ": " + String(d.value)).join("; ") }]);
-      onNotice(prev && prev.name !== name ? "Saved for " + name + ". For now this replaced " + prev.name + "'s bank answers in the household income questions. Test-bank figures you kept are marked unverified; figures you edited are saved as your own." : "Saved for " + name + ". Test-bank figures you kept are marked unverified; figures you edited are saved as your own. Nothing was submitted.");
+      const keptNote = "Test-bank answers you kept are marked unverified and do not count as confirmed; anything you edited is saved as your own." + (decided.every((entry) => entry.action === "confirm") ? " Edit a figure or schedule to your own to confirm it, or type your income instead." : "");
+      onNotice(prev && prev.name !== name ? "Saved for " + name + ". For now this replaced " + prev.name + "'s bank answers in the household income questions. " + keptNote : "Saved for " + name + ". " + keptNote + " Nothing was submitted.");
     } catch { onNotice(SAVE_FAILED_NOTICE); }
     finally { saveInFlight.current = false; setSaving(false); }
   }
@@ -947,7 +979,7 @@ export function IncomeStage(props: {
       <section data-income-plaid-card aria-labelledby="income-plaid-heading" className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface p-4">
         <div className="flex flex-col gap-1">
           <h3 id="income-plaid-heading" className="text-lg font-semibold">Connect your bank (demo)</h3>
-          <p className="text-sm text-muted">Optional Plaid Sandbox demo with a synthetic test bank — not a real bank login. We fetch a Plaid Bank Income report once, show you what we find, and save nothing until you confirm. Sandbox figures are not your real bank, and bank pay arrives after withholding: a figure you keep as-is is saved as unverified, so edit it to your own amount (for example gross pay) to save it as confirmed. The one fetch passes through our server without being stored or logged, and the test connection is removed right after. Saying no changes nothing: you can upload a file or type your income instead.</p>
+          <p className="text-sm text-muted">Optional Plaid Sandbox demo with a synthetic test bank — not a real bank login, and never enter real bank credentials here: the test-bank figures are fake and must not be used for a real application. We fetch a Plaid Bank Income report once, show you what we find, and save nothing until you confirm. Bank pay also arrives after withholding, and every test-bank answer (amounts and pay schedules) that you keep as-is is saved as unverified and does not count as confirmed — edit it to your own figure or schedule to save it as confirmed. The one fetch passes through our server without being stored or logged, and the test connection is removed right after. Saying no changes nothing: you can upload a file or type your income instead.</p>
         </div>
         <label htmlFor="income-plaid-consent" className="flex min-h-11 items-start gap-2 text-base">
           <input id="income-plaid-consent" type="checkbox" checked={plaidConsent} onChange={(e) => setPlaidConsent(e.target.checked)} data-income-plaid-consent className="mt-1 h-5 w-5 shrink-0 accent-teal" />
@@ -972,15 +1004,18 @@ export function IncomeStage(props: {
             {plaidResult.proposals.length === 0 ? <p className="text-sm text-muted" data-income-plaid-no-proposals>Nothing here could be turned into a Medicaid number on its own -- see above for what we would need instead. You can also type your income below.</p> : null}
             <ul className="flex flex-col gap-2">
               {plaidResult.proposals.map((proposal) => (
-                <li key={proposal.questionId} data-income-plaid-proposal={proposal.questionId} className="flex flex-wrap items-center gap-2 rounded-xl border border-surface-border bg-background px-3 py-2">
-                  <label htmlFor={`income-plaid-correct-${proposal.questionId}`} className="text-sm font-medium">{proposal.questionId.replaceAll("_", " ")}</label>
-                  <input id={`income-plaid-correct-${proposal.questionId}`} type="text" inputMode="numeric" value={plaidCorrections[proposal.questionId] ?? String(proposal.value)} onChange={(e) => setPlaidCorrections((prev) => ({ ...prev, [proposal.questionId]: e.target.value }))} disabled={saving} data-income-plaid-correct={proposal.questionId} aria-label={"Edit " + proposal.questionId.replaceAll("_", " ")} className="min-h-11 w-36 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" />
-                  <span className="w-full text-sm text-muted">{proposal.caveat}</span>
-                  <span data-origin-badge="plaid_institution" className="rounded-full border border-teal/40 bg-teal-soft px-2.5 py-0.5 text-xs font-medium text-teal">{plaidInstitutionName ? `From ${plaidInstitutionName}` : "From your test bank"}</span>
-                </li>
+                <PlaidProposalRow
+                  key={proposal.questionId}
+                  proposal={proposal}
+                  question={questions.find((candidate) => candidate.id === proposal.questionId)}
+                  correction={plaidCorrections[proposal.questionId] ?? ""}
+                  onCorrect={(value) => setPlaidCorrections((prev) => ({ ...prev, [proposal.questionId]: value }))}
+                  disabled={saving}
+                  institutionLabel={plaidInstitutionName ? `From ${plaidInstitutionName}` : "From your test bank"}
+                />
               ))}
             </ul>
-            {plaidResult.proposals.length > 0 ? <button type="button" data-income-plaid-save onClick={() => void savePlaidFindings()} disabled={saving || plaidMemberName.trim() === ""} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{saving ? "Saving…" : "Save what I've decided"}</button> : null}
+            {plaidResult.proposals.length > 0 ? <button type="button" data-income-plaid-save onClick={() => void savePlaidFindings()} disabled={saving || plaidMemberName.trim() === "" || plaidHasInvalidAmount} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{saving ? "Saving…" : "Save what I've decided"}</button> : null}
           </div>
         ) : null}
         {plaidSavedMembers.length > 0 ? <div className="flex flex-col gap-2" data-income-plaid-saved-list>{plaidSavedMembers.map((s, i) => <p key={i} className="text-sm text-muted">Saved for {s.name} — {s.detail}</p>)}<button type="button" data-income-plaid-another onClick={resetPlaidPull} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal">{"Connect another person's bank"}</button></div> : null}
@@ -1015,17 +1050,84 @@ declare global {
  * script is recorded on HACK-140 (2026-11-04, review P2 on PR #172). The
  * script is fetched only after the distinct Plaid consent is checked.
  */
+let plaidLinkLoad: Promise<void> | null = null;
+
 export function loadPlaidLinkScript(): Promise<void> {
   if (typeof window !== "undefined" && window.Plaid) return Promise.resolve();
-  return new Promise((resolve, reject) => {
+  if (plaidLinkLoad !== null) return plaidLinkLoad;
+  const pending = new Promise<void>((resolve, reject) => {
+    const done = () => {
+      plaidLinkLoad = null;
+      resolve();
+    };
+    // Remove a dead element before rejecting: leaving it in the DOM makes a
+    // retry attach listeners to a script whose load/error event already
+    // fired, so the promise never settles and the button stays on
+    // "Connecting…" forever (review P3 on PR #172).
+    const failed = (element: HTMLScriptElement) => {
+      element.remove();
+      plaidLinkLoad = null;
+      reject(new Error("plaid"));
+    };
     const existing = document.querySelector<HTMLScriptElement>('script[data-plaid-link]');
-    if (existing) { existing.addEventListener("load", () => resolve()); existing.addEventListener("error", () => reject(new Error("plaid"))); return; }
+    if (existing) {
+      existing.addEventListener("load", done);
+      existing.addEventListener("error", () => failed(existing));
+      return;
+    }
     const script = document.createElement("script");
     script.src = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
     script.async = true; script.dataset.plaidLink = "true";
-    script.onload = () => resolve(); script.onerror = () => reject(new Error("plaid"));
+    script.onload = done;
+    script.onerror = () => failed(script);
     document.head.appendChild(script);
   });
+  plaidLinkLoad = pending;
+  return pending;
+}
+
+/** A typed amount as a finite number, or null; "$1,800" is 1800. */
+export function parseAmountInput(raw: string): number | null {
+  const cleaned = raw.replaceAll("$", "").replaceAll(",", "").trim();
+  if (cleaned === "") return null;
+  const value = Number(cleaned);
+  return Number.isFinite(value) ? value : null;
+}
+
+/** One confirm-or-correct row for a bank proposal (amount or schedule). */
+function PlaidProposalRow(props: {
+  proposal: PlaidIncomeProposal;
+  question: ClientQuestion | undefined;
+  correction: string;
+  onCorrect: (value: string) => void;
+  disabled: boolean;
+  institutionLabel: string;
+}): JSX.Element {
+  const { proposal, question, correction, onCorrect, disabled, institutionLabel } = props;
+  const inputId = `income-plaid-correct-${proposal.questionId}`;
+  const label = proposal.questionId.replaceAll("_", " ");
+  const options = question?.type === "single_select" ? question.options ?? [] : [];
+  const value = correction !== "" ? correction : String(proposal.value);
+  const numericInvalid =
+    question?.type === "number" &&
+    correction !== "" &&
+    correction !== String(proposal.value) &&
+    parseAmountInput(correction) === null;
+  return (
+    <li data-income-plaid-proposal={proposal.questionId} className="flex flex-wrap items-center gap-2 rounded-xl border border-surface-border bg-background px-3 py-2">
+      <label htmlFor={inputId} className="text-sm font-medium">{label}</label>
+      {options.length > 0 ? (
+        <select id={inputId} value={value} onChange={(e) => onCorrect(e.target.value)} disabled={disabled} data-income-plaid-correct={proposal.questionId} aria-label={"Edit " + label} className="min-h-11 w-48 rounded-xl border border-surface-border bg-background px-3 py-2 text-base">
+          {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      ) : (
+        <input id={inputId} type="text" inputMode="decimal" value={value} onChange={(e) => onCorrect(e.target.value)} disabled={disabled} data-income-plaid-correct={proposal.questionId} aria-label={"Edit " + label} aria-invalid={numericInvalid || undefined} aria-describedby={numericInvalid ? `${inputId}-error` : undefined} className="min-h-11 w-36 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" />
+      )}
+      {numericInvalid ? <p id={`${inputId}-error`} data-income-plaid-error={proposal.questionId} className="w-full text-sm text-muted">Enter a number, for example 1800.</p> : null}
+      <span className="w-full text-sm text-muted">{proposal.caveat}</span>
+      <span data-origin-badge="plaid_institution" className="rounded-full border border-teal/40 bg-teal-soft px-2.5 py-0.5 text-xs font-medium text-teal">{institutionLabel}</span>
+    </li>
+  );
 }
 
 /** One confirm-or-correct row for a tax-derived proposal. */

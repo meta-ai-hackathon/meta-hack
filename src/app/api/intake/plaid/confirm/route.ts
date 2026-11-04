@@ -20,10 +20,10 @@ import { requestIdFromHeaders, runWithRequestId } from "../../../../../lib/telem
 // The broker returned ciphertext and stored nothing; this call writes only
 // what the person decided, through the standard answer store:
 //
-// An untouched amount saves `unverified` (Sandbox test data, and salary is
-// net of withholding), a confirmed frequency saves `known` with provenance
-// `user`, and a person-corrected value saves `known`/`user` — see
-// plaid-confirm.ts. The bank's institution name is pii:true metadata sealed
+// Every untouched proposal (amount or frequency) saves `unverified` (Sandbox
+// test data, and salary is net of withholding); a person-corrected value
+// saves `known`/`user` — see plaid-confirm.ts. The bank's institution name
+// is pii:true metadata sealed
 // by the browser in the client-side encrypted store; it never reaches this
 // route or the answer table.
 //

@@ -45,22 +45,14 @@ function specValidValueFor(questionId: string): unknown {
 }
 
 describe("plaid confirmations (HACK-140)", () => {
-  it("saves untouched test-bank amounts as unverified and corrections as known user values", () => {
-    // Review P2 on PR #172: Sandbox figures and net-of-withholding salary
-    // averages must not enter the form as `known`.
-    expect(plaidSaveFor("confirm", "job_income_amount")).toEqual({
+  it("saves every untouched test-bank proposal as unverified and corrections as known user values", () => {
+    // Review P2 on PR #172: Sandbox figures AND schedules must not enter the
+    // form as `known`; only a value the person typed or chose may do that.
+    expect(plaidSaveFor("confirm")).toEqual({
       status: "unverified",
       provenance: "user_supplied",
     });
-    expect(plaidSaveFor("confirm", "benefits_income_amount")).toEqual({
-      status: "unverified",
-      provenance: "user_supplied",
-    });
-    expect(plaidSaveFor("confirm", "job_income_frequency")).toEqual({
-      status: "known",
-      provenance: "user",
-    });
-    expect(plaidSaveFor("correct", "job_income_amount")).toEqual({
+    expect(plaidSaveFor("correct")).toEqual({
       status: "known",
       provenance: "user",
     });

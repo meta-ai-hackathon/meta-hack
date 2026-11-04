@@ -6,9 +6,9 @@ import { setLogSink } from "../../../../../lib/telemetry";
 import { POST } from "./route";
 
 // POST /api/intake/plaid/confirm route tests (HACK-140). This is the bank
-// card's only writer. An untouched AMOUNT saves `unverified` (Sandbox test
-// data; salary is net of withholding), a confirmed frequency saves `known`
-// with provenance `user`, and a person-edited value saves `known`/`user`.
+// card's only writer. Every untouched proposal (amount or frequency) saves
+// `unverified` (Sandbox test data; salary is net of withholding), and a
+// person-edited value saves `known`/`user`.
 // The institution name is pii:true metadata kept only in the browser, so it
 // never appears here. Re-saving updates the same rows
 // (update-not-duplicate); non-income and pii questions are refused; and the
@@ -117,7 +117,7 @@ describe("POST /api/intake/plaid/confirm", () => {
     });
   });
 
-  it("saves a confirmed frequency as known with provenance user", async () => {
+  it("saves an untouched frequency as unverified test data", async () => {
     const cookie = await createSessionAndGetCookie();
     const sessionId = cookie.split("=")[1];
 
@@ -136,8 +136,8 @@ describe("POST /api/intake/plaid/confirm", () => {
     expect(rows[0]).toMatchObject({
       question_id: "job_income_frequency",
       value: "biweekly",
-      status: "known",
-      provenance: "user",
+      status: "unverified",
+      provenance: "user_supplied",
     });
   });
 

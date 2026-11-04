@@ -11,16 +11,14 @@ import { saveAnswer, validateAnswerInput } from "./store";
 // confirm flow:
 //
 // - action "confirm"  — the person accepts a bank proposal as-is. An
-//   untouched AMOUNT saves with status `unverified`, never `known`: every
-//   figure is Sandbox test-bank data, and a salary proposal is a NET
-//   deposit average while NC Medicaid counts GROSS pay. Keeping it
-//   unverified means the number is never presented as a confirmed fact on
-//   the form; the bank card asks the person to enter their own gross figure
-//   to confirm it. A FREQUENCY confirm saves `known` with provenance `user`
-//   (Plaid's categorical schedule carries no amount, and the person vouched
-//   for the schedule).
-// - action "correct"  — the person typed their own value, saved `known`
-//   with provenance `user`.
+//   untouched proposal (amount OR frequency) saves with status
+//   `unverified`, never `known`: every figure and schedule is Sandbox
+//   test-bank data, and a salary proposal is a NET deposit average while NC
+//   Medicaid counts GROSS pay. Keeping it unverified means no test-bank
+//   value is presented as a confirmed fact on the form, and an untouched
+//   bank proposal never satisfies the income-handled gate on its own.
+// - action "correct"  — the person typed or chose their own value, saved
+//   `known` with provenance `user`.
 //
 // The bank's institution name is NOT written here: it is pii:true metadata
 // captured from Plaid Link and sealed by the browser in the client-side
@@ -61,21 +59,17 @@ function validationError(): AppError {
 }
 
 /**
- * The status/provenance each decision saves with. An untouched amount is
- * unverified (Sandbox test data, and salary is net of withholding); a
- * corrected value is the person's own and saves as known/user. A confirmed
- * frequency is known/user because it carries no amount.
+ * The status/provenance each decision saves with. Every untouched proposal
+ * is unverified (Sandbox test data; salary is net of withholding); a value
+ * the person typed or chose is their own and saves as known/user.
  */
-export function plaidSaveFor(
-  action: PlaidConfirmationAction,
-  questionId: string,
-): { readonly status: AnswerStatus; readonly provenance: AnswerProvenance } {
-  if (action === "correct") {
-    return { status: "known", provenance: "user" };
-  }
-  return questionId.endsWith("_amount")
-    ? { status: "unverified", provenance: "user_supplied" }
-    : { status: "known", provenance: "user" };
+export function plaidSaveFor(action: PlaidConfirmationAction): {
+  readonly status: AnswerStatus;
+  readonly provenance: AnswerProvenance;
+} {
+  return action === "correct"
+    ? { status: "known", provenance: "user" }
+    : { status: "unverified", provenance: "user_supplied" };
 }
 
 /**
@@ -130,7 +124,7 @@ export async function saveConfirmedPlaidAnswers(
 ): Promise<SavedPlaidAnswer[]> {
   const saved: SavedPlaidAnswer[] = [];
   for (const { questionId, action, value } of confirmations) {
-    const { status, provenance } = plaidSaveFor(action, questionId);
+    const { status, provenance } = plaidSaveFor(action);
     await saveAnswer(sessionId, questionId, status, value, provenance);
     saved.push({ questionId, status, provenance });
   }

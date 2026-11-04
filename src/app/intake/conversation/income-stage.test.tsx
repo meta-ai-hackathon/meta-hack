@@ -338,6 +338,32 @@ describe("the source cards (VAL-INC-002, HACK-140)", () => {
 });
 
 describe("the Plaid Sandbox bank card (HACK-140)", () => {
+  /** Render the stage and complete a Link success that yields two proposals. */
+  async function pullTestBank() {
+    (window as unknown as { Plaid: unknown }).Plaid = {
+      create: (config: {
+        onSuccess: (
+          t: string,
+          metadata?: { institution?: { name?: string } },
+        ) => Promise<void>;
+      }) => ({
+        open: () => {
+          void config.onSuccess("public-test", {
+            institution: { name: "First Platypus Bank" },
+          });
+        },
+      }),
+    };
+    const rendered = await renderStage();
+    await rendered.act(async () => {
+      (q(rendered.container, "income-plaid-consent") as HTMLInputElement).click();
+    });
+    await rendered.act(async () => {
+      (q(rendered.container, "income-plaid-connect") as HTMLButtonElement).click();
+    });
+    return rendered;
+  }
+
   it("connect stays disabled until the distinct Plaid consent is checked", async () => {
     const { container, act } = await renderStage();
     const button = q(container, "income-plaid-connect") as HTMLButtonElement;
@@ -382,6 +408,14 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     expect(container.textContent).toContain("From First Platypus Bank");
     expect(q(container, "income-plaid-basis")?.textContent).toContain("3 deposits");
     expect((container.querySelector('[data-income-plaid-correct="job_income_amount"]') as HTMLInputElement).value).toBe("2100");
+    // A pay schedule is a select over the question's spec options, not a
+    // numeric field: mobile keyboards cannot type "monthly" (review P2).
+    const frequency = container.querySelector(
+      '[data-income-plaid-correct="job_income_frequency"]',
+    ) as HTMLSelectElement;
+    expect(frequency.tagName).toBe("SELECT");
+    expect(frequency.value).toBe("monthly");
+    expect(Array.from(frequency.options).map((option) => option.value)).toContain("weekly");
     // No owner name crosses the broker any more (review P1): the person
     // names whose income this is, and the save requires that name.
     expect((container.querySelector("[data-income-plaid-member-name]") as HTMLInputElement).value).toBe("");
@@ -408,6 +442,61 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
       },
       { expectStored: false },
     );
+  });
+
+  it("saves a typed amount with separators as a number, not NaN", async () => {
+    const { container, act } = await pullTestBank();
+    await act(async () => {
+      const input = container.querySelector(
+        '[data-income-plaid-correct="job_income_amount"]',
+      ) as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "1,800");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      const input = container.querySelector(
+        "[data-income-plaid-member-name]",
+      ) as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "Alberta");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      (q(container, "income-plaid-save") as HTMLButtonElement).click();
+    });
+    const confirm = posts.find((post) => post.url === "/api/intake/plaid/confirm");
+    expect(confirm).toBeDefined();
+    expect(JSON.parse(confirm?.body ?? "{}").confirmations).toEqual([
+      { questionId: "job_income_amount", action: "correct", value: 1800 },
+      { questionId: "job_income_frequency", action: "confirm", value: "monthly" },
+    ]);
+  });
+
+  it("shows a field-level error and saves nothing for a non-numeric amount", async () => {
+    const { container, act } = await pullTestBank();
+    await act(async () => {
+      const input = container.querySelector(
+        '[data-income-plaid-correct="job_income_amount"]',
+      ) as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "not a number");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(
+      container.querySelector('[data-income-plaid-error="job_income_amount"]'),
+    ).not.toBeNull();
+    expect((q(container, "income-plaid-save") as HTMLButtonElement).disabled).toBe(true);
+    expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
   });
 });
 

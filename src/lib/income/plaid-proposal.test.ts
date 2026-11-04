@@ -74,11 +74,26 @@ describe("plaidIncomeProposals (Bank Income, NC MA-3306)", () => {
     expect(r.basis.streams).toContainEqual(expect.objectContaining({ category: "RENTAL", disposition: "needs_documents" }));
     expect(r.classificationQuestions.map((q) => q.category)).toContain("CASH_DEPOSIT");
   });
-  it("flags seasonal suspicion without auto-answering", () => {
-    const s = stream("SALARY", 3000, 3, "MONTHLY", ["2026-05", "2026-06", "2026-07"]);
-    const wide: MinimizedPlaidPayload = { streams: [s], pulledAt: "x", dateRange: { start: "2025-11-01", end: "2026-10-31" } };
-    // months come from historical summary (3 active of 3 listed) -- not seasonal on listed months alone
-    expect(plaidIncomeProposals(wide).proposals.some((p) => String(p.questionId).includes("seasonal"))).toBe(false);
+  it("flags seasonal suspicion only when earned months are at most half of the listed months", () => {
+    // 6 listed months, earned in 3 -> suspected, but never auto-answered.
+    const seasonal = plaidIncomeProposals(
+      payload([
+        stream("SALARY", 9000, 3, "MONTHLY", ["2026-01", "2026-02", "2026-03"]),
+        stream("TAX_REFUND", 300, 3, "MONTHLY", ["2026-04", "2026-05", "2026-06"]),
+      ]),
+    );
+    expect(seasonal.basis.seasonalSuspected).toBe(true);
+    expect(seasonal.basis.seasonalNote).toMatch(/seasonal/i);
+    expect(seasonal.proposals.some((p) => String(p.questionId).includes("seasonal"))).toBe(false);
+    // 6 listed months, earned in 4 -> not suspected.
+    const yearRound = plaidIncomeProposals(
+      payload([
+        stream("SALARY", 12000, 4, "MONTHLY", ["2026-01", "2026-02", "2026-03", "2026-04"]),
+        stream("TAX_REFUND", 300, 2, "MONTHLY", ["2026-05", "2026-06"]),
+      ]),
+    );
+    expect(yearRound.basis.seasonalSuspected).toBe(false);
+    expect(yearRound.basis.seasonalNote).toBeNull();
   });
   it("flags Stripe-described streams", () => {
     const s = { ...stream("OTHER", 2000), isStripePayout: true };

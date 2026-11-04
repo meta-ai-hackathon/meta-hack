@@ -19,10 +19,10 @@ import type { Question } from "./spec";
 // - HANDLED = every visible income question has a stored answer (any
 //   tri-state status — an "I'm not sure" is an answer everywhere else in
 //   this app) AND at least one visible income answer carries an
-//   income-stage provenance (`user` from the manual card, a correction, or
-//   a bank frequency the person confirmed; an UNTOUCHED bank amount saves
-//   unverified and does not satisfy this clause on its own,
-//   `tax_return` from a confirmed parser proposal).
+//   income-stage provenance (`user` from the manual card or a person-edited
+//   bank value, or `tax_return` from a confirmed parser proposal; every
+//   UNTOUCHED bank proposal — amount or frequency — saves unverified and
+//   does not satisfy this clause).
 //
 // Why the second clause: the quick-questions and talk stages save income
 // answers with the default `user_supplied` provenance. Without the clause,
