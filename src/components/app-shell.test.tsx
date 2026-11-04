@@ -26,8 +26,8 @@ describe("AppShell (BN-07)", () => {
     // The product frame is edge-to-edge (no centered max-width, no dead
     // gutters) and the header takes the prototype's exact geometry:
     // 84px MINIMUM height with 24px 36px padding on wide viewports (the
-    // 760px rule drops it to 75px with 18px 20px padding, single-column
-    // on phones). HACK-155: the 84px is a floor, not a fixed height — at
+    // 760px rule drops it to 75px with 18px 20px padding). HACK-155: the
+    // 84px is a floor, not a fixed height — at
     // 250% text the header grows with its content instead of clipping the
     // "Text size and contrast" label and the High contrast checkbox.
     expect(html).not.toContain("max-w-[85rem]");
@@ -37,6 +37,18 @@ describe("AppShell (BN-07)", () => {
     expect(html).toContain("min-[761px]:py-6");
     expect(html).toContain("min-h-[75px]");
     expect(html).toContain("px-5");
+  });
+
+  it("keeps the logo and the display menu button on one row, with the controls closed (HACK-166)", () => {
+    const html = renderToStaticMarkup(<AppShell><p>Page content</p></AppShell>);
+    // The header row: one row at every width, wrapping only at huge text.
+    const row = html.match(/<header[^>]*>\s*<div class="([^"]*)"/)?.[1] ?? "";
+    expect(row.split(/\s+/)).toEqual(expect.arrayContaining(["flex-row", "flex-wrap", "justify-between"]));
+    expect(row.split(/\s+/)).not.toContain("flex-col");
+    // The controls open from one closed button, after the logo.
+    expect(html).toContain("data-display-menu-button");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html.indexOf("data-brand-link")).toBeLessThan(html.indexOf("data-display-menu-button"));
   });
 
   it("keeps the brand logo round at huge text: the disc cannot shrink (HACK-155)", () => {
