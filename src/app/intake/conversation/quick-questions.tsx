@@ -538,7 +538,13 @@ function QuestionCard(props: {
             id="qq-state-picker"
             options={question.options ?? []}
             value={typeof effectiveDraft === "string" ? effectiveDraft : undefined}
-            onChange={(next) => setDraft(next)}
+            onChange={(next) => {
+              setDraft(next);
+              // HACK-164: a picked state is a valid draft — the
+              // needed-to-continue error clears the moment the pick
+              // lands, not on the next save.
+              setError(null);
+            }}
             disabled={saving}
             describedBy={describedBy}
           />

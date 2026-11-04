@@ -45,10 +45,40 @@ export function visibleOptions(options: readonly PickerOption[], query: string):
 }
 
 /**
+ * The option a query commits to (HACK-164, VAL-UX-001), or undefined when
+ * nothing should be picked: the exact (case-insensitive) match on the
+ * label — then the value code — else the one option the query still
+ * filters to. An ambiguous or zero-match query commits nothing, so
+ * Continue keeps its needed-to-continue gate for genuinely missing
+ * answers.
+ */
+export function commitCandidate(
+  options: readonly PickerOption[],
+  query: string,
+): PickerOption | undefined {
+  const normalized = query.trim().toLowerCase();
+  if (normalized === "") return undefined;
+  const exactLabel = options.find(
+    (option) => option.label.toLowerCase() === normalized,
+  );
+  if (exactLabel) return exactLabel;
+  const exactValue = options.find(
+    (option) => option.value.toLowerCase() === normalized,
+  );
+  if (exactValue) return exactValue;
+  const matches = options.filter((option) => matchesQuery(option, normalized));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+/**
  * Compact type-to-filter state picker (HACK-142, VAL-PICK-001): one input
  * row instead of a 50-radio page. WAI-ARIA combobox pattern — the input
  * keeps focus while arrow keys move aria-activedescendant through the
- * listbox; Enter, Escape, and click all behave per the pattern. Every
+ * listbox; Enter, Escape, and click all behave per the pattern. Losing
+ * focus commits the typed input (HACK-164, VAL-UX-001): the exact
+ * (case-insensitive) match or the only remaining match is picked, so
+ * typing a full state name and pressing Continue — whose press blurs the
+ * input — works without the needed-to-continue error. Every
  * valid option stays in the DOM (the collapsed listbox is display-none,
  * not unmounted) so nothing is lost and the spec's options remain
  * enumerable. The current pick is always named in text next to the input,
@@ -141,71 +171,93 @@ export function StatePicker({
 
   return (
     <div className="flex flex-col gap-1.5" data-state-picker={id}>
-      <input
-        type="text"
-        id={`${id}-input`}
-        data-state-picker-input
-        role="combobox"
-        aria-expanded={open}
-        aria-controls={`${id}-listbox`}
-        aria-autocomplete="list"
-        aria-activedescendant={
-          open && activeIndex !== null
-            ? `${id}-opt-${options[activeIndex]!.value}`
-            : undefined
-        }
-        aria-describedby={describedBy}
-        autoComplete="off"
-        placeholder="Type to filter (for example, North)"
-        value={query}
-        disabled={disabled}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setOpen(true);
-          setActiveIndex(null);
-        }}
-        onKeyDown={onKeyDown}
-        onFocus={() => setOpen(true)}
-        onBlur={() => {
-          setOpen(false);
-          setActiveIndex(null);
-          setQuery(selected?.label ?? "");
-        }}
-        className="min-h-11 w-full rounded-xl border border-surface-border bg-background px-3 py-2 text-base text-foreground placeholder:text-muted"
-      />
+      <div className="relative">
+        <input
+          type="text"
+          id={`${id}-input`}
+          data-state-picker-input
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={`${id}-listbox`}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            open && activeIndex !== null
+              ? `${id}-opt-${options[activeIndex]!.value}`
+              : undefined
+          }
+          aria-describedby={describedBy}
+          autoComplete="off"
+          placeholder="Type to filter (for example, North)"
+          value={query}
+          disabled={disabled}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+            setActiveIndex(null);
+          }}
+          onKeyDown={onKeyDown}
+          onFocus={() => setOpen(true)}
+          onBlur={() => {
+            setOpen(false);
+            setActiveIndex(null);
+            // HACK-164: losing focus commits the typed input — the blur a
+            // Continue press causes included — so typing the full state
+            // name and pressing Continue picks it instead of showing the
+            // needed-to-continue error. Without a commit, the existing
+            // blur reset still yields the input to the picked label.
+            const candidate = commitCandidate(options, query);
+            if (candidate) {
+              if (candidate.value === value) {
+                setQuery(candidate.label);
+              } else {
+                pick(candidate);
+              }
+              return;
+            }
+            setQuery(selected?.label ?? "");
+          }}
+          className="min-h-11 w-full rounded-xl border border-surface-border bg-background px-3 py-2 text-base text-foreground placeholder:text-muted"
+        />
+        {/* All options stay mounted; non-matching ones display-none so the
+          list stays compact while filtering and nothing is ever lost. The
+          mousedown is prevented so a click keeps the input's focus (the
+          combobox's own blur would close the list first). The list floats
+          over what is below instead of pushing it down (HACK-164): an
+          inline list reflows the page when the blur-commit closes it, and
+          that reflow moves the Continue button between the press's
+          mousedown and its click — the click lands on nothing. Floating,
+          the controls below never move, so the press both picks and
+          advances. */}
+        <ul
+          id={`${id}-listbox`}
+          role="listbox"
+          aria-label="States"
+          className={`absolute inset-x-0 top-full z-10 max-h-60 overflow-y-auto rounded-xl border border-surface-border bg-surface shadow-lg ${open ? "" : "hidden"}`}
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          {options.map((option) => {
+            const visibleOption = matches(option);
+            return (
+              <li
+                key={option.value}
+                id={`${id}-opt-${option.value}`}
+                role="option"
+                aria-selected={option.value === value}
+                data-state-picker-option={option.value}
+                className={`min-h-11 items-center px-3 py-2 text-base text-foreground hover:bg-teal-soft aria-selected:bg-teal-soft ${visibleOption ? "flex" : "hidden"}`}
+                onClick={() => {
+                  if (!disabled) pick(option);
+                }}
+              >
+                {option.label}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
       <p data-state-picker-selected className="text-sm text-muted">
         {selected ? `Picked: ${selected.label}` : "No state picked yet"}
       </p>
-      {/* All options stay mounted; non-matching ones display-none so the
-          list stays compact while filtering and nothing is ever lost. The
-          mousedown is prevented so a click keeps the input's focus (the
-          combobox's own blur would close the list first). */}
-      <ul
-        id={`${id}-listbox`}
-        role="listbox"
-        aria-label="States"
-        className={`max-h-60 overflow-y-auto rounded-xl border border-surface-border bg-surface ${open ? "" : "hidden"}`}
-        onMouseDown={(event) => event.preventDefault()}
-      >
-        {options.map((option) => {
-          const visibleOption = matches(option);
-          return (
-            <li
-              key={option.value}
-              id={`${id}-opt-${option.value}`}
-              role="option"
-              aria-selected={option.value === value}
-              data-state-picker-option={option.value}
-              className={`min-h-11 items-center px-3 py-2 text-base text-foreground hover:bg-teal-soft aria-selected:bg-teal-soft ${visibleOption ? "flex" : "hidden"}`}
-              onClick={() => {
-                if (!disabled) pick(option);
-              }}
-            >
-              {option.label}
-            </li>
-          );
-        })}
-      </ul>
       {open && visibleCount === 0 ? (
         <p data-state-picker-no-match className="text-sm text-muted">
           No states match that spelling — try fewer letters.
