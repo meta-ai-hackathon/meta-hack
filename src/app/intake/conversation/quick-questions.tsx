@@ -860,8 +860,8 @@ export function QuickQuestionsStage(props: {
         </p>
         <p className="max-w-xl text-muted">
           {genuinelyShorter
-            ? "Here's the short list — answer what you can, skip what you'd rather not. Your answers save as you go, and private details stay private."
-            : "Answer what you can, skip what you'd rather not. Your answers save as you go, and private details stay private."}
+            ? "Here's the short list — answer what you can, skip what you'd rather not. Your answers save as you go."
+            : "Answer what you can, skip what you'd rather not. Your answers save as you go."}
         </p>
         <details
           data-qq-credit

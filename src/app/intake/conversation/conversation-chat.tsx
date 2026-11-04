@@ -44,7 +44,7 @@ import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
 import { IncomeStage } from "./income-stage";
 import { MatchSection } from "./match-section";
 import { EntryBegin, ModeChoice, type ConversationEntryMode } from "./mode-choice";
-import { PurgeSection } from "./purge-section";
+import { PurgeDisclosure, PurgeSection } from "./purge-section";
 import { PresenceOrb } from "./presence-orb";
 import { QuickQuestionsStage } from "./quick-questions";
 import { ReviewSection } from "./review-section";
@@ -1536,10 +1536,13 @@ export function ConversationChat() {
     : [];
 
   // The journey sections, reused intact (VAL-VJS-004): answers-so-far +
-  // the match engine's framing card + the review/download handoff + the
-  // purge. The results stage hosts them; every non-voice path keeps them
-  // inline exactly as before the restage. Reusing the components keeps
-  // the gate-gated copy and provenance rendering word-identical.
+  // the match engine's framing card + the review/download handoff. The
+  // results stage hosts them with the full purge section after them
+  // (staggered in together); every non-voice path keeps them inline
+  // exactly as before the restage, with the purge behind HACK-149's
+  // collapsed disclosure so deletion is never an early stage's opening
+  // act. Reusing the components keeps the gate-gated copy and provenance
+  // rendering word-identical.
   const journeySections = state ? (
     <>
       <section
@@ -1597,7 +1600,6 @@ export function ConversationChat() {
       offer waits until the match has found a program (HACK-153): no
       second-form card while nothing matched. */}
       <AlsoPrepareSection refreshKey={turns.length + answersRefresh} stagger={resultsStage} matchExists={matchExists} />
-      <PurgeSection onPurged={purgeClientState} />
     </>
   ) : null;
 
@@ -2184,19 +2186,40 @@ export function ConversationChat() {
           prefers-reduced-motion: no-preference). */}
           <div data-stagger-group className="flex flex-col gap-6">
             {journeySections}
+            {/* At the END of the journey the full purge surface renders
+            directly — the collapsed early-flow disclosure is for the
+            stages before results (HACK-149). */}
+            <PurgeSection onPurged={purgeClientState} />
           </div>
         </section>
       ) : !voiceConsented ? (
-        journeySections
+        <>
+          {journeySections}
+          {/* The typed paths: the collapsed, calm disclosure keeps deletion
+          reachable without making it the opening act (HACK-149,
+          VAL-VJS-003) — and once this typed journey is complete (the
+          review/download handoff in view), the full purge section renders,
+          matching the voice journey's results stage. */}
+          {state ? (
+            state.complete ? (
+              <PurgeSection onPurged={purgeClientState} />
+            ) : (
+              <PurgeDisclosure onPurged={purgeClientState} />
+            )
+          ) : null}
+        </>
       ) : null}
 
       {/* Purge stays reachable at EVERY point of the voice journey
       (VAL-VJS-003): on the entry and talk stages the full journey
-      sections stay off-stage, so the purge section renders on its own
-      here — the results stage and the non-voice paths render it inside
-      journeySections above. */}
+      sections stay off-stage, so the purge renders on its own here —
+      and since HACK-149 it does so as a collapsed, calm disclosure: the
+      deletion control stays reachable where utility requires it, but it
+      is not the opening act of an early stage. The results stage renders
+      the full PurgeSection inline; the non-voice paths render it collapsed
+      in their branch above. */}
       {voiceConsented && !resultsStage && state ? (
-        <PurgeSection onPurged={purgeClientState} />
+        <PurgeDisclosure onPurged={purgeClientState} />
       ) : null}
     </div>
   );

@@ -4,7 +4,7 @@ import { ConversationChat } from "./conversation-chat";
 export const metadata: Metadata = {
   title: "Chat — Tenet",
   description:
-    "Answer a few plain-language questions in a conversation. Your answers save as you go, and private details stay private.",
+    'Answer a few plain-language questions in a conversation. Your answers save as you go, and answers to private questions show as "You told us".',
 };
 
 // The conversational intake page (Mission v2 M1) — the primary path through

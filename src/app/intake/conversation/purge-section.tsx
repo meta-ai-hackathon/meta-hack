@@ -216,11 +216,16 @@ async function carriesRouteNotFoundCode(
   }
 }
 
-const ERASED_ITEMS = [
-  "Your answers",
-  "Your chat history",
-  "The private details you told us",
-] as const;
+/**
+ * The calm one-line summary of what the purge covers (HACK-149): the same
+ * population the old ✕ card named ("Your answers / Your chat history / The
+ * private details you told us"), folded into the ready state's single short
+ * passage. The confirmation screen still states the full gone/stays
+ * retention statement exactly.
+ */
+const PURGE_COVERS_LINE =
+  "When you're done, you can erase your answers, your chat, and the " +
+  "private details you told us. This can't be undone.";
 
 /**
  * The two-step delete's decision (the approved cleanup design): from the
@@ -297,53 +302,13 @@ export function PurgeSurface({
   return (
     <div data-purge-section className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
-        <p className="text-sm font-semibold uppercase tracking-wide text-teal">
-          Your data, your call
-        </p>
         <h2 className="font-display text-3xl font-bold tracking-tight">
           Delete my information
         </h2>
-        <p className="max-w-xl text-lg text-muted">
-          When you&apos;re done, you can erase everything. This
-          can&apos;t be undone.
-        </p>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <section
-          aria-labelledby="purge-erased-heading"
-          data-purge-erased
-          className="flex flex-col gap-3 rounded-2xl border border-surface-border bg-surface p-6"
-        >
-          <h3 id="purge-erased-heading" className="font-display text-xl font-bold">
-            What gets erased
-          </h3>
-          <ul className="flex flex-col gap-2">
-            {ERASED_ITEMS.map((item) => (
-              <li key={item} className="flex items-start gap-2">
-                <span aria-hidden="true" className="font-semibold text-danger">
-                  ✕
-                </span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section
-          aria-labelledby="purge-never-existed-heading"
-          data-purge-never-existed
-          className="flex flex-col gap-3 rounded-2xl border border-surface-border bg-amber-soft p-6"
-        >
-          <h3
-            id="purge-never-existed-heading"
-            className="font-display text-xl font-bold"
-          >
-            What never existed
-          </h3>
-          <p>
-            We never saved your PDF on our servers. It was made for you and
-            downloaded straight to your device.
-          </p>
-        </section>
+        {/* ONE short passage (HACK-149): the same population the old ✕
+        cards named, stated calmly once; the exact gone/stays retention
+        statement stays on the confirmation screen after a real purge. */}
+        <p className="max-w-xl text-lg text-muted">{PURGE_COVERS_LINE}</p>
       </div>
       <div
         data-purge-panel
@@ -582,5 +547,28 @@ export function PurgeSection({ onPurged }: { onPurged: () => void }) {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The early-flow deletion affordance (HACK-149): before the results stage
+ * the full purge surface stays reachable (VAL-VJS-003) but CLOSED — one
+ * calm, native disclosure control instead of the standing danger panel —
+ * so offering deletion is never the opening act of an early stage.
+ * Expanding it reveals the complete PurgeSection unchanged: the two-step
+ * confirm, every outcome notice, and the rules.md-mandated
+ * downloaded-copy-stays line all ride along intact.
+ */
+export function PurgeDisclosure({ onPurged }: { onPurged: () => void }) {
+  return (
+    <details data-purge-disclosure className="flex flex-col gap-3">
+      {/* The calm offer phrasing (claude-review P3 on the HACK-149 PR):
+      a collapsed control that reads as a gentle option, not a command —
+      and no exact repetition of the section heading it reveals. */}
+      <summary className="min-h-11 cursor-pointer self-start py-2 text-sm font-medium text-muted underline decoration-surface-border underline-offset-4 hover:text-foreground hover:decoration-teal">
+        When you&apos;re done, you can delete your information
+      </summary>
+      <PurgeSection onPurged={onPurged} />
+    </details>
   );
 }

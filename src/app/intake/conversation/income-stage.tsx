@@ -505,7 +505,7 @@ export function IncomeStage(props: {
           </h3>
           <p className="text-sm text-muted">
             A rough idea is okay. Type what you know — you can correct the
-            details later, and private details stay private.
+            details later.
           </p>
         </div>
         <ul className="flex flex-col gap-4">

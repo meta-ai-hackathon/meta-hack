@@ -11,6 +11,7 @@ import {
   PURGE_REMOVING_NOTICE,
   PURGE_UNKNOWN_NOTICE,
   PurgeConfirmation,
+  PurgeDisclosure,
   PurgeSurface,
   createPurgeClickHandler,
   requestPurge,
@@ -19,15 +20,15 @@ import {
 import type { PurgeRequestOutcome } from "./purge-section";
 
 // Purge section tests (HACK-80 / VAL-DEMOEXP-006/007 client surface): the
-// destructive surface renders per the approved cleanup design (eyebrow,
-// display heading, the erased/never-existed cards, the danger panel), the
-// removing sequence carries the mandated phrase, the confirmation states
-// EXACTLY what remains and what is gone, and everything is banned-claim
-// clean. The two-step delete's decision wiring (first click confirms and
-// sends NOTHING, explicit confirmation purges) is unit-tested via
-// createPurgeClickHandler; the request wiring is unit-tested with an
-// injectable fetch; the interactive surface is browser-verified
-// (agent-browser).
+// destructive surface renders per the calm ready state (HACK-149 swept the
+// ✕ cards away — display heading, ONE short passage, the danger panel with
+// the mandated downloaded-copy-stays line), the removing sequence carries
+// the mandated phrase, the confirmation states EXACTLY what remains and
+// what is gone, and everything is banned-claim clean. The two-step delete's
+// decision wiring (first click confirms and sends NOTHING, explicit
+// confirmation purges) is unit-tested via createPurgeClickHandler; the
+// request wiring is unit-tested with an injectable fetch; the interactive
+// surface is browser-verified (agent-browser).
 
 function markupWithBannedClaims(html: string): string[] {
   return findBannedClaims(html).map(
@@ -36,7 +37,7 @@ function markupWithBannedClaims(html: string): string[] {
 }
 
 describe("PurgeSurface (the ready phase)", () => {
-  it("renders the cleanup design: eyebrow, heading, both cards, danger panel", () => {
+  it("renders the calm ready state: heading, one short passage, danger panel (HACK-149)", () => {
     const html = renderToStaticMarkup(
       <PurgeSurface
         busy={false}
@@ -46,21 +47,21 @@ describe("PurgeSurface (the ready phase)", () => {
       />,
     );
     expect(html).toContain("data-purge-section");
-    expect(html).toContain("Your data, your call");
     expect(html).toContain("Delete my information");
+    // ONE short passage names the same population the confirmation lists;
+    // the repeated ✕ cards ("What gets erased" / "What never existed") are
+    // gone — the sweep keeps deletion messaging brief and calm (HACK-149),
+    // and the exact retention statement stays on the confirmation screen.
+    expect(html).toContain(
+      "your answers, your chat, and the private details you told us",
+    );
     expect(html).toContain("This can&#x27;t be undone");
-    // What gets erased: every answer, the chat history, the private
-    // details — the same population the confirmation lists.
-    expect(html).toContain("data-purge-erased");
-    expect(html).toContain("What gets erased");
-    expect(html).toContain("Your answers");
-    expect(html).toContain("Your chat history");
-    expect(html).toContain("The private details you told us");
-    // What never existed: the PDF was never stored server-side.
-    expect(html).toContain("data-purge-never-existed");
-    expect(html).toContain("What never existed");
-    expect(html).toContain("We never saved your PDF on our servers");
-    // The destructive panel and its button.
+    expect(html).not.toContain("Your data, your call");
+    expect(html).not.toContain("What gets erased");
+    expect(html).not.toContain("What never existed");
+    expect(html).not.toContain("We never saved your PDF on our servers");
+    // The destructive panel and its button, with the rules.md-mandated
+    // downloaded-copy-stays reassurance in the delete copy.
     expect(html).toContain("data-purge-panel");
     expect(html).toContain("data-purge-button");
     expect(html).toContain("a download you&#x27;ve saved stays yours");
@@ -91,7 +92,7 @@ describe("PurgeSurface (the ready phase)", () => {
     expect(busy).toContain(PURGE_REMOVING_NOTICE);
   });
 
-  it("keeps a hierarchical heading outline (h2, then h3)", () => {
+  it("keeps a hierarchical heading outline (h2, then any h3 below it)", () => {
     const html = renderToStaticMarkup(
       <PurgeSurface
         busy={false}
@@ -145,6 +146,37 @@ describe("PurgeSurface (the ready phase)", () => {
     expect(html).not.toContain("data-purge-button");
     expect(html).not.toContain("data-purge-removing");
     expect(markupWithBannedClaims(html)).toEqual([]);
+  });
+});
+
+describe("PurgeDisclosure (the early-flow affordance, HACK-149)", () => {
+  it("keeps the delete control reachable but closed — one calm line, full section inside", () => {
+    const html = renderToStaticMarkup(
+      <PurgeDisclosure onPurged={() => undefined} />,
+    );
+    // The collapsed disclosure is the only early-flow deletion offer: one
+    // calm control, never the opening act, with the full surface (every
+    // mandated disclosure included) one interaction away (VAL-VJS-003).
+    expect(html).toContain("data-purge-disclosure");
+    expect(html).toContain("<summary");
+    // The summary is the gentle offer, not a repeat of the section
+    // heading it reveals (claude-review P3, HACK-149 PR).
+    expect(html).toContain(
+      "When you&#x27;re done, you can delete your information",
+    );
+    expect(html).toContain("data-purge-wrapper");
+    expect(markupWithBannedClaims(html)).toEqual([]);
+  });
+
+  it("the disclosure's full surface renders the calm ready state unchanged", () => {
+    const html = renderToStaticMarkup(
+      <PurgeDisclosure onPurged={() => undefined} />,
+    );
+    expect(html).toContain("Delete my information");
+    expect(html).toContain(
+      "your answers, your chat, and the private details you told us",
+    );
+    expect(html).toContain("a download you&#x27;ve saved stays yours");
   });
 });
 
