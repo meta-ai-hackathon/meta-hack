@@ -84,6 +84,19 @@ export function commitCandidate(
  * so the saved draft is never a mystery. The reported value is the spec's
  * option value, so the existing tri-state answer route, its validation,
  * and the server-side provenance are untouched.
+ *
+ * The open listbox renders IN FLOW (HACK-164 follow-up, claude-review P2
+ * on PR #154): it occupies its own space and pushes the "Picked" chip, a
+ * visible needed-to-continue error, and the controls below down instead
+ * of floating over them — an in-flow element can never overlay anything,
+ * so a click aimed at a control below can never land on an option. The
+ * cost of flow participation is that closing (or reshaping) the list
+ * reflows the page, so the close lives entirely OUTSIDE pointer presses:
+ * a press's blur commits but neither closes nor resets (that moved the
+ * aimed control between mousedown and click — the bug PR #154 floated the
+ * list to dodge), and the close-and-yield happens on the press's own
+ * click, after it has landed. Clicks outside the picker close it, clicks
+ * inside never do.
  */
 export function StatePicker({
   id,
@@ -101,6 +114,13 @@ export function StatePicker({
   // from OUTSIDE (a stored answer loading into the form), the visible
   // label resyncs; typing inside the picker is never clobbered.
   const reportedRef = useRef(value);
+  // True between a pointerdown and its pointerup, i.e. while a press is
+  // in flight. The blur a press causes must not close the list or reset
+  // the query — either reflows the page mid-press and the press lands on
+  // whatever shifted under the pointer. The deferred close-and-yield runs
+  // on that press's own click instead.
+  const pressingRef = useRef(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (value === reportedRef.current) return;
@@ -111,17 +131,65 @@ export function StatePicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
+  // While the list is open, the close lives outside pointer presses: a
+  // click anywhere outside the picker closes it (and yields the typed
+  // query to the picked label, the same yield Escape performs) only after
+  // that click's own handlers have run — the press that aimed at a control
+  // below lands first, then the list closes. The pointerdown/pointerup
+  // pair tracks whether a press is in flight so the blur handler can stay
+  // its hand; a click inside the picker (the input, an option) never
+  // closes anything here.
+  useEffect(() => {
+    if (!open) return;
+    const onDocPointerDown = (): void => {
+      pressingRef.current = true;
+    };
+    const onDocPointerUp = (): void => {
+      pressingRef.current = false;
+    };
+    const onDocPointerCancel = (): void => {
+      pressingRef.current = false;
+    };
+    const onDocClick = (event: MouseEvent): void => {
+      if (
+        rootRef.current &&
+        event.target instanceof Node &&
+        rootRef.current.contains(event.target)
+      ) {
+        return;
+      }
+      setOpen(false);
+      setActiveIndex(null);
+      setQuery(selected?.label ?? "");
+    };
+    document.addEventListener("pointerdown", onDocPointerDown);
+    document.addEventListener("pointerup", onDocPointerUp);
+    document.addEventListener("pointercancel", onDocPointerCancel);
+    document.addEventListener("click", onDocClick);
+    return () => {
+      document.removeEventListener("pointerdown", onDocPointerDown);
+      document.removeEventListener("pointerup", onDocPointerUp);
+      document.removeEventListener("pointercancel", onDocPointerCancel);
+      document.removeEventListener("click", onDocClick);
+    };
+  }, [open, selected]);
+
   const normalized = query.trim().toLowerCase();
   const matches = (option: PickerOption): boolean => matchesQuery(option, normalized);
   const visible = visibleOptions(options, query);
   const visibleCount = visible.length;
 
-  function pick(option: PickerOption): void {
+  /** Reports the pick to the parent without touching the listbox state. */
+  function report(option: PickerOption): void {
     reportedRef.current = option.value;
     setQuery(option.label);
+    onChange(option.value);
+  }
+
+  function pick(option: PickerOption): void {
+    report(option);
     setOpen(false);
     setActiveIndex(null);
-    onChange(option.value);
   }
 
   /** Index of the next visible option in the arrow-key direction. */
@@ -169,7 +237,7 @@ export function StatePicker({
   }
 
   return (
-    <div className="flex flex-col gap-1.5" data-state-picker={id}>
+    <div ref={rootRef} className="flex flex-col gap-1.5" data-state-picker={id}>
       <div className="relative">
         <input
           type="text"
@@ -197,19 +265,33 @@ export function StatePicker({
           onKeyDown={onKeyDown}
           onFocus={() => setOpen(true)}
           onBlur={() => {
-            setOpen(false);
             setActiveIndex(null);
             // HACK-164: losing focus commits the typed input — the blur a
             // Continue press causes included — so typing the full state
             // name and pressing Continue picks it instead of showing the
             // needed-to-continue error. Without a commit, the existing
             // blur reset still yields the input to the picked label.
+            // While a POINTER press is in flight, though, neither the
+            // close nor the reset may happen here: with an in-flow list,
+            // both reflow the page between the press's mousedown and its
+            // click and the press lands on whatever shifted under the
+            // pointer. The press's own click closes the list and yields
+            // the query after it has landed (the outside-click close).
             const candidate = commitCandidate(options, query);
+            if (pressingRef.current) {
+              if (candidate && candidate.value !== value) {
+                report(candidate);
+              } else if (candidate) {
+                setQuery(candidate.label);
+              }
+              return;
+            }
+            setOpen(false);
             if (candidate) {
               if (candidate.value === value) {
                 setQuery(candidate.label);
               } else {
-                pick(candidate);
+                report(candidate);
               }
               return;
             }
@@ -220,18 +302,19 @@ export function StatePicker({
         {/* All options stay mounted; non-matching ones display-none so the
           list stays compact while filtering and nothing is ever lost. The
           mousedown is prevented so a click keeps the input's focus (the
-          combobox's own blur would close the list first). The list floats
-          over what is below instead of pushing it down (HACK-164): an
-          inline list reflows the page when the blur-commit closes it, and
-          that reflow moves the Continue button between the press's
-          mousedown and its click — the click lands on nothing. Floating,
-          the controls below never move, so the press both picks and
-          advances. */}
+          combobox's own blur would close the list first). The list renders
+          IN FLOW (HACK-164 follow-up): it pushes the chip, a visible
+          error, and the controls below down instead of floating over them,
+          so a click aimed at a covered control can never land on an
+          option. The reflow that closing now causes is kept out of any
+          press: the blur neither closes nor resets mid-press, and the
+          close happens on a click after it has landed (see the effect and
+          onBlur above). */}
         <ul
           id={`${id}-listbox`}
           role="listbox"
           aria-label="States"
-          className={`absolute inset-x-0 top-full z-10 max-h-60 overflow-y-auto rounded-xl border border-surface-border bg-surface shadow-lg ${open ? "" : "hidden"}`}
+          className={`max-h-60 overflow-y-auto rounded-xl border border-surface-border bg-surface shadow-lg ${open ? "" : "hidden"}`}
           onMouseDown={(event) => event.preventDefault()}
         >
           {options.map((option) => {

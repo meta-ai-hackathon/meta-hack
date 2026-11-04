@@ -217,4 +217,33 @@ describe("IntakeWizard state picker Continue (HACK-164)", () => {
       value: "NC",
     });
   });
+
+  it("the open picker list cannot obscure the needed-to-continue error: it renders in flow, pushing the error down instead of floating over it (HACK-164 follow-up)", async () => {
+    stubFetch({ state: stateWith(), answer: answeredState() });
+    const page = await visit();
+    // An empty Continue shows the needed-to-continue error.
+    await page.clickContinue();
+    expect(page.container.querySelector('[role="alert"]')?.textContent).toContain(
+      "This one is needed to continue",
+    );
+    // Typing reopens the option list right above the visible error.
+    await page.act(() => page.typeIntoStatePicker("north"));
+    const listbox = page.container.querySelector(
+      '[role="listbox"]',
+    ) as HTMLElement;
+    // The listbox is in normal flow (no floating positioning, no z
+    // layer): an in-flow element occupies its own space, so the error
+    // below it is pushed down and stays fully visible — nothing overlaps.
+    expect(listbox.className).not.toContain("absolute");
+    expect(listbox.className).not.toContain("top-full");
+    expect(listbox.className).not.toContain("z-10");
+    // The error survived the list opening, and renders after the listbox
+    // in DOM order — with no positioning, later in-flow elements never
+    // sit underneath earlier ones.
+    const error = page.container.querySelector('[role="alert"]')!;
+    expect(error.textContent).toContain("This one is needed to continue");
+    expect(
+      listbox.compareDocumentPosition(error) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });
