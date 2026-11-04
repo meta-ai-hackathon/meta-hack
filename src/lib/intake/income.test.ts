@@ -43,7 +43,7 @@ function incomeAnswers(
   overrides: Record<
     string,
     {
-      status: "known" | "unknown";
+      status: "known" | "unknown" | "unverified";
       value: unknown;
       provenance?: AnswerProvenance;
     }
@@ -52,7 +52,7 @@ function incomeAnswers(
   const answers: Record<
     string,
     {
-      status: "known" | "unknown";
+      status: "known" | "unknown" | "unverified";
       value: unknown;
       provenance?: AnswerProvenance;
     }
@@ -133,7 +133,7 @@ describe("incomeClientState (the results gate's income conjunct)", () => {
     );
   });
 
-  it("counts a confirmed bank value saved as user the same as the other income-stage paths", () => {
+  it("counts a person-edited bank value saved as user the same as the other income-stage paths", () => {
     const answers = incomeAnswers({
       job_income_amount: {
         status: "known",
@@ -143,6 +143,19 @@ describe("incomeClientState (the results gate's income conjunct)", () => {
     });
     expect(incomeClientState(visibleIncomeJobShape(), answers).handled).toBe(
       true,
+    );
+  });
+
+  it("does not count an untouched bank proposal saved as unverified", () => {
+    const answers = incomeAnswers({
+      job_income_amount: {
+        status: "unverified",
+        value: 2100,
+        provenance: "user_supplied",
+      },
+    });
+    expect(incomeClientState(visibleIncomeJobShape(), answers).handled).toBe(
+      false,
     );
   });
 

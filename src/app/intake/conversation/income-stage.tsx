@@ -530,30 +530,32 @@ export function IncomeStage(props: {
     if (!plaidConsent || plaidConnecting) return;
     setPlaidConnecting(true);
     setPlaidStatus("Opening the Plaid Sandbox test bank…");
+    // /user/create makes a Plaid user before Link opens. The pull route
+    // deletes it after its one fetch, but a Link exit, a failed pull, or a
+    // script/Plaid.create failure never fetches — so every failure path
+    // calls the idempotent remove route with this handle (review P3).
+    let pullHandle: string | null = null;
+    const releaseTestUser = async (): Promise<boolean> => {
+      const handle = pullHandle;
+      if (handle === null) return true;
+      pullHandle = null;
+      try {
+        const response = await fetch("/api/intake/plaid/remove", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pullHandle: handle }),
+        });
+        return response.ok;
+      } catch {
+        return false;
+      }
+    };
     try {
       const ephemeral = await generateEphemeralBrowserKey();
       const tokenResponse = await fetch("/api/intake/plaid/link-token", { method: "POST" });
       if (!tokenResponse.ok) throw new Error("link-token");
       const { linkToken, pullHandle: mintedHandle } = (await tokenResponse.json()) as { linkToken: string; pullHandle: string };
-      // /user/create made a Plaid user. The pull route deletes it after its
-      // one fetch, but a Link exit (or a failed pull) never fetches — so the
-      // exit path calls the idempotent remove route with this handle.
-      let pullHandle: string | null = mintedHandle;
-      const releaseTestUser = async (): Promise<boolean> => {
-        const handle = pullHandle;
-        if (handle === null) return true;
-        pullHandle = null;
-        try {
-          const response = await fetch("/api/intake/plaid/remove", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ pullHandle: handle }),
-          });
-          return response.ok;
-        } catch {
-          return false;
-        }
-      };
+      pullHandle = mintedHandle;
       await loadPlaidLinkScript();
       if (!window.Plaid) throw new Error("plaid-missing");
       const handler = window.Plaid.create({
@@ -584,7 +586,11 @@ export function IncomeStage(props: {
         onExit: () => { void releaseTestUser().then((removed) => { setPlaidConnecting(false); setPlaidStatus(removed ? "Bank connection closed — the test connection was removed and nothing was saved. You can type your income instead." : "Bank connection closed — nothing was saved, but we could not confirm the test connection was removed. You can type your income instead."); }); },
       });
       handler.open();
-    } catch { setPlaidConnecting(false); setPlaidStatus(READ_FAILED_NOTICE); }
+    } catch {
+      const removed = await releaseTestUser();
+      setPlaidConnecting(false);
+      setPlaidStatus(removed ? READ_FAILED_NOTICE : "We could not confirm the test connection was removed. Nothing was saved; you can type your income instead.");
+    }
   }
 
   function applyPlaidResult(result: PlaidProposalResult): void {
@@ -609,15 +615,11 @@ export function IncomeStage(props: {
   ): { readonly kind: string; readonly label: string } | null {
     const institution = plaidOrigins[questionId];
     // The bank badge is valid only while the stored answer is still the one
-    // the bank card wrote: an untouched bank amount is `unverified`, and a
-    // bank frequency is `user`-confirmed. A later manual or tax-return save
-    // also clears the sealed origin (clearPlaidOriginsFor below), so a stale
+    // the bank card wrote: every untouched bank proposal (amount or
+    // schedule) is `unverified`. A later manual or tax-return save also
+    // clears the sealed origin (clearPlaidOriginsFor below), so a stale
     // name can never claim the wrong source.
-    const bankShaped =
-      answer !== undefined &&
-      (questionId.endsWith("_amount")
-        ? answer.status === "unverified"
-        : answer.provenance === "user");
+    const bankShaped = answer?.status === "unverified";
     if (institution && bankShaped) {
       return { kind: "plaid_institution", label: `From ${institution}` };
     }

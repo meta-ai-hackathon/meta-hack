@@ -768,16 +768,18 @@ describe("the client-side Plaid origin (HACK-140)", () => {
   it("shows the sealed institution name on a saved bank value", async () => {
     originStoreMock.load.mockResolvedValue({
       job_income_amount: "First Platypus Bank",
+      job_income_frequency: "First Platypus Bank",
     });
     const state = incomeState({
       answers: {
         ...incomeState().answers,
-        // The bank confirm writes untouched amounts as unverified (review
-        // P2); the sealed origin badge belongs to exactly that shape.
+        // The bank confirm writes every untouched proposal as unverified
+        // (review P2); the sealed origin badge belongs to exactly that shape.
         job_income_amount: {
           status: "unverified",
           value: 2100,
         },
+        job_income_frequency: { status: "unverified", value: "monthly" },
       },
     });
     const { container } = await renderStage(state);
@@ -786,6 +788,12 @@ describe("the client-side Plaid origin (HACK-140)", () => {
       row?.querySelector('[data-origin-badge="plaid_institution"]'),
     ).not.toBeNull();
     expect(row?.textContent).toContain("From First Platypus Bank");
+    // A confirmed schedule is unverified too; its badge must survive a reload.
+    const frequencyRow = q(container, 'income-row="job_income_frequency"');
+    expect(
+      frequencyRow?.querySelector('[data-origin-badge="plaid_institution"]'),
+    ).not.toBeNull();
+    expect(frequencyRow?.textContent).toContain("From First Platypus Bank");
   });
 
   it("does not keep the bank badge on an amount another path saved", async () => {
