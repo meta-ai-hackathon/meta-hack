@@ -10,10 +10,11 @@ import { GET } from "./route";
 
 // GET /api/forms/<formId>/review route tests (Mission v2 M4, BN-21/23/24 +
 // VAL-PDF-002): the review surface shows every field's provenance, the
-// to-resolve list, the session's BN-25 status, the pilot seam's portal
-// links, and the ordered handoff steps. Pii values are structurally absent
-// from the payload; anonymous requests get an honest empty payload; unknown
-// form ids are 404s.
+// to-resolve list, and the session's BN-25 status, with the pilot seam's
+// portal links. The unsourced generic handoff steps are GONE (HACK-119) —
+// the client renders the KB-sourced companion steps instead. Pii values
+// are structurally absent from the payload; anonymous requests get an
+// honest empty payload; unknown form ids are 404s.
 
 const LOCAL_DATABASE_URL =
   "postgresql://postgres:benefits_dev@localhost:5432/benefits_navigator";
@@ -96,7 +97,7 @@ describe("GET /api/forms/<formId>/review", () => {
       toResolve: { fieldName: string; question: string }[];
       sessionStatus: string;
       portalLinks: { label: string; url: string }[];
-      steps: { title: string }[];
+      steps?: { title: string }[];
     };
     expect(body.hasSession).toBe(true);
     expect(body.form.id).toBe(ENTRY.id);
@@ -124,11 +125,13 @@ describe("GET /api/forms/<formId>/review", () => {
     // The serialized payload as a whole never carries the private values.
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain("1990-01-01");
-    // To-resolve + lifecycle + companion links + steps.
+    // To-resolve + lifecycle + companion links. The unsourced generic
+    // handoff steps are gone from the payload (HACK-119): the sourced
+    // companion the client renders replaces them.
     expect(body.toResolve.length).toBeGreaterThan(0);
     expect(body.sessionStatus).toBe("draft");
     expect(body.portalLinks).toEqual(PILOT_CONFIG.portalLinks);
-    expect(body.steps.length).toBeGreaterThanOrEqual(3);
+    expect(body.steps).toBeUndefined();
   });
 
   it("an unknown form id is a 404", async () => {
