@@ -905,7 +905,15 @@ export function IntakeWizard(props: {
         question={question}
         answer={answer}
         value={draftValue}
-        onValueChange={setDraftValue}
+        onValueChange={(next) => {
+          setDraftValue(next);
+          if (question.id === "state") {
+            // HACK-164: a picked state answers the needed-to-continue
+            // objection — the error clears the moment the pick lands,
+            // not on the next submit.
+            setQuestionError(undefined);
+          }
+        }}
         bestGuess={bestGuess}
         onBestGuessChange={setBestGuess}
         onNotSure={() => void submitAnswer("unknown")}

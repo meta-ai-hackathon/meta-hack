@@ -926,6 +926,71 @@ describe("the quick-questions stage component", () => {
     // never sends one — no new storage path.
     expect(body.provenance).toBeUndefined();
   });
+
+  it("the state card clears the needed-to-continue error as soon as a state is picked (HACK-164, VAL-UX-001)", async () => {
+    posts = [];
+    const stateQuestion = question({
+      id: "state",
+      prompt: "Which state do you live in?",
+      type: "single_select",
+      options: [
+        { value: "NC", label: "North Carolina" },
+        { value: "SC", label: "South Carolina" },
+        { value: "AL", label: "Alabama" },
+      ],
+    });
+    const { container, act } = await renderStage(stageState({
+      questions: [stateQuestion],
+      progress: { answered: 0, remaining: 1, total: 1 },
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: ["state"],
+        requiredCount: 1,
+        remainingIds: ["state"],
+        remainingCount: 1,
+        complete: false,
+      },
+    }));
+    // An empty Save shows the needed-to-continue error (the unchanged
+    // required gate).
+    await act(async () => {
+      q(container, 'qq-save="state"')?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(q(container, 'qq-error="state"')).not.toBeNull();
+    // Typing the full name and blurring — the focus loss the Continue
+    // press causes — picks it, and the error clears right then, not on
+    // the next submit.
+    const card = q(container, 'qq-card="state"')!;
+    const input = card.querySelector('[role="combobox"]') as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "north carolina");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(q(container, 'qq-error="state"')).toBeNull();
+    expect(
+      card.querySelector("[data-state-picker-selected]")?.textContent,
+    ).toContain("Picked: North Carolina");
+    // Saving now posts the pick through the existing tri-state route.
+    await act(async () => {
+      q(container, 'qq-save="state"')?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(JSON.parse(posts[0]!.body)).toMatchObject({
+      questionId: "state",
+      status: "known",
+      value: "NC",
+    });
+  });
 });
 
 describe("the quick-questions stage properties (fast-check)", () => {
