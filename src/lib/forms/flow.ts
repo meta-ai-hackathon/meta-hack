@@ -32,6 +32,12 @@ export interface FormFlowFieldView {
   readonly state: FormFlowFieldState;
   readonly specQuestionId: string | null;
   readonly required: boolean;
+  /**
+   * The form page(s) the field prints on (registry data, no person
+   * values): the review surfaces group the remaining fields by it
+   * (HACK-153/154).
+   */
+  readonly pages?: readonly number[];
   /** Status + provenance of the source answer, when one exists. */
   readonly status?: AnswerStatus;
   readonly provenance?: AnswerProvenance;
@@ -157,6 +163,7 @@ function toView(
     state,
     specQuestionId: field.specQuestionId,
     required: field.required,
+    pages: field.pages,
     piiLikely: field.piiLikely,
   };
   const effectiveProvenance =
