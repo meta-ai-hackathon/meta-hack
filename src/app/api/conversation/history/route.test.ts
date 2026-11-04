@@ -63,9 +63,6 @@ interface HistoryResponse {
     createdAt: string;
   }[];
   state: ReturnType<typeof buildClientState>;
-  // The engine's next unanswered talk-saveable question (HACK-160): the
-  // empty-chat seed's source. Null when nothing is left to ask.
-  nextQuestion: { id: string; prompt: string } | null;
 }
 
 describe("GET /api/conversation/history", () => {
@@ -87,27 +84,6 @@ describe("GET /api/conversation/history", () => {
     expect(response.status).toBe(200);
     const data = (await response.json()) as HistoryResponse;
     expect(data.turns).toEqual([]);
-  });
-
-  it("carries the engine's first question for the empty-chat seed (HACK-160, VAL-UX-004)", async () => {
-    const response = await GET(historyRequest());
-    expect(response.status).toBe(200);
-    const data = (await response.json()) as HistoryResponse;
-    // The engine's own next-question choice for a fresh session — the
-    // seeded bubble's source, computed without any model call.
-    expect(data.nextQuestion).toEqual({
-      id: "application_role",
-      prompt: "Who is this application for?",
-    });
-  });
-
-  it("the seed question advances with saved answers (the engine's next talk-saveable question)", async () => {
-    const { sessionId } = await ensureSession(null);
-    await saveAnswer(sessionId, "application_role", "known", "self");
-    const response = await GET(historyRequest(`${SESSION_COOKIE}=${sessionId}`));
-    expect(response.status).toBe(200);
-    const data = (await response.json()) as HistoryResponse;
-    expect(data.nextQuestion?.id).toBe("main_goal");
   });
 
   it("restores identical turns and state on repeated reads (reload parity)", async () => {

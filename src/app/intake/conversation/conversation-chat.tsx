@@ -31,6 +31,7 @@ import {
 } from "../../../lib/consent";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { takeStoredEntryMode } from "../../../lib/entry-mode";
+import { talkPathSavesQuestion } from "../../../lib/intake/talk-path";
 import {
   RampartShield,
   type RampartShieldStatus,
@@ -209,14 +210,6 @@ interface ConversationErrorResponse {
 interface HistoryResponse {
   turns: ConversationTurn[];
   state: IntakeClientState;
-  /**
-   * The question engine's next unanswered talk-saveable question
-   * (HACK-160, VAL-UX-004): the empty chat's first bubble is seeded from
-   * it — engine content the server computed with the same pure function
-   * every turn uses, so opening the chat makes no model call. Null when
-   * nothing is left to ask.
-   */
-  nextQuestion: { id: string; prompt: string } | null;
 }
 
 interface TurnResponse {
@@ -249,6 +242,35 @@ let localTurnId = 0;
 function nextLocalTurnId(): string {
   localTurnId += 1;
   return `local-turn-${localTurnId}`;
+}
+
+/**
+ * The empty chat's seeded first question (HACK-160, VAL-UX-004): the
+ * question engine's next unanswered talk-saveable question, picked from
+ * the CLIENT STATE the server already computed — the state's visible
+ * question list IS the engine's skip-aware view (built server-side from
+ * full answers), the answers map's keys say what is answered (pii
+ * answers appear with their status alone, still present, so an answered
+ * private question never seeds), and the talk-path filter drops the
+ * structured wizard-only questions the engine would never ask in the
+ * chat. Pure and exported for tests; reading it from the LIVE state (not
+ * a fetch-frozen field) is the point: the quick-questions stage applies
+ * its saves' fresh state directly, so the talk stage it hands off to
+ * seeds with the engine's actual next question, never one just answered.
+ */
+export function firstTalkQuestion(state: IntakeClientState): {
+  id: string;
+  prompt: string;
+} | null {
+  for (const question of state.questions) {
+    if (
+      state.answers[question.id] === undefined &&
+      talkPathSavesQuestion(question.id)
+    ) {
+      return { id: question.id, prompt: question.prompt };
+    }
+  }
+  return null;
 }
 
 /**
@@ -342,14 +364,6 @@ export function ConversationChat() {
   } | null>(null);
   const [notice, setNotice] = useState("");
   const [loaded, setLoaded] = useState(false);
-  // The empty chat's seeded first question (HACK-160, VAL-UX-004): the
-  // question engine's next unanswered talk-saveable question, carried by
-  // the history response — never a model call. Display-only; it yields
-  // the moment a real assistant turn exists.
-  const [nextQuestion, setNextQuestion] = useState<{
-    id: string;
-    prompt: string;
-  } | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   // The fixed-height transcript pane (VAL-FIX-002): the scrollable
   // container on the talk stage, plus whether it is parked at the latest
@@ -482,7 +496,6 @@ export function ConversationChat() {
         const shield = shieldRef.current;
         setTurns(revealHistory(data.turns, shield));
         setState(data.state);
-        setNextQuestion(data.nextQuestion ?? null);
       } catch {
         if (!cancelled) {
           setNotice("We could not load your earlier conversation just now.");
@@ -530,7 +543,6 @@ export function ConversationChat() {
         if (!cancelled) {
           setTurns(revealHistory(data.turns, shieldRef.current));
           setState(data.state);
-          setNextQuestion(data.nextQuestion ?? null);
         }
       })
       .catch(() => undefined);
@@ -630,16 +642,19 @@ export function ConversationChat() {
   // The empty chat's seeded first question (HACK-160, VAL-UX-004): with
   // sharing on, the conversation opens showing the question engine's next
   // question as the assistant's first bubble — so the person never has to
-  // guess what to type or say. It is DISPLAY-ONLY engine content (spec
-  // prompt text the server computed with the same pure function every
-  // turn uses — no model call, no consent-relevant send), and it yields
-  // the moment a real assistant turn exists: until then it stays visible
-  // through the first send's in-flight window, because it is the very
-  // question being answered. Never rendered with sharing off (the note
-  // below replaces the prompt line instead).
+  // guess what to type or say. It is DISPLAY-ONLY engine content (the
+  // spec prompt the server's own client-state view carries — no model
+  // call, no consent-relevant send), derived from the LIVE state so the
+  // quick-questions handoff seeds what is actually still unanswered, and
+  // it yields the moment a real assistant turn exists: until then it
+  // stays visible through the first send's in-flight window, because it
+  // is the very question being answered. Never rendered with sharing off
+  // (the note below replaces the prompt line instead).
   const noAssistantTurnYet = turns.every((turn) => turn.role !== "assistant");
   const firstQuestionSeed =
-    aiSharingOn && noAssistantTurnYet ? nextQuestion : null;
+    aiSharingOn && state !== null && noAssistantTurnYet
+      ? firstTalkQuestion(state)
+      : null;
 
   // Auto-scroll (VAL-FIX-002): the talk-stage transcript is a
   // fixed-height pane — keep the latest turns in view WITHOUT ever

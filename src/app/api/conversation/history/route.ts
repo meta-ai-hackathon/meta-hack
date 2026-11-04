@@ -1,8 +1,4 @@
-import {
-  conversationErrorResponse,
-  loadTurns,
-  nextUnansweredQuestion,
-} from "../../../../lib/conversation";
+import { conversationErrorResponse, loadTurns } from "../../../../lib/conversation";
 import {
   loadAnswers,
   loadSession,
@@ -25,18 +21,6 @@ import {
 // structurally omitted). All state lives in Postgres: reload and server
 // restart restore byte-identical history (VAL-CONV-007).
 
-// HACK-160 (VAL-UX-004): the empty-chat seed's source — the question
-// engine's own next unanswered talk-saveable question, computed with the
-// same pure function every turn uses (no model call). Serialized to the
-// bubble's display shape: spec prompt + id only, never an answer value.
-function nextSeedQuestion(answers: Parameters<typeof nextUnansweredQuestion>[0]): {
-  id: string;
-  prompt: string;
-} | null {
-  const next = nextUnansweredQuestion(answers);
-  return next ? { id: next.id, prompt: next.prompt } : null;
-}
-
 export async function GET(request: Request): Promise<Response> {
   const requestId = requestIdFromHeaders(request.headers);
   return runWithRequestId(requestId, async () => {
@@ -46,7 +30,6 @@ export async function GET(request: Request): Promise<Response> {
         return Response.json({
           turns: [],
           state: buildClientState({}),
-          nextQuestion: nextSeedQuestion({}),
         });
       }
       const sessionId = await loadSession(cookieValue);
@@ -56,7 +39,6 @@ export async function GET(request: Request): Promise<Response> {
         return Response.json({
           turns: [],
           state: buildClientState({}),
-          nextQuestion: nextSeedQuestion({}),
         });
       }
       const turns = await loadTurns(sessionId);
@@ -64,11 +46,7 @@ export async function GET(request: Request): Promise<Response> {
       const state = buildClientState(answers);
       assertNoPiiValues(state);
       logInfo("conversation_history_loaded");
-      return Response.json({
-        turns,
-        state,
-        nextQuestion: nextSeedQuestion(answers),
-      });
+      return Response.json({ turns, state });
     } catch (error) {
       return conversationErrorResponse(error);
     }

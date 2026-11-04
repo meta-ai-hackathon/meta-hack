@@ -16,9 +16,12 @@ import {
   type Question,
   type SkipCondition,
 } from "./intake/spec";
-import { ROSTER_QUESTION_ID } from "./intake/roster";
-import { ATTRIBUTION_QUESTION_ID } from "./intake/attribution";
-import { WORK_ROWS_QUESTION_ID } from "./intake/work-activities";
+// The talk path's question filter lives in the client-safe module so the
+// conversation page's seeded first bubble (HACK-160) reads the same
+// filter the engine applies (HACK-134/135); re-exported for the existing
+// public surface.
+export { talkPathSavesQuestion } from "./intake/talk-path";
+import { talkPathSavesQuestion } from "./intake/talk-path";
 import {
   ensureSession,
   loadAnswers,
@@ -578,11 +581,6 @@ export function buildCombinedTurnPrompt(
       "question is answered.",
   );
   return lines.join("\n");
-}
-
-/** Whether the talk path may save an extracted answer for a question. Structured wizard-only questions (roster, per-person attribution) are never extracted or saved from a model turn (HACK-134/135). */
-export function talkPathSavesQuestion(questionId: string): boolean {
-  return questionId !== ROSTER_QUESTION_ID && questionId !== ATTRIBUTION_QUESTION_ID && questionId !== WORK_ROWS_QUESTION_ID;
 }
 
 /** The strict per-turn extraction schema (BN-32), inside the envelope schema. */
