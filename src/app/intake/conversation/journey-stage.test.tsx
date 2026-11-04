@@ -580,13 +580,19 @@ describe("the voice journey stages (VAL-VJS-001..004, VAL-QQ-002)", () => {
     expect(q(container, "journey-stage")?.getAttribute("data-journey-stage")).toBe("entry");
     // The frame layout: headline, two cards, begin, trust line — and no
     // journey sections. The PURGE control is the exception: it stays
-    // reachable at every point of the journey (VAL-VJS-003).
+    // reachable at every point of the journey (VAL-VJS-003), and since
+    // HACK-149 it does so as a collapsed, calm disclosure — one line,
+    // never the opening act of an early stage.
     expect(q(container, "conversation-transcript")).toBeNull();
     expect(container.textContent).not.toContain("Your answers so far");
     expect(container.textContent).not.toContain(
       "Benefits that may be worth pursuing",
     );
     expect(q(container, "purge-wrapper")).not.toBeNull();
+    const disclosure = q(container, "purge-disclosure");
+    expect(disclosure).not.toBeNull();
+    expect(disclosure?.tagName).toBe("DETAILS");
+    expect(disclosure?.querySelector("[data-purge-wrapper]")).not.toBeNull();
   });
 
   it("mode A talk stage: bubbles + state bar, no form and no journey sections (VAL-VJS-002)", async () => {
@@ -647,8 +653,11 @@ describe("the voice journey stages (VAL-VJS-001..004, VAL-QQ-002)", () => {
     expect(q(container, "review-section")).not.toBeNull();
     expect(q(container, 'action="download"')).not.toBeNull();
     expect(container.textContent).toContain("submit it yourself");
-    // The purge surface stays reachable.
+    // The purge surface stays reachable — at the END of the journey it
+    // renders in full, directly (no collapsed disclosure on results,
+    // HACK-149's early-flow rule).
     expect(q(container, "purge-wrapper")).not.toBeNull();
+    expect(q(container, "purge-disclosure")).toBeNull();
   });
 
   it("the Send my application button routes to the honest flow — signature, download, submit guidance; never a submission (VAL-VJS2-002)", async () => {
