@@ -1,4 +1,4 @@
-# Benefits Navigator — feature map (draft v0.2)
+# Tenet — feature map (draft v0.2)
 
 **Status:** Draft for team review — documentation only; authorizes no build work.
 **As of:** 2026-10-28 (day 2 of 8; submission Wed Nov 4, 9:00 PM ET; internal target 6:00 PM ET)

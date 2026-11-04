@@ -1,6 +1,6 @@
-# Benefits Navigator verification map
+# Tenet verification map
 
-This directory is the maintained verification map for the user-facing features of Benefits Navigator (the `BN-` IDs in `feature.md`). It is a planned map: the app does not exist yet, so every feature file names user actions and expected results without real commands or selectors. The driving harness (launch and doctor commands) arrives with HACK-8 (`skills/verify-app/SKILL.md`), which is why exact commands read `TBD`. Pilot-specific steps land after HACK-16 chooses the pilot program and location; feature files are written pilot-agnostic until then. The file contract follows the vendored MIT pstack example at `.factory/skills/pstack-create-verification-skill/references/feature-map-example/`.
+This directory is the maintained verification map for the user-facing features of Tenet (the `BN-` IDs in `feature.md`). It is a planned map: the app does not exist yet, so every feature file names user actions and expected results without real commands or selectors. The driving harness (launch and doctor commands) arrives with HACK-8 (`skills/verify-app/SKILL.md`), which is why exact commands read `TBD`. Pilot-specific steps land after HACK-16 chooses the pilot program and location; feature files are written pilot-agnostic until then. The file contract follows the vendored MIT pstack example at `.factory/skills/pstack-create-verification-skill/references/feature-map-example/`.
 
 ## Baseline preconditions
 
