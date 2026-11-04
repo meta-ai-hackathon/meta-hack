@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import fc from "fast-check";
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -33,6 +35,7 @@ const REAL = parseKbEntry(realEntryJson as unknown);
 // The form the pilot's review section shows, which the KB steps are for.
 const FORM = PILOT_CONFIG.formRegistryId;
 const COMPANION = handoffCompanionForForm(FORM)!;
+const REPO_ROOT = path.resolve(import.meta.dirname, "../../../..");
 
 const stateArb: fc.Arbitrary<HandoffState> = fc.record({
   sessionStatus: fc.constantFrom(...SESSION_STATUSES),
@@ -401,12 +404,22 @@ describe("HandoffSection inside the review section", () => {
     });
 
     it("moves the next step from download to mark handed off", async () => {
-      // The fill route answers with the filled PDF. jsdom has no object
-      // URLs and no navigation, so the blob URL and the anchor click are
-      // stubbed for this test only and restored after it.
-      const fetchSpy = vi.fn(() =>
-        Promise.resolve(new Response(new Blob(["%PDF-1.7"]), { status: 200 })),
+      // The download fills the form IN THE BROWSER (HACK-138): the one
+      // request is the blank public template's GET — a fill POST to the
+      // server (the old path, outside the sanctioned download) would fail
+      // this test. jsdom has no object URLs and no navigation, so the blob
+      // URL and the anchor click are stubbed for this test only and
+      // restored after it.
+      const realForm = readFileSync(
+        path.join(REPO_ROOT, "src/lib/forms/fixtures/dhb-5200-ia-9-2020.pdf"),
       );
+      const fetchSpy = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === `/forms/${FORM}.pdf`) {
+          return Promise.resolve(new Response(new Uint8Array(realForm), { status: 200 }));
+        }
+        return Promise.reject(new TypeError(`unexpected request: ${url}`));
+      });
       vi.stubGlobal("fetch", fetchSpy);
       const { createObjectURL, revokeObjectURL } = URL;
       URL.createObjectURL = () => "blob:filled-form";
@@ -437,12 +450,22 @@ describe("HandoffSection inside the review section", () => {
         const download = container.querySelector<HTMLButtonElement>('[data-action="download"]');
         await act(async () => {
           download?.click();
-          for (let tick = 0; tick < 10; tick += 1) {
-            await new Promise((done) => setTimeout(done, 0));
+          // The real form fills in the browser here (355 fields checked
+          // over the 21-page template), which takes the fill a moment:
+          // wait for the download it produces, bounded.
+          for (let tick = 0; tick < 500 && clickSpy.mock.calls.length === 0; tick += 1) {
+            await new Promise((done) => setTimeout(done, 10));
           }
         });
 
-        expect(fetchSpy).toHaveBeenCalledWith(`/api/forms/${FORM}/fill`, { method: "POST" });
+        // The one request: the blank form's bodiless GET. The fill itself
+        // made no request at all.
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy).toHaveBeenCalledWith(`/forms/${FORM}.pdf`, {
+          method: "GET",
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+        });
         expect(clickSpy).toHaveBeenCalled();
         expect(nextAction()).toBe("mark_handed_off");
         expect(container.querySelector("[data-where]")?.textContent).toBe("In the app");

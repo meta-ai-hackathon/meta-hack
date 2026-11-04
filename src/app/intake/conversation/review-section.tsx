@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnswerStatusBadge } from "../../../components/answer-status-badge";
 import { StatusRegion } from "../../../components/status-region";
 import { pagePointer } from "../../../lib/forms/disposition";
+import { loadDeviceTemplate } from "../../../lib/intake/device-template";
 import { PILOT_CONFIG } from "../../../lib/pilot";
 import { HandoffSection } from "./handoff-section";
 
@@ -18,7 +19,11 @@ import { HandoffSection } from "./handoff-section";
 // can never set a submitted state (BN-25).
 //
 // Response shapes are defined locally, mirroring the review route's
-// payload: the server forms modules must not enter the client bundle.
+// payload: the server forms modules must not enter the client bundle. The
+// download's fill is the browser-safe half (lib/forms/fill-core.ts) plus
+// the committed registry's browser-safe entries, reached only through the
+// on-demand import in downloadFilledPdf (HACK-138) — the questions never
+// wait on the PDF library.
 
 interface ReviewFieldView {
   readonly fieldName: string;
@@ -149,11 +154,52 @@ export const REVIEW_UNAVAILABLE_NOTICE =
   "safe; try again after your next message.";
 
 /**
+ * What the download is, and what a saved copy of it is (HACK-138): the
+ * fill happens in this browser from the values the page already holds —
+ * the review payload's non-private values and the answers typed below —
+ * so no request ever carries an answer. The file disclosure is the
+ * sanctioned-download rule's own condition (rules.md, HACK-115; the same
+ * wording the step-by-step page's download shows): the file holds the
+ * filled-in answers, private ones included, is an ordinary unencrypted
+ * file, and should be deleted after printing or sending on a shared
+ * computer. The private answers the page shows only as a status badge —
+ * the ones the app keeps in its encrypted records — never enter the file:
+ * those lines stay blank for the person to finish by hand.
+ */
+const DOWNLOAD_COPY = {
+  downloaded:
+    "Your application downloaded. It was filled right on this device, " +
+    "and nothing about it was saved on our side. The lines still needed " +
+    "are blank — finish those by hand.",
+  templateUnavailable:
+    "We couldn't get the blank form right now, so nothing was filled. " +
+    "Check your connection and try again.",
+  unreadableBoxes:
+    "Nothing was filled. Some box answers aren't checked or unchecked, so " +
+    "fix the ones listed and try again.",
+  invalidTyped:
+    "One of the answers you typed for the form couldn't be used. Please " +
+    "check it and try again.",
+  unreadableForm:
+    "We couldn't open the blank form, so nothing was filled. Try again in a moment.",
+  failed: "The download didn't go through. Try again in a moment.",
+  note:
+    "The download is filled right on this device, from the answers on " +
+    "this page and the ones you typed below — no answers are sent " +
+    "anywhere to make it. Answers shown with a status instead of a value " +
+    "stay blank on the file: finish those lines by hand after printing.",
+  fileDisclosure:
+    "The file holds the answers filled in on the form, private ones " +
+    "included. It's an ordinary file that isn't encrypted, so on a shared " +
+    "computer, delete it once you've printed or sent it.",
+};
+
+/**
  * The DHB-5200's signature field (AcroForm discovery, registry entry
  * v1.1.0): the one field the app can never fill from a store. When the
  * review payload carries it, it renders as the distinct typed-signature
  * step below — the person types their full name, and that fresh value is
- * the ONLY source (it rides the download request, in memory, once).
+ * the ONLY source (it fills the download on this device, in memory, once).
  */
 export const SIGNATURE_FIELD_NAME = "Signature";
 
@@ -267,6 +313,19 @@ export function ReviewSectionContent({
   const [localStatus, setLocalStatus] = useState<string | null>(null);
   const sessionStatus = localStatus ?? data.sessionStatus;
   const [downloaded, setDownloaded] = useState(false);
+  // The fill's own still-needed rows, joined to the review's after a
+  // download (the private answers the page doesn't hold among them) —
+  // what is blank on the file is what the section lists.
+  const [fillBlanks, setFillBlanks] = useState<
+    readonly { fieldName: string; question: string }[]
+  >([]);
+  const stillNeeded: readonly { fieldName: string; question: string }[] = [
+    ...data.toResolve,
+    ...fillBlanks.filter(
+      (blank) =>
+        !data.toResolve.some((item) => item.fieldName === blank.fieldName),
+    ),
+  ];
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -317,27 +376,46 @@ export function ReviewSectionContent({
   async function downloadFilledPdf(): Promise<void> {
     setBusy(true);
     try {
-      // Drafted answers for fields the question spec doesn't ask ride the
-      // fill request and live only in memory — nothing is stored anywhere.
-      let body: FormData | undefined;
-      const draftsToSend = Object.entries(drafts).filter(
-        ([, value]) => value.trim() !== "",
+      // The fill runs HERE, in the browser (HACK-138): the sanctioned
+      // download is a form "created in the user's browser from values the
+      // client already holds" (.github/claude-review/rules.md, the HACK-115
+      // owner decision), and the rule forbids "sending server- or
+      // vault-held pii values to a page or payload". The old server fill
+      // (POST /api/forms/<formId>/fill) crossed that line — the vault-held
+      // values rode to the page inside the PDF — so this download now
+      // fills from exactly what this page holds: the review payload's own
+      // values (private ones are omitted from the payload by design) and
+      // the answers typed below. The one request on the path is the blank
+      // public template's GET. Nothing about the fill is stored, sent, or
+      // logged anywhere.
+      const { fillReviewOnDevice, reviewFormEntry } = await import(
+        "../../../lib/intake/review-fill"
       );
-      if (draftsToSend.length > 0) {
-        body = new FormData();
-        body.append(
-          "answers",
-          JSON.stringify(Object.fromEntries(draftsToSend)),
-        );
+      const entry = reviewFormEntry(data.form.id);
+      if (!entry) {
+        throw new Error("unknown form");
       }
-      const response = await fetch(`/api/forms/${data.form.id}/fill`, {
-        method: "POST",
-        ...(body ? { body } : {}),
+      const template = await loadDeviceTemplate(entry);
+      if (!template) {
+        announce(DOWNLOAD_COPY.templateUnavailable);
+        return;
+      }
+      const result = await fillReviewOnDevice(template, data.fields, drafts, entry);
+      if (result.kind === "unreadable_boxes") {
+        announce(DOWNLOAD_COPY.unreadableBoxes);
+        return;
+      }
+      if (result.kind === "invalid_answers") {
+        announce(DOWNLOAD_COPY.invalidTyped);
+        return;
+      }
+      if (result.kind === "unreadable_form") {
+        announce(DOWNLOAD_COPY.unreadableForm);
+        return;
+      }
+      const blob = new Blob([new Uint8Array(result.outcome.bytes)], {
+        type: "application/pdf",
       });
-      if (!response.ok) {
-        throw new Error("fill failed");
-      }
-      const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -346,13 +424,14 @@ export function ReviewSectionContent({
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
+      // The fill's own still-needed list (the private answers the page
+      // doesn't hold, among them) joins the review's, so what is blank on
+      // the file is exactly what the section above lists.
+      setFillBlanks(result.outcome.toResolve);
       setDownloaded(true);
-      announce(
-        "Your application downloaded. The filled form itself wasn't " +
-          "saved on our side.",
-      );
+      announce(DOWNLOAD_COPY.downloaded);
     } catch {
-      announce("The download didn't go through. Try again in a moment.");
+      announce(DOWNLOAD_COPY.failed);
     } finally {
       setBusy(false);
     }
@@ -446,7 +525,7 @@ export function ReviewSectionContent({
                 // The distinct typed-signature step (VAL-VJS2-002, HACK-116
                 // decision 3): the person types their full legal name — the
                 // same act as signing by hand, in e-signature form. The
-                // value rides THIS download's request and nothing else; the
+                // value fills the form on this device and nothing else; the
                 // app never signs and never pre-fills this field.
                 <span
                   data-signature-step
@@ -593,7 +672,7 @@ export function ReviewSectionContent({
         </section>
       ) : null}
 
-      {data.toResolve.length > 0 ? (
+      {stillNeeded.length > 0 ? (
         <section
           aria-labelledby={idFor("form-to-resolve-heading")}
           data-form-to-resolve
@@ -610,7 +689,7 @@ export function ReviewSectionContent({
             These are left blank on the prepared form — nothing is guessed.
           </p>
           <ul className="list-disc pl-5">
-            {data.toResolve.map((item) => (
+            {stillNeeded.map((item) => (
               <li key={item.fieldName}>{item.question}</li>
             ))}
           </ul>
@@ -677,6 +756,13 @@ export function ReviewSectionContent({
           >
             Download the filled PDF
           </button>
+          {/* The download's own honest note + the file disclosure
+          (DOWNLOAD_COPY; the sanctioned-download rule's copy condition,
+          HACK-138): what the fill is, what stays blank on the file, and
+          what a saved copy is. */}
+          <p data-download-note className="w-full text-sm text-muted">
+            {DOWNLOAD_COPY.note} {DOWNLOAD_COPY.fileDisclosure}
+          </p>
           {ownsSessionLifecycle ? (
             <>
               <button
@@ -717,7 +803,7 @@ export function ReviewSectionContent({
           formId={data.form.id}
           sessionStatus={sessionStatus}
           downloaded={downloaded}
-          stillNeededCount={data.toResolve.length}
+          stillNeededCount={stillNeeded.length}
           idPrefix={idPrefix}
         />
         <div className="flex flex-col gap-1">
