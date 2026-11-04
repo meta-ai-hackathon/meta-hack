@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import ConversationPage from "./page";
+import ConversationPage, { metadata } from "./page";
 
 // The conversational page shell (Mission v2 M2; rebuilt for the HACK-106
 // natural-conversation milestone). The honest FIRST paint is the consent
@@ -75,5 +75,16 @@ describe("Conversation page shell", () => {
     // ones, and they show as the You-told-us chip.
     expect(html).toContain("answers to private questions show as");
     expect(html).toContain("You told us");
+  });
+
+  it("carries the honest meta description and nothing else changed (HACK-149, VAL-UX-012)", () => {
+    // The meta description rode the same over-claim family HACK-158 fixed
+    // in the intro ("private details stay private"); the description now
+    // makes the intro's honest claim instead. The title is untouched.
+    expect(metadata.title).toBe("Chat — Tenet");
+    expect(metadata.description).toBe(
+      'Answer a few plain-language questions in a conversation. Your answers save as you go, and answers to private questions show as "You told us".',
+    );
+    expect(metadata.description).not.toContain("private details stay private");
   });
 });
