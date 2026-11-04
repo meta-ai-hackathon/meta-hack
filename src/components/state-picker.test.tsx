@@ -450,6 +450,36 @@ describe("StatePicker (HACK-142)", () => {
       expect(input().value).toBe("");
     });
 
+    it("a TOUCH tap aimed at a control below lands on it: pointerup fires before the blur, yet the list still stays open through the press (touch event order)", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north"));
+      // Touch order: pointerdown, pointerup, touchend — and only THEN the
+      // compatibility mousedown, whose blur would close and reset. The
+      // press flag must therefore survive pointerup (claude-review P2 on
+      // this PR): pointerup lands while the finger is still "pressing".
+      await act(() => {
+        outside.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      });
+      await act(() => {
+        outside.dispatchEvent(new Event("pointerup", { bubbles: true }));
+      });
+      await act(() => {
+        input().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      // The tap's blur must neither close nor reset — the list is in
+      // flow, so either would reflow the page before the tap's click.
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      expect(input().value).toBe("north");
+      // The tap's click lands on the aimed control; the list closes and
+      // the query yields afterwards.
+      await act(() => {
+        outside.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(outsideClicks).toBe(1);
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("");
+    });
+
     it("typing the full name and pressing a control below picks it during the press and the click still lands (VAL-UX-001 in one press)", async () => {
       const { act, rerender } = await renderPicker();
       await act(() => type("north carolina"));
@@ -468,9 +498,14 @@ describe("StatePicker (HACK-142)", () => {
         outside.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
       expect(outsideClicks).toBe(1);
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      // The close's yield must not blank the just-committed pick while the
+      // parent has not re-rendered yet: the input keeps the picked label
+      // (the yield reads the last-reported value, not the stale closure —
+      // claude-review P3 on this PR).
+      expect(input().value).toBe("North Carolina");
       await rerender({ value: "NC" });
       expect(chip()).toContain("Picked: North Carolina");
-      expect(input().getAttribute("aria-expanded")).toBe("false");
     });
   });
 });

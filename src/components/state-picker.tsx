@@ -114,11 +114,15 @@ export function StatePicker({
   // from OUTSIDE (a stored answer loading into the form), the visible
   // label resyncs; typing inside the picker is never clobbered.
   const reportedRef = useRef(value);
-  // True between a pointerdown and its pointerup, i.e. while a press is
-  // in flight. The blur a press causes must not close the list or reset
-  // the query — either reflows the page mid-press and the press lands on
-  // whatever shifted under the pointer. The deferred close-and-yield runs
-  // on that press's own click instead.
+  // True from a pointerdown until that press's click has been handled —
+  // NOT until pointerup. The blur a press causes must not close the list
+  // or reset the query (either reflows the page mid-press and the press
+  // lands on whatever shifted under the pointer), and on touch the
+  // compatibility mousedown that blurs the input fires AFTER pointerup,
+  // so the flag has to survive pointerup for the blur to stay its hand
+  // through the whole press (claude-review P2 on this PR). The deferred
+  // close-and-yield runs on the press's own click, which also clears the
+  // flag; pointercancel covers a press that never becomes a click.
   const pressingRef = useRef(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -133,24 +137,24 @@ export function StatePicker({
 
   // While the list is open, the close lives outside pointer presses: a
   // click anywhere outside the picker closes it (and yields the typed
-  // query to the picked label, the same yield Escape performs) only after
-  // that click's own handlers have run — the press that aimed at a control
-  // below lands first, then the list closes. The pointerdown/pointerup
-  // pair tracks whether a press is in flight so the blur handler can stay
-  // its hand; a click inside the picker (the input, an option) never
-  // closes anything here.
+  // query to the last-reported pick's label, the same yield Escape
+  // performs) only after that click's own handlers have run — the press
+  // that aimed at a control below lands first, then the list closes. A
+  // click inside the picker (the input, an option) never closes anything
+  // here. The yield reads reportedRef, not the closure's `selected`: the
+  // click that ends a press can land before React has re-rendered the
+  // parent with the just-committed value, and a stale `selected` would
+  // blank the input while the chip already names the pick.
   useEffect(() => {
     if (!open) return;
     const onDocPointerDown = (): void => {
       pressingRef.current = true;
     };
-    const onDocPointerUp = (): void => {
-      pressingRef.current = false;
-    };
     const onDocPointerCancel = (): void => {
       pressingRef.current = false;
     };
     const onDocClick = (event: MouseEvent): void => {
+      pressingRef.current = false;
       if (
         rootRef.current &&
         event.target instanceof Node &&
@@ -160,19 +164,22 @@ export function StatePicker({
       }
       setOpen(false);
       setActiveIndex(null);
-      setQuery(selected?.label ?? "");
+      const reported = reportedRef.current;
+      setQuery(
+        reported === undefined
+          ? ""
+          : options.find((option) => option.value === reported)?.label ?? "",
+      );
     };
     document.addEventListener("pointerdown", onDocPointerDown);
-    document.addEventListener("pointerup", onDocPointerUp);
     document.addEventListener("pointercancel", onDocPointerCancel);
     document.addEventListener("click", onDocClick);
     return () => {
       document.removeEventListener("pointerdown", onDocPointerDown);
-      document.removeEventListener("pointerup", onDocPointerUp);
       document.removeEventListener("pointercancel", onDocPointerCancel);
       document.removeEventListener("click", onDocClick);
     };
-  }, [open, selected]);
+  }, [open, options]);
 
   const normalized = query.trim().toLowerCase();
   const matches = (option: PickerOption): boolean => matchesQuery(option, normalized);
