@@ -173,12 +173,25 @@ export function StatePicker({
       pressStartedInsideRef.current = false;
     };
     const onDocClick = (event: MouseEvent): void => {
+      // Read and drop the press record before deciding: a click with no
+      // pointerdown of its own (a synthesized label or assistive-tech
+      // click) must not be shadowed by a stale started-inside flag
+      // (claude-review P3 on e69120e).
+      const pressStartedInside = pressStartedInsideRef.current;
       pressingRef.current = false;
+      pressStartedInsideRef.current = false;
       // A press that began inside the picker (picking an option; a
       // text-selection drag in the input that releases outside) never
       // aims at a control below: such a click's target is the picker or
-      // a common ancestor, never a button, so it closes nothing.
-      if (pressStartedInsideRef.current || pressBeganInside(event)) {
+      // a common ancestor, never a button, so it closes nothing — but
+      // only while the input kept focus. A press on the chip or the gap
+      // BLURS the input (mousedown is only prevented on the listbox), and
+      // letting it skip the close would leave an open list on an unfocused
+      // combobox (claude-review P2 on e69120e).
+      const inputFocused =
+        document.activeElement instanceof HTMLInputElement &&
+        rootRef.current?.contains(document.activeElement);
+      if ((pressStartedInside || pressBeganInside(event)) && inputFocused) {
         return;
       }
       setOpen(false);

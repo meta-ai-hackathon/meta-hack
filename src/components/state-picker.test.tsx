@@ -415,7 +415,10 @@ describe("StatePicker (HACK-142)", () => {
 
     it("a click inside the picker never closes the list via the outside close", async () => {
       const { act } = await renderPicker();
-      await act(() => type("caro"));
+      await act(() => type("north carolina"));
+      // Typing means the input has focus (the state a person is in when
+      // they click back into their own text).
+      await act(() => input().focus());
       await act(() => {
         input().dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
@@ -505,15 +508,18 @@ describe("StatePicker (HACK-142)", () => {
     it("a text-selection drag that starts in the input and releases outside keeps the list open and the typed query (claude-review P3)", async () => {
       const { act } = await renderPicker();
       await act(() => type("north"));
-      // The drag starts inside the picker (on the input, selecting text).
+      // The drag starts inside the picker (on the focused input, selecting
+      // text) — in a real browser the input keeps focus through it.
       await act(() => {
+        input().focus();
         input().dispatchEvent(
           new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
         );
       });
       // The release happens outside the picker, so the click lands on a
-      // common ancestor above both — the picker must not treat it as an
-      // outside click and discard the typed query.
+      // common ancestor above both — with the input still focused, the
+      // picker must not treat it as an outside click and discard the
+      // typed query.
       await act(() => {
         document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
@@ -529,6 +535,35 @@ describe("StatePicker (HACK-142)", () => {
         outside.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
       expect(outsideClicks).toBe(1);
+      expect(input().getAttribute("aria-expanded")).toBe("false");
+      expect(input().value).toBe("");
+    });
+
+    it("a press on the Picked chip blurs the input and its click closes the list, leaving no open list on an unfocused combobox (claude-review P2 on e69120e)", async () => {
+      const { act } = await renderPicker();
+      await act(() => type("north"));
+      // The press starts inside the picker (the chip line, not the
+        // listbox, so nothing prevents the mousedown) and blurs the input.
+      await act(() => {
+        container
+          .querySelector("[data-state-picker-selected]")!
+          .dispatchEvent(
+            new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+          );
+      });
+      await act(() => {
+        input().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      // The press branch held the list open through the press…
+      expect(input().getAttribute("aria-expanded")).toBe("true");
+      // …but the input is blurred now, so the press's own click closes
+      // the list and yields the query: no open list on an unfocused
+      // combobox.
+      await act(() => {
+        container
+          .querySelector("[data-state-picker-selected]")!
+          .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
       expect(input().getAttribute("aria-expanded")).toBe("false");
       expect(input().value).toBe("");
     });
