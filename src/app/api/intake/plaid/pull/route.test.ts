@@ -9,14 +9,14 @@ vi.mock("../../../../../lib/intake/store", () => ({
         : null,
 }));
 const samplePayload = {
-  streams: [{ incomeCategory: "SALARY", isStripePayout: false, payFrequency: "BIWEEKLY", totalAmount: 6300, transactionCount: 3, startDate: "2026-08-01", endDate: "2026-10-31", historicalMonths: [] }],
+  streams: [{ incomeCategory: "PAYROLL-SENTINEL", isStripePayout: false, payFrequency: "BIWEEKLY", totalAmount: 6300, transactionCount: 3, startDate: "2026-08-01", endDate: "2026-10-31", historicalMonths: [] }],
   pulledAt: "2026-11-03T00:00:00.000Z", dateRange: { start: "2026-08-01", end: "2026-10-31" },
 };
 const pullBankIncome = vi.fn(async () => ({ payload: samplePayload, removed: true }));
 vi.mock("../../../../../lib/plaid/client", () => ({ PlaidClient: class { pullBankIncome = pullBankIncome; createLinkToken = async () => ({ linkToken: "link-sandbox-SENTINEL", userId: "user-sandbox-x" }); } }));
 import { POST as pull } from "./route";
 import { POST as linkToken } from "../link-token/route";
-import { generateEphemeralBrowserKey } from "../../../../../lib/plaid/envelope-client";
+import { decryptEnvelope, generateEphemeralBrowserKey } from "../../../../../lib/plaid/envelope-client";
 function request(url: string, body?: unknown, cookie = "good-cookie"): Request {
   return new Request(url, { method: "POST", headers: { "content-type": "application/json", cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
 }
@@ -45,7 +45,16 @@ describe("plaid broker routes", () => {
     expect(res.status).toBe(200);
     expect(text).not.toContain("PAYROLL-SENTINEL");
     expect(text).toContain("envelope");
-    expect((JSON.parse(text) as { removed: boolean }).removed).toBe(true);
+    const parsed = JSON.parse(text) as {
+      envelope: Parameters<typeof decryptEnvelope>[0];
+      removed: boolean;
+    };
+    expect(parsed.removed).toBe(true);
+    // The sentinel is really in the payload the broker fetched; only the
+    // ciphertext envelope may carry it out.
+    await expect(decryptEnvelope(parsed.envelope, key.privateKey)).resolves.toMatchObject({
+      streams: [{ incomeCategory: "PAYROLL-SENTINEL" }],
+    });
     expect(pullBankIncome).toHaveBeenCalledTimes(1);
     expect(pullBankIncome).toHaveBeenCalledWith("user-sandbox-x");
   });

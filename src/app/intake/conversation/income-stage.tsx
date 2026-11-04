@@ -1061,6 +1061,7 @@ function PlaidProposalRow(props: {
       <label htmlFor={inputId} className="text-sm font-medium">{label}</label>
       {options.length > 0 ? (
         <select id={inputId} value={value} onChange={(e) => onCorrect(e.target.value)} disabled={disabled} data-income-plaid-correct={proposal.questionId} aria-label={"Edit " + label} className="min-h-11 w-48 rounded-xl border border-surface-border bg-background px-3 py-2 text-base">
+          {options.some((option) => option.value === value) ? null : <option value={value} disabled>Choose a schedule…</option>}
           {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       ) : (

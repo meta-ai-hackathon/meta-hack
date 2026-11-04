@@ -30,10 +30,12 @@ import {
 // were deleted in between (the purge, in another tab) it writes nothing and
 // says so, so a delete is never undone by a slower tab.
 //
-// The purge deletes the key and the sealed answers together, including the
-// sealed Plaid institution-name map (HACK-140). Without the key no copy of
-// the ciphertext can ever be opened again, and the purge reports success
-// only when a read afterwards finds none of them.
+// The purge deletes the key and the sealed answers together. It also clears
+// the legacy plaid-origins key (HACK-140): no current build writes it, but
+// deleting it keeps a rolled-back build from leaving a stale pii map on the
+// device. Without the key no copy of the ciphertext can ever be opened
+// again, and the purge reports success only when a read afterwards finds
+// none of them.
 
 export const DEVICE_ANSWERS_ENVELOPE_KEY = "intake-answers";
 /** KV key for the sealed Rampart session table (HACK-107), sealed under the same device key. */

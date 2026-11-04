@@ -155,6 +155,7 @@ function parseResponse(readable: boolean): Response {
 
 let posts: { url: string; body: string }[] = [];
 let pullRemoved = true;
+let pullPayFrequency = "MONTHLY";
 let answerState: IntakeClientState | null = null;
 let confirmState: IntakeClientState | null = null;
 let uploadResponse: Response = parseResponse(true);
@@ -163,6 +164,7 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   posts = [];
   pullRemoved = true;
+  pullPayFrequency = "MONTHLY";
   answerState = null;
   confirmState = null;
   uploadResponse = parseResponse(true);
@@ -195,7 +197,7 @@ beforeEach(() => {
         // The UI must send the session-bound handle, never a raw Plaid user id.
         if (typeof body.pullHandle !== "string") return new Response("{}", { status: 400 });
         const payload = { pulledAt: "2026-11-03T00:00:00.000Z", dateRange: { start: "2026-08-01", end: "2026-10-31" }, streams: [
-          { incomeCategory: "SALARY", isStripePayout: false, payFrequency: "MONTHLY", totalAmount: 6300, transactionCount: 3, startDate: "2026-08-01", endDate: "2026-10-31", historicalMonths: [{ startDate: "2026-08-01", endDate: "2026-08-31", total: 2000 }, { startDate: "2026-09-01", endDate: "2026-09-30", total: 2200 }, { startDate: "2026-10-01", endDate: "2026-10-31", total: 2100 }] },
+          { incomeCategory: "SALARY", isStripePayout: false, payFrequency: pullPayFrequency, totalAmount: 6300, transactionCount: 3, startDate: "2026-08-01", endDate: "2026-10-31", historicalMonths: [{ startDate: "2026-08-01", endDate: "2026-08-31", total: 2000 }, { startDate: "2026-09-01", endDate: "2026-09-30", total: 2200 }, { startDate: "2026-10-01", endDate: "2026-10-31", total: 2100 }] },
         ] };
         return new Response(JSON.stringify({ envelope: encryptForBrowser(body.clientPublicKey, JSON.stringify(payload)), removed: pullRemoved }), { status: 200, headers: { "content-type": "application/json" } });
       }
@@ -531,6 +533,20 @@ describe("the Plaid Sandbox bank card (HACK-140)", () => {
     expect(JSON.parse(confirm?.body ?? "{}").confirmations).toEqual([
       { questionId: "job_income_amount", action: "correct", value: 1800 },
     ]);
+  });
+
+  it("shows an explicit placeholder when the bank schedule matches no spec option", async () => {
+    pullPayFrequency = "IRREGULAR";
+    const { container } = await pullTestBank();
+    const frequency = container.querySelector(
+      '[data-income-plaid-correct="job_income_frequency"]',
+    ) as HTMLSelectElement;
+    expect(frequency.value).toBe("varies");
+    expect(
+      Array.from(frequency.options).some(
+        (option) => option.value === "varies" && option.disabled,
+      ),
+    ).toBe(true);
   });
 
   it("says so when the test connection could not be removed", async () => {
