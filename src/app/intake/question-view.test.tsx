@@ -271,3 +271,36 @@ describe("QuestionView per-person work rows (HACK-128)", () => {
     expect(html).toContain("Add a row");
   });
 });
+
+describe("QuestionView state picker (HACK-142)", () => {
+  const state = QUESTIONS.find((q) => q.id === "state") as ClientQuestion;
+
+  it("renders the state question as a compact type-to-filter picker, not a radio page", () => {
+    const html = renderView(state);
+    expect(html).toContain('role="combobox"');
+    expect(html).not.toContain('type="radio"');
+  });
+
+  it("keeps every valid option available from the collapsed picker", () => {
+    const html = renderView(state);
+    const misses = (state.options ?? [])
+      .filter((option) => !html.includes(option.label))
+      .map((option) => option.value);
+    expect(misses).toEqual([]);
+  });
+
+  it("labels and describes the picker input for screen readers", () => {
+    const html = renderView(state).replace(/&#x27;/g, "'");
+    expect(html).toMatch(/<label[^>]*for="state-picker-input"/);
+    expect(html).toMatch(/aria-describedby="[^"]*state-help"/);
+    expect(html).toContain(state.prompt);
+    expect(html).toContain(state.help);
+  });
+
+  it("keeps the honest controls: not sure, best guess, and the required mark", () => {
+    const html = renderView(state).replace(/&#x27;/g, "'");
+    expect(html).toContain("I'm not sure");
+    expect(html).toContain("have not verified");
+    expect(html).toContain("(required)");
+  });
+});

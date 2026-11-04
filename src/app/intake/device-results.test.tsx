@@ -466,6 +466,19 @@ async function visit() {
       }
     } else if (typeof answer === "boolean") {
       await click(byId(`${id}-${answer}`));
+    } else if (question.querySelector('[role="combobox"]')) {
+      // The state picker (HACK-142): type the persona's code into the
+      // compact combobox, then click the matching option in the listbox.
+      const value = String(answer);
+      const picker = question.querySelector<HTMLInputElement>('[role="combobox"]')!;
+      await type(picker, value);
+      const option = container.querySelector<HTMLElement>(
+        `[data-state-picker-option="${value}"]:not([class*="hidden"])`,
+      );
+      if (!option) {
+        throw new Error(`no picker option for ${value}`);
+      }
+      await click(option);
     } else if (container.querySelector(`[id="intake-${id}"]`)) {
       await type(byId<HTMLInputElement>(`intake-${id}`), String(answer));
     } else {

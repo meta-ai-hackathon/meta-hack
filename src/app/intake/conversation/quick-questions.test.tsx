@@ -823,6 +823,109 @@ describe("the quick-questions stage component", () => {
       "Quick questions finished — 0 questions instead of 34, so you are eligible for benefits.";
     expect(findBannedClaims(seeded).length).toBeGreaterThan(0);
   });
+
+  it("renders the state card as a compact type-to-filter picker, not a radio page (HACK-142, VAL-PICK-001)", async () => {
+    // A trimmed option list keeps the interaction test light; the full
+    // 50-option universe is covered by the picker's own tests and the
+    // spec-driven render tests.
+    const stateQuestion = question({
+      id: "state",
+      prompt: "Which state do you live in?",
+      type: "single_select",
+      options: [
+        { value: "NC", label: "North Carolina" },
+        { value: "SC", label: "South Carolina" },
+        { value: "AL", label: "Alabama" },
+      ],
+    });
+    const { container } = await renderStage(stageState({
+      questions: [stateQuestion],
+      progress: { answered: 0, remaining: 1, total: 1 },
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: ["state"],
+        requiredCount: 1,
+        remainingIds: ["state"],
+        remainingCount: 1,
+        complete: false,
+      },
+    }));
+    const card = q(container, 'qq-card="state"');
+    expect(card).not.toBeNull();
+    expect(card?.querySelector('[role="combobox"]')).not.toBeNull();
+    expect(card?.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+    // Every valid option stays available from the collapsed picker.
+    expect(card?.querySelectorAll('[role="option"]')).toHaveLength(3);
+    // The prompt is still the accessible label for the input.
+    expect(card?.querySelector('label[for="qq-state-picker-input"]')).not.toBeNull();
+  });
+
+  it("saves the typed-and-picked state through the existing tri-state route (VAL-PICK-001)", async () => {
+    posts = [];
+    const stateQuestion = question({
+      id: "state",
+      prompt: "Which state do you live in?",
+      type: "single_select",
+      options: [
+        { value: "NC", label: "North Carolina" },
+        { value: "SC", label: "South Carolina" },
+        { value: "AL", label: "Alabama" },
+      ],
+    });
+    const { container, act } = await renderStage(stageState({
+      questions: [stateQuestion],
+      progress: { answered: 0, remaining: 1, total: 1 },
+      quickQuestions: {
+        programs: ["nc_medicaid"],
+        requiredIds: ["state"],
+        requiredCount: 1,
+        remainingIds: ["state"],
+        remainingCount: 1,
+        complete: false,
+      },
+    }));
+    const card = q(container, 'qq-card="state"')!;
+    const input = card.querySelector('[role="combobox"]') as HTMLInputElement;
+    // One flush per keystroke (each keydown must see the previous one's
+    // re-render, as real keystrokes do).
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "caro");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    // Picked: the card's selection chip names the state.
+    expect(card.querySelector("[data-state-picker-selected]")?.textContent).toContain(
+      "North Carolina",
+    );
+    await act(async () => {
+      q(container, 'qq-save="state"')?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(posts).toHaveLength(1);
+    const body = JSON.parse(posts[0]!.body) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      questionId: "state",
+      status: "known",
+      value: "NC",
+    });
+    // Provenance stays a server-side decision (user_supplied); the card
+    // never sends one — no new storage path.
+    expect(body.provenance).toBeUndefined();
+  });
 });
 
 describe("the quick-questions stage properties (fast-check)", () => {
