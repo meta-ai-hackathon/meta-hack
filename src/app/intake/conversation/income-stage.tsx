@@ -10,11 +10,24 @@ import {
   proposalsFromMonthlyDerived,
   type TaxProposal,
 } from "../../../lib/income/tax-proposal";
+import {
+  decryptEnvelope,
+  generateEphemeralBrowserKey,
+} from "../../../lib/plaid/envelope-client";
+import type { BrokerEnvelope } from "../../../lib/plaid/envelope-shared";
+import type { MinimizedPlaidPayload } from "../../../lib/plaid/client";
+import {
+  plaidIncomeProposals,
+  type PlaidIncomeProposal,
+  type PlaidProposalResult,
+} from "../../../lib/income/plaid-proposal";
+import { plaidDemoEnabledInBrowser } from "../../../lib/plaid/demo-visibility";
 import { toggleNoneExclusive } from "./quick-questions";
+import { rosterFromAnswers } from "../../../lib/intake/roster";
 
 // The income stage (demo-core sprint, milestone income-capture, part 3):
 // the journey's fourth stage, between the talk stage's completion and the
-// results stage (VAL-INC-001). EXACTLY two real source cards (VAL-INC-002):
+// results stage (VAL-INC-001). Three real source cards (VAL-INC-002 as extended by HACK-140):
 //
 // 1. "Type it in yourself" — the manual card renders the income spec
 //    questions (the ones the flow engine's skip logic leaves visible),
@@ -28,8 +41,11 @@ import { toggleNoneExclusive } from "./quick-questions";
 //    until the person confirms or corrects each proposal
 //    (/api/intake/tax-return/confirm). Re-uploading replaces the findings.
 //
-// No bank or payment-puller cards, no promises of future integrations —
-// only paths that really work. The stage is always completable: the manual
+// 3. "Connect your bank (demo)" — the HACK-140 Plaid Sandbox blind
+//    broker: distinct Plaid consent first, ephemeral browser key, one
+//    encrypted fetch, deterministic proposals, confirm-or-correct before
+//    anything saves. Sandbox synthetic data only; declining changes
+//    nothing and the manual/file paths remain. The stage is always completable: the manual
 // card is always available, and an unreadable upload saves nothing and
 // points back to typing (VAL-INC-012).
 //
@@ -251,8 +267,15 @@ export function IncomeStage(props: {
   state: IntakeClientState;
   onStateChange: (state: IntakeClientState) => void;
   onNotice: (message: string) => void;
+  /** Server-computed: both public demo flags AND PLAID_ENV=sandbox. */
+  plaidDemoAvailable?: boolean;
 }): JSX.Element {
-  const { state, onStateChange, onNotice } = props;
+  const {
+    state,
+    onStateChange,
+    onNotice,
+    plaidDemoAvailable = plaidDemoEnabledInBrowser(),
+  } = props;
   const questions = incomeQuestionsOf(state);
 
   // The manual card's drafts, initialized once from the state the stage
@@ -280,8 +303,44 @@ export function IncomeStage(props: {
   const [fileName, setFileName] = useState("");
   // Per-proposal decision: confirm (as parsed) or correct (typed value).
   const [corrections, setCorrections] = useState<Record<string, string>>({});
+  // Bank card (HACK-140): distinct consent, ephemeral key, decrypted result.
+  const [plaidConsent, setPlaidConsent] = useState(false);
+  const [plaidConnecting, setPlaidConnecting] = useState(false);
+  const [plaidStatus, setPlaidStatus] = useState("");
+  const [plaidResult, setPlaidResult] = useState<PlaidProposalResult | null>(null);
+  const [plaidPayload, setPlaidPayload] = useState<MinimizedPlaidPayload | null>(null);
+  const [plaidClassifications, setPlaidClassifications] = useState<Record<string, string>>({});
+  const [plaidMemberName, setPlaidMemberName] = useState("");
+  const [plaidSavedMembers, setPlaidSavedMembers] = useState<readonly { readonly name: string; readonly detail: string }[]>([]);
+  const [plaidCorrections, setPlaidCorrections] = useState<Record<string, string>>({});
+  // The institution name is pii:true and never reaches the server: Link
+  // metadata fills the in-page name, which lives only in this component's
+  // memory.
+  const [plaidInstitutionName, setPlaidInstitutionName] = useState("");
 
   const proposals = proposalsFromMonthlyDerived(upload?.monthlyDerived ?? null);
+  // A bank proposal can target a question the flow's skip logic hid (for
+  // example job_income_amount after the person said they have no job). Never
+  // render or send those: the visible list is the only one the card owns
+  // (review P2, PR #172).
+  const plaidProposals =
+    plaidResult === null
+      ? []
+      : plaidResult.proposals.filter((proposal) =>
+          questions.some((question) => question.id === proposal.questionId),
+        );
+  const plaidHasInvalidAmount =
+    plaidProposals.some((proposal) => {
+      const question = questions.find((c) => c.id === proposal.questionId);
+      const entered = plaidCorrections[proposal.questionId];
+      return (
+        question?.type === "number" &&
+        entered !== undefined &&
+        entered !== "" &&
+        entered !== String(proposal.value) &&
+        parseAmountInput(entered) === null
+      );
+    }) ?? false;
 
   async function applyAnswerPost(questionId: string): Promise<boolean> {
     const response = await fetch("/api/intake/answer", {
@@ -463,6 +522,172 @@ export function IncomeStage(props: {
     }
   }
 
+  async function connectBank(): Promise<void> {
+    if (!plaidConsent || plaidConnecting) return;
+    setPlaidConnecting(true);
+    setPlaidStatus("Opening the Plaid Sandbox test bank…");
+    // /user/create makes a Plaid user before Link opens. The pull route
+    // deletes it after its one fetch, but a Link exit, a failed pull, or a
+    // script/Plaid.create failure never fetches — so every failure path
+    // calls the idempotent remove route with this handle (review P3).
+    let pullHandle: string | null = null;
+    const releaseTestUser = async (): Promise<boolean> => {
+      const handle = pullHandle;
+      if (handle === null) return true;
+      pullHandle = null;
+      try {
+        const response = await fetch("/api/intake/plaid/remove", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pullHandle: handle }),
+        });
+        return response.ok;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      const ephemeral = await generateEphemeralBrowserKey();
+      const tokenResponse = await fetch("/api/intake/plaid/link-token", { method: "POST" });
+      if (!tokenResponse.ok) throw new Error("link-token");
+      const { linkToken, pullHandle: mintedHandle } = (await tokenResponse.json()) as { linkToken: string; pullHandle: string };
+      pullHandle = mintedHandle;
+      await loadPlaidLinkScript();
+      if (!window.Plaid) throw new Error("plaid-missing");
+      const handler = window.Plaid.create({
+        token: linkToken,
+        onSuccess: async (_publicToken, metadata) => {
+          const institutionName = metadata?.institution?.name?.trim() ?? "";
+          setPlaidInstitutionName(institutionName);
+          try {
+            setPlaidStatus("Fetching your test bank income (Plaid Bank Income)…");
+            const pullResponse = await fetch("/api/intake/plaid/pull", {
+              method: "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ pullHandle: mintedHandle, clientPublicKey: ephemeral.publicKeySpki }),
+            });
+            if (!pullResponse.ok) throw new Error("pull");
+            const { envelope, removed } = (await pullResponse.json()) as { envelope: BrokerEnvelope; removed?: boolean };
+            const payload = (await decryptEnvelope(envelope, ephemeral.privateKey)) as MinimizedPlaidPayload;
+            pullHandle = null; // the pull route attempted removal and reported it
+            setPlaidPayload(payload); setPlaidClassifications({}); setPlaidCorrections({});
+
+            const result = plaidIncomeProposals(payload, {});
+            applyPlaidResult(result);
+            const removalHedge = removed === false ? " We could not confirm the test connection was removed." : "";
+            const visibleProposalCount = result.proposals.filter((proposal) =>
+              questions.some((question) => question.id === proposal.questionId),
+            ).length;
+            const hiddenOnly = result.proposals.length > 0 && visibleProposalCount === 0;
+            setPlaidStatus(visibleProposalCount > 0
+              ? "Check what we found, then save." + removalHedge
+              : hiddenOnly
+                ? "The test bank only proposed income details your answers skip, so nothing is proposed. You can type your income instead." + removalHedge
+                : "We could not find a reliable monthly pattern in that test bank, so nothing is proposed. You can type your income instead." + removalHedge);
+          } catch { void releaseTestUser(); setPlaidStatus(READ_FAILED_NOTICE); }
+          finally { setPlaidConnecting(false); }
+        },
+        onExit: () => { void releaseTestUser().then((removed) => { setPlaidConnecting(false); setPlaidStatus(removed ? "Bank connection closed — the test connection was removed and nothing was saved. You can type your income instead." : "Bank connection closed — nothing was saved, but we could not confirm the test connection was removed. You can type your income instead."); }); },
+      });
+      handler.open();
+    } catch {
+      const removed = await releaseTestUser();
+      setPlaidConnecting(false);
+      setPlaidStatus(removed ? READ_FAILED_NOTICE : "We could not confirm the test connection was removed. Nothing was saved; you can type your income instead.");
+    }
+  }
+
+  function applyPlaidResult(result: PlaidProposalResult): void {
+    // No prefill: an undefined correction means "untouched, showing the
+    // test-bank proposal", so a cleared field can stay empty instead of
+    // snapping back to the synthetic value (review P2, PR #172).
+    setPlaidResult(result);
+  }
+  function answerPlaidClassification(category: string, answer: string): void {
+    if (!plaidPayload) return;
+    const next = { ...plaidClassifications, [category]: answer };
+    setPlaidClassifications(next);
+    applyPlaidResult(plaidIncomeProposals(plaidPayload, next));
+  }
+
+  function originBadge(
+    answer: { status: string; provenance?: string } | undefined,
+  ): { readonly kind: string; readonly label: string } | null {
+    if (answer?.provenance === "tax_return") {
+      return { kind: "tax_return", label: "From your tax return" };
+    }
+    if (answer?.provenance === "user") {
+      return { kind: "user", label: "You confirmed this" };
+    }
+    return null;
+  }
+
+  async function savePlaidFindings(): Promise<void> {
+    if (saveInFlight.current || plaidResult === null || plaidProposals.length === 0 || plaidMemberName.trim() === "" || plaidHasInvalidAmount) { onNotice(NOTHING_DECIDED_NOTICE); return; }
+    const decided: {
+      questionId: string;
+      action: "correct";
+      value: number | string;
+    }[] = [];
+    for (const proposal of plaidProposals) {
+      // An untouched field is never sent to the server: it came from Sandbox
+      // income verification and stays on the device. Only a real edit is a
+      // correction (known/user). Selects compare by option value; amounts are
+      // sanitized so "1,800" is a number, not NaN.
+      const entered = plaidCorrections[proposal.questionId];
+      const corrected =
+        entered !== undefined && entered !== "" && entered !== String(proposal.value)
+          ? entered
+          : "";
+      if (corrected === "") continue;
+      const question = questions.find((c) => c.id === proposal.questionId);
+      if (question?.type === "number") {
+        const amount = parseAmountInput(corrected);
+        if (amount === null) {
+          onNotice("Enter a number for " + proposal.questionId.replaceAll("_", " ") + ".");
+          return;
+        }
+        if (amount === proposal.value) continue; // same number, not an edit
+        decided.push({ questionId: proposal.questionId, action: "correct", value: amount });
+      } else {
+        decided.push({ questionId: proposal.questionId, action: "correct", value: corrected });
+      }
+    }
+    if (decided.length === 0) {
+      onNotice("Nothing was saved: untouched test-bank figures stay on the test bank. Edit a figure or schedule to your own to save it, or type your income instead. Nothing was submitted.");
+      return;
+    }
+    saveInFlight.current = true; setSaving(true);
+    try {
+      const response = await fetch("/api/intake/plaid/confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirmations: decided }) });
+      if (!response.ok) { onNotice(SAVE_FAILED_NOTICE); return; }
+      const fresh = (await response.json()) as {
+        state: IntakeClientState;
+        saved?: { questionId: string }[];
+      };
+      onStateChange(fresh.state);
+      const savedIds = new Set((fresh.saved ?? []).map((row) => row.questionId));
+      const savedEdits = decided.filter((entry) => savedIds.has(entry.questionId));
+      if (savedEdits.length === 0) {
+        onNotice("Nothing was saved: untouched test-bank figures stay on the test bank. Edit a figure or schedule to your own to save it, or type your income instead. Nothing was submitted.");
+        return;
+      }
+      const name = plaidMemberName.trim();
+      // HACK-143: a second bank pull is disabled after the first save, so
+      // `prev` is always undefined here today. Keep the replaced-member notice
+      // for per-member persistence; remove it if that behavior changes.
+      const prev = plaidSavedMembers[plaidSavedMembers.length - 1];
+      setPlaidSavedMembers((list) => [...list, { name, detail: savedEdits.map((d) => d.questionId + ": " + String(d.value)).join("; ") }]);
+      // Notices can be spoken and are not the place for a typed household
+      // member's name (review P2, PR #172). The saved-members list below is
+      // page-local display state; the notice stays name-free.
+      const keptNote = "Saved the figures and schedules you typed or chose. Untouched test-bank answers were not saved.";
+      const replacedNote = prev && prev.name !== name ? " This replaced the previous person's bank answers in the household income questions." : "";
+      onNotice(keptNote + replacedNote + " Nothing was submitted.");
+    } catch { onNotice(SAVE_FAILED_NOTICE); }
+    finally { saveInFlight.current = false; setSaving(false); }
+  }
+
+
   return (
     <section
       data-income-stage
@@ -511,6 +736,7 @@ export function IncomeStage(props: {
         <ul className="flex flex-col gap-4">
           {questions.map((question) => {
             const draft = drafts[question.id] ?? { kind: "not-sure" as const };
+            const badge = originBadge(state.answers[question.id]);
             return (
               <li
                 key={question.id}
@@ -551,14 +777,12 @@ export function IncomeStage(props: {
                       I&apos;m not sure
                     </button>
                   ) : null}
-                  {state.answers[question.id]?.provenance ? (
+                  {badge ? (
                     <span
-                      data-origin-badge={state.answers[question.id]?.provenance}
+                      data-origin-badge={badge.kind}
                       className="rounded-full border border-teal/40 bg-teal-soft px-2.5 py-0.5 text-xs font-medium text-teal"
                     >
-                      {state.answers[question.id]?.provenance === "tax_return"
-                        ? "From your tax return"
-                        : "You corrected this"}
+                      {badge.label}
                     </span>
                   ) : null}
                 </div>
@@ -714,7 +938,174 @@ export function IncomeStage(props: {
           </p>
         ) : null}
       </section>
+
+      {/* Card 3 — consented Plaid Sandbox bank pull (HACK-140 blind broker).
+      Off by default: the explicit demo switch hides the whole card, and the
+      server also requires PLAID_ENV=sandbox before it passes
+      `plaidDemoAvailable`, so a non-Sandbox deployment never offers the demo
+      (review P2, PR #172). */}
+      {plaidDemoAvailable ? (
+      <section data-income-plaid-card aria-labelledby="income-plaid-heading" className="flex flex-col gap-4 rounded-2xl border border-surface-border bg-surface p-4">
+        <div className="flex flex-col gap-1">
+          <h3 id="income-plaid-heading" className="text-lg font-semibold">Connect your bank (demo)</h3>
+          <p className="text-sm text-muted">Optional Plaid Sandbox demo with a synthetic test bank — not a real bank login, and never enter real bank credentials here: the test-bank figures are fake and must not be used for a real application. We fetch a Plaid Bank Income report once and show you what we find. Only a figure or schedule you type or choose yourself is saved; untouched test-bank answers are never saved and do not count as confirmed, so edit one to your own to save it. The one fetch passes through our server without being stored or logged, and we remove the test connection right after — if that fails, we say so. Saying no changes nothing: you can upload a file or type your income instead.</p>
+        </div>
+        <label htmlFor="income-plaid-consent" className="flex min-h-11 items-start gap-2 text-base">
+          <input id="income-plaid-consent" type="checkbox" checked={plaidConsent} onChange={(e) => setPlaidConsent(e.target.checked)} data-income-plaid-consent className="mt-1 h-5 w-5 shrink-0 accent-teal" />
+          <span>I agree to connect a Plaid Sandbox test bank and fetch its Bank Income report once to propose income answers.</span>
+        </label>
+        <button type="button" data-income-plaid-connect onClick={() => void connectBank()} disabled={!plaidConsent || plaidConnecting || plaidSavedMembers.length > 0} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{plaidConnecting ? "Connecting…" : "Connect test bank"}</button>
+        <p data-income-plaid-status aria-live="polite" className={plaidStatus === "" ? "hidden" : "rounded-xl border border-teal/25 bg-teal-soft p-3 text-sm text-muted"}>{plaidStatus}</p>
+        {plaidResult !== null ? (
+          <div className="flex flex-col gap-2" data-income-plaid-proposals>
+            <h4 className="text-base font-semibold">{plaidInstitutionName ? `From ${plaidInstitutionName}` : "From your test bank"} — edit any figure to your own to save it</h4>
+            <p className="text-sm text-muted" data-income-plaid-basis>Based on {plaidResult.basis.depositCount} deposits from {plaidResult.basis.dateRange.start} to {plaidResult.basis.dateRange.end} ({plaidResult.basis.months.map((m) => `${m.month}: ${m.total.toLocaleString("en-US")}`).join("; ")}). Plaid Bank Income classified these into {plaidResult.basis.streamCount} income stream(s); see each one below.</p>
+            {plaidResult.basis.stripePayoutDepositCount > 0 ? <p className="text-sm text-muted" data-income-plaid-stripe-warning>Some deposits look like Stripe payouts. If you also add Stripe, do not count the same money twice.</p> : null}
+            {plaidResult.basis.streams.map((s) => <p key={s.category} className="text-sm text-muted" data-income-plaid-stream={s.category}>{s.category.replaceAll("_", " ")}: {s.count} deposit(s), {s.total.toLocaleString("en-US")} total -- {s.disposition.replaceAll("_", " ")}. {s.reason}</p>)}
+            {plaidResult.basis.seasonalNote ? <p className="text-sm text-muted" data-income-plaid-seasonal>{plaidResult.basis.seasonalNote}</p> : null}
+            {plaidResult.classificationQuestions.map((q) => <div key={q.category} className="flex flex-col gap-1" data-income-plaid-question={q.category}><label htmlFor={"income-plaid-classify-" + q.category} className="text-sm font-medium">{q.prompt}</label><select id={"income-plaid-classify-" + q.category} data-income-plaid-classify={q.category} className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" value={plaidClassifications[q.category] ?? ""} onChange={(e) => answerPlaidClassification(q.category, e.target.value)}><option value="" disabled>Choose one…</option>{q.choices.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>)}
+            <div className="flex flex-col gap-1" data-income-plaid-member>
+
+              <label htmlFor="income-plaid-member-name" className="text-sm font-medium">Whose income is this?</label>
+              {rosterFromAnswers(state.answers, { includeUnverified: true }).length > 0 ? <select aria-label="Pick the household member" data-income-plaid-member-pick className="min-h-11 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" defaultValue="" onChange={(e) => { const m = rosterFromAnswers(state.answers, { includeUnverified: true }).find((x) => x.id === e.target.value); if (m) setPlaidMemberName(m.displayName); }}><option value="" disabled>Pick the person…</option>{rosterFromAnswers(state.answers, { includeUnverified: true }).map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select> : null}
+              <input id="income-plaid-member-name" type="text" value={plaidMemberName} onChange={(e) => setPlaidMemberName(e.target.value)} placeholder="First name or nickname" data-income-plaid-member-name className="min-h-11 w-64 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" />
+            </div>
+            {plaidProposals.length === 0 ? <p className="text-sm text-muted" data-income-plaid-no-proposals>Nothing here could be turned into a Medicaid number on its own -- see above for what we would need instead. You can also type your income below.</p> : null}
+            <ul className="flex flex-col gap-2">
+              {plaidProposals.map((proposal) => (
+                <PlaidProposalRow
+                  key={proposal.questionId}
+                  proposal={proposal}
+                  question={questions.find((candidate) => candidate.id === proposal.questionId)}
+                  correction={plaidCorrections[proposal.questionId]}
+                  onCorrect={(value) => setPlaidCorrections((prev) => ({ ...prev, [proposal.questionId]: value }))}
+                  disabled={saving}
+                  institutionLabel={plaidInstitutionName ? `From ${plaidInstitutionName}` : "From your test bank"}
+                />
+              ))}
+            </ul>
+            {plaidProposals.length > 0 ? <button type="button" data-income-plaid-save onClick={() => void savePlaidFindings()} disabled={saving || plaidMemberName.trim() === "" || plaidHasInvalidAmount} className="min-h-12 self-start rounded-full bg-teal-deep px-6 py-2.5 text-base font-semibold text-teal-contrast hover:bg-teal disabled:opacity-50">{saving ? "Saving…" : "Save my own figures"}</button> : null}
+          </div>
+        ) : null}
+        {plaidSavedMembers.length > 0 ? <div className="flex flex-col gap-2" data-income-plaid-saved-list>{plaidSavedMembers.map((s, i) => <p key={i} className="text-sm text-muted">Saved for {s.name} — {s.detail}</p>)}<p className="text-sm text-muted" data-income-plaid-one-member>One bank connection is supported for now. Connecting a bank for a second person would replace these household answers, so it is not offered (HACK-143).</p></div> : null}
+      </section>
+      ) : null}
     </section>
+  );
+}
+
+interface PlaidHandler { open: () => void; }
+interface PlaidLinkMetadata {
+  readonly institution?: { readonly name?: string };
+}
+interface PlaidCreateConfig {
+  token: string;
+  onSuccess: (publicToken: string, metadata?: PlaidLinkMetadata) => void | Promise<void>;
+  onExit?: () => void;
+}
+declare global {
+  interface Window {
+    Plaid?: { create: (config: PlaidCreateConfig) => PlaidHandler };
+  }
+}
+
+/**
+ * Load Plaid Link's CDN script once. Resolves immediately when already
+ * loaded (tests stub window.Plaid).
+ *
+ * The URL is Plaid's stable channel because Plaid's Link Web SDK is
+ * deliberately NOT versioned: its docs require loading the script directly
+ * from cdn.plaid.com, which serves the latest SDK, so there is no version
+ * to pin and no SRI hash to publish. Owner sign-off for the unversioned
+ * script is recorded on HACK-140 (2026-11-04, review P2 on PR #172). The
+ * sign-off covers the missing version pin and SRI hash. The owner also
+ * accepted the script's same-origin access to this page's on-device answer
+ * store for the Sandbox demo (2026-11-04), with the intake CSP as the
+ * compensating control: scripts, frames, and connections are limited to self
+ * plus Plaid's hosts (src/lib/security/csp.ts). CSP cannot stop an allowed
+ * same-origin script from reading storage, so origin isolation is still
+ * required before any real-applicant deployment. The script is fetched only
+ * after the distinct Plaid consent is checked.
+ */
+let plaidLinkLoad: Promise<void> | null = null;
+
+export function loadPlaidLinkScript(): Promise<void> {
+  if (typeof window !== "undefined" && window.Plaid) return Promise.resolve();
+  if (plaidLinkLoad !== null) return plaidLinkLoad;
+  const pending = new Promise<void>((resolve, reject) => {
+    const done = () => {
+      plaidLinkLoad = null;
+      resolve();
+    };
+    // Remove a dead element before rejecting: leaving it in the DOM makes a
+    // retry attach listeners to a script whose load/error event already
+    // fired, so the promise never settles and the button stays on
+    // "Connecting…" forever (review P3 on PR #172).
+    const failed = (element: HTMLScriptElement) => {
+      element.remove();
+      plaidLinkLoad = null;
+      reject(new Error("plaid"));
+    };
+    const existing = document.querySelector<HTMLScriptElement>('script[data-plaid-link]');
+    if (existing) {
+      existing.addEventListener("load", done);
+      existing.addEventListener("error", () => failed(existing));
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
+    script.async = true; script.dataset.plaidLink = "true";
+    script.onload = done;
+    script.onerror = () => failed(script);
+    document.head.appendChild(script);
+  });
+  plaidLinkLoad = pending;
+  return pending;
+}
+
+/** A typed amount as a finite number, or null; "$1,800" is 1800. */
+export function parseAmountInput(raw: string): number | null {
+  const cleaned = raw.replaceAll("$", "").replaceAll(",", "").trim();
+  if (cleaned === "") return null;
+  const value = Number(cleaned);
+  return Number.isFinite(value) ? value : null;
+}
+
+/** One confirm-or-correct row for a bank proposal (amount or schedule). */
+function PlaidProposalRow(props: {
+  proposal: PlaidIncomeProposal;
+  question: ClientQuestion | undefined;
+  correction: string | undefined;
+  onCorrect: (value: string) => void;
+  disabled: boolean;
+  institutionLabel: string;
+}): JSX.Element {
+  const { proposal, question, correction, onCorrect, disabled, institutionLabel } = props;
+  const inputId = `income-plaid-correct-${proposal.questionId}`;
+  const label = proposal.questionId.replaceAll("_", " ");
+  const options = question?.type === "single_select" ? question.options ?? [] : [];
+  const value = correction ?? String(proposal.value);
+  const numericInvalid =
+    question?.type === "number" &&
+    correction !== undefined &&
+    correction !== "" &&
+    correction !== String(proposal.value) &&
+    parseAmountInput(correction) === null;
+  return (
+    <li data-income-plaid-proposal={proposal.questionId} className="flex flex-wrap items-center gap-2 rounded-xl border border-surface-border bg-background px-3 py-2">
+      <label htmlFor={inputId} className="text-sm font-medium">{label}</label>
+      {options.length > 0 ? (
+        <select id={inputId} value={value} onChange={(e) => onCorrect(e.target.value)} disabled={disabled} data-income-plaid-correct={proposal.questionId} aria-label={"Edit " + label} className="min-h-11 w-48 rounded-xl border border-surface-border bg-background px-3 py-2 text-base">
+          {options.some((option) => option.value === value) ? null : <option value={value} disabled>Choose a schedule…</option>}
+          {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      ) : (
+        <input id={inputId} type="text" inputMode="decimal" value={value} onChange={(e) => onCorrect(e.target.value)} disabled={disabled} data-income-plaid-correct={proposal.questionId} aria-label={"Edit " + label} aria-invalid={numericInvalid || undefined} aria-describedby={numericInvalid ? `${inputId}-error` : undefined} className="min-h-11 w-36 rounded-xl border border-surface-border bg-background px-3 py-2 text-base" />
+      )}
+      {numericInvalid ? <p id={`${inputId}-error`} data-income-plaid-error={proposal.questionId} className="w-full text-sm text-muted">Enter a number, for example 1800.</p> : null}
+      <span className="w-full text-sm text-muted">{proposal.caveat}</span>
+      <span data-origin-badge="plaid_institution" className="rounded-full border border-teal/40 bg-teal-soft px-2.5 py-0.5 text-xs font-medium text-teal">{institutionLabel}</span>
+    </li>
   );
 }
 

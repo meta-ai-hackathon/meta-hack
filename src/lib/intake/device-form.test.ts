@@ -179,7 +179,11 @@ function pairedProvenance(
   if (provenance === "ai_drafted" && status !== "unverified") {
     return "user_supplied";
   }
-  if ((provenance === "tax_return" || provenance === "user") && status !== "known") {
+  if (
+    (provenance === "tax_return" ||
+      provenance === "user") &&
+    status !== "known"
+  ) {
     return "user_supplied";
   }
   return provenance;

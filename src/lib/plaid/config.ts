@@ -1,0 +1,85 @@
+// Plaid server configuration (HACK-140). Reads the Sandbox credentials
+// from the server environment ONLY. The secret is never exposed to the
+// browser: no NEXT_PUBLIC_ variable is read here for credentials, and no
+// value is logged.
+//
+// Three gates, all off by default:
+// - The explicit demo switch (NEXT_PUBLIC_PLAID_DEMO_ENABLED === "true").
+// - The deployment marker (NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT === "synthetic"):
+//   the card and every route require it too, so a deployment marked for real
+//   applicants (or left unmarked) cannot turn the demo on with the public
+//   switch alone (review P2, PR #172). Both values are public by design --
+//   the browser reads them to hide the card -- and carry no credential.
+//   With both on, every /api/intake/plaid/* route still answers 404 and the
+//   card stays hidden until an operator deliberately opts this deployment in.
+// - The demo is Sandbox-only by decision (HACK-65/HACK-140), so this module
+//   FAILS CLOSED unless PLAID_ENV is exactly "sandbox" -- a production or
+//   development credential dropped into the environment by mistake cannot
+//   turn this demo into a live bank pull. Any non-Sandbox path first needs an
+//   owner decision under HACK-92, a matching person-authored rules.md change,
+//   AND a client-side design with no server relay; the relay design is not
+//   approved for real bank data (HACK-140 production note 7471d535).
+export interface PlaidConfig {
+  readonly clientId: string;
+  readonly secret: string;
+  readonly env: "sandbox";
+  readonly baseUrl: "https://sandbox.plaid.com";
+}
+
+/**
+ * The demo gate: on only for the exact strings "true" and "synthetic". The
+ * deployment marker is a second, independent switch, so an applicant
+ * deployment that accidentally inherits the public flag stays closed.
+ */
+export function plaidDemoEnabled(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return (
+    env.NEXT_PUBLIC_PLAID_DEMO_ENABLED === "true" &&
+    env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT === "synthetic"
+  );
+}
+
+/**
+ * Whether this SERVER environment may offer the demo card at all. The page
+ * computes this and passes it to the client, because PLAID_ENV is server-only
+ * and the browser cannot be trusted to decide. A deployment with the two
+ * public flags but a non-Sandbox (or missing) PLAID_ENV never mounts the card
+ * (review P2, PR #172). Credentials and the handle secret are included so
+ * the card is not offered when every click would fail closed.
+ */
+export function plaidDemoAvailable(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return (
+    plaidDemoEnabled(env) &&
+    env.PLAID_ENV === "sandbox" &&
+    Boolean(env.PLAID_CLIENT_ID?.trim()) &&
+    Boolean(env.PLAID_SECRET?.trim()) &&
+    (env.PLAID_HANDLE_SECRET?.trim().length ?? 0) >= 32
+  );
+}
+
+/**
+ * The one answer every Plaid route gives while the demo switch is off:
+ * a plain 404 that reveals nothing -- not whether a session exists, not
+ * whether credentials are configured, and not which gate closed.
+ */
+export function plaidDemoDisabledResponse(): Response {
+  return Response.json(
+    { error: { code: "not_found", message: "Not found." } },
+    { status: 404, headers: { "cache-control": "no-store" } },
+  );
+}
+
+export function plaidConfig(env: Readonly<Record<string, string | undefined>> = process.env): PlaidConfig {
+  if (!plaidDemoEnabled(env) || env.PLAID_ENV !== "sandbox") {
+    throw new Error("Plaid is not available right now.");
+  }
+  const clientId = env.PLAID_CLIENT_ID?.trim();
+  const secret = env.PLAID_SECRET?.trim();
+  if (!clientId || !secret) {
+    throw new Error("Plaid is not available right now.");
+  }
+  return { clientId, secret, env: "sandbox", baseUrl: "https://sandbox.plaid.com" };
+}

@@ -498,12 +498,14 @@ export function PurgeSection({ onPurged }: { onPurged: () => void }) {
     // unknown outcome touches nothing, so the answers stay intact and
     // resumable — exactly what those notices claim.
     const erasesDeviceStores = outcome === "purged" || outcome === "no_session";
-    // removeStoredAnswers returns true only when the slot verifiably
-    // reads back empty; its signal decides whether the completion may
-    // claim the device copies are gone (droid-review carried from
-    // PR #66 — the purged path no longer ignores it).
-    const deviceCleared = erasesDeviceStores ? removeStoredAnswers() : false;
+    // The device's own copy is the localStorage answer slot (HACK-94).
+    // removeStoredAnswers returns true only when its slot verifiably reads
+    // back empty, and the completion may claim the device copies are gone
+    // only when it does (droid-review carried from PR #66 — the purged path
+    // no longer ignores it).
+    let deviceCleared = false;
     if (erasesDeviceStores) {
+      deviceCleared = removeStoredAnswers();
       // onPurged re-reads the truth — a purged or session-less history
       // shows the empty state.
       onPurged();

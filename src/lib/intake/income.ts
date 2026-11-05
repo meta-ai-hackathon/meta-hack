@@ -19,8 +19,10 @@ import type { Question } from "./spec";
 // - HANDLED = every visible income question has a stored answer (any
 //   tri-state status — an "I'm not sure" is an answer everywhere else in
 //   this app) AND at least one visible income answer carries an
-//   income-stage provenance (`user` from the manual card or a correction,
-//   `tax_return` from a confirmed parser proposal).
+//   income-stage provenance (`user` from the manual card or a person-edited
+//   bank value, or `tax_return` from a confirmed parser proposal; every
+//   UNTOUCHED bank proposal — amount or frequency — is never saved and does
+//   not satisfy this clause).
 //
 // Why the second clause: the quick-questions and talk stages save income
 // answers with the default `user_supplied` provenance. Without the clause,
@@ -45,7 +47,10 @@ export const INCOME_STAGE_QUESTION_IDS = [
 ] as const;
 
 /** The provenances only the income stage's paths write. */
-const INCOME_STAGE_PROVENANCES: readonly string[] = ["user", "tax_return"];
+const INCOME_STAGE_PROVENANCES: readonly string[] = [
+  "user",
+  "tax_return",
+];
 
 export interface IncomeClientState {
   /** The visible income questions, spec order. */

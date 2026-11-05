@@ -207,9 +207,13 @@ export function isAnswerStatus(value: unknown): value is AnswerStatus {
  * - `source_verified` — checked against an official source.
  * - `tax_return` — a parser proposal the person confirmed on the income
  *   stage ("From your tax return"). Pairs only with status `known`.
- * - `user` — a person-corrected/entered value through the income stage's
- *   paths (the manual card, or correcting a proposal). Pairs only with
- *   status `known`.
+ * - `user` — the person's own value through the income stage's paths (the
+ *   manual card, or a bank/tax proposal they corrected). Pairs only with
+ *   status `known`. An untouched bank proposal is never saved.
+ *
+ * A Plaid institution name is deliberately absent: it is pii:true metadata
+ * held only in the intake page's memory (HACK-140), so an untouched bank
+ * proposal is not stored and Postgres never learns the bank.
  */
 export const ANSWER_PROVENANCES = [
   "user_supplied",

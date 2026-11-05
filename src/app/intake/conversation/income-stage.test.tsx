@@ -3,14 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findBannedClaims } from "../../../lib/honesty";
 import type { IntakeClientState } from "../../../lib/intake/serialize";
 import { IncomeStage } from "./income-stage";
+import { encryptForBrowser } from "../../../lib/plaid/envelope";
 
 // The income stage (milestone income-capture part 3; VAL-INC-001/002/003/
-// 007/008/010/012/014): EXACTLY two real source cards — the manual card
-// (the income spec questions, prefilled, saved with provenance user) and
+// 007/008/010/012/014): three real source cards — the manual card
+// (the income spec questions, prefilled, saved with provenance user),
 // the tax-return upload (parse → findings with "From your tax return"
 // badges → confirm-or-correct before anything saves; a re-upload replaces
-// the findings). No bank/Stripe cards, no future-integration promises; the
-// stage never dead-ends; copy stays banned-claims clean.
+// the findings), and the consented Plaid Sandbox bank card (HACK-140;
+// Link stubbed in tests). The stage never dead-ends; copy stays banned-claims clean.
 
 function question(
   overrides: Partial<IntakeClientState["questions"][number]> & { id: string },
@@ -153,6 +154,8 @@ function parseResponse(readable: boolean): Response {
 }
 
 let posts: { url: string; body: string }[] = [];
+let pullRemoved = true;
+let pullPayFrequency = "MONTHLY";
 let answerState: IntakeClientState | null = null;
 let confirmState: IntakeClientState | null = null;
 let uploadResponse: Response = parseResponse(true);
@@ -160,9 +163,13 @@ let uploadResponse: Response = parseResponse(true);
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   posts = [];
+  pullRemoved = true;
+  pullPayFrequency = "MONTHLY";
   answerState = null;
   confirmState = null;
   uploadResponse = parseResponse(true);
+  process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
+  process.env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT = "synthetic";
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -183,6 +190,31 @@ beforeEach(() => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url === "/api/intake/plaid/link-token") {
+        return new Response(JSON.stringify({ linkToken: "link-test", pullHandle: "user-test-x.sig" }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url === "/api/intake/plaid/pull") {
+        const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as { clientPublicKey: string; pullHandle: string };
+        // The UI must send the session-bound handle, never a raw Plaid user id.
+        if (typeof body.pullHandle !== "string") return new Response("{}", { status: 400 });
+        const payload = { pulledAt: "2026-11-03T00:00:00.000Z", dateRange: { start: "2026-08-01", end: "2026-10-31" }, streams: [
+          { incomeCategory: "SALARY", isStripePayout: false, payFrequency: pullPayFrequency, totalAmount: 6300, transactionCount: 3, startDate: "2026-08-01", endDate: "2026-10-31", historicalMonths: [{ startDate: "2026-08-01", endDate: "2026-08-31", total: 2000 }, { startDate: "2026-09-01", endDate: "2026-09-30", total: 2200 }, { startDate: "2026-10-01", endDate: "2026-10-31", total: 2100 }] },
+        ] };
+        return new Response(JSON.stringify({ envelope: encryptForBrowser(body.clientPublicKey, JSON.stringify(payload)), removed: pullRemoved }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url === "/api/intake/plaid/remove") {
+        return new Response(JSON.stringify({ removed: true }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url === "/api/intake/plaid/confirm") {
+        const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as { confirmations?: { questionId: string; action: string }[] };
+        const saved = (body.confirmations ?? [])
+          .filter((entry) => entry.action === "correct")
+          .map((entry) => ({ questionId: entry.questionId, status: "known", provenance: "user" }));
+        return new Response(
+          JSON.stringify({ saved, state: confirmState ?? handledState() }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (url === "/api/intake/state") {
         return new Response(JSON.stringify(incomeState()), {
           status: 200,
@@ -199,9 +231,13 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-async function renderStage(state: IntakeClientState = incomeState()): Promise<{
+async function renderStage(
+  state: IntakeClientState = incomeState(),
+  plaidDemoAvailable?: boolean,
+): Promise<{
   container: HTMLElement;
   act: (fn: () => Promise<void> | void) => Promise<void>;
+  getNotice: () => string;
 }> {
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
@@ -221,6 +257,7 @@ async function renderStage(state: IntakeClientState = incomeState()): Promise<{
     root.render(
       React.createElement(IncomeStage, {
         state,
+        ...(plaidDemoAvailable === undefined ? {} : { plaidDemoAvailable }),
         onStateChange: (next: IntakeClientState) => {
           state = next;
         },
@@ -231,8 +268,7 @@ async function renderStage(state: IntakeClientState = incomeState()): Promise<{
     );
   });
   await act(async () => undefined);
-  void notice;
-  return { container, act };
+  return { container, act, getNotice: () => notice };
 }
 
 const q = (container: HTMLElement, attr: string): Element | null =>
@@ -252,18 +288,17 @@ async function chooseFile(container: HTMLElement, act: (fn: () => Promise<void> 
   });
 }
 
-describe("the two source cards (VAL-INC-002)", () => {
-  it("renders exactly two cards: manual and tax-return upload — no bank/Stripe cards, no future promises", async () => {
+describe("the source cards (VAL-INC-002, HACK-140)", () => {
+  it("renders three cards: manual, tax-return upload, and Plaid Sandbox bank — no Stripe card, no future promises", async () => {
     const { container } = await renderStage();
     expect(q(container, "income-stage")).not.toBeNull();
     expect(q(container, "income-manual-card")).not.toBeNull();
     expect(q(container, "income-upload-card")).not.toBeNull();
-    // The card set is exactly two: no other card-shaped sections.
-    const cards = container.querySelectorAll("[data-income-manual-card], [data-income-upload-card]");
-    expect(cards).toHaveLength(2);
-    // No payment-puller vocabulary anywhere on the stage.
+    expect(q(container, "income-plaid-card")).not.toBeNull();
+    const cards = container.querySelectorAll("[data-income-manual-card], [data-income-upload-card], [data-income-plaid-card]");
+    expect(cards).toHaveLength(3);
     const text = container.textContent ?? "";
-    for (const banned of ["Stripe", "Plaid", "bank connection", "connect your bank", "coming soon"]) {
+    for (const banned of ["Stripe", "coming soon"]) {
       expect(text.toLowerCase()).not.toContain(banned.toLowerCase());
     }
   });
@@ -288,6 +323,308 @@ describe("the two source cards (VAL-INC-002)", () => {
     expect(status?.getAttribute("aria-live")).toBe("polite");
     expect(status?.textContent).toContain("4 of 4 income details are in");
     expect(status?.textContent).toContain("nothing is confirmed yet");
+  });
+});
+
+describe("the Plaid Sandbox bank card (HACK-140)", () => {
+  it("hides the card, and calls no Plaid route, unless the public demo switch is on", async () => {
+    delete process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED;
+    try {
+      const { container } = await renderStage();
+      expect(q(container, "income-plaid-card")).toBeNull();
+      expect(posts.some((post) => post.url.startsWith("/api/intake/plaid/"))).toBe(false);
+    } finally {
+      process.env.NEXT_PUBLIC_PLAID_DEMO_ENABLED = "true";
+    }
+  });
+
+  it("hides the card when the deployment is not marked synthetic, even with the switch on", async () => {
+    delete process.env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT;
+    try {
+      const { container } = await renderStage();
+      expect(q(container, "income-plaid-card")).toBeNull();
+    } finally {
+      process.env.NEXT_PUBLIC_PLAID_DEMO_DEPLOYMENT = "synthetic";
+    }
+  });
+
+  it("hides the card when the server says PLAID_ENV is not Sandbox, even with both public switches on", async () => {
+    const { container } = await renderStage(incomeState(), false);
+    expect(q(container, "income-plaid-card")).toBeNull();
+  });
+
+  /** Render the stage and complete a Link success that yields two proposals. */
+  async function pullTestBank(state: IntakeClientState = incomeState()) {
+    (window as unknown as { Plaid: unknown }).Plaid = {
+      create: (config: {
+        onSuccess: (
+          t: string,
+          metadata?: { institution?: { name?: string } },
+        ) => Promise<void>;
+      }) => ({
+        open: () => {
+          void config.onSuccess("public-test", {
+            institution: { name: "First Platypus Bank" },
+          });
+        },
+      }),
+    };
+    const rendered = await renderStage(state);
+    await rendered.act(async () => {
+      (q(rendered.container, "income-plaid-consent") as HTMLInputElement).click();
+    });
+    await rendered.act(async () => {
+      (q(rendered.container, "income-plaid-connect") as HTMLButtonElement).click();
+    });
+    return rendered;
+  }
+
+  it("connect stays disabled until the distinct Plaid consent is checked", async () => {
+    const { container, act } = await renderStage();
+    const button = q(container, "income-plaid-connect") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    const consent = q(container, "income-plaid-consent") as HTMLInputElement;
+    await act(async () => { consent.click(); });
+    expect((q(container, "income-plaid-connect") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("removes the Plaid test user when Link is closed without a pull", async () => {
+    (window as unknown as { Plaid: unknown }).Plaid = {
+      create: (config: { onExit?: () => void }) => ({
+        open: () => config.onExit?.(),
+      }),
+    };
+    const { container, act } = await renderStage();
+    await act(async () => { (q(container, "income-plaid-consent") as HTMLInputElement).click(); });
+    await act(async () => { (q(container, "income-plaid-connect") as HTMLButtonElement).click(); });
+    expect(posts.some((post) => post.url === "/api/intake/plaid/remove")).toBe(true);
+    expect(q(container, "income-plaid-status")?.textContent).toContain("test connection was removed");
+  });
+
+  it("pulls, decrypts, proposes with basis, and posts the decisions only on save", async () => {
+    (window as unknown as { Plaid: unknown }).Plaid = {
+      create: (config: {
+        onSuccess: (
+          t: string,
+          metadata?: { institution?: { name?: string } },
+        ) => Promise<void>;
+      }) => ({
+        open: () => {
+          void config.onSuccess("public-test", {
+            institution: { name: "First Platypus Bank" },
+          });
+        },
+      }),
+    };
+    const { container, act, getNotice } = await renderStage();
+    await act(async () => { (q(container, "income-plaid-consent") as HTMLInputElement).click(); });
+    await act(async () => { (q(container, "income-plaid-connect") as HTMLButtonElement).click(); });
+    expect(q(container, "income-plaid-proposals")).not.toBeNull();
+    expect(container.textContent).toContain("From First Platypus Bank");
+    expect(q(container, "income-plaid-basis")?.textContent).toContain("3 deposits");
+    // Confirming alone saves nothing, so the heading must say what actually
+    // works: editing a figure to the person's own.
+    expect(container.textContent).toContain("edit any figure to your own to save it");
+    expect((container.querySelector('[data-income-plaid-correct="job_income_amount"]') as HTMLInputElement).value).toBe("2100");
+    // A pay schedule is a select over the question's spec options, not a
+    // numeric field: mobile keyboards cannot type "monthly" (review P2).
+    const frequency = container.querySelector(
+      '[data-income-plaid-correct="job_income_frequency"]',
+    ) as HTMLSelectElement;
+    expect(frequency.tagName).toBe("SELECT");
+    expect(frequency.value).toBe("monthly");
+    expect(Array.from(frequency.options).map((option) => option.value)).toContain("weekly");
+    // No owner name crosses the broker any more (review P1): the person
+    // names whose income this is, and the save requires that name.
+    expect((container.querySelector("[data-income-plaid-member-name]") as HTMLInputElement).value).toBe("");
+    expect(q(container, "income-plaid-owner")).toBeNull();
+    expect((q(container, "income-plaid-save") as HTMLButtonElement).disabled).toBe(true);
+    expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
+    await act(async () => {
+      const input = container.querySelector("[data-income-plaid-member-name]") as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "Alberta");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { (q(container, "income-plaid-save") as HTMLButtonElement).click(); });
+    // Untouched proposals never leave the page: no confirm request at all.
+    expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
+    expect(getNotice()).toContain("Nothing was saved");
+  });
+
+  it("never renders a bank proposal for a question the flow hides", async () => {
+    // The bank report still proposes job_income_amount, but this state's
+    // visible questions omit it (the person said they have no job). The card
+    // must not render or save that hidden question's proposal.
+    const hiddenJobAmount = incomeState({
+      questions: [INCOME_SOURCES, INCOME_KIND, JOB_FREQUENCY],
+    });
+    const { container } = await pullTestBank(hiddenJobAmount);
+    expect(
+      container.querySelector(
+        '[data-income-plaid-correct="job_income_amount"]',
+      ),
+    ).toBeNull();
+    const rows = container.querySelectorAll("[data-income-plaid-correct]");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.getAttribute("data-income-plaid-correct")).toBe(
+      "job_income_frequency",
+    );
+  });
+
+  it("saves a typed amount with separators as a number, not NaN", async () => {
+    const { container, act, getNotice } = await pullTestBank();
+    await act(async () => {
+      const input = container.querySelector(
+        '[data-income-plaid-correct="job_income_amount"]',
+      ) as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "1,800");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      const input = container.querySelector(
+        "[data-income-plaid-member-name]",
+      ) as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "Alberta");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      (q(container, "income-plaid-save") as HTMLButtonElement).click();
+    });
+    const confirm = posts.find((post) => post.url === "/api/intake/plaid/confirm");
+    expect(confirm).toBeDefined();
+    expect(JSON.parse(confirm?.body ?? "{}").confirmations).toEqual([
+      { questionId: "job_income_amount", action: "correct", value: 1800 },
+    ]);
+    // Notices can be spoken, so the typed member name stays out of them
+    // (review P2, PR #172). The page-local saved list may still show it.
+    expect(getNotice()).toContain("Saved the figures");
+    expect(getNotice()).not.toContain("Alberta");
+    expect(q(container, "income-plaid-another")).toBeNull();
+    expect(q(container, "income-plaid-one-member")?.textContent).toContain(
+      "One bank connection",
+    );
+    // The copy says a second connection is not offered, so the control is
+    // actually unavailable once a member's values are saved.
+    expect((q(container, "income-plaid-connect") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("does not treat a reformatted same amount as an edit", async () => {
+    const { container, act, getNotice } = await pullTestBank();
+    await act(async () => {
+      const input = container.querySelector(
+        '[data-income-plaid-correct="job_income_amount"]',
+      ) as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "2,100");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      const input = container.querySelector(
+        "[data-income-plaid-member-name]",
+      ) as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "Alberta");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      (q(container, "income-plaid-save") as HTMLButtonElement).click();
+    });
+    expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
+    expect(getNotice()).toContain("Nothing was saved");
+  });
+
+  it("keeps a cleared field empty and saves the replacement the person types", async () => {
+    const { container, act } = await pullTestBank();
+    const amount = (): HTMLInputElement =>
+      container.querySelector(
+        '[data-income-plaid-correct="job_income_amount"]',
+      ) as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      setter?.call(amount(), "");
+      amount().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Cleared stays cleared: it must not snap back to the test-bank value.
+    expect(amount().value).toBe("");
+    await act(async () => {
+      setter?.call(amount(), "1,800");
+      amount().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      const name = container.querySelector(
+        "[data-income-plaid-member-name]",
+      ) as HTMLInputElement;
+      setter?.call(name, "Alberta");
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      (q(container, "income-plaid-save") as HTMLButtonElement).click();
+    });
+    const confirm = posts.find((post) => post.url === "/api/intake/plaid/confirm");
+    expect(confirm).toBeDefined();
+    expect(JSON.parse(confirm?.body ?? "{}").confirmations).toEqual([
+      { questionId: "job_income_amount", action: "correct", value: 1800 },
+    ]);
+  });
+
+  it("shows an explicit placeholder when the bank schedule matches no spec option", async () => {
+    pullPayFrequency = "IRREGULAR";
+    const { container } = await pullTestBank();
+    const frequency = container.querySelector(
+      '[data-income-plaid-correct="job_income_frequency"]',
+    ) as HTMLSelectElement;
+    expect(frequency.value).toBe("varies");
+    expect(
+      Array.from(frequency.options).some(
+        (option) => option.value === "varies" && option.disabled,
+      ),
+    ).toBe(true);
+  });
+
+  it("says so when the test connection could not be removed", async () => {
+    pullRemoved = false;
+    const { container } = await pullTestBank();
+    expect(q(container, "income-plaid-status")?.textContent).toContain(
+      "could not confirm the test connection was removed",
+    );
+  });
+
+  it("shows a field-level error and saves nothing for a non-numeric amount", async () => {
+    const { container, act } = await pullTestBank();
+    await act(async () => {
+      const input = container.querySelector(
+        '[data-income-plaid-correct="job_income_amount"]',
+      ) as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "not a number");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(
+      container.querySelector('[data-income-plaid-error="job_income_amount"]'),
+    ).not.toBeNull();
+    expect((q(container, "income-plaid-save") as HTMLButtonElement).disabled).toBe(true);
+    expect(posts.some((post) => post.url === "/api/intake/plaid/confirm")).toBe(false);
   });
 });
 
@@ -540,5 +877,24 @@ describe("the tax-return upload card (VAL-INC-007/008/010)", () => {
     expect(q(container, 'income-proposal="job_income_amount"')).toBeNull();
     // The manual card is still right there — the stage never dead-ends.
     expect(q(container, "income-manual-card")).not.toBeNull();
+  });
+});
+
+describe("the manual card's origin badges", () => {
+  it("shows the person-confirmed badge on a value the person saved", async () => {
+    const state = incomeState({
+      answers: {
+        ...incomeState().answers,
+        job_income_amount: {
+          status: "known",
+          value: 2100,
+          provenance: "user",
+        },
+      },
+    });
+    const { container } = await renderStage(state);
+    const row = q(container, 'income-row="job_income_amount"');
+    expect(row?.querySelector('[data-origin-badge="user"]')).not.toBeNull();
+    expect(row?.textContent).toContain("You confirmed this");
   });
 });

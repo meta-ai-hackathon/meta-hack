@@ -1,6 +1,22 @@
 import type { NextConfig } from "next";
+import { plaidDemoEnabled } from "./src/lib/plaid/config";
+import { intakeContentSecurityPolicy } from "./src/lib/security/csp";
 
 const nextConfig: NextConfig = {
+  // Intake-only CSP (HACK-140 review P2): the Plaid Link SDK loads into the
+  // intake page, so the document is limited to self plus Plaid's hosts when
+  // the demo is on. A deployment with the demo off gets no Plaid origin at
+  // all. The policy lives in src/lib/security/csp.ts and is unit-tested there.
+  async headers() {
+    const value = intakeContentSecurityPolicy(
+      process.env.NODE_ENV !== "production",
+      plaidDemoEnabled(),
+    );
+    return ["/intake", "/intake/:path*"].map((source) => ({
+      source,
+      headers: [{ key: "Content-Security-Policy", value }],
+    }));
+  },
   /* config options here */
   cacheComponents: true,
   partialPrefetching: true,

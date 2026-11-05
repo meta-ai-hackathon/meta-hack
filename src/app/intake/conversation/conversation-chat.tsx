@@ -38,6 +38,7 @@ import {
   type RampartShieldStatus,
 } from "../../../lib/intake/rampart-guard";
 import { containsPlaceholder, selectSpokenText } from "../../../lib/spoken-reply";
+import { plaidDemoEnabledInBrowser } from "../../../lib/plaid/demo-visibility";
 import { IntakeWizard } from "../intake-wizard";
 import { ComingTogether, themesForQuestionIds, themeLabelFor } from "./coming-together";
 import { ConsentPanel, ConsentReceiptPanel } from "./consent-surface";
@@ -321,7 +322,11 @@ export async function sendVoiceTurn(
   });
 }
 
-export function ConversationChat() {
+export function ConversationChat({
+  plaidDemoAvailable = plaidDemoEnabledInBrowser(),
+}: {
+  readonly plaidDemoAvailable?: boolean;
+} = {}) {
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [state, setState] = useState<IntakeClientState | null>(null);
   const [draft, setDraft] = useState("");
@@ -1947,6 +1952,7 @@ export function ConversationChat() {
         <div className={STAGE_GRID_CLASS}>
           <IncomeStage
             state={state}
+            plaidDemoAvailable={plaidDemoAvailable}
             onStateChange={(fresh) => {
               void applyIncomeState(fresh);
             }}
