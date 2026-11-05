@@ -2487,9 +2487,15 @@ class PromptTests(unittest.TestCase):
         system = request.system
         self.assertIn("Sandbox blind-broker exception", system)
         self.assertIn("`PLAID_ENV` is exactly `sandbox`", system)
+        self.assertIn("issued only after the card's distinct Plaid consent step", system)
+        self.assertIn("session-bound and expiry-checked", system)
+        self.assertIn("a replay cannot fetch a second report", system)
         self.assertIn("return only ciphertext", system)
         self.assertIn("must never be used for real bank data", system)
         self.assertIn("not a precedent", system)
+        # The exception is narrow: the surrounding P1 statements still hold.
+        self.assertIn("even to forward it to a consented provider — is a P1", system)
+        self.assertIn("never stored anywhere server-side", system)
 
     def test_missing_rules_file_falls_back_and_warns(self) -> None:
         warnings: list[str] = []
