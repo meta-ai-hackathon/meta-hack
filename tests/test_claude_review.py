@@ -2467,6 +2467,8 @@ class PromptTests(unittest.TestCase):
         self.assertIn("must not retain any data", system)
         self.assertIn("only with explicit user knowledge and consent", system)
         self.assertIn("only exceptions to sending PII to APIs", system)
+        self.assertIn("separate exception to this bullet and to the vendor no-retention rule", system)
+        self.assertIn("a real-data Plaid call remains a P1", system)
         # Voice consent: transmission of PII audio + transcript, never retention.
         self.assertIn("transmit the user's PII audio and its transcript", system)
         self.assertIn("consent never covers vendor-side retention", system)
@@ -2478,6 +2480,50 @@ class PromptTests(unittest.TestCase):
         # The old blanket rule is superseded and must not come back.
         self.assertNotIn("No PII reaches any cloud LLM", system)
         self.assertNotIn("PII never reaches any cloud LLM", system)
+
+    def test_sandbox_blind_broker_exception_is_narrow(self) -> None:
+        """The HACK-140 owner decision permits only the Sandbox demo's
+        transient relay: the report is minimized, never stored or logged,
+        returned only as ciphertext, and never used for real bank data.
+        Delete these assertions when the exception is retired; HACK-140 tracks
+        the dated removal."""
+        request = self.build(make_pr(), FILES)
+        system = request.system
+        self.assertIn("Sandbox blind-broker exception", system)
+        self.assertIn("`PLAID_ENV` is exactly `sandbox`", system)
+        self.assertIn("issued only after the card's distinct Plaid consent step", system)
+        self.assertIn("session-bound and expiry-checked", system)
+        self.assertIn("a replay cannot fetch a second report", system)
+        self.assertIn("is exactly `synthetic`", system)
+        self.assertIn("a handle secret of at least 32 characters", system)
+        self.assertIn("Plaid client's base URL is pinned to the Sandbox host", system)
+        self.assertIn("fails closed if the configured host is anything else", system)
+        self.assertIn("must fail closed", system)
+        self.assertIn("the browser must receive no plaintext report", system)
+        self.assertIn("must not be stored, logged, cached", system)
+        self.assertIn("only if the Plaid test user deletion succeeds", system)
+        self.assertIn("if deletion fails, it must fail the request without returning ciphertext", system)
+        self.assertIn("expires on 2026-12-31", system)
+        self.assertIn("Minimized means exactly these fields", system)
+        self.assertIn("no account name, mask, owner name", system)
+        self.assertIn("This list is authoritative", system)
+        self.assertIn("an extra field is a P1", system)
+        self.assertIn("hold the raw response and the minimized report in memory", system)
+        self.assertIn("neither may appear in an error message", system)
+        self.assertIn("Every Plaid demo route (handle issuance and blind-broker fetch) must fail closed", system)
+        self.assertIn("whenever any gate above does not hold", system)
+        self.assertIn("return only ciphertext", system)
+        self.assertIn("must never be used for real bank data", system)
+        self.assertIn("not a precedent", system)
+        self.assertIn("It also ends earlier when the HACK-140 Sandbox demo ends", system)
+        self.assertIn("Any extension or change to these gates needs a new owner decision", system)
+        # The exception is narrow: the surrounding P1 statements still hold.
+        self.assertIn("even to forward it to a consented provider — is a P1", system)
+        self.assertIn("never stored anywhere server-side", system)
+        self.assertIn("request body carries only the session-bound pull handle", system)
+        self.assertIn("the route accepts no PII from the client", system)
+        self.assertIn("consent is enforced by issuing the pull handle only after the distinct Plaid consent step", system)
+        self.assertIn("A dated removal task is tracked on HACK-140", system)
 
     def test_missing_rules_file_falls_back_and_warns(self) -> None:
         warnings: list[str] = []
