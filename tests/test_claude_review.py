@@ -2498,6 +2498,8 @@ class PromptTests(unittest.TestCase):
         self.assertIn("return only ciphertext", system)
         self.assertIn("must never be used for real bank data", system)
         self.assertIn("not a precedent", system)
+        self.assertIn("This exception ends when the HACK-140 Sandbox demo ends", system)
+        self.assertIn("Any change to these gates needs a new owner decision", system)
         # The exception is narrow: the surrounding P1 statements still hold.
         self.assertIn("even to forward it to a consented provider — is a P1", system)
         self.assertIn("never stored anywhere server-side", system)
