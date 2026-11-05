@@ -2504,6 +2504,7 @@ class PromptTests(unittest.TestCase):
         self.assertIn("an extra field is a P1", system)
         self.assertIn("hold the raw response and the minimized report in memory", system)
         self.assertIn("neither may appear in an error message", system)
+        self.assertIn("Every Plaid demo route (handle issuance and blind-broker fetch) must fail closed", system)
         self.assertIn("whenever any gate above does not hold", system)
         self.assertIn("return only ciphertext", system)
         self.assertIn("must never be used for real bank data", system)
@@ -2513,6 +2514,15 @@ class PromptTests(unittest.TestCase):
         # The exception is narrow: the surrounding P1 statements still hold.
         self.assertIn("even to forward it to a consented provider — is a P1", system)
         self.assertIn("never stored anywhere server-side", system)
+
+    def test_sandbox_exception_is_removed_after_its_sunset(self) -> None:
+        """The exception expires on 2026-12-31; this fails if it survives."""
+        from datetime import date
+
+        if date.today() <= date(2026, 12, 31):
+            return
+        rules = (REPO_ROOT / ".github/claude-review/rules.md").read_text(encoding="utf-8")
+        self.assertNotIn("Sandbox blind-broker exception", rules)
 
     def test_missing_rules_file_falls_back_and_warns(self) -> None:
         warnings: list[str] = []
