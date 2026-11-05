@@ -2483,7 +2483,8 @@ class PromptTests(unittest.TestCase):
         """The HACK-140 owner decision permits only the Sandbox demo's
         transient relay: the report is minimized, never stored or logged,
         returned only as ciphertext, and never used for real bank data.
-        Delete these assertions when the exception is retired."""
+        Delete these assertions when the exception is retired; HACK-140 tracks
+        the dated removal."""
         request = self.build(make_pr(), FILES)
         system = request.system
         self.assertIn("Sandbox blind-broker exception", system)
@@ -2517,6 +2518,8 @@ class PromptTests(unittest.TestCase):
         self.assertIn("never stored anywhere server-side", system)
         self.assertIn("request body carries only the session-bound pull handle", system)
         self.assertIn("the route accepts no PII from the client", system)
+        self.assertIn("consent is enforced by issuing the pull handle only after the distinct Plaid consent step", system)
+        self.assertIn("A dated removal task is tracked on HACK-140", system)
 
     def test_missing_rules_file_falls_back_and_warns(self) -> None:
         warnings: list[str] = []
