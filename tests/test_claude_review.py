@@ -2467,6 +2467,8 @@ class PromptTests(unittest.TestCase):
         self.assertIn("must not retain any data", system)
         self.assertIn("only with explicit user knowledge and consent", system)
         self.assertIn("only exceptions to sending PII to APIs", system)
+        self.assertIn("separate exception to this bullet and to the vendor no-retention rule", system)
+        self.assertIn("a real-data Plaid call remains a P1", system)
         # Voice consent: transmission of PII audio + transcript, never retention.
         self.assertIn("transmit the user's PII audio and its transcript", system)
         self.assertIn("consent never covers vendor-side retention", system)
@@ -2494,6 +2496,8 @@ class PromptTests(unittest.TestCase):
         self.assertIn("a replay cannot fetch a second report", system)
         self.assertIn("is exactly `synthetic`", system)
         self.assertIn("a handle secret of at least 32 characters", system)
+        self.assertIn("Plaid client's base URL is pinned to the Sandbox host", system)
+        self.assertIn("fails closed if the configured host is anything else", system)
         self.assertIn("must fail closed", system)
         self.assertIn("the browser must receive no plaintext report", system)
         self.assertIn("must not be stored, logged, cached", system)
