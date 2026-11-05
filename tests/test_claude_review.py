@@ -2482,7 +2482,8 @@ class PromptTests(unittest.TestCase):
     def test_sandbox_blind_broker_exception_is_narrow(self) -> None:
         """The HACK-140 owner decision permits only the Sandbox demo's
         transient relay: the report is minimized, never stored or logged,
-        returned only as ciphertext, and never used for real bank data."""
+        returned only as ciphertext, and never used for real bank data.
+        Delete these assertions when the exception is retired."""
         request = self.build(make_pr(), FILES)
         system = request.system
         self.assertIn("Sandbox blind-broker exception", system)
@@ -2514,6 +2515,8 @@ class PromptTests(unittest.TestCase):
         # The exception is narrow: the surrounding P1 statements still hold.
         self.assertIn("even to forward it to a consented provider — is a P1", system)
         self.assertIn("never stored anywhere server-side", system)
+        self.assertIn("request body carries only the session-bound pull handle", system)
+        self.assertIn("the route accepts no PII from the client", system)
 
     def test_missing_rules_file_falls_back_and_warns(self) -> None:
         warnings: list[str] = []
