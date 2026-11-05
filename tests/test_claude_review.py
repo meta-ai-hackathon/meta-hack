@@ -2479,6 +2479,18 @@ class PromptTests(unittest.TestCase):
         self.assertNotIn("No PII reaches any cloud LLM", system)
         self.assertNotIn("PII never reaches any cloud LLM", system)
 
+    def test_sandbox_blind_broker_exception_is_narrow(self) -> None:
+        """The HACK-140 owner decision permits only the Sandbox demo's
+        transient relay: the report is minimized, never stored or logged,
+        returned only as ciphertext, and never used for real bank data."""
+        request = self.build(make_pr(), FILES)
+        system = request.system
+        self.assertIn("Sandbox blind-broker exception", system)
+        self.assertIn("`PLAID_ENV` is exactly `sandbox`", system)
+        self.assertIn("return only ciphertext", system)
+        self.assertIn("must never be used for real bank data", system)
+        self.assertIn("not a precedent", system)
+
     def test_missing_rules_file_falls_back_and_warns(self) -> None:
         warnings: list[str] = []
         docs = review.load_context(REPO_ROOT / "does-not-exist", warnings.append)
