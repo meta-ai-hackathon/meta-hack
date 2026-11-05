@@ -282,18 +282,22 @@ both are set there, so check them in the Vercel project.
 
 ## Fax
 
-No route or screen sends a fax yet. `transmitPacket` and `assemblePacket` are only called
-from their tests, and the fax consent path stays switched off (`termsVerified: false` in
-`src/lib/consent.ts`). The review offers the filled PDF and the official links, and the
-person submits the form themselves. Its "Signing it and sending it in yourself" steps list
-the official ways to send it, including dropping it off or faxing it in Mecklenburg County,
-and nothing on the page sends it for them. The "Send my application" button on "Your
-results", where a conversation with typed and voice sharing on ends, only scrolls to the
-typed-signature step ("Type your full name to sign"), or to "Getting it done" when there
-isn't one, and sends nothing. A name typed in that step goes to the app's server with
-"Download the filled PDF", like the review's other boxes (see the top of this page). If
-the demo films a fax, the person sends it through their own channel, and rehearsal faxes
-go to a test destination only (AGENTS.md, Legal).
+No route or screen sends a fax yet. A Sinch Fax API demo transport now lives in
+`src/lib/forms/sinch-fax.ts`; it is demo-only, refuses every destination except Sinch's
+free test number `+19898989898`, and requires `SINCH_FAX_DEMO_ONLY=true`. It is not wired
+to the review screen. The live fax path stays switched off (`termsVerified: false` in
+`src/lib/consent.ts`): Sinch's docs say fax logs and media are retained for 13 months when
+storage is enabled, so HACK-89's no-retention gate is not met. Never send a real
+applicant's packet to the demo transport. The review offers the filled PDF and the official
+links, and the person submits the form themselves. Its "Signing it and sending it in
+yourself" steps list the official ways to send it, including dropping it off or faxing it
+in Mecklenburg County, and nothing on the page sends it for them. The "Send my application"
+button on "Your results", where a conversation with typed and voice sharing on ends, only
+scrolls to the typed-signature step ("Type your full name to sign"), or to "Getting it
+done" when there isn't one, and sends nothing. A name typed in that step goes to the app's
+server with "Download the filled PDF", like the review's other boxes (see the top of this
+page). If the demo films a fax, the person sends it through their own channel, and
+rehearsal faxes go to a test destination only (AGENTS.md, Legal).
 
 ## Resetting between rehearsals
 

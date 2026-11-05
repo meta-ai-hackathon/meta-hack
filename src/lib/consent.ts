@@ -100,13 +100,12 @@ export interface ConsentPathSpec {
  */
 /**
  * The fax path (HACK-88, under HACK-75): the one post-submission send.
- * Its provider is deliberately a TO-BE-VERIFIED placeholder: HACK-89 owns
- * the vendor evaluation (documented no-retention terms + per-fax cost +
- * test destination), and until that lands `termsVerified` stays false, so
- * `consentPathEnabled("fax", ...)` is false for every receipt — the send
- * cannot be enabled by consent alone, exactly like the other paths before
- * their terms were verified. When HACK-89 names the vendor, this entry's
- * provider/terms are updated in the same reviewable change.
+ * HACK-89 evaluated the Sinch Fax API and its free demo number
+ * (+19898989898), but Sinch retains fax logs and media for 13 months when
+ * storage is enabled, so it does not meet the no-retention filter and this
+ * entry stays unverified. A separate demo-only transport in
+ * src/lib/forms/sinch-fax.ts refuses every destination except that free test
+ * number; it is not a live fax path.
  */
 export const FAX_PATH_UNVERIFIED: ConsentPathSpec = {
   id: "fax",
